@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l backend/src/main/java/ru/selfin/backend/**/*.java)",
+      "Bash(find backend/src/main/java -type f -name \"*.java\" -exec wc -l {} +)"
+    ]
+  }
+}

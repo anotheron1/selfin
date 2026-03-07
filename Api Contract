@@ -1,0 +1,341 @@
+openapi: 3.0.3
+info:
+  title: Personal Payment Calendar API
+  version: 1.0.0
+  description: API для управления личным бюджетом, контроля кассовых разрывов и ведения план-факта.
+servers:
+  - url: /api/v1
+    description: Основной сервер
+paths:
+  # ==========================================
+  # ФИНАНСОВЫЕ СОБЫТИЯ (Бюджет и Календарь)
+  # ==========================================
+  /events:
+    get:
+      summary: Получить список финансовых событий за период (для Weekly Ledger)
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FinancialEvent'
+    post:
+      summary: Создать новое финансовое событие (Расход/Доход) с идемпотентностью
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Уникальный UUID от клиента (напр., через быстрый ввод)
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinancialEventInput'
+      responses:
+        '200':
+          description: Событие создано алгоритмом идемпотентности или уже существовало
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialEvent'
+
+  /events/{id}:
+    put:
+      summary: Обновить событие (корректировка факта или плана)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinancialEventInput'
+      responses:
+        '200':
+          description: Событие обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialEvent'
+    delete:
+      summary: Мягкое удаление (Soft Delete) события
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Событие удалено (флаг is_deleted = true)
+
+  # ==========================================
+  # АНАЛИТИКА / ДАШБОРД (Синхронная агрегация)
+  # ==========================================
+  /analytics/dashboard:
+    get:
+      summary: Получить сводные данные для Главного экрана (Hero widget, Алерт, План-Факт)
+      parameters:
+        - name: date
+          in: query
+          description: Дата расчета (по умолчанию - сегодня)
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Данные дашборда
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardAnalytics'
+
+  # ==========================================
+  # ЦЕЛЕВЫЕ ФОНДЫ (Копилки и Кармашек)
+  # ==========================================
+  /funds:
+    get:
+      summary: Получить баланс "Кармашка" и карточки всех Целевых фондов
+      responses:
+        '200':
+          description: Сводка по фондам
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pocketBalance:
+                    type: number
+                    description: Свободные средства в Кармашке
+                  funds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TargetFund'
+    post:
+      summary: Создать новую цель (карточку фонда)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TargetFundInput'
+      responses:
+        '200':
+          description: Фонд создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TargetFund'
+
+  /funds/{id}/transfer:
+    post:
+      summary: Переместить деньги из Кармашка (свободных средств) в конкретный Фонд
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                  description: Сумма перевода
+      responses:
+        '200':
+          description: Перевод успешно выполнен
+
+  # ==========================================
+  # НАСТРОЙКИ СПРАВОЧНИКОВ
+  # ==========================================
+  /categories:
+    get:
+      summary: Список категорий трат и доходов
+      responses:
+        '200':
+          description: Массив категорий
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+
+components:
+  schemas:
+    FinancialEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        categoryId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [INCOME, EXPENSE, FUND_TRANSFER]
+        plannedAmount:
+          type: number
+        factAmount:
+          type: number
+        status:
+          type: string
+          enum: [PLANNED, EXECUTED, CANCELLED]
+        isMandatory:
+          type: boolean
+        description:
+          type: string
+        rawInput:
+          type: string
+    
+    FinancialEventInput:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        categoryId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [INCOME, EXPENSE, FUND_TRANSFER]
+        plannedAmount:
+          type: number
+        factAmount:
+          type: number
+          nullable: true
+        isMandatory:
+          type: boolean
+        description:
+          type: string
+        rawInput:
+          type: string
+      required:
+        - date
+        - categoryId
+        - type
+
+    DashboardAnalytics:
+      type: object
+      properties:
+        currentBalance:
+          type: number
+          description: Герой-метрика Дашборда
+        endOfMonthForecast:
+          type: number
+          description: Прогноз на конец месяца
+        cashGapAlert:
+          type: object
+          description: Nullable. Если есть разрыв, приходит этот объект.
+          properties:
+            hasGap:
+              type: boolean
+            gapDate:
+              type: string
+              format: date
+            gapAmount:
+              type: number
+          nullable: true
+        progressBars:
+          type: array
+          description: Линейные бары для План-Факта
+          items:
+            type: object
+            properties:
+              categoryName:
+                type: string
+              currentFact:
+                type: number
+              plannedLimit:
+                type: number
+              percentage:
+                type: integer
+
+    TargetFund:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        targetAmount:
+          type: number
+        currentBalance:
+          type: number
+        status:
+          type: string
+          enum: [FUNDING, REACHED]
+        estimatedCompletionDate:
+          type: string
+          format: date
+          nullable: true
+          description: Умный прогноз даты закрытия
+
+    TargetFundInput:
+      type: object
+      properties:
+        name:
+          type: string
+        targetAmount:
+          type: number
+      required:
+        - name
+        - targetAmount
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+          enum: [INCOME, EXPENSE]
+        isMandatory:
+          type: boolean

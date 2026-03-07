@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ======================================
+   DESIGN TOKENS — Dark theme "Selfin"
+   ====================================== */
+:root {
+  --color-bg: #0a0a0f;
+  --color-surface: #12121c;
+  --color-surface-2: #1a1a28;
+  --color-border: #2a2a3d;
+  --color-accent: #6c63ff;
+  --color-accent-glow: rgba(108, 99, 255, 0.25);
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-text: #e2e8f0;
+  --color-text-muted: #64748b;
+  --nav-height: 64px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  margin: 0;
+  min-height: 100dvh;
+}
+
+/* Google Fonts: Inter */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
