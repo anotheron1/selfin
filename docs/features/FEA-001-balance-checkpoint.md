@@ -217,15 +217,15 @@ CREATE TABLE balance_checkpoints (
 - [x] Технический scope понятен
 - [x] Схема БД спроектирована (`V3__balance_checkpoint.sql`)
 - [x] Формула расчёта решена (п. 5): два раздельных показателя — факт и прогноз
-- [ ] `docs/specs/04-api-contract.yaml` обновлён (новые эндпоинты)
-- [ ] `docs/specs/03-data-model.md` обновлён (новая сущность)
+- [x] `docs/specs/04-api-contract.yaml` обновлён (новые эндпоинты)
+- [x] `docs/specs/03-data-model.md` обновлён (новая сущность)
 
 ## 10. Чеклист завершения
 
-- [ ] Реализован backend (миграция, репозиторий, сервис, контроллер)
+- [x] Реализован backend (миграция, репозиторий, сервис, контроллер)
 - [ ] Написаны тесты (минимум: IT для CRUD + перерасчёт баланса)
-- [ ] Реализован frontend (форма + история в Settings)
-- [ ] Dashboard показывает корректный баланс от чекпоинта
+- [x] Реализован frontend (форма + история в Settings)
+- [ ] Dashboard показывает корректный баланс от чекпоинта (smoke test)
 - [ ] Smoke test вручную: добавить → проверить Dashboard → удалить → Dashboard = 0
-- [ ] Спеки в `docs/specs/` обновлены
-- [ ] Коммит в ветку `claude/feature-checklist-template-yu84p`
+- [x] Спеки в `docs/specs/` обновлены
+- [x] Коммит в ветку `claude/feature-checklist-template-yu84p`

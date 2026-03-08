@@ -184,6 +184,80 @@ paths:
           description: Перевод успешно выполнен
 
   # ==========================================
+  # БАЛАНС СЧЁТА (FEA-001)
+  # ==========================================
+  /balance-checkpoints:
+    get:
+      summary: История чекпоинтов баланса
+      description: Возвращает все записи от самой свежей к старой
+      responses:
+        '200':
+          description: Список чекпоинтов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BalanceCheckpoint'
+    post:
+      summary: Создать чекпоинт
+      description: Фиксирует реальный остаток на счёте на указанную дату
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceCheckpointInput'
+      responses:
+        '201':
+          description: Чекпоинт создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceCheckpoint'
+
+  /balance-checkpoints/{id}:
+    put:
+      summary: Обновить чекпоинт
+      description: Исправляет дату или сумму существующей записи
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceCheckpointInput'
+      responses:
+        '200':
+          description: Чекпоинт обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceCheckpoint'
+        '404':
+          description: Чекпоинт не найден
+    delete:
+      summary: Удалить чекпоинт
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Удалено
+        '404':
+          description: Чекпоинт не найден
+
+  # ==========================================
   # НАСТРОЙКИ СПРАВОЧНИКОВ
   # ==========================================
   /categories:
@@ -325,6 +399,35 @@ components:
       required:
         - name
         - targetAmount
+
+    BalanceCheckpoint:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+          description: Дата, на которую зафиксирован остаток
+        amount:
+          type: number
+          minimum: 0
+          description: Реальный остаток на счёте
+        createdAt:
+          type: string
+          format: date-time
+
+    BalanceCheckpointInput:
+      type: object
+      required: [date, amount]
+      properties:
+        date:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
 
     Category:
       type: object

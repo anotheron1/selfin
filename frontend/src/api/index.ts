@@ -1,6 +1,8 @@
 import { get, post, put, patch, del, generateUUID } from './client';
 import type {
     AnalyticsReport,
+    BalanceCheckpoint,
+    BalanceCheckpointCreateDto,
     BudgetSnapshot,
     Category,
     DashboardData,
@@ -114,3 +116,19 @@ export const fetchSnapshots = () => get<BudgetSnapshot[]>('/snapshots');
  */
 export const createSnapshot = (date?: string) =>
     post<BudgetSnapshot>(`/snapshots${date ? `?date=${date}` : ''}`, {});
+
+// --- Balance Checkpoints ---
+
+/** Загружает историю чекпоинтов баланса, от свежих к старым. */
+export const fetchCheckpoints = () => get<BalanceCheckpoint[]>('/balance-checkpoints');
+
+/** Фиксирует реальный остаток на счёте на указанную дату. */
+export const createCheckpoint = (dto: BalanceCheckpointCreateDto) =>
+    post<BalanceCheckpoint>('/balance-checkpoints', dto);
+
+/** Исправляет дату или сумму существующего чекпоинта. */
+export const updateCheckpoint = (id: string, dto: BalanceCheckpointCreateDto) =>
+    put<BalanceCheckpoint>(`/balance-checkpoints/${id}`, dto);
+
+/** Удаляет чекпоинт. */
+export const deleteCheckpoint = (id: string) => del(`/balance-checkpoints/${id}`);

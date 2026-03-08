@@ -132,3 +132,17 @@ export interface AnalyticsReport {
     mandatoryBurn: MandatoryBurnRate;
     incomeGap: IncomeGap;
 }
+
+// --- Balance Checkpoints ---
+
+export interface BalanceCheckpoint {
+    id: string;
+    date: string;        // YYYY-MM-DD
+    amount: number;
+    createdAt: string;
+}
+
+export interface BalanceCheckpointCreateDto {
+    date: string;
+    amount: number;
+}
