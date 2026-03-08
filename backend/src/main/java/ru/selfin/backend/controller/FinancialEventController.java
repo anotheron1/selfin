@@ -10,12 +10,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
+import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
 import ru.selfin.backend.service.FinancialEventService;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * REST-контроллер финансовых событий.
+ * Все операции создания и обновления факта защищены идемпотентностью
+ * или используют облегчённый PATCH для частичных изменений.
+ *
+ * @see ru.selfin.backend.service.FinancialEventService
+ */
 @Tag(name = "Финансовые события", description = "Управление событиями плана и факта (доходы/расходы)")
 @RestController
 @RequestMapping("/api/v1/events")
@@ -48,6 +56,16 @@ public class FinancialEventController {
             @Parameter(description = "ID события") @PathVariable UUID id,
             @Valid @RequestBody FinancialEventCreateDto dto) {
         return eventService.update(id, dto);
+    }
+
+    @Operation(summary = "Ввести фактическую сумму (частичное обновление)",
+            description = "Обновляет только factAmount и description, не затрагивая дату, категорию и прочие поля. "
+                    + "Статус автоматически меняется: factAmount != null → EXECUTED, null → PLANNED.")
+    @PatchMapping("/{id}/fact")
+    public FinancialEventDto updateFact(
+            @Parameter(description = "ID события") @PathVariable UUID id,
+            @Valid @RequestBody FinancialEventUpdateFactDto dto) {
+        return eventService.updateFact(id, dto);
     }
 
     @Operation(summary = "Удалить событие (soft delete)")

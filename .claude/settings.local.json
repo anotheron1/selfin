@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(wc -l backend/src/main/java/ru/selfin/backend/**/*.java)",
-      "Bash(find backend/src/main/java -type f -name \"*.java\" -exec wc -l {} +)"
+      "Bash(find backend/src/main/java -type f -name \"*.java\" -exec wc -l {} +)",
+      "Bash(./mvnw test -q)",
+      "Bash(JAVA_HOME=\"/c/Program Files/Eclipse Adoptium/jdk-17.0.16.8-hotspot\" ./mvnw test -q)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test -q)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test -q -pl . -Dtest=\"DashboardServiceTest,FinancialEventControllerIT\")",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test -q -Dtest=\"DashboardServiceTest\")",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test -Dtest=\"DashboardServiceTest\")",
+      "Bash(npm run build)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test -Dtest=\"DashboardServiceTest\" -q)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw compile -q)"
     ]
   }
 }

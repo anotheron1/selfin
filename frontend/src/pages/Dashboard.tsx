@@ -1,18 +1,30 @@
 import { useEffect, useState } from 'react';
-import { fetchDashboard } from '../api';
-import type { DashboardData } from '../types/api';
+import { fetchDashboard, fetchAnalyticsReport } from '../api';
+import type { AnalyticsReport, DashboardData } from '../types/api';
 import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
 
+const fmtDay = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+
+/** Цвет дельты: зелёный если ≥ 0, красный если < 0. */
+function deltaColor(delta: number): string {
+    return delta >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+}
+
 export default function Dashboard() {
     const [data, setData] = useState<DashboardData | null>(null);
+    const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        fetchDashboard()
-            .then(setData)
+        Promise.all([fetchDashboard(), fetchAnalyticsReport()])
+            .then(([dash, rep]) => {
+                setData(dash);
+                setAnalytics(rep);
+            })
             .catch(e => setError(e.message));
     }, []);
 
@@ -90,6 +102,251 @@ export default function Dashboard() {
                 <div className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                     Нет событий за текущий месяц. Добавь первую трату кнопкой «+»!
                 </div>
+            )}
+
+            {/* ── Аналитика ─────────────────────────────── */}
+            {analytics && (
+                <>
+                    {/* Секция 1: Кассовый календарь */}
+                    <CashFlowSection cashFlow={analytics.cashFlow} />
+
+                    {/* Секция 2: Отчёт План-Факт */}
+                    <PlanFactSection planFact={analytics.planFact} />
+
+                    {/* Секция 3: Burn rate обязательных трат */}
+                    <MandatoryBurnSection burn={analytics.mandatoryBurn} />
+
+                    {/* Секция 4: Дефицит доходов */}
+                    <IncomeGapSection gap={analytics.incomeGap} />
+                </>
+            )}
+        </div>
+    );
+}
+
+// ─── Секция 1: Кассовый календарь ───────────────────────────────────────────
+
+function CashFlowSection({ cashFlow }: { cashFlow: AnalyticsReport['cashFlow'] }) {
+    if (cashFlow.length === 0) return null;
+    const today = new Date().toISOString().slice(0, 10);
+
+    return (
+        <div className="rounded-2xl p-5"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                КАССОВЫЙ КАЛЕНДАРЬ
+            </h3>
+            <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
+                {cashFlow.map(day => {
+                    const isToday = day.date === today;
+                    const balanceColor = day.runningBalance < 0 ? 'var(--color-danger)' : 'var(--color-success)';
+                    return (
+                        <div key={day.date}
+                            className="flex-none rounded-xl p-2 text-center"
+                            style={{
+                                minWidth: '64px',
+                                background: day.isGap
+                                    ? 'rgba(239,68,68,0.12)'
+                                    : day.isFuture
+                                        ? 'var(--color-surface-2)'
+                                        : 'rgba(34,197,94,0.08)',
+                                border: isToday
+                                    ? '1px solid var(--color-accent)'
+                                    : day.isGap
+                                        ? '1px solid var(--color-danger)'
+                                        : '1px solid var(--color-border)',
+                            }}>
+                            <p className="text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                                {fmtDay(day.date)}
+                            </p>
+                            <p className="text-xs font-bold" style={{ color: balanceColor }}>
+                                {fmt(day.runningBalance)}
+                            </p>
+                            {(day.dailyIncome > 0 || day.dailyExpense > 0) && (
+                                <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)', fontSize: '10px' }}>
+                                    {day.dailyIncome > 0 && <span style={{ color: 'var(--color-success)' }}>+{fmt(day.dailyIncome)}</span>}
+                                    {day.dailyExpense > 0 && <span style={{ color: 'var(--color-danger)' }}>{' '}−{fmt(day.dailyExpense)}</span>}
+                                </p>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+// ─── Секция 2: Отчёт План-Факт ──────────────────────────────────────────────
+
+function PlanFactSection({ planFact }: { planFact: AnalyticsReport['planFact'] }) {
+    const incomeRows = planFact.categories.filter(c => c.type === 'INCOME');
+    const expenseRows = planFact.categories.filter(c => c.type === 'EXPENSE');
+
+    return (
+        <div className="rounded-2xl p-5"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                ОТЧЁТ ПЛАН-ФАКТ
+            </h3>
+
+            {incomeRows.length > 0 && (
+                <PlanFactGroup label="Доходы" rows={incomeRows}
+                    totalPlanned={planFact.totalPlannedIncome}
+                    totalFact={planFact.totalFactIncome} />
+            )}
+
+            {expenseRows.length > 0 && (
+                <PlanFactGroup label="Расходы" rows={expenseRows}
+                    totalPlanned={planFact.totalPlannedExpense}
+                    totalFact={planFact.totalFactExpense}
+                    mt={incomeRows.length > 0} />
+            )}
+
+            {planFact.categories.length === 0 && (
+                <p className="text-sm text-center py-2" style={{ color: 'var(--color-text-muted)' }}>Нет данных</p>
+            )}
+        </div>
+    );
+}
+
+function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
+    label: string;
+    rows: AnalyticsReport['planFact']['categories'];
+    totalPlanned: number;
+    totalFact: number;
+    mt?: boolean;
+}) {
+    const totalDelta = totalFact - totalPlanned;
+    return (
+        <div className={mt ? 'mt-4' : ''}>
+            <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-muted)' }}>
+                {label.toUpperCase()}
+            </p>
+            <table className="w-full text-sm">
+                <thead>
+                    <tr style={{ color: 'var(--color-text-muted)', fontSize: '11px' }}>
+                        <th className="text-left pb-1 font-normal">Категория</th>
+                        <th className="text-right pb-1 font-normal">План</th>
+                        <th className="text-right pb-1 font-normal">Факт</th>
+                        <th className="text-right pb-1 font-normal">Δ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.map(row => (
+                        <tr key={row.categoryName}
+                            style={{ borderTop: '1px solid var(--color-border)' }}>
+                            <td className="py-1.5">{row.categoryName}</td>
+                            <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(row.planned)}</td>
+                            <td className="py-1.5 text-right">{fmt(row.fact)}</td>
+                            <td className="py-1.5 text-right font-medium"
+                                style={{ color: deltaColor(row.delta) }}>
+                                {row.delta >= 0 ? '+' : ''}{fmt(row.delta)}
+                            </td>
+                        </tr>
+                    ))}
+                    {/* Итого */}
+                    <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
+                        <td className="py-1.5">Итого</td>
+                        <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(totalPlanned)}</td>
+                        <td className="py-1.5 text-right">{fmt(totalFact)}</td>
+                        <td className="py-1.5 text-right"
+                            style={{ color: deltaColor(totalDelta) }}>
+                            {totalDelta >= 0 ? '+' : ''}{fmt(totalDelta)}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// ─── Секция 3: Burn rate обязательных трат ───────────────────────────────────
+
+function MandatoryBurnSection({ burn }: { burn: AnalyticsReport['mandatoryBurn'] }) {
+    if (burn.totalPlanned === 0 && burn.totalFact === 0) return null;
+
+    const totalPct = burn.totalPlanned > 0
+        ? Math.min(Math.round((burn.totalFact / burn.totalPlanned) * 100), 100)
+        : 0;
+    const totalColor = totalPct < 70 ? 'var(--color-success)' : totalPct < 90 ? 'var(--color-warning)' : 'var(--color-danger)';
+
+    return (
+        <div className="rounded-2xl p-5"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                ОБЯЗАТЕЛЬНЫЕ ТРАТЫ
+            </h3>
+
+            {/* Общий прогресс-бар */}
+            <div className="mb-1 flex justify-between text-sm">
+                <span>Всего</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>{fmt(burn.totalFact)} / {fmt(burn.totalPlanned)}</span>
+            </div>
+            <div className="h-3 rounded-full mb-4" style={{ background: 'var(--color-surface-2)' }}>
+                <div className="h-3 rounded-full transition-all"
+                    style={{ width: `${totalPct}%`, background: totalColor }} />
+            </div>
+
+            {/* По неделям */}
+            <div className="space-y-2">
+                {burn.byWeek.map(week => {
+                    const wPct = week.planned > 0
+                        ? Math.min(Math.round((week.fact / week.planned) * 100), 100)
+                        : 0;
+                    const wColor = wPct < 70 ? 'var(--color-success)' : wPct < 90 ? 'var(--color-warning)' : 'var(--color-danger)';
+                    return (
+                        <div key={week.weekNumber}>
+                            <div className="flex justify-between text-xs mb-1"
+                                style={{ color: 'var(--color-text-muted)' }}>
+                                <span>Неделя {week.weekNumber}: {fmtDay(week.weekStart)} – {fmtDay(week.weekEnd)}</span>
+                                <span>{fmt(week.fact)} / {fmt(week.planned)}</span>
+                            </div>
+                            <div className="h-1.5 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
+                                <div className="h-1.5 rounded-full transition-all"
+                                    style={{ width: `${wPct}%`, background: wColor }} />
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+// ─── Секция 4: Дефицит доходов ───────────────────────────────────────────────
+
+function IncomeGapSection({ gap }: { gap: AnalyticsReport['incomeGap'] }) {
+    if (gap.plannedIncome === 0 && gap.factIncome === 0) return null;
+
+    const pct = gap.plannedIncome > 0
+        ? Math.min(Math.round((gap.factIncome / gap.plannedIncome) * 100), 100)
+        : 0;
+    const barColor = pct >= 100 ? 'var(--color-success)' : pct >= 70 ? 'var(--color-warning)' : 'var(--color-danger)';
+
+    return (
+        <div className="rounded-2xl p-5"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                ДОХОДЫ
+            </h3>
+            <div className="flex justify-between text-sm mb-1">
+                <span>Факт / План</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>{fmt(gap.factIncome)} / {fmt(gap.plannedIncome)}</span>
+            </div>
+            <div className="h-3 rounded-full mb-3" style={{ background: 'var(--color-surface-2)' }}>
+                <div className="h-3 rounded-full transition-all"
+                    style={{ width: `${pct}%`, background: barColor }} />
+            </div>
+            <div className="flex justify-between text-sm">
+                <span style={{ color: 'var(--color-text-muted)' }}>Дельта</span>
+                <span className="font-semibold" style={{ color: deltaColor(gap.delta) }}>
+                    {gap.delta >= 0 ? '+' : ''}{fmt(gap.delta)}
+                </span>
+            </div>
+            {gap.delta < 0 && (
+                <p className="text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
+                    Недобор доходов — {Math.abs(pct - 100)}% от плана ещё не получено
+                </p>
             )}
         </div>
     );

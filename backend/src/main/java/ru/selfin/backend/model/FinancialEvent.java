@@ -10,6 +10,19 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+/**
+ * Финансовое событие — центральная сущность плана-факт модели.
+ * Каждое событие описывает запланированный или совершённый платёж/поступление.
+ *
+ * <p>Жизненный цикл статуса:
+ * <ul>
+ *   <li>{@code PLANNED} — только план, факт не введён</li>
+ *   <li>{@code EXECUTED} — введён {@code factAmount}, событие исполнено</li>
+ *   <li>{@code CANCELLED} — отменено без исполнения</li>
+ * </ul>
+ *
+ * <p>Физически не удаляется: {@code deleted = true} скрывает запись из запросов.
+ */
 @Entity
 @Table(name = "financial_events")
 @Getter

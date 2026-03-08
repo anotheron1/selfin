@@ -4,11 +4,22 @@ import { updateEvent } from '../api';
 import type { FinancialEvent, FinancialEventCreateDto } from '../types/api';
 
 interface EditEventSheetProps {
+    /** Событие для редактирования; его поля предзаполняют форму. */
     event: FinancialEvent;
+    /** Вызывается при закрытии sheet (крестик, тап на оверлей, успех). */
     onClose: () => void;
+    /** Вызывается после успешного сохранения или удаления для обновления списка. */
     onSuccess: () => void;
 }
 
+/**
+ * Bottom sheet для редактирования финансового события.
+ * Позволяет ввести фактическую сумму и комментарий, либо удалить событие.
+ *
+ * Форма использует полный PUT-запрос (все поля события), а не PATCH,
+ * так как компонент имеет доступ к полному объекту события.
+ * Для обновления только факта из других контекстов используйте `patchEventFact` из api/index.ts.
+ */
 export default function EditEventSheet({ event, onClose, onSuccess }: EditEventSheetProps) {
     const [factAmount, setFactAmount] = useState<string>(
         event.factAmount != null ? String(event.factAmount) : ''

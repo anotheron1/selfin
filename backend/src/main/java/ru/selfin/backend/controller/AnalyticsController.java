@@ -6,11 +6,17 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
+import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.DashboardDto;
+import ru.selfin.backend.service.AnalyticsService;
 import ru.selfin.backend.service.DashboardService;
 
 import java.time.LocalDate;
 
+/**
+ * REST-контроллер аналитики.
+ * Предоставляет агрегированные данные дашборда и расширенный аналитический отчёт.
+ */
 @Tag(name = "Аналитика", description = "Агрегированные данные дашборда: баланс, прогноз, кассовый разрыв")
 @RestController
 @RequestMapping("/api/v1/analytics")
@@ -18,6 +24,7 @@ import java.time.LocalDate;
 public class AnalyticsController {
 
     private final DashboardService dashboardService;
+    private final AnalyticsService analyticsService;
 
     @Operation(summary = "Данные для главного дашборда", description = "Возвращает текущий баланс, прогноз конца месяца, первый день потенциального "
             +
@@ -26,5 +33,14 @@ public class AnalyticsController {
     public DashboardDto getDashboard(
             @Parameter(description = "Дата расчёта (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return dashboardService.getDashboard(date != null ? date : LocalDate.now());
+    }
+
+    @Operation(summary = "Расширенный аналитический отчёт",
+            description = "Возвращает четыре секции аналитики за месяц опорной даты: "
+                    + "кассовый календарь, план-факт по категориям, burn rate обязательных расходов, дефицит доходов.")
+    @GetMapping("/report")
+    public AnalyticsReportDto getReport(
+            @Parameter(description = "Опорная дата (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return analyticsService.getReport(date != null ? date : LocalDate.now());
     }
 }

@@ -20,6 +20,9 @@ import java.util.stream.Collectors;
  * Аналитический сервис: синхронная агрегация данных для Дашборда.
  * CQRS и кэширование не применяются — скорость PostgreSQL на данных
  * пользователя достаточна.
+ *
+ * <p>Все вычисления производятся в рамках одного SELECT за текущий месяц,
+ * что минимизирует round-trips к БД.
  */
 @Service
 @RequiredArgsConstructor
@@ -28,6 +31,20 @@ public class DashboardService {
 
     private final FinancialEventRepository eventRepository;
 
+    /**
+     * Собирает данные главного дашборда для даты {@code asOfDate}.
+     * Алгоритм за один проход по событиям месяца вычисляет:
+     * <ol>
+     *   <li>Текущий баланс — факт доходов минус факт расходов по дату включительно.
+     *       Если факт отсутствует — берётся план.</li>
+     *   <li>Прогноз конца месяца — текущий баланс плюс плановые суммы будущих событий.</li>
+     *   <li>Первый день потенциального кассового разрыва (или {@code null}).</li>
+     *   <li>Прогресс-бары расходов по категориям: план vs факт.</li>
+     * </ol>
+     *
+     * @param asOfDate дата расчёта; обычно "сегодня", но может быть любой датой в месяце
+     * @return агрегированный DTO для рендеринга дашборда
+     */
     public DashboardDto getDashboard(LocalDate asOfDate) {
         LocalDate monthStart = asOfDate.withDayOfMonth(1);
         LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
@@ -56,8 +73,7 @@ public class DashboardService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal endOfMonthForecast = currentBalance.add(forecastDelta);
 
-        // --- 3. Кассовый разрыв: ищем ближайший день с отрицательным нарастающим
-        // балансом ---
+        // --- 3. Кассовый разрыв: ищем ближайший день с отрицательным нарастающим балансом ---
         DashboardDto.CashGapAlert cashGapAlert = detectCashGap(monthEvents, currentBalance, asOfDate, monthEnd);
 
         // --- 4. Прогресс-бары по категориям расходов ---
@@ -66,6 +82,20 @@ public class DashboardService {
         return new DashboardDto(currentBalance, endOfMonthForecast, cashGapAlert, progressBars);
     }
 
+    /**
+     * Обнаруживает первый день после {@code from}, в котором нарастающий баланс
+     * уходит в минус при последовательном применении плановых сумм событий.
+     *
+     * <p>Алгоритм: стартует с {@code startBalance}, затем день за днём применяет
+     * плановые расходы и доходы из {@code [from+1, until]}. При первом отрицательном
+     * значении возвращает {@link DashboardDto.CashGapAlert} с датой и дефицитом.
+     *
+     * @param events       все события текущего месяца
+     * @param startBalance текущий баланс на дату {@code from}
+     * @param from         дата "сегодня" (не включается в перебор)
+     * @param until        последний день месяца (включается)
+     * @return алерт с датой и суммой разрыва, или {@code null} если разрыва нет
+     */
     private DashboardDto.CashGapAlert detectCashGap(
             List<FinancialEvent> events, BigDecimal startBalance,
             LocalDate from, LocalDate until) {
@@ -93,6 +123,15 @@ public class DashboardService {
         return null;
     }
 
+    /**
+     * Строит список прогресс-баров плана/факта по категориям расходов за месяц.
+     * Группирует расходные события по имени категории, суммирует план и факт,
+     * вычисляет процент исполнения {@code fact/plan * 100} (округление к ближайшему целому).
+     * Если плановая сумма равна нулю — процент считается равным 0.
+     *
+     * @param events все события текущего месяца (доходы фильтруются внутри метода)
+     * @return список прогресс-баров; пустой список если расходных событий нет
+     */
     private List<DashboardDto.CategoryProgressBar> buildProgressBars(List<FinancialEvent> events) {
         Map<String, List<FinancialEvent>> byCategory = events.stream()
                 .filter(e -> e.getType() == EventType.EXPENSE)

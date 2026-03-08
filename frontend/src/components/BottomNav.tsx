@@ -8,6 +8,12 @@ const navItems = [
     { to: '/settings', icon: Settings, label: 'Настройки' },
 ];
 
+/**
+ * Фиксированная нижняя навигационная панель приложения.
+ * Содержит 4 вкладки: Дашборд, Бюджет, Фонды, Настройки.
+ * Активная вкладка подсвечивается акцентным цветом через `NavLink`.
+ * Высота задана CSS-переменной `--nav-height` (64px) и учитывается в отступах страниц.
+ */
 export default function BottomNav() {
     return (
         <nav className="fixed bottom-0 left-0 right-0 z-50"

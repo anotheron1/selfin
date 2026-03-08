@@ -14,6 +14,13 @@ import ru.selfin.backend.service.CategoryService;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * REST-контроллер категорий.
+ * Категории создаются один раз и редко меняются; сиды базовых категорий
+ * задаются в миграции {@code V2__seed_categories.sql}.
+ *
+ * @see ru.selfin.backend.service.CategoryService
+ */
 @Tag(name = "Категории", description = "Управление категориями доходов и расходов")
 @RestController
 @RequestMapping("/api/v1/categories")

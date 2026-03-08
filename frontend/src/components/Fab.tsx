@@ -4,9 +4,13 @@ import { createEvent, fetchCategories } from '../api';
 import type { Category, FinancialEventCreateDto } from '../types/api';
 
 /**
- * Модальная форма быстрого добавления транзакции.
- * Загружает категории внутри себя — всегда актуальный список.
+ * Модальная форма быстрого добавления транзакции (bottom sheet).
+ * Загружает категории внутри себя при открытии — всегда актуальный список.
  * Фильтрует категории по выбранному типу (INCOME/EXPENSE).
+ * При успешном сохранении вызывает `onSuccess` для обновления данных родителя.
+ *
+ * @param onClose   вызывается при закрытии модала (крестик или успех)
+ * @param onSuccess вызывается после успешного создания события
  */
 function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
     const [form, setForm] = useState<Partial<FinancialEventCreateDto>>({
@@ -137,9 +141,15 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
 }
 
 interface FabProps {
+    /** Колбэк, вызываемый после успешного добавления транзакции для обновления страницы. */
     onSuccess: () => void;
 }
 
+/**
+ * Floating Action Button (FAB) — фиксированная кнопка быстрого добавления транзакции.
+ * Отображается поверх всего контента, позиционируется над нижней навигацией.
+ * По клику открывает `QuickAddModal` в виде bottom sheet.
+ */
 export default function Fab({ onSuccess }: FabProps) {
     const [open, setOpen] = useState(false);
 

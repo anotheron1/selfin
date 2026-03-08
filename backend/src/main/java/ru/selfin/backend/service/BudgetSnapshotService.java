@@ -98,11 +98,22 @@ public class BudgetSnapshotService {
                 .toList();
     }
 
+    /**
+     * Конвертирует entity снимка в DTO.
+     * Поле {@code snapshotData} (JSONB с деталями событий) намеренно не включается
+     * в ответ списка — оно большое и нужно только при детальном просмотре снимка.
+     *
+     * @param s entity снимка бюджета
+     * @return облегчённый DTO для списка снимков
+     */
     private BudgetSnapshotDto toDto(BudgetSnapshot s) {
         return new BudgetSnapshotDto(s.getId(), s.getPeriodStart(), s.getPeriodEnd(), s.getSnapshotDate());
     }
 
-    /** Вспомогательная запись для сериализации в JSON снимка */
+    /**
+     * Вспомогательная запись для сериализации событий в JSON снимка.
+     * Хранит только поля, необходимые для план-факт сравнения в будущем.
+     */
     private record SnapshotEventEntry(
             String id, String date, String type, String category,
             java.math.BigDecimal planned, java.math.BigDecimal fact) {

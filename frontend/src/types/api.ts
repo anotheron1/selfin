@@ -78,3 +78,57 @@ export interface BudgetSnapshot {
     periodEnd: string;
     snapshotDate: string;
 }
+
+// --- Analytics ---
+
+export interface CashFlowDay {
+    date: string;
+    dailyIncome: number;
+    dailyExpense: number;
+    runningBalance: number;
+    isFuture: boolean;
+    isGap: boolean;
+}
+
+export interface CategoryPlanFact {
+    categoryName: string;
+    type: 'INCOME' | 'EXPENSE';
+    planned: number;
+    fact: number;
+    delta: number;
+}
+
+export interface PlanFactReport {
+    categories: CategoryPlanFact[];
+    totalPlannedIncome: number;
+    totalFactIncome: number;
+    totalPlannedExpense: number;
+    totalFactExpense: number;
+}
+
+export interface WeekBurnRate {
+    weekNumber: number;
+    weekStart: string;
+    weekEnd: string;
+    planned: number;
+    fact: number;
+}
+
+export interface MandatoryBurnRate {
+    totalPlanned: number;
+    totalFact: number;
+    byWeek: WeekBurnRate[];
+}
+
+export interface IncomeGap {
+    plannedIncome: number;
+    factIncome: number;
+    delta: number;
+}
+
+export interface AnalyticsReport {
+    cashFlow: CashFlowDay[];
+    planFact: PlanFactReport;
+    mandatoryBurn: MandatoryBurnRate;
+    incomeGap: IncomeGap;
+}
