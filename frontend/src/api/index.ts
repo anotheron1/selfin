@@ -20,6 +20,12 @@ export const fetchCategories = () => get<Category[]>('/categories');
 /** Создаёт новую категорию доходов или расходов. */
 export const createCategory = (body: Omit<Category, 'id'>) => post<Category>('/categories', body);
 
+/** Полностью обновляет категорию (имя, тип, обязательность). */
+export const updateCategory = (id: string, body: Omit<Category, 'id'>) => put<Category>(`/categories/${id}`, body);
+
+/** Удаляет категорию (soft delete). */
+export const deleteCategory = (id: string) => del(`/categories/${id}`);
+
 /**
  * Инвертирует флаг `mandatory` у категории.
  * Использует PATCH без тела — достаточно идентификатора в URL.
@@ -90,8 +96,15 @@ export const fetchAnalyticsReport = (date?: string) =>
 export const fetchFunds = () => get<FundsOverview>('/funds');
 
 /** Создаёт новый целевой фонд (копилку). */
-export const createFund = (body: { name: string; targetAmount?: number; priority?: number }) =>
+export const createFund = (body: { name: string; targetAmount?: number; priority?: number; targetDate?: string }) =>
     post<TargetFund>('/funds', body);
+
+/** Обновляет целевой фонд (название, целевую сумму, срок достижения). */
+export const updateFund = (id: string, body: { name: string; targetAmount?: number; priority?: number; targetDate?: string }) =>
+    put<TargetFund>(`/funds/${id}`, body);
+
+/** Удаляет целевой фонд (soft delete). */
+export const deleteFund = (id: string) => del(`/funds/${id}`);
 
 /**
  * Пополняет целевой фонд на указанную сумму.

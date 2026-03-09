@@ -5,6 +5,7 @@ import lombok.*;
 import ru.selfin.backend.model.enums.FundStatus;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -45,6 +46,10 @@ public class TargetFund {
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    /** Желаемая дата достижения цели (задаётся пользователем, null = не указана) */
+    @Column(name = "target_date")
+    private LocalDate targetDate;
 
     @Column(name = "is_deleted", nullable = false)
     @Builder.Default

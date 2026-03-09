@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-    fetchCategories, createCategory, toggleMandatory,
+    fetchCategories, createCategory, updateCategory, deleteCategory, toggleMandatory,
     fetchSnapshots, createSnapshot,
     fetchCheckpoints, createCheckpoint, updateCheckpoint, deleteCheckpoint,
 } from '../api';
@@ -19,6 +19,9 @@ export default function Settings() {
     const [categories, setCategories] = useState<Category[]>([]);
     const [name, setName] = useState('');
     const [type, setType] = useState<CategoryType>('EXPENSE');
+    const [editCatId, setEditCatId] = useState<string | null>(null);
+    const [editCatName, setEditCatName] = useState('');
+    const [editCatType, setEditCatType] = useState<CategoryType>('EXPENSE');
 
     // --- Snapshots ---
     const [snapshots, setSnapshots] = useState<BudgetSnapshot[]>([]);
@@ -73,6 +76,29 @@ export default function Settings() {
         await toggleMandatory(id);
         load();
         showToast(currentMandatory ? 'Убрано из обязательных' : 'Отмечено как обязательное');
+    };
+
+    const startEditCat = (cat: Category) => {
+        setEditCatId(cat.id);
+        setEditCatName(cat.name);
+        setEditCatType(cat.type);
+    };
+
+    const cancelEditCat = () => setEditCatId(null);
+
+    const handleUpdateCategory = async (cat: Category) => {
+        if (!editCatName.trim()) return;
+        await updateCategory(cat.id, { name: editCatName.trim(), type: editCatType, mandatory: cat.mandatory });
+        setEditCatId(null);
+        load();
+        showToast('Категория обновлена');
+    };
+
+    const handleDeleteCategory = async (id: string) => {
+        if (!confirm('Удалить категорию? Связанные события сохранятся.')) return;
+        await deleteCategory(id);
+        load();
+        showToast('Категория удалена');
     };
 
     // --- Checkpoint handlers ---
@@ -267,27 +293,75 @@ export default function Settings() {
                         {grouped[t].length === 0 ? (
                             <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Нет категорий</p>
                         ) : grouped[t].map(c => (
-                            <div key={c.id} className="flex items-center justify-between py-2.5 px-1"
-                                style={{ borderBottom: '1px solid var(--color-border)' }}>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm">{c.name}</span>
-                                    {c.mandatory && (
-                                        <span className="text-xs px-1.5 py-0.5 rounded"
-                                            style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--color-danger)' }}>
-                                            обяз
-                                        </span>
-                                    )}
-                                </div>
-                                <button
-                                    onClick={() => handleToggleMandatory(c.id, c.mandatory)}
-                                    title={c.mandatory ? 'Убрать из обязательных' : 'Сделать обязательной'}
-                                    className="p-1.5 rounded-lg transition-colors"
-                                    style={{
-                                        color: c.mandatory ? 'var(--color-danger)' : 'var(--color-text-muted)',
-                                        background: c.mandatory ? 'rgba(239,68,68,0.1)' : 'transparent'
-                                    }}>
-                                    {c.mandatory ? <ShieldCheck size={16} /> : <Shield size={16} />}
-                                </button>
+                            <div key={c.id}>
+                                {editCatId === c.id ? (
+                                    <div className="flex gap-2 py-1.5">
+                                        <input
+                                            autoFocus
+                                            value={editCatName}
+                                            onChange={e => setEditCatName(e.target.value)}
+                                            className="flex-1 rounded-lg px-3 py-1.5 text-sm"
+                                            style={inputStyle}
+                                        />
+                                        <select
+                                            value={editCatType}
+                                            onChange={e => setEditCatType(e.target.value as CategoryType)}
+                                            className="rounded-lg px-3 py-1.5 text-sm"
+                                            style={inputStyle}>
+                                            <option value="EXPENSE">Расход</option>
+                                            <option value="INCOME">Доход</option>
+                                        </select>
+                                        <button onClick={() => handleUpdateCategory(c)}
+                                            className="p-1.5 rounded-lg"
+                                            style={{ background: 'var(--color-accent)', color: '#fff' }}>
+                                            <Check size={16} />
+                                        </button>
+                                        <button onClick={cancelEditCat}
+                                            className="p-1.5 rounded-lg"
+                                            style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
+                                            <X size={16} />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-between py-2.5 px-1"
+                                        style={{ borderBottom: '1px solid var(--color-border)' }}>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm">{c.name}</span>
+                                            {c.mandatory && (
+                                                <span className="text-xs px-1.5 py-0.5 rounded"
+                                                    style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--color-danger)' }}>
+                                                    обяз
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <button
+                                                onClick={() => handleToggleMandatory(c.id, c.mandatory)}
+                                                title={c.mandatory ? 'Убрать из обязательных' : 'Сделать обязательной'}
+                                                className="p-1.5 rounded-lg transition-colors"
+                                                style={{
+                                                    color: c.mandatory ? 'var(--color-danger)' : 'var(--color-text-muted)',
+                                                    background: c.mandatory ? 'rgba(239,68,68,0.1)' : 'transparent'
+                                                }}>
+                                                {c.mandatory ? <ShieldCheck size={16} /> : <Shield size={16} />}
+                                            </button>
+                                            <button
+                                                onClick={() => startEditCat(c)}
+                                                title="Редактировать"
+                                                className="p-1.5 rounded-lg"
+                                                style={{ color: 'var(--color-text-muted)' }}>
+                                                <Pencil size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteCategory(c.id)}
+                                                title="Удалить"
+                                                className="p-1.5 rounded-lg"
+                                                style={{ color: 'var(--color-danger)' }}>
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

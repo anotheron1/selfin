@@ -108,6 +108,19 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
+                    {/* Фактическая сумма — заполняется, если событие уже произошло */}
+                    <input
+                        type="number"
+                        placeholder="Сумма (факт, если уже произошло), ₽"
+                        value={form.factAmount ?? ''}
+                        onChange={e => setForm(f => ({
+                            ...f,
+                            factAmount: e.target.value ? Number(e.target.value) : undefined,
+                        }))}
+                        className="w-full rounded-lg px-3 py-2 text-sm"
+                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                    />
+
                     {/* Дата */}
                     <input
                         type="date"

@@ -8,9 +8,13 @@ import ru.selfin.backend.dto.FundsOverviewDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
+import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FundTransaction;
 import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundStatus;
+import ru.selfin.backend.repository.BalanceCheckpointRepository;
+import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
@@ -18,14 +22,35 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Сервис управления целевыми фондами накоплений (копилками) и «кармашком».
  *
- * <p><b>Кармашек</b> — системный фонд с именем {@value #POCKET_NAME}, не имеющий
- * целевой суммы. Служит буфером свободных средств: разница между фактическими
- * доходами и расходами, а также переводы из других фондов.
+ * <p><b>Кармашек</b> — свободные деньги, которые не распределены никуда.
+ * Отражает реальный незапланированный остаток: «если всё пойдёт по плану,
+ * сколько у меня будет свободных денег для распределения».
+ *
+ * <p>Алгоритм расчёта кармашка зависит от наличия {@code BalanceCheckpoint}:
+ * <ul>
+ *   <li><b>Чекпоинт есть</b> — стартуем от реального остатка на счёте,
+ *       прибавляем эффективные суммы всех событий начиная с даты чекпоинта:</li>
+ * </ul>
+ * <pre>
+ *   кармашек = checkpoint.amount
+ *            + Σ(эффективный доход, date ≥ checkpoint.date)
+ *            − Σ(эффективный расход, date ≥ checkpoint.date)
+ *            − Σ(балансы целевых фондов)
+ * </pre>
+ * <ul>
+ *   <li><b>Чекпоинта нет</b> — только события (обратная совместимость):</li>
+ * </ul>
+ * <pre>
+ *   кармашек = Σ(весь эффективный доход) − Σ(весь эффективный расход) − Σ(балансы фондов)
+ * </pre>
+ * Эффективная сумма события: factAmount если исполнено, иначе plannedAmount.
+ * Перевод в копилку автоматически уменьшает кармашек (баланс фонда растёт).
  *
  * <p>Пополнение фондов идемпотентно: повторный вызов с тем же {@code idempotencyKey}
  * вернёт результат первого успешного перевода без двойного зачисления.
@@ -38,6 +63,8 @@ public class TargetFundService {
 
     private final TargetFundRepository fundRepository;
     private final FundTransactionRepository transactionRepository;
+    private final FinancialEventRepository eventRepository;
+    private final BalanceCheckpointRepository checkpointRepository;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -45,21 +72,59 @@ public class TargetFundService {
     /**
      * Возвращает обзор всех фондов: баланс кармашка и список активных целевых фондов
      * с рассчитанным прогнозом достижения цели.
-     * Кармашек фильтруется из списка фондов и выводится отдельной строкой.
+     * <p>
+     * Баланс кармашка рассчитывается от последнего {@code BalanceCheckpoint}:
+     * если чекпоинт есть — к его сумме прибавляются только события начиная с даты чекпоинта;
+     * если чекпоинта нет — суммируются все события (обратная совместимость).
+     * Из итога вычитаются балансы всех активных целевых фондов.
      *
      * @return DTO обзора фондов
      */
     public FundsOverviewDto getOverview() {
         List<TargetFund> funds = fundRepository.findAllByDeletedFalseOrderByPriorityAsc();
-        BigDecimal pocketBalance = funds.stream()
-                .filter(f -> POCKET_NAME.equals(f.getName()))
+
+        BigDecimal fundBalances = funds.stream()
+                .filter(f -> !POCKET_NAME.equals(f.getName()))
                 .map(TargetFund::getCurrentBalance)
-                .findFirst().orElse(BigDecimal.ZERO);
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal pocketBalance = calcPocketBalance(fundBalances);
+
         List<TargetFundDto> fundDtos = funds.stream()
                 .filter(f -> !POCKET_NAME.equals(f.getName()))
                 .map(this::toDto)
                 .toList();
         return new FundsOverviewDto(pocketBalance, fundDtos);
+    }
+
+    /**
+     * Вычисляет баланс кармашка с учётом последнего {@code BalanceCheckpoint}.
+     * <p>
+     * Если чекпоинт зафиксирован — стартуем от реального остатка на счёте
+     * и прибавляем эффективные суммы событий начиная с даты чекпоинта.
+     * Если чекпоинта нет — суммируем все события целиком.
+     * В обоих случаях из результата вычитаются балансы целевых фондов.
+     *
+     * @param fundBalances суммарный баланс всех активных целевых фондов
+     * @return баланс кармашка
+     */
+    private BigDecimal calcPocketBalance(BigDecimal fundBalances) {
+        Optional<BalanceCheckpoint> latestCheckpoint = checkpointRepository.findTopByOrderByDateDesc();
+
+        BigDecimal income;
+        BigDecimal expense;
+
+        if (latestCheckpoint.isPresent()) {
+            LocalDate fromDate = latestCheckpoint.get().getDate();
+            BigDecimal checkpointAmount = latestCheckpoint.get().getAmount();
+            income = eventRepository.sumEffectiveByTypeFromDate(EventType.INCOME, fromDate);
+            expense = eventRepository.sumEffectiveByTypeFromDate(EventType.EXPENSE, fromDate);
+            return checkpointAmount.add(income).subtract(expense).subtract(fundBalances);
+        } else {
+            income = eventRepository.sumEffectiveByType(EventType.INCOME);
+            expense = eventRepository.sumEffectiveByType(EventType.EXPENSE);
+            return income.subtract(expense).subtract(fundBalances);
+        }
     }
 
     /**
@@ -75,8 +140,44 @@ public class TargetFundService {
                 .name(dto.name())
                 .targetAmount(dto.targetAmount())
                 .priority(dto.priority() != null ? dto.priority() : 100)
+                .targetDate(dto.targetDate())
                 .build();
         return toDto(fundRepository.save(fund));
+    }
+
+    /**
+     * Обновляет название, целевую сумму, срок достижения и приоритет фонда.
+     *
+     * @param id  идентификатор фонда
+     * @param dto новые данные фонда
+     * @return обновлённый фонд
+     * @throws ResourceNotFoundException если фонд не найден или удалён
+     */
+    @Transactional
+    public TargetFundDto update(UUID id, TargetFundCreateDto dto) {
+        TargetFund fund = fundRepository.findById(id)
+                .filter(f -> !f.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        fund.setName(dto.name());
+        fund.setTargetAmount(dto.targetAmount());
+        fund.setTargetDate(dto.targetDate());
+        if (dto.priority() != null) fund.setPriority(dto.priority());
+        return toDto(fundRepository.save(fund));
+    }
+
+    /**
+     * Помечает фонд как удалённый (soft delete).
+     * Транзакции фонда при этом сохраняются.
+     *
+     * @param id идентификатор фонда
+     * @throws ResourceNotFoundException если фонд не найден
+     */
+    @Transactional
+    public void delete(UUID id) {
+        TargetFund fund = fundRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        fund.setDeleted(true);
+        fundRepository.save(fund);
     }
 
     /**
@@ -149,7 +250,7 @@ public class TargetFundService {
         return new TargetFundDto(
                 f.getId(), f.getName(), f.getTargetAmount(),
                 f.getCurrentBalance(), f.getStatus(), f.getPriority(),
-                calcEstimatedCompletion(f));
+                f.getTargetDate(), calcEstimatedCompletion(f));
     }
 
     /**

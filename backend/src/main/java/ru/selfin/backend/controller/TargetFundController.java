@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.FundsOverviewDto;
@@ -41,6 +42,21 @@ public class TargetFundController {
     @PostMapping
     public TargetFundDto create(@Valid @RequestBody TargetFundCreateDto dto) {
         return fundService.create(dto);
+    }
+
+    @Operation(summary = "Обновить целевой фонд", description = "Изменяет название, целевую сумму, срок достижения и приоритет фонда")
+    @PutMapping("/{id}")
+    public TargetFundDto update(
+            @Parameter(description = "ID фонда") @PathVariable UUID id,
+            @Valid @RequestBody TargetFundCreateDto dto) {
+        return fundService.update(id, dto);
+    }
+
+    @Operation(summary = "Удалить целевой фонд", description = "Soft delete: фонд скрывается из UI, транзакции сохраняются")
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@Parameter(description = "ID фонда") @PathVariable UUID id) {
+        fundService.delete(id);
     }
 
     @Operation(summary = "Перевести средства в фонд", description = "Добавляет указанную сумму на баланс фонда (пополнение из кармашка). "

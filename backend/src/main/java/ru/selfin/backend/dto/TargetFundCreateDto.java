@@ -9,5 +9,6 @@ import java.math.BigDecimal;
 public record TargetFundCreateDto(
                 @NotBlank String name,
                 @NotNull @PositiveOrZero BigDecimal targetAmount,
-                Integer priority) {
+                Integer priority,
+                java.time.LocalDate targetDate) {
 }

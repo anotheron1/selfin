@@ -13,6 +13,8 @@ public record TargetFundDto(
         BigDecimal currentBalance,
         FundStatus status,
         Integer priority,
-        /** Умный прогноз: вычисляется сервисом при ответе */
+        /** Желаемая дата достижения цели, заданная пользователем */
+        LocalDate targetDate,
+        /** Умный прогноз: вычисляется сервисом на основе среднемесячного пополнения */
         LocalDate estimatedCompletionDate) {
 }

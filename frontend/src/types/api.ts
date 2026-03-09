@@ -64,6 +64,7 @@ export interface TargetFund {
     currentBalance: number;
     status: FundStatus;
     priority: number;
+    targetDate: string | null;
     estimatedCompletionDate: string | null;
 }
 

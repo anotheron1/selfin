@@ -5,8 +5,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.AnalyticsReportDto.*;
+import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
@@ -31,6 +33,7 @@ import java.util.stream.Collectors;
 public class AnalyticsService {
 
     private final FinancialEventRepository eventRepository;
+    private final BalanceCheckpointRepository checkpointRepository;
 
     /**
      * Формирует полный аналитический отчёт за месяц, в котором находится {@code asOfDate}.
@@ -46,8 +49,10 @@ public class AnalyticsService {
 
         List<FinancialEvent> events = eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
 
+        BigDecimal initialBalance = calcStartBalance(monthStart);
+
         return new AnalyticsReportDto(
-                buildCashFlow(events, monthStart, monthEnd, asOfDate),
+                buildCashFlow(events, monthStart, monthEnd, asOfDate, initialBalance),
                 buildPlanFact(events),
                 buildMandatoryBurnRate(events, monthStart, monthEnd),
                 buildIncomeGap(events));
@@ -56,25 +61,32 @@ public class AnalyticsService {
     /**
      * Строит кассовый календарь — список дней месяца с нарастающим балансом.
      * <p>
+     * Нарастающий баланс стартует от {@code initialBalance} — реального остатка на счёте
+     * на начало месяца, рассчитанного через {@link #calcStartBalance(LocalDate)}.
+     * Это позволяет корректно отображать кассовый разрыв даже при наличии накоплений
+     * из предыдущих месяцев.
+     * <p>
      * Для каждого дня вычисляется {@code dailyIncome} и {@code dailyExpense}:
      * прошлые дни используют {@code factAmount} (при отсутствии — {@code plannedAmount}),
      * будущие — только {@code plannedAmount}.
+     * Дни без событий скрываются, за исключением сегодняшнего дня.
      *
-     * @param events     события месяца (без удалённых)
-     * @param monthStart первый день месяца
-     * @param monthEnd   последний день месяца
-     * @param today      сегодняшняя дата (граница прошлое / будущее)
+     * @param events         события месяца (без удалённых)
+     * @param monthStart     первый день месяца
+     * @param monthEnd       последний день месяца
+     * @param today          сегодняшняя дата (граница прошлое / будущее)
+     * @param initialBalance начальный баланс на начало месяца из чекпоинта
      * @return упорядоченный список {@link CashFlowDay} на каждый день месяца
      */
     private List<CashFlowDay> buildCashFlow(List<FinancialEvent> events,
                                              LocalDate monthStart, LocalDate monthEnd,
-                                             LocalDate today) {
+                                             LocalDate today, BigDecimal initialBalance) {
         // Группируем события по дате
         Map<LocalDate, List<FinancialEvent>> byDate = events.stream()
                 .collect(Collectors.groupingBy(FinancialEvent::getDate));
 
         List<CashFlowDay> days = new ArrayList<>();
-        BigDecimal running = BigDecimal.ZERO;
+        BigDecimal running = initialBalance;
 
         for (LocalDate d = monthStart; !d.isAfter(monthEnd); d = d.plusDays(1)) {
             boolean isFuture = d.isAfter(today);
@@ -94,7 +106,12 @@ public class AnalyticsService {
             }
 
             running = running.add(income).subtract(expense);
-            days.add(new CashFlowDay(d, income, expense, running, isFuture, running.compareTo(BigDecimal.ZERO) < 0));
+            // Показываем день только если были события или это сегодня
+            if (income.compareTo(BigDecimal.ZERO) != 0
+                    || expense.compareTo(BigDecimal.ZERO) != 0
+                    || d.equals(today)) {
+                days.add(new CashFlowDay(d, income, expense, running, isFuture, running.compareTo(BigDecimal.ZERO) < 0));
+            }
         }
 
         return days;
@@ -218,6 +235,62 @@ public class AnalyticsService {
         }
 
         return new IncomeGap(planned, fact, fact.subtract(planned));
+    }
+
+    /**
+     * Вычисляет начальный баланс на начало месяца {@code monthStart}
+     * на основе последнего {@code BalanceCheckpoint}.
+     * <p>
+     * Алгоритм:
+     * <ol>
+     *   <li>Если чекпоинт отсутствует — возвращает ноль (обратная совместимость).</li>
+     *   <li>Если чекпоинт за текущий или более поздний месяц — возвращает сумму чекпоинта как есть.</li>
+     *   <li>Если чекпоинт из прошлого месяца — суммирует «мостик» событий
+     *       от даты чекпоинта до последнего дня предыдущего месяца включительно.</li>
+     * </ol>
+     *
+     * @param monthStart первый день целевого месяца
+     * @return накопленный баланс на начало месяца
+     */
+    private BigDecimal calcStartBalance(LocalDate monthStart) {
+        Optional<BalanceCheckpoint> latestCheckpoint = checkpointRepository.findTopByOrderByDateDesc();
+        if (latestCheckpoint.isEmpty()) return BigDecimal.ZERO;
+
+        BalanceCheckpoint cp = latestCheckpoint.get();
+        BigDecimal startBalance = cp.getAmount();
+
+        if (cp.getDate().isBefore(monthStart)) {
+            // Чекпоинт из прошлого месяца — суммируем «мостик» событий
+            // от даты чекпоинта до конца предыдущего месяца
+            List<FinancialEvent> bridgeEvents = eventRepository
+                    .findAllByDeletedFalseAndDateBetween(cp.getDate(), monthStart.minusDays(1));
+            startBalance = startBalance.add(netSum(bridgeEvents));
+        }
+        return startBalance;
+    }
+
+    /**
+     * Знаковая сумма события: доход — положительная, расход — отрицательная.
+     * Приоритет суммы: фактическая, если задана; иначе — плановая.
+     *
+     * @param e финансовое событие
+     * @return знаковая сумма; {@code BigDecimal.ZERO} если обе суммы {@code null}
+     */
+    private BigDecimal signedAmount(FinancialEvent e) {
+        BigDecimal amount = e.getFactAmount() != null ? e.getFactAmount() : e.getPlannedAmount();
+        if (amount == null) return BigDecimal.ZERO;
+        return e.getType() == EventType.INCOME ? amount : amount.negate();
+    }
+
+    /**
+     * Суммарная знаковая сумма списка событий.
+     *
+     * @param events список событий
+     * @return сумма знаковых сумм всех событий
+     * @see #signedAmount(FinancialEvent)
+     */
+    private BigDecimal netSum(List<FinancialEvent> events) {
+        return events.stream().map(this::signedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
