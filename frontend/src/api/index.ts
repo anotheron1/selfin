@@ -9,6 +9,8 @@ import type {
     FinancialEvent,
     FinancialEventCreateDto,
     FundsOverview,
+    RecurringRuleCreateDto,
+    RecurringRuleDto,
     TargetFund,
 } from '../types/api';
 
@@ -53,9 +55,24 @@ export const createEvent = (dto: FinancialEventCreateDto) =>
 /**
  * Полностью обновляет финансовое событие (все поля).
  * Для ввода только фактической суммы предпочтительнее использовать `patchEventFact`.
+ * Параметр scope задаёт область изменений для повторяющихся событий:
+ * THIS — только текущее, THIS_AND_FOLLOWING — текущее и все последующие.
  */
-export const updateEvent = (id: string, dto: FinancialEventCreateDto) =>
-    put<FinancialEvent>(`/events/${id}`, dto);
+export function updateEvent(
+    id: string,
+    dto: FinancialEventCreateDto,
+    scope: 'THIS' | 'THIS_AND_FOLLOWING' = 'THIS'
+): Promise<FinancialEvent> {
+    return put<FinancialEvent>(`/events/${id}?scope=${scope}`, dto);
+}
+
+/**
+ * Создаёт правило повторяющегося события.
+ * Бэкенд автоматически генерирует события на основе frequency и dayOfMonth/dayOfWeek.
+ */
+export function createRecurringRule(dto: RecurringRuleCreateDto): Promise<RecurringRuleDto> {
+    return post<RecurringRuleDto>('/recurring-rules', dto);
+}
 
 /**
  * Частичное обновление события: только фактическая сумма и комментарий.
@@ -68,8 +85,17 @@ export const updateEvent = (id: string, dto: FinancialEventCreateDto) =>
 export const patchEventFact = (id: string, factAmount: number | undefined, description?: string) =>
     patch<FinancialEvent>(`/events/${id}/fact`, { factAmount, description });
 
-/** Удаляет событие (soft delete — физически запись остаётся в БД). */
-export const deleteEvent = (id: string) => del(`/events/${id}`);
+/**
+ * Удаляет событие (soft delete — физически запись остаётся в БД).
+ * Параметр scope задаёт область удаления для повторяющихся событий:
+ * THIS — только текущее, THIS_AND_FOLLOWING — текущее и все последующие.
+ */
+export function deleteEvent(
+    id: string,
+    scope: 'THIS' | 'THIS_AND_FOLLOWING' = 'THIS'
+): Promise<void> {
+    return del(`/events/${id}?scope=${scope}`);
+}
 
 // --- Analytics ---
 

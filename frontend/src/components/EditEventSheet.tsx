@@ -7,11 +7,12 @@ import { Button } from './ui/button';
 
 interface EditEventSheetProps {
     event: FinancialEvent;
+    scope?: 'THIS' | 'THIS_AND_FOLLOWING';
     onClose: () => void;
     onSuccess: () => void;
 }
 
-export default function EditEventSheet({ event, onClose, onSuccess }: EditEventSheetProps) {
+export default function EditEventSheet({ event, scope, onClose, onSuccess }: EditEventSheetProps) {
     const [factAmount, setFactAmount] = useState<string>(
         event.factAmount != null ? String(event.factAmount) : ''
     );
@@ -32,7 +33,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                 description: description || undefined,
                 rawInput: event.rawInput ?? undefined,
             };
-            await updateEvent(event.id, dto);
+            await updateEvent(event.id, dto, scope ?? 'THIS');
             onSuccess();
             onClose();
         } catch (err) {
@@ -47,7 +48,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         const { deleteEvent } = await import('../api');
         setLoading(true);
         try {
-            await deleteEvent(event.id);
+            await deleteEvent(event.id, scope ?? 'THIS');
             onSuccess();
             onClose();
         } finally {

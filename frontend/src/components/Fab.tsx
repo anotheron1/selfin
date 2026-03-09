@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
-import { createEvent, fetchCategories } from '../api';
-import type { Category, FinancialEventCreateDto } from '../types/api';
+import { createEvent, createRecurringRule, fetchCategories } from '../api';
+import type { Category, FinancialEventCreateDto, RecurringRuleCreateDto } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -25,6 +25,9 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     const [loading, setLoading] = useState(false);
     const [categories, setCategories] = useState<Category[]>([]);
     const [catLoading, setCatLoading] = useState(true);
+    const [recurring, setRecurring] = useState(false);
+    const [frequency, setFrequency] = useState<'MONTHLY' | 'WEEKLY'>('MONTHLY');
+    const [dayOfMonth, setDayOfMonth] = useState(1);
 
     // Загружаем категории при открытии модала — всегда свежий список
     useEffect(() => {
@@ -45,11 +48,25 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         if (!form.categoryId || !form.date || !form.type) return;
         setLoading(true);
         try {
-            await createEvent(form as FinancialEventCreateDto);
+            if (recurring) {
+                const dto: RecurringRuleCreateDto = {
+                    categoryId: form.categoryId!,
+                    eventType: form.type as 'INCOME' | 'EXPENSE',
+                    plannedAmount: form.plannedAmount!,
+                    mandatory: form.mandatory,
+                    description: form.description,
+                    frequency,
+                    dayOfMonth: frequency === 'MONTHLY' ? dayOfMonth : undefined,
+                    startDate: form.date!,
+                };
+                await createRecurringRule(dto);
+            } else {
+                await createEvent(form as FinancialEventCreateDto);
+            }
             onSuccess();
             onClose();
         } catch (err) {
-            console.error('Ошибка создания транзакции:', err);
+            console.error('Ошибка создания:', err);
         } finally {
             setLoading(false);
         }
@@ -83,6 +100,43 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         </Button>
                     </div>
 
+                    {/* Повторяется */}
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm text-muted-foreground">Повторяется</span>
+                        <button
+                            type="button"
+                            className={`relative w-10 h-5 rounded-full transition-colors ${recurring ? 'bg-primary' : 'bg-secondary'}`}
+                            onClick={() => setRecurring(r => !r)}
+                        >
+                            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${recurring ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                    </div>
+
+                    {recurring && (
+                        <div className="flex gap-2">
+                            <Select value={frequency} onValueChange={val => setFrequency(val as 'MONTHLY' | 'WEEKLY')}>
+                                <SelectTrigger className="flex-1">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="MONTHLY">Ежемесячно</SelectItem>
+                                    <SelectItem value="WEEKLY">Еженедельно</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            {frequency === 'MONTHLY' && (
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    max={28}
+                                    className="w-20"
+                                    placeholder="день"
+                                    value={dayOfMonth}
+                                    onChange={e => setDayOfMonth(Number(e.target.value))}
+                                />
+                            )}
+                        </div>
+                    )}
+
                     {/* Категория — отфильтрована по типу */}
                     <Select
                         value={form.categoryId || ''}
@@ -108,15 +162,17 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                     />
 
                     {/* Фактическая сумма — заполняется, если событие уже произошло */}
-                    <Input
-                        type="number"
-                        placeholder="Сумма (факт, если уже произошло), ₽"
-                        value={form.factAmount ?? ''}
-                        onChange={e => setForm(f => ({
-                            ...f,
-                            factAmount: e.target.value ? Number(e.target.value) : undefined,
-                        }))}
-                    />
+                    {!recurring && (
+                        <Input
+                            type="number"
+                            placeholder="Сумма (факт, если уже произошло), ₽"
+                            value={form.factAmount ?? ''}
+                            onChange={e => setForm(f => ({
+                                ...f,
+                                factAmount: e.target.value ? Number(e.target.value) : undefined,
+                            }))}
+                        />
+                    )}
 
                     {/* Дата */}
                     <Input

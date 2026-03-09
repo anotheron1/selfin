@@ -25,6 +25,34 @@ export interface FinancialEvent {
     description: string | null;
     rawInput: string | null;
     createdAt: string;
+    recurringRuleId?: string;
+}
+
+export type RecurringFrequency = 'MONTHLY' | 'WEEKLY';
+
+export interface RecurringRuleCreateDto {
+    categoryId: string;
+    eventType: 'INCOME' | 'EXPENSE' | 'FUND_TRANSFER';
+    targetFundId?: string;
+    plannedAmount: number;
+    mandatory?: boolean;
+    description?: string;
+    frequency: RecurringFrequency;
+    dayOfMonth?: number;
+    dayOfWeek?: string;
+    startDate: string;
+    endDate?: string;
+}
+
+export interface RecurringRuleDto {
+    id: string;
+    categoryId: string;
+    categoryName: string;
+    frequency: RecurringFrequency;
+    dayOfMonth?: number;
+    dayOfWeek?: string;
+    startDate: string;
+    endDate?: string;
 }
 
 export interface FinancialEventCreateDto {

@@ -5,6 +5,8 @@ import EditEventSheet from '../components/EditEventSheet';
 import { AlertTriangle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
+import { Button } from '../components/ui/button';
 
 const fmt = (n: number | null) =>
     n != null
@@ -59,6 +61,8 @@ export default function Budget() {
     const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
     const [cashGap, setCashGap] = useState<CashGapAlert | null>(null);
+    const [scopeDialogEvent, setScopeDialogEvent] = useState<FinancialEvent | null>(null);
+    const [eventScope, setEventScope] = useState<'THIS' | 'THIS_AND_FOLLOWING'>('THIS');
 
     const load = useCallback(() => {
         const start = formatDateYMD(new Date(year, month, 1));
@@ -140,7 +144,14 @@ export default function Budget() {
                                         const isExecuted = event.status === 'EXECUTED';
                                         return (
                                             <div key={event.id}
-                                                onClick={() => setSelectedEvent(event)}
+                                                onClick={() => {
+                                                    if (event.recurringRuleId) {
+                                                        setEventScope('THIS');
+                                                        setScopeDialogEvent(event);
+                                                    } else {
+                                                        setSelectedEvent(event);
+                                                    }
+                                                }}
                                                 className="px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors">
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
@@ -150,6 +161,9 @@ export default function Budget() {
                                                         )}
                                                         {isExecuted && (
                                                             <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
+                                                        )}
+                                                        {event.recurringRuleId && (
+                                                            <Badge variant="outline" className="text-xs border-primary/50 text-primary px-1.5 py-0">↻</Badge>
                                                         )}
                                                     </div>
                                                     {event.description && (
@@ -185,9 +199,43 @@ export default function Budget() {
             {selectedEvent && (
                 <EditEventSheet
                     event={selectedEvent}
-                    onClose={() => setSelectedEvent(null)}
-                    onSuccess={() => { setSelectedEvent(null); load(); }}
+                    scope={eventScope}
+                    onClose={() => { setSelectedEvent(null); setEventScope('THIS'); }}
+                    onSuccess={() => { setSelectedEvent(null); setEventScope('THIS'); load(); }}
                 />
+            )}
+            {scopeDialogEvent && !selectedEvent && (
+                <Sheet open onOpenChange={open => !open && setScopeDialogEvent(null)}>
+                    <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
+                        <SheetHeader>
+                            <SheetTitle>Изменить событие</SheetTitle>
+                            <SheetDescription>Это повторяющееся событие. Что изменить?</SheetDescription>
+                        </SheetHeader>
+                        <div className="flex flex-col gap-3 mt-4">
+                            <Button
+                                variant="secondary"
+                                className="w-full"
+                                onClick={() => {
+                                    setEventScope('THIS');
+                                    setSelectedEvent(scopeDialogEvent);
+                                    setScopeDialogEvent(null);
+                                }}
+                            >
+                                Только это событие
+                            </Button>
+                            <Button
+                                className="w-full"
+                                onClick={() => {
+                                    setEventScope('THIS_AND_FOLLOWING');
+                                    setSelectedEvent(scopeDialogEvent);
+                                    setScopeDialogEvent(null);
+                                }}
+                            >
+                                Это и все следующие
+                            </Button>
+                        </div>
+                    </SheetContent>
+                </Sheet>
             )}
         </>
     );
