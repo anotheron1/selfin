@@ -75,6 +75,10 @@ public class FinancialEvent {
     @Column(name = "raw_input", columnDefinition = "TEXT")
     private String rawInput;
 
+    /** FK to RecurringRule that generated this event. Null for one-off events. */
+    @Column(name = "recurring_rule_id")
+    private UUID recurringRuleId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
