@@ -1,7 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund } from '../api';
 import type { FundsOverview, TargetFund } from '../types/api';
-import { Wallet, Plus, ArrowDownToLine, Pencil, Trash2, X } from 'lucide-react';
+import { Wallet, Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
+import { Input } from '../components/ui/input';
+import { Button } from '../components/ui/button';
+import { Progress } from '../components/ui/progress';
+import { Badge } from '../components/ui/badge';
 
 const fmt = (n: number | null) =>
     n != null
@@ -32,53 +37,41 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center"
-            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-            onClick={onClose}>
-            <div className="w-full max-w-2xl rounded-t-2xl p-6 space-y-4"
-                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-                onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-between">
-                    <h2 className="font-semibold">Новый фонд</h2>
-                    <button onClick={onClose}><X size={20} style={{ color: 'var(--color-text-muted)' }} /></button>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-3">
-                    <input
+        <Sheet open onOpenChange={open => !open && onClose()}>
+            <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
+                <SheetHeader>
+                    <SheetTitle>Новый фонд</SheetTitle>
+                </SheetHeader>
+                <form onSubmit={handleSubmit} className="space-y-3 mt-4">
+                    <Input
                         autoFocus
                         placeholder="Название фонда (напр. «Отпуск»)"
                         value={name}
                         onChange={e => setName(e.target.value)}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
-                    <input
+                    <Input
                         type="number"
                         placeholder="Целевая сумма, ₽ (необязательно)"
                         value={target}
                         onChange={e => setTarget(e.target.value)}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
                     <div className="space-y-1">
                         <label className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Срок достижения (необязательно)</label>
-                        <input
+                        <Input
                             type="date"
                             value={targetDate}
                             onChange={e => setTargetDate(e.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm"
-                            style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                         />
                     </div>
-                    <button
+                    <Button
                         type="submit"
-                        disabled={loading || !name.trim()}
-                        className="w-full py-2.5 rounded-lg text-sm font-semibold text-white"
-                        style={{ background: 'var(--color-accent)', opacity: loading ? 0.7 : 1 }}>
+                        className="w-full"
+                        disabled={loading || !name.trim()}>
                         {loading ? 'Создаём...' : 'Создать фонд'}
-                    </button>
+                    </Button>
                 </form>
-            </div>
-        </div>
+            </SheetContent>
+        </Sheet>
     );
 }
 
@@ -106,42 +99,30 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center"
-            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-            onClick={onClose}>
-            <div className="w-full max-w-2xl rounded-t-2xl p-6 space-y-4"
-                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-                onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="font-semibold">Пополнить фонд</h2>
-                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                            {fund.name} · доступно {fmt(pocketBalance)}
-                        </p>
-                    </div>
-                    <button onClick={onClose}><X size={20} style={{ color: 'var(--color-text-muted)' }} /></button>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-3">
-                    <input
+        <Sheet open onOpenChange={open => !open && onClose()}>
+            <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
+                <SheetHeader>
+                    <SheetTitle>Пополнить фонд</SheetTitle>
+                    <SheetDescription>{fund.name} · доступно {fmt(pocketBalance)}</SheetDescription>
+                </SheetHeader>
+                <form onSubmit={handleSubmit} className="space-y-3 mt-4">
+                    <Input
                         autoFocus
                         type="number"
                         placeholder="Сумма, ₽"
                         max={pocketBalance}
                         value={amount}
                         onChange={e => setAmount(e.target.value)}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
-                    <button
+                    <Button
                         type="submit"
-                        disabled={loading || !amount || Number(amount) <= 0 || Number(amount) > pocketBalance}
-                        className="w-full py-2.5 rounded-lg text-sm font-semibold text-white"
-                        style={{ background: 'var(--color-accent)', opacity: loading ? 0.7 : 1 }}>
+                        className="w-full"
+                        disabled={loading || !amount || Number(amount) <= 0 || Number(amount) > pocketBalance}>
                         {loading ? 'Переводим...' : 'Перевести'}
-                    </button>
+                    </Button>
                 </form>
-            </div>
-        </div>
+            </SheetContent>
+        </Sheet>
     );
 }
 
@@ -183,60 +164,48 @@ function EditFundModal({ fund, onClose, onSuccess }: {
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center"
-            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-            onClick={onClose}>
-            <div className="w-full max-w-2xl rounded-t-2xl p-6 space-y-4"
-                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-                onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-between">
-                    <h2 className="font-semibold">Редактировать фонд</h2>
-                    <button onClick={onClose}><X size={20} style={{ color: 'var(--color-text-muted)' }} /></button>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-3">
-                    <input
+        <Sheet open onOpenChange={open => !open && onClose()}>
+            <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
+                <SheetHeader>
+                    <SheetTitle>Редактировать фонд</SheetTitle>
+                </SheetHeader>
+                <form onSubmit={handleSubmit} className="space-y-3 mt-4">
+                    <Input
                         autoFocus
                         placeholder="Название фонда"
                         value={name}
                         onChange={e => setName(e.target.value)}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
-                    <input
+                    <Input
                         type="number"
                         placeholder="Целевая сумма, ₽ (необязательно)"
                         value={target}
                         onChange={e => setTarget(e.target.value)}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
                     <div className="space-y-1">
                         <label className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Срок достижения (необязательно)</label>
-                        <input
+                        <Input
                             type="date"
                             value={targetDate}
                             onChange={e => setTargetDate(e.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm"
-                            style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                         />
                     </div>
-                    <button
+                    <Button
                         type="submit"
-                        disabled={loading || !name.trim()}
-                        className="w-full py-2.5 rounded-lg text-sm font-semibold text-white"
-                        style={{ background: 'var(--color-accent)', opacity: loading ? 0.7 : 1 }}>
+                        className="w-full"
+                        disabled={loading || !name.trim()}>
                         {loading ? 'Сохраняем...' : 'Сохранить'}
-                    </button>
+                    </Button>
                 </form>
-                <button
+                <Button
+                    variant="ghost"
+                    className="w-full mt-2 text-destructive hover:text-destructive flex items-center gap-2"
                     onClick={handleDelete}
-                    disabled={loading}
-                    className="w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
-                    style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--color-danger)', opacity: loading ? 0.7 : 1 }}>
+                    disabled={loading}>
                     <Trash2 size={15} /> Удалить фонд
-                </button>
-            </div>
-        </div>
+                </Button>
+            </SheetContent>
+        </Sheet>
     );
 }
 
@@ -258,33 +227,35 @@ function FundCard({ fund, pocketBalance, onTransfer, onEdit }: {
             <div className="flex justify-between items-start">
                 <div>
                     <h3 className="font-semibold">{fund.name}</h3>
-                    {reached && <span className="text-xs" style={{ color: 'var(--color-success)' }}>✓ Цель достигнута</span>}
+                    {reached && (
+                        <Badge variant="outline" className="text-xs border-green-500/60 text-green-500">Цель достигнута</Badge>
+                    )}
                 </div>
                 <div className="flex items-center gap-1.5">
                     <span className="text-2xl font-bold" style={{ color: 'var(--color-accent)' }}>{pct}%</span>
                     {!reached && pocketBalance > 0 && (
-                        <button
+                        <Button
+                            size="sm"
+                            variant="outline"
                             onClick={() => onTransfer(fund)}
-                            title="Пополнить из кармашка"
-                            className="p-1.5 rounded-lg"
-                            style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--color-accent)' }}>
+                            title="Пополнить из кармашка">
                             <ArrowDownToLine size={16} />
-                        </button>
+                        </Button>
                     )}
-                    <button
+                    <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => onEdit(fund)}
-                        title="Редактировать"
-                        className="p-1.5 rounded-lg"
-                        style={{ color: 'var(--color-text-muted)' }}>
+                        title="Редактировать">
                         <Pencil size={15} />
-                    </button>
+                    </Button>
                 </div>
             </div>
             {fund.targetAmount && (
-                <div className="h-3 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
-                    <div className="h-3 rounded-full transition-all"
-                        style={{ width: `${pct}%`, background: reached ? 'var(--color-success)' : 'var(--color-accent)' }} />
-                </div>
+                <Progress
+                    value={Math.min(100, (fund.currentBalance / fund.targetAmount) * 100)}
+                    className="h-2 mt-2"
+                />
             )}
             <div className="flex justify-between text-sm">
                 <span style={{ color: 'var(--color-text-muted)' }}>Накоплено</span>
@@ -343,12 +314,12 @@ export default function Funds() {
                 {/* Заголовок с кнопкой создания */}
                 <div className="flex items-center justify-between">
                     <h2 className="font-semibold">Копилки</h2>
-                    <button
+                    <Button
                         onClick={() => setShowCreate(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white"
-                        style={{ background: 'var(--color-accent)' }}>
+                        size="sm"
+                        className="flex items-center gap-1.5">
                         <Plus size={16} /> Создать
-                    </button>
+                    </Button>
                 </div>
 
                 {/* Карточки фондов */}
