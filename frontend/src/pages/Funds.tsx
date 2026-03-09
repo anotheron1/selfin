@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Badge } from '../components/ui/badge';
+import { ScrollArea } from '../components/ui/scroll-area';
 
 const fmt = (n: number | null) =>
     n != null
@@ -295,6 +296,7 @@ export default function Funds() {
 
     return (
         <>
+            <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
             <div className="px-4 py-6 space-y-5">
                 {/* Кармашек */}
                 <div className="rounded-2xl p-6 flex items-center justify-between"
@@ -339,6 +341,7 @@ export default function Funds() {
                     ))
                 )}
             </div>
+            </ScrollArea>
 
             {showCreate && (
                 <CreateFundModal
