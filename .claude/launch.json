@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend-dev",
+      "runtimeExecutable": "C:/nvm4w/nodejs/npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "C:/Users/Kirill/IdeaProjects/selfin/frontend",
+      "port": 5173
+    }
+  ]
+}
