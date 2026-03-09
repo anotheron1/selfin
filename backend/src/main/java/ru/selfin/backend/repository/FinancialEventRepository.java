@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 
 import java.math.BigDecimal;
@@ -47,4 +48,12 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
            "ELSE e.plannedAmount END), 0) " +
            "FROM FinancialEvent e WHERE e.type = :type AND e.deleted = false AND e.date >= :fromDate")
     BigDecimal sumEffectiveByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
+
+    /** All PLANNED events for a rule on or after fromDate — candidates for bulk update */
+    List<FinancialEvent> findAllByRecurringRuleIdAndDateGreaterThanEqualAndStatusAndDeletedFalse(
+            UUID recurringRuleId, LocalDate fromDate, EventStatus status);
+
+    /** Latest event date for a rule — used to determine whether to extend the horizon */
+    @Query("SELECT MAX(e.date) FROM FinancialEvent e WHERE e.recurringRuleId = :ruleId AND e.deleted = false")
+    Optional<LocalDate> findMaxDateByRecurringRuleId(@Param("ruleId") UUID ruleId);
 }

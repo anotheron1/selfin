@@ -200,6 +200,7 @@ public class FinancialEventService {
                                 e.getCategory().getId(), e.getCategory().getName(),
                                 e.getType(), e.getPlannedAmount(), e.getFactAmount(),
                                 e.getStatus(), e.isMandatory(), e.getDescription(),
-                                e.getRawInput(), e.getCreatedAt());
+                                e.getRawInput(), e.getCreatedAt(),
+                                e.getRecurringRuleId());
         }
 }
