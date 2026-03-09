@@ -3,6 +3,7 @@ package ru.selfin.backend.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.RecurringRuleCreateDto;
 import ru.selfin.backend.dto.RecurringRuleDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
@@ -113,6 +114,35 @@ public class RecurringRuleService {
             });
             eventRepository.saveAll(toUpdate);
         }
+    }
+
+    /**
+     * Convenience overload called from FinancialEventService when the caller has a
+     * FinancialEventCreateDto rather than a RecurringRuleCreateDto.
+     * Mutable fields (category, plannedAmount, mandatory, description) come from the event dto;
+     * schedule fields (frequency, dayOfMonth, dayOfWeek, startDate, endDate, eventType,
+     * targetFundId) are preserved from the existing rule so the series cadence is not disrupted.
+     */
+    @Transactional
+    public void updateThisAndFollowing(UUID ruleId, LocalDate fromDate, FinancialEventCreateDto dto) {
+        RecurringRule rule = ruleRepository.findById(ruleId)
+                .filter(r -> !r.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("RecurringRule", ruleId));
+
+        RecurringRuleCreateDto merged = new RecurringRuleCreateDto(
+                dto.categoryId(),
+                rule.getEventType(),
+                rule.getTargetFundId(),
+                dto.plannedAmount() != null ? dto.plannedAmount() : rule.getPlannedAmount(),
+                dto.mandatory(),
+                dto.description(),
+                rule.getFrequency(),
+                rule.getDayOfMonth(),
+                rule.getDayOfWeek(),
+                rule.getStartDate(),
+                rule.getEndDate()
+        );
+        updateThisAndFollowing(ruleId, fromDate, merged);
     }
 
     /**

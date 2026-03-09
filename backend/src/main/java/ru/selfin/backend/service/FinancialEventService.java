@@ -35,6 +35,7 @@ public class FinancialEventService {
 
         private final FinancialEventRepository eventRepository;
         private final CategoryRepository categoryRepository;
+        private final RecurringRuleService recurringRuleService;
 
         /**
          * Возвращает все не удалённые события за период {@code [start, end]} включительно,
@@ -94,7 +95,20 @@ public class FinancialEventService {
          * @throws ResourceNotFoundException если событие или категория не найдены / удалены
          */
         @Transactional
-        public FinancialEventDto update(UUID id, FinancialEventCreateDto dto) {
+        public FinancialEventDto update(UUID id, FinancialEventCreateDto dto, String scope) {
+                if ("THIS_AND_FOLLOWING".equals(scope)) {
+                        FinancialEvent event = eventRepository.findById(id)
+                                        .filter(e -> !e.isDeleted())
+                                        .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+                        if (event.getRecurringRuleId() != null) {
+                                recurringRuleService.updateThisAndFollowing(event.getRecurringRuleId(), event.getDate(), dto);
+                                // Re-fetch the event since it may have been updated in bulk
+                                event = eventRepository.findById(id).orElseThrow();
+                                return toDto(event);
+                        }
+                        // Fallthrough: no rule, treat as THIS
+                }
+
                 FinancialEvent event = eventRepository.findById(id)
                                 .filter(e -> !e.isDeleted())
                                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
@@ -104,6 +118,9 @@ public class FinancialEventService {
 
                 // Сохраняем старый факт ДО перезаписи — для корректного аудит-лога
                 BigDecimal oldFact = event.getFactAmount();
+
+                // Detach from recurring series: THIS edit applies only to this occurrence
+                event.setRecurringRuleId(null);
 
                 event.setDate(dto.date());
                 event.setCategory(category);
@@ -179,7 +196,16 @@ public class FinancialEventService {
          * @throws ResourceNotFoundException если событие не найдено
          */
         @Transactional
-        public void softDelete(UUID id) {
+        public void softDelete(UUID id, String scope) {
+                if ("THIS_AND_FOLLOWING".equals(scope)) {
+                        FinancialEvent event = eventRepository.findById(id)
+                                        .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+                        if (event.getRecurringRuleId() != null) {
+                                recurringRuleService.deleteThisAndFollowing(event.getRecurringRuleId(), event.getDate());
+                                return;
+                        }
+                }
+                // Fall through to single-event delete
                 FinancialEvent event = eventRepository.findById(id)
                                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
                 event.setDeleted(true);

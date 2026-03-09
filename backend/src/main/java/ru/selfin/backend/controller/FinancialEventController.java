@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
@@ -54,8 +54,9 @@ public class FinancialEventController {
     @PutMapping("/{id}")
     public FinancialEventDto update(
             @Parameter(description = "ID события") @PathVariable UUID id,
-            @Valid @RequestBody FinancialEventCreateDto dto) {
-        return eventService.update(id, dto);
+            @Valid @RequestBody FinancialEventCreateDto dto,
+            @RequestParam(defaultValue = "THIS") String scope) {
+        return eventService.update(id, dto, scope);
     }
 
     @Operation(summary = "Ввести фактическую сумму (частичное обновление)",
@@ -70,9 +71,10 @@ public class FinancialEventController {
 
     @Operation(summary = "Удалить событие (soft delete)")
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(
-            @Parameter(description = "ID события") @PathVariable UUID id) {
-        eventService.softDelete(id);
-        return ResponseEntity.noContent().build();
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(
+            @Parameter(description = "ID события") @PathVariable UUID id,
+            @RequestParam(defaultValue = "THIS") String scope) {
+        eventService.softDelete(id, scope);
     }
 }
