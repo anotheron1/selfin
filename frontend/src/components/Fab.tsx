@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { createEvent, fetchCategories } from '../api';
 import type { Category, FinancialEventCreateDto } from '../types/api';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 /**
  * Модальная форма быстрого добавления транзакции (bottom sheet).
@@ -9,7 +13,7 @@ import type { Category, FinancialEventCreateDto } from '../types/api';
  * Фильтрует категории по выбранному типу (INCOME/EXPENSE).
  * При успешном сохранении вызывает `onSuccess` для обновления данных родителя.
  *
- * @param onClose   вызывается при закрытии модала (крестик или успех)
+ * @param onClose   вызывается при закрытии модала
  * @param onSuccess вызывается после успешного создания события
  */
 function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
@@ -25,9 +29,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     // Загружаем категории при открытии модала — всегда свежий список
     useEffect(() => {
         setCatLoading(true);
-        fetchCategories()
-            .then(setCategories)
-            .finally(() => setCatLoading(false));
+        fetchCategories().then(setCategories).finally(() => setCatLoading(false));
     }, []);
 
     // При смене типа — сбрасываем выбранную категорию
@@ -54,62 +56,59 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center"
-            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-            <div className="w-full max-w-2xl rounded-t-2xl p-6"
-                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold">Быстрый ввод</h2>
-                    <button onClick={onClose} className="text-muted-400 hover:text-white">
-                        <X size={20} />
-                    </button>
-                </div>
-                <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-                    {/* Выбор типа */}
+        <Sheet open onOpenChange={open => !open && onClose()}>
+            <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
+                <SheetHeader>
+                    <SheetTitle>Быстрый ввод</SheetTitle>
+                </SheetHeader>
+                <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-4">
+                    {/* Тип: Расход / Доход */}
                     <div className="flex gap-2">
-                        <button type="button"
+                        <Button
+                            type="button"
+                            className="flex-1"
+                            variant={form.type === 'EXPENSE' ? 'destructive' : 'secondary'}
                             onClick={() => handleTypeChange('EXPENSE')}
-                            className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
-                            style={{
-                                background: form.type === 'EXPENSE' ? 'var(--color-danger)' : 'var(--color-surface-2)',
-                                color: form.type === 'EXPENSE' ? '#fff' : 'var(--color-text-muted)',
-                            }}>Расход</button>
-                        <button type="button"
+                        >
+                            Расход
+                        </Button>
+                        <Button
+                            type="button"
+                            className="flex-1"
+                            variant={form.type === 'INCOME' ? 'default' : 'secondary'}
+                            style={form.type === 'INCOME' ? { background: 'var(--color-success)' } : {}}
                             onClick={() => handleTypeChange('INCOME')}
-                            className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
-                            style={{
-                                background: form.type === 'INCOME' ? 'var(--color-success)' : 'var(--color-surface-2)',
-                                color: form.type === 'INCOME' ? '#fff' : 'var(--color-text-muted)',
-                            }}>Доход</button>
+                        >
+                            Доход
+                        </Button>
                     </div>
 
                     {/* Категория — отфильтрована по типу */}
-                    <select
-                        required
+                    <Select
                         value={form.categoryId || ''}
-                        onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-                        <option value="">
-                            {catLoading ? 'Загрузка...' : `Выбери категорию (${filteredCategories.length})`}
-                        </option>
-                        {filteredCategories.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                    </select>
+                        onValueChange={val => setForm(f => ({ ...f, categoryId: val }))}
+                        disabled={catLoading}
+                    >
+                        <SelectTrigger>
+                            <SelectValue placeholder={catLoading ? 'Загрузка...' : `Выбери категорию (${filteredCategories.length})`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {filteredCategories.map(c => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
 
                     {/* Плановая сумма */}
-                    <input
+                    <Input
                         type="number"
                         placeholder="Сумма (план), ₽"
                         value={form.plannedAmount ?? ''}
                         onChange={e => setForm(f => ({ ...f, plannedAmount: Number(e.target.value) }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
                     {/* Фактическая сумма — заполняется, если событие уже произошло */}
-                    <input
+                    <Input
                         type="number"
                         placeholder="Сумма (факт, если уже произошло), ₽"
                         value={form.factAmount ?? ''}
@@ -117,39 +116,32 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                             ...f,
                             factAmount: e.target.value ? Number(e.target.value) : undefined,
                         }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
                     {/* Дата */}
-                    <input
+                    <Input
                         type="date"
                         value={form.date || ''}
                         onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
                     {/* Комментарий */}
-                    <input
-                        type="text"
+                    <Input
                         placeholder="Комментарий (необязательно)"
                         value={form.description ?? ''}
                         onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
-                    <button
+                    <Button
                         type="submit"
+                        className="w-full"
                         disabled={loading || !form.categoryId}
-                        className="w-full py-3 rounded-lg font-semibold text-white transition-opacity"
-                        style={{ background: 'var(--color-accent)', opacity: (loading || !form.categoryId) ? 0.6 : 1 }}>
+                    >
                         {loading ? 'Сохраняем...' : 'Сохранить'}
-                    </button>
+                    </Button>
                 </form>
-            </div>
-        </div>
+            </SheetContent>
+        </Sheet>
     );
 }
 
