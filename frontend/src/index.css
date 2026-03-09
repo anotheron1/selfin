@@ -1,3 +1,6 @@
+/* Google Fonts: Inter */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -32,5 +35,36 @@ body {
   min-height: 100dvh;
 }
 
-/* Google Fonts: Inter */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@layer base {
+  :root {
+    --background: 240 27% 4%;
+    --foreground: 213 31% 91%;
+    --card: 240 23% 8%;
+    --card-foreground: 213 31% 91%;
+    --popover: 240 23% 8%;
+    --popover-foreground: 213 31% 91%;
+    --primary: 244 100% 69%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 23% 12%;
+    --secondary-foreground: 213 31% 91%;
+    --muted: 240 23% 12%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 240 23% 12%;
+    --accent-foreground: 213 31% 91%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 20% 20%;
+    --input: 240 20% 20%;
+    --ring: 244 100% 69%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
