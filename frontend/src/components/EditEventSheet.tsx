@@ -1,25 +1,16 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
 import { updateEvent } from '../api';
 import type { FinancialEvent, FinancialEventCreateDto } from '../types/api';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
 
 interface EditEventSheetProps {
-    /** Событие для редактирования; его поля предзаполняют форму. */
     event: FinancialEvent;
-    /** Вызывается при закрытии sheet (крестик, тап на оверлей, успех). */
     onClose: () => void;
-    /** Вызывается после успешного сохранения или удаления для обновления списка. */
     onSuccess: () => void;
 }
 
-/**
- * Bottom sheet для редактирования финансового события.
- * Позволяет ввести фактическую сумму и комментарий, либо удалить событие.
- *
- * Форма использует полный PUT-запрос (все поля события), а не PATCH,
- * так как компонент имеет доступ к полному объекту события.
- * Для обновления только факта из других контекстов используйте `patchEventFact` из api/index.ts.
- */
 export default function EditEventSheet({ event, onClose, onSuccess }: EditEventSheetProps) {
     const [factAmount, setFactAmount] = useState<string>(
         event.factAmount != null ? String(event.factAmount) : ''
@@ -68,73 +59,58 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         n != null ? new Intl.NumberFormat('ru-RU').format(n) + ' ₽' : '—';
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center"
-            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-            onClick={onClose}>
-            <div
-                className="w-full max-w-2xl rounded-t-2xl p-6 space-y-4"
-                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-                onClick={e => e.stopPropagation()}>
+        <Sheet open onOpenChange={(open) => !open && onClose()}>
+            <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
+                <SheetHeader>
+                    <SheetTitle>{event.categoryName}</SheetTitle>
+                    <SheetDescription className="text-xs">
+                        {new Date(event.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                        {' · '}План: {fmt(event.plannedAmount)}
+                    </SheetDescription>
+                </SheetHeader>
 
-                {/* Заголовок */}
-                <div className="flex items-center justify-between">
+                <form onSubmit={handleSubmit} className="space-y-3 mt-4">
                     <div>
-                        <h2 className="font-semibold text-base">{event.categoryName}</h2>
-                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                            {new Date(event.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
-                            {' · '}План: {fmt(event.plannedAmount)}
-                        </p>
-                    </div>
-                    <button onClick={onClose}><X size={20} style={{ color: 'var(--color-text-muted)' }} /></button>
-                </div>
-
-                {/* Форма */}
-                <form onSubmit={handleSubmit} className="space-y-3">
-                    <div>
-                        <label className="text-xs block mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                        <label className="text-xs text-muted-foreground block mb-1">
                             Фактическая сумма, ₽
                         </label>
-                        <input
+                        <Input
                             type="number"
                             placeholder={`План: ${event.plannedAmount ?? '—'}`}
                             value={factAmount}
                             onChange={e => setFactAmount(e.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm"
-                            style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                         />
                     </div>
                     <div>
-                        <label className="text-xs block mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                        <label className="text-xs text-muted-foreground block mb-1">
                             Комментарий
                         </label>
-                        <input
-                            type="text"
+                        <Input
                             placeholder="Добавить заметку..."
                             value={description}
                             onChange={e => setDescription(e.target.value)}
-                            className="w-full rounded-lg px-3 py-2 text-sm"
-                            style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                         />
                     </div>
                     <div className="flex gap-2 pt-1">
-                        <button
+                        <Button
                             type="button"
+                            variant="destructive"
+                            className="flex-1 bg-destructive/10 text-destructive hover:bg-destructive/20"
                             onClick={handleDelete}
                             disabled={loading}
-                            className="flex-1 py-2.5 rounded-lg text-sm font-medium"
-                            style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--color-danger)' }}>
+                        >
                             Удалить
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                             type="submit"
+                            className="flex-1"
                             disabled={loading}
-                            className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white"
-                            style={{ background: 'var(--color-accent)', opacity: loading ? 0.7 : 1 }}>
+                        >
                             {loading ? 'Сохраняем...' : 'Сохранить факт'}
-                        </button>
+                        </Button>
                     </div>
                 </form>
-            </div>
-        </div>
+            </SheetContent>
+        </Sheet>
     );
 }
