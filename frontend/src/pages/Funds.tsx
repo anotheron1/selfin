@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund } from '../api';
 import type { FundsOverview, TargetFund } from '../types/api';
 import { Wallet, Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
@@ -57,7 +58,7 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                         onChange={e => setTarget(e.target.value)}
                     />
                     <div className="space-y-1">
-                        <label className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Срок достижения (необязательно)</label>
+                        <label className="text-xs text-muted-foreground">Срок достижения (необязательно)</label>
                         <Input
                             type="date"
                             value={targetDate}
@@ -184,7 +185,7 @@ function EditFundModal({ fund, onClose, onSuccess }: {
                         onChange={e => setTarget(e.target.value)}
                     />
                     <div className="space-y-1">
-                        <label className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Срок достижения (необязательно)</label>
+                        <label className="text-xs text-muted-foreground">Срок достижения (необязательно)</label>
                         <Input
                             type="date"
                             value={targetDate}
@@ -255,7 +256,7 @@ function FundCard({ fund, pocketBalance, onTransfer, onEdit }: {
             {fund.targetAmount && (
                 <Progress
                     value={Math.min(100, (fund.currentBalance / fund.targetAmount) * 100)}
-                    className="h-2 mt-2"
+                    className={cn("h-2 mt-2", reached && "[&>div]:bg-[var(--color-success)]")}
                 />
             )}
             <div className="flex justify-between text-sm">
