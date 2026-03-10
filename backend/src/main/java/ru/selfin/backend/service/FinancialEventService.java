@@ -72,10 +72,15 @@ public class FinancialEventService {
                 return eventRepository.findByIdempotencyKey(idempotencyKey)
                                 .map(this::toDto)
                                 .orElseGet(() -> {
-                                        Category category = categoryRepository.findById(dto.categoryId())
-                                                        .filter(c -> !c.isDeleted())
-                                                        .orElseThrow(() -> new ResourceNotFoundException(
-                                                                        "Category", dto.categoryId()));
+                                        Category category;
+                                        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
+                                                category = targetFundService.getOrCreateFundTransferCategory();
+                                        } else {
+                                                category = categoryRepository.findById(dto.categoryId())
+                                                                .filter(c -> !c.isDeleted())
+                                                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                                                "Category", dto.categoryId()));
+                                        }
                                         FinancialEvent event = FinancialEvent.builder()
                                                         .idempotencyKey(idempotencyKey)
                                                         .date(dto.date())

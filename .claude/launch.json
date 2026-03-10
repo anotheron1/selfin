@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "frontend-dev",
-      "runtimeExecutable": "C:/nvm4w/nodejs/npm",
+      "runtimeExecutable": "C:/nvm4w/nodejs/npm.cmd",
       "runtimeArgs": ["run", "dev"],
       "cwd": "C:/Users/Kirill/IdeaProjects/selfin/frontend",
       "port": 5173
