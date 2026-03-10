@@ -10,6 +10,7 @@ import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.EventScope;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -95,8 +96,8 @@ public class FinancialEventService {
          * @throws ResourceNotFoundException если событие или категория не найдены / удалены
          */
         @Transactional
-        public FinancialEventDto update(UUID id, FinancialEventCreateDto dto, String scope) {
-                if ("THIS_AND_FOLLOWING".equals(scope)) {
+        public FinancialEventDto update(UUID id, FinancialEventCreateDto dto, EventScope scope) {
+                if (scope == EventScope.THIS_AND_FOLLOWING) {
                         FinancialEvent event = eventRepository.findById(id)
                                         .filter(e -> !e.isDeleted())
                                         .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
@@ -196,9 +197,10 @@ public class FinancialEventService {
          * @throws ResourceNotFoundException если событие не найдено
          */
         @Transactional
-        public void softDelete(UUID id, String scope) {
-                if ("THIS_AND_FOLLOWING".equals(scope)) {
+        public void softDelete(UUID id, EventScope scope) {
+                if (scope == EventScope.THIS_AND_FOLLOWING) {
                         FinancialEvent event = eventRepository.findById(id)
+                                        .filter(e -> !e.isDeleted())
                                         .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
                         if (event.getRecurringRuleId() != null) {
                                 recurringRuleService.deleteThisAndFollowing(event.getRecurringRuleId(), event.getDate());
@@ -207,6 +209,7 @@ public class FinancialEventService {
                 }
                 // Fall through to single-event delete
                 FinancialEvent event = eventRepository.findById(id)
+                                .filter(e -> !e.isDeleted())
                                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
                 event.setDeleted(true);
                 eventRepository.save(event);

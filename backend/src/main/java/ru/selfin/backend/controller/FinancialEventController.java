@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
+import ru.selfin.backend.model.enums.EventScope;
 import ru.selfin.backend.service.FinancialEventService;
 
 import java.time.LocalDate;
@@ -55,7 +56,7 @@ public class FinancialEventController {
     public FinancialEventDto update(
             @Parameter(description = "ID события") @PathVariable UUID id,
             @Valid @RequestBody FinancialEventCreateDto dto,
-            @RequestParam(defaultValue = "THIS") String scope) {
+            @RequestParam(defaultValue = "THIS") EventScope scope) {
         return eventService.update(id, dto, scope);
     }
 
@@ -74,7 +75,7 @@ public class FinancialEventController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(
             @Parameter(description = "ID события") @PathVariable UUID id,
-            @RequestParam(defaultValue = "THIS") String scope) {
+            @RequestParam(defaultValue = "THIS") EventScope scope) {
         eventService.softDelete(id, scope);
     }
 }

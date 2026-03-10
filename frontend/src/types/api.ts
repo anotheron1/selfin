@@ -48,6 +48,10 @@ export interface RecurringRuleDto {
     id: string;
     categoryId: string;
     categoryName: string;
+    eventType: EventType;
+    targetFundId?: string;
+    plannedAmount: number;
+    mandatory: boolean;
     frequency: RecurringFrequency;
     dayOfMonth?: number;
     dayOfWeek?: string;

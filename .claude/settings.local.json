@@ -69,7 +69,29 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/funds)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/analytics)",
       "Bash(xargs grep -l \"Update\\\\|TargetFund\")",
-      "Bash(xargs grep -l \"TargetFund\\\\|FundsOverview\")"
+      "Bash(xargs grep -l \"TargetFund\\\\|FundsOverview\")",
+      "Bash(npm install class-variance-authority clsx tailwind-merge tailwindcss-animate)",
+      "Bash(npm install -D @types/node)",
+      "Bash(npx shadcn@latest add button --yes)",
+      "Read(//c/nvm4w//**)",
+      "Read(//c/nvm4w/nodejs//**)",
+      "Bash(/c/nvm4w/v22.20.0/node.exe --version)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" node --version)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npm --version)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npx shadcn@latest add button --yes)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npx shadcn@latest add input --yes)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npx shadcn@latest add sheet --yes)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npx shadcn@latest add scroll-area --yes)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npx shadcn@latest add progress --yes)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npx shadcn@latest add select --yes)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npx shadcn@latest add dialog --yes)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" npm run build)",
+      "Bash(PATH=\"/c/nvm4w/v22.20.0:$PATH\" node /c/nvm4w/v22.20.0/node_modules/npm/bin/npm-cli.js run build)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(node --version)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(node -e \":*)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw compile)"
     ]
   }
 }

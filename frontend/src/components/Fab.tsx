@@ -23,6 +23,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         mandatory: false,
     });
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
     const [catLoading, setCatLoading] = useState(true);
     const [recurring, setRecurring] = useState(false);
@@ -47,6 +48,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         e.preventDefault();
         if (!form.categoryId || !form.date || !form.type) return;
         setLoading(true);
+        setError(null);
         try {
             if (recurring) {
                 const dto: RecurringRuleCreateDto = {
@@ -67,6 +69,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             onClose();
         } catch (err) {
             console.error('Ошибка создания:', err);
+            setError('Не удалось сохранить. Проверьте заполненные поля и попробуйте снова.');
         } finally {
             setLoading(false);
         }
@@ -188,6 +191,9 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
                     />
 
+                    {error && (
+                        <p className="text-sm text-destructive">{error}</p>
+                    )}
                     <Button
                         type="submit"
                         className="w-full"
