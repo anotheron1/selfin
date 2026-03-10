@@ -6,6 +6,7 @@ import {
 } from '../api';
 import type { BalanceCheckpoint, BudgetSnapshot, Category, CategoryType } from '../types/api';
 import { Plus, ShieldCheck, Shield, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
+import { ScrollArea } from '../components/ui/scroll-area';
 
 const inputStyle = {
     background: 'var(--color-surface-2)',
@@ -149,6 +150,7 @@ export default function Settings() {
 
     return (
         <>
+        <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
             <div className="px-4 py-6 space-y-6">
                 <h1 className="text-xl font-bold">Настройки</h1>
 
@@ -366,10 +368,7 @@ export default function Settings() {
                         ))}
                     </div>
                 ))}
-            </div>
-
-            {/* Снимки бюджета */}
-            <div className="px-4 pb-6">
+                {/* Снимки бюджета */}
                 <div className="rounded-2xl p-5 space-y-3"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                     <div className="flex items-center justify-between">
@@ -401,14 +400,15 @@ export default function Settings() {
                     ))}
                 </div>
             </div>
+        </ScrollArea>
 
-            {/* Toast */}
-            {toastMsg && (
-                <div className="fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-sm font-medium text-white z-[200] animate-pulse"
-                    style={{ background: 'var(--color-accent)', boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
-                    {toastMsg}
-                </div>
-            )}
+        {/* Toast */}
+        {toastMsg && (
+            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-sm font-medium text-white z-[200] animate-pulse"
+                style={{ background: 'var(--color-accent)', boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
+                {toastMsg}
+            </div>
+        )}
         </>
     );
 }

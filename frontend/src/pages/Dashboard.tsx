@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchDashboard, fetchAnalyticsReport } from '../api';
 import type { AnalyticsReport, DashboardData } from '../types/api';
 import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
+import { ScrollArea } from '../components/ui/scroll-area';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
@@ -39,6 +40,7 @@ export default function Dashboard() {
     const balancePositive = data.currentBalance >= 0;
 
     return (
+        <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
         <div className="px-4 py-6 space-y-5">
             {/* Hero: Текущий баланс */}
             <div className="rounded-2xl p-6 text-center space-y-2"
@@ -121,6 +123,7 @@ export default function Dashboard() {
                 </>
             )}
         </div>
+        </ScrollArea>
     );
 }
 
