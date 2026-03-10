@@ -13,6 +13,7 @@ import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,6 +36,7 @@ public class FinancialEventService {
 
         private final FinancialEventRepository eventRepository;
         private final CategoryRepository categoryRepository;
+        private final TargetFundRepository targetFundRepository;
 
         /**
          * Возвращает все не удалённые события за период {@code [start, end]} включительно,
@@ -78,6 +80,7 @@ public class FinancialEventService {
                                                         .mandatory(Boolean.TRUE.equals(dto.mandatory()))
                                                         .description(dto.description())
                                                         .rawInput(dto.rawInput())
+                                                        .targetFundId(dto.targetFundId())
                                                         .build();
                                         return toDto(eventRepository.save(event));
                                 });
@@ -113,6 +116,7 @@ public class FinancialEventService {
                 event.setMandatory(Boolean.TRUE.equals(dto.mandatory()));
                 event.setDescription(dto.description());
                 event.setRawInput(dto.rawInput());
+                event.setTargetFundId(dto.targetFundId());
                 // Авто-статус: если передан factAmount → EXECUTED, иначе оставляем PLANNED
                 if (dto.factAmount() != null && event.getStatus() == EventStatus.PLANNED) {
                         event.setStatus(EventStatus.EXECUTED);
@@ -195,11 +199,18 @@ public class FinancialEventService {
          * @return DTO с полными данными события
          */
         public FinancialEventDto toDto(FinancialEvent e) {
+                String fundName = null;
+                if (e.getTargetFundId() != null) {
+                        fundName = targetFundRepository.findById(e.getTargetFundId())
+                                        .map(f -> f.getName())
+                                        .orElse(null);
+                }
                 return new FinancialEventDto(
                                 e.getId(), e.getDate(),
                                 e.getCategory().getId(), e.getCategory().getName(),
                                 e.getType(), e.getPlannedAmount(), e.getFactAmount(),
                                 e.getStatus(), e.isMandatory(), e.getDescription(),
-                                e.getRawInput(), e.getCreatedAt());
+                                e.getRawInput(), e.getCreatedAt(),
+                                e.getTargetFundId(), fundName);
         }
 }
