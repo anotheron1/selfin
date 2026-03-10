@@ -2,6 +2,8 @@ package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
@@ -11,6 +13,7 @@ import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
+import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
@@ -37,6 +40,9 @@ public class FinancialEventService {
         private final FinancialEventRepository eventRepository;
         private final CategoryRepository categoryRepository;
         private final TargetFundRepository targetFundRepository;
+
+        @Autowired @Lazy
+        private TargetFundService targetFundService;
 
         /**
          * Возвращает все не удалённые события за период {@code [start, end]} включительно,
@@ -163,6 +169,16 @@ public class FinancialEventService {
                         event.setStatus(EventStatus.EXECUTED);
                 } else if (dto.factAmount() == null && event.getStatus() == EventStatus.EXECUTED) {
                         event.setStatus(EventStatus.PLANNED);
+                }
+
+                // Если это FUND_TRANSFER и исполняется впервые — выполняем реальный перевод в фонд
+                if (event.getType() == EventType.FUND_TRANSFER
+                                && event.getTargetFundId() != null
+                                && dto.factAmount() != null
+                                && oldFact == null
+                                && event.getIdempotencyKey() != null) {
+                        targetFundService.doTransferForEvent(
+                                        event.getTargetFundId(), dto.factAmount(), event.getIdempotencyKey());
                 }
 
                 // Аудит-лог
