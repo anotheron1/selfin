@@ -134,6 +134,33 @@ export interface AnalyticsReport {
     incomeGap: IncomeGap;
 }
 
+// --- Multi-month Analytics ---
+
+export type MultiMonthRowType =
+    | 'TOTAL_INCOME'
+    | 'TOTAL_EXPENSE'
+    | 'TOTAL_FUND_TRANSFER'
+    | 'CATEGORY'
+    | 'BALANCE';
+
+export interface MonthValue {
+    month: string;
+    planned: number;
+    actual: number | null;
+}
+
+export interface MultiMonthRow {
+    type: MultiMonthRowType;
+    label: string;
+    categoryType: CategoryType | null;
+    values: MonthValue[];
+}
+
+export interface MultiMonthReport {
+    months: string[];
+    rows: MultiMonthRow[];
+}
+
 // --- Balance Checkpoints ---
 
 export interface BalanceCheckpoint {
