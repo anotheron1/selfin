@@ -1,16 +1,17 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, CalendarDays, PiggyBank, Settings } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, PiggyBank, BarChart2, Settings } from 'lucide-react';
 
 const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Дашборд' },
     { to: '/budget', icon: CalendarDays, label: 'Бюджет' },
     { to: '/funds', icon: PiggyBank, label: 'Фонды' },
+    { to: '/analytics', icon: BarChart2, label: 'Аналитика' },
     { to: '/settings', icon: Settings, label: 'Настройки' },
 ];
 
 /**
  * Фиксированная нижняя навигационная панель приложения.
- * Содержит 4 вкладки: Дашборд, Бюджет, Фонды, Настройки.
+ * Содержит 5 вкладок: Дашборд, Бюджет, Фонды, Аналитика, Настройки.
  * Активная вкладка подсвечивается акцентным цветом через `NavLink`.
  * Высота задана CSS-переменной `--nav-height` (64px) и учитывается в отступах страниц.
  */

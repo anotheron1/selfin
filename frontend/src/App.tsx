@@ -3,6 +3,7 @@ import { useState } from 'react';
 
 import BottomNav from './components/BottomNav';
 import Fab from './components/Fab';
+import Analytics from './pages/Analytics';
 import Dashboard from './pages/Dashboard';
 import Budget from './pages/Budget';
 import Funds from './pages/Funds';
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/" element={<Dashboard key={refreshKey} />} />
             <Route path="/budget" element={<Budget key={refreshKey} />} />
             <Route path="/funds" element={<Funds key={refreshKey} />} />
+            <Route path="/analytics" element={<Analytics />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
