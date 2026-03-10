@@ -10,11 +10,12 @@ import java.util.UUID;
 
 public record FinancialEventCreateDto(
                 @NotNull LocalDate date,
-                @NotNull UUID categoryId,
+                UUID categoryId,
                 @NotNull EventType type,
                 @PositiveOrZero BigDecimal plannedAmount,
                 @PositiveOrZero BigDecimal factAmount,
                 Boolean mandatory,
                 String description,
-                String rawInput) {
+                String rawInput,
+                UUID targetFundId) {
 }

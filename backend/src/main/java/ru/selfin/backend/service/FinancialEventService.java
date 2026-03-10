@@ -2,6 +2,8 @@ package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
@@ -11,8 +13,10 @@ import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
+import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,6 +39,10 @@ public class FinancialEventService {
 
         private final FinancialEventRepository eventRepository;
         private final CategoryRepository categoryRepository;
+        private final TargetFundRepository targetFundRepository;
+
+        @Autowired @Lazy
+        private TargetFundService targetFundService;
 
         /**
          * Возвращает все не удалённые события за период {@code [start, end]} включительно,
@@ -64,10 +72,15 @@ public class FinancialEventService {
                 return eventRepository.findByIdempotencyKey(idempotencyKey)
                                 .map(this::toDto)
                                 .orElseGet(() -> {
-                                        Category category = categoryRepository.findById(dto.categoryId())
-                                                        .filter(c -> !c.isDeleted())
-                                                        .orElseThrow(() -> new ResourceNotFoundException(
-                                                                        "Category", dto.categoryId()));
+                                        Category category;
+                                        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
+                                                category = targetFundService.getOrCreateFundTransferCategory();
+                                        } else {
+                                                category = categoryRepository.findById(dto.categoryId())
+                                                                .filter(c -> !c.isDeleted())
+                                                                .orElseThrow(() -> new ResourceNotFoundException(
+                                                                                "Category", dto.categoryId()));
+                                        }
                                         FinancialEvent event = FinancialEvent.builder()
                                                         .idempotencyKey(idempotencyKey)
                                                         .date(dto.date())
@@ -78,6 +91,7 @@ public class FinancialEventService {
                                                         .mandatory(Boolean.TRUE.equals(dto.mandatory()))
                                                         .description(dto.description())
                                                         .rawInput(dto.rawInput())
+                                                        .targetFundId(dto.targetFundId())
                                                         .build();
                                         return toDto(eventRepository.save(event));
                                 });
@@ -113,6 +127,7 @@ public class FinancialEventService {
                 event.setMandatory(Boolean.TRUE.equals(dto.mandatory()));
                 event.setDescription(dto.description());
                 event.setRawInput(dto.rawInput());
+                event.setTargetFundId(dto.targetFundId());
                 // Авто-статус: если передан factAmount → EXECUTED, иначе оставляем PLANNED
                 if (dto.factAmount() != null && event.getStatus() == EventStatus.PLANNED) {
                         event.setStatus(EventStatus.EXECUTED);
@@ -161,6 +176,16 @@ public class FinancialEventService {
                         event.setStatus(EventStatus.PLANNED);
                 }
 
+                // Если это FUND_TRANSFER и исполняется впервые — выполняем реальный перевод в фонд
+                if (event.getType() == EventType.FUND_TRANSFER
+                                && event.getTargetFundId() != null
+                                && dto.factAmount() != null
+                                && oldFact == null
+                                && event.getIdempotencyKey() != null) {
+                        targetFundService.doTransferForEvent(
+                                        event.getTargetFundId(), dto.factAmount(), event.getIdempotencyKey());
+                }
+
                 // Аудит-лог
                 BigDecimal delta = (dto.factAmount() != null ? dto.factAmount() : BigDecimal.ZERO)
                                 .subtract(oldFact != null ? oldFact : BigDecimal.ZERO);
@@ -195,11 +220,18 @@ public class FinancialEventService {
          * @return DTO с полными данными события
          */
         public FinancialEventDto toDto(FinancialEvent e) {
+                String fundName = null;
+                if (e.getTargetFundId() != null) {
+                        fundName = targetFundRepository.findById(e.getTargetFundId())
+                                        .map(f -> f.getName())
+                                        .orElse(null);
+                }
                 return new FinancialEventDto(
                                 e.getId(), e.getDate(),
                                 e.getCategory().getId(), e.getCategory().getName(),
                                 e.getType(), e.getPlannedAmount(), e.getFactAmount(),
                                 e.getStatus(), e.isMandatory(), e.getDescription(),
-                                e.getRawInput(), e.getCreatedAt());
+                                e.getRawInput(), e.getCreatedAt(),
+                                e.getTargetFundId(), fundName);
         }
 }

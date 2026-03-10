@@ -20,5 +20,7 @@ public record FinancialEventDto(
         boolean mandatory,
         String description,
         String rawInput,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt,
+        UUID targetFundId,
+        String targetFundName) {
 }

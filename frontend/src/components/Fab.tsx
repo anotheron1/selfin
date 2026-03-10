@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Plus, X } from 'lucide-react';
-import { createEvent, fetchCategories } from '../api';
-import type { Category, FinancialEventCreateDto } from '../types/api';
+import { Plus } from 'lucide-react';
+import { createEvent, fetchCategories, fetchFunds } from '../api';
+import type { Category, FinancialEventCreateDto, TargetFund } from '../types/api';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 /**
  * Модальная форма быстрого добавления транзакции (bottom sheet).
- * Загружает категории внутри себя при открытии — всегда актуальный список.
- * Фильтрует категории по выбранному типу (INCOME/EXPENSE).
+ * Поддерживает типы: Расход, Доход, В копилку (FUND_TRANSFER).
  * При успешном сохранении вызывает `onSuccess` для обновления данных родителя.
- *
- * @param onClose   вызывается при закрытии модала (крестик или успех)
- * @param onSuccess вызывается после успешного создания события
  */
 function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
     const [form, setForm] = useState<Partial<FinancialEventCreateDto>>({
@@ -19,137 +19,170 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         mandatory: false,
     });
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
     const [catLoading, setCatLoading] = useState(true);
+    const [funds, setFunds] = useState<TargetFund[]>([]);
+    const [fundsLoading, setFundsLoading] = useState(false);
 
-    // Загружаем категории при открытии модала — всегда свежий список
     useEffect(() => {
         setCatLoading(true);
-        fetchCategories()
-            .then(setCategories)
-            .finally(() => setCatLoading(false));
+        fetchCategories().then(setCategories).finally(() => setCatLoading(false));
     }, []);
 
-    // При смене типа — сбрасываем выбранную категорию
-    const handleTypeChange = (type: 'EXPENSE' | 'INCOME') => {
-        setForm(f => ({ ...f, type, categoryId: undefined }));
+    useEffect(() => {
+        if (form.type === 'FUND_TRANSFER') {
+            setFundsLoading(true);
+            fetchFunds().then(data => setFunds(data.funds)).finally(() => setFundsLoading(false));
+        }
+    }, [form.type]);
+
+    const handleTypeChange = (type: 'EXPENSE' | 'INCOME' | 'FUND_TRANSFER') => {
+        setForm(f => ({ ...f, type, categoryId: undefined, targetFundId: undefined }));
     };
 
-    // Фильтруем категории по выбранному типу
     const filteredCategories = categories.filter(c => c.type === form.type);
+    const activeFunds = funds.filter(f => f.status !== 'REACHED');
+
+    const isFundTransfer = form.type === 'FUND_TRANSFER';
+    const canSubmit = isFundTransfer
+        ? !!form.targetFundId
+        : !!form.categoryId;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!form.categoryId || !form.date || !form.type) return;
+        if (!canSubmit || !form.date || !form.type) return;
         setLoading(true);
+        setError(null);
         try {
             await createEvent(form as FinancialEventCreateDto);
             onSuccess();
             onClose();
         } catch (err) {
             console.error('Ошибка создания транзакции:', err);
+            setError('Не удалось сохранить. Проверьте заполненные поля и попробуйте снова.');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center"
-            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-            <div className="w-full max-w-2xl rounded-t-2xl p-6"
-                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold">Быстрый ввод</h2>
-                    <button onClick={onClose} className="text-muted-400 hover:text-white">
-                        <X size={20} />
-                    </button>
-                </div>
-                <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-                    {/* Выбор типа */}
+        <Sheet open onOpenChange={open => !open && onClose()}>
+            <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
+                <SheetHeader>
+                    <SheetTitle>Быстрый ввод</SheetTitle>
+                </SheetHeader>
+                <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-4">
+                    {/* Тип: Расход / Доход / В копилку */}
                     <div className="flex gap-2">
-                        <button type="button"
+                        <Button
+                            type="button"
+                            className="flex-1"
+                            variant={form.type === 'EXPENSE' ? 'destructive' : 'secondary'}
                             onClick={() => handleTypeChange('EXPENSE')}
-                            className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
-                            style={{
-                                background: form.type === 'EXPENSE' ? 'var(--color-danger)' : 'var(--color-surface-2)',
-                                color: form.type === 'EXPENSE' ? '#fff' : 'var(--color-text-muted)',
-                            }}>Расход</button>
-                        <button type="button"
+                        >
+                            Расход
+                        </Button>
+                        <Button
+                            type="button"
+                            className="flex-1"
+                            variant={form.type === 'INCOME' ? 'default' : 'secondary'}
+                            style={form.type === 'INCOME' ? { background: 'var(--color-success)' } : {}}
                             onClick={() => handleTypeChange('INCOME')}
-                            className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
-                            style={{
-                                background: form.type === 'INCOME' ? 'var(--color-success)' : 'var(--color-surface-2)',
-                                color: form.type === 'INCOME' ? '#fff' : 'var(--color-text-muted)',
-                            }}>Доход</button>
+                        >
+                            Доход
+                        </Button>
+                        <Button
+                            type="button"
+                            className="flex-1"
+                            variant={form.type === 'FUND_TRANSFER' ? 'default' : 'secondary'}
+                            style={form.type === 'FUND_TRANSFER' ? { background: 'hsl(var(--primary))' } : {}}
+                            onClick={() => handleTypeChange('FUND_TRANSFER')}
+                        >
+                            В копилку
+                        </Button>
                     </div>
 
-                    {/* Категория — отфильтрована по типу */}
-                    <select
-                        required
-                        value={form.categoryId || ''}
-                        onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-                        <option value="">
-                            {catLoading ? 'Загрузка...' : `Выбери категорию (${filteredCategories.length})`}
-                        </option>
-                        {filteredCategories.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                    </select>
+                    {/* Выбор копилки — только для FUND_TRANSFER */}
+                    {isFundTransfer ? (
+                        <Select
+                            value={form.targetFundId || ''}
+                            onValueChange={val => setForm(f => ({ ...f, targetFundId: val }))}
+                            disabled={fundsLoading}
+                        >
+                            <SelectTrigger>
+                                <SelectValue placeholder={fundsLoading ? 'Загрузка...' : 'Выбери копилку'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {activeFunds.map(f => (
+                                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    ) : (
+                        /* Категория — отфильтрована по типу */
+                        <Select
+                            value={form.categoryId || ''}
+                            onValueChange={val => setForm(f => ({ ...f, categoryId: val }))}
+                            disabled={catLoading}
+                        >
+                            <SelectTrigger>
+                                <SelectValue placeholder={catLoading ? 'Загрузка...' : `Выбери категорию (${filteredCategories.length})`} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {filteredCategories.map(c => (
+                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    )}
 
                     {/* Плановая сумма */}
-                    <input
+                    <Input
                         type="number"
                         placeholder="Сумма (план), ₽"
                         value={form.plannedAmount ?? ''}
                         onChange={e => setForm(f => ({ ...f, plannedAmount: Number(e.target.value) }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
-                    {/* Фактическая сумма — заполняется, если событие уже произошло */}
-                    <input
+                    {/* Фактическая сумма */}
+                    <Input
                         type="number"
-                        placeholder="Сумма (факт, если уже произошло), ₽"
+                        placeholder={isFundTransfer ? 'Сумма (если уже перевёл), ₽' : 'Сумма (факт, если уже произошло), ₽'}
                         value={form.factAmount ?? ''}
                         onChange={e => setForm(f => ({
                             ...f,
                             factAmount: e.target.value ? Number(e.target.value) : undefined,
                         }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
                     {/* Дата */}
-                    <input
+                    <Input
                         type="date"
                         value={form.date || ''}
                         onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
                     {/* Комментарий */}
-                    <input
-                        type="text"
+                    <Input
                         placeholder="Комментарий (необязательно)"
                         value={form.description ?? ''}
                         onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
-                        className="w-full rounded-lg px-3 py-2 text-sm"
-                        style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
 
-                    <button
+                    {error && (
+                        <p className="text-sm text-destructive">{error}</p>
+                    )}
+                    <Button
                         type="submit"
-                        disabled={loading || !form.categoryId}
-                        className="w-full py-3 rounded-lg font-semibold text-white transition-opacity"
-                        style={{ background: 'var(--color-accent)', opacity: (loading || !form.categoryId) ? 0.6 : 1 }}>
+                        className="w-full"
+                        disabled={loading || !canSubmit}
+                    >
                         {loading ? 'Сохраняем...' : 'Сохранить'}
-                    </button>
+                    </Button>
                 </form>
-            </div>
-        </div>
+            </SheetContent>
+        </Sheet>
     );
 }
 
@@ -160,8 +193,6 @@ interface FabProps {
 
 /**
  * Floating Action Button (FAB) — фиксированная кнопка быстрого добавления транзакции.
- * Отображается поверх всего контента, позиционируется над нижней навигацией.
- * По клику открывает `QuickAddModal` в виде bottom sheet.
  */
 export default function Fab({ onSuccess }: FabProps) {
     const [open, setOpen] = useState(false);

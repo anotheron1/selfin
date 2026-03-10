@@ -25,17 +25,20 @@ export interface FinancialEvent {
     description: string | null;
     rawInput: string | null;
     createdAt: string;
+    targetFundId?: string;
+    targetFundName?: string;
 }
 
 export interface FinancialEventCreateDto {
     date: string;
-    categoryId: string;
+    categoryId?: string;
     type: EventType;
     plannedAmount?: number;
     factAmount?: number;
     mandatory?: boolean;
     description?: string;
     rawInput?: string;
+    targetFundId?: string;
 }
 
 export interface CashGapAlert {

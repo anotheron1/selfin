@@ -82,6 +82,10 @@ public class FinancialEvent {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    /** FK to target_fund. Populated only when type = FUND_TRANSFER. */
+    @Column(name = "target_fund_id")
+    private UUID targetFundId;
+
     @Column(name = "is_deleted", nullable = false)
     @Builder.Default
     private boolean deleted = false;

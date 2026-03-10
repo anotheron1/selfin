@@ -3,6 +3,8 @@ import { fetchEvents, fetchDashboard } from '../api';
 import type { CashGapAlert, FinancialEvent } from '../types/api';
 import EditEventSheet from '../components/EditEventSheet';
 import { AlertTriangle } from 'lucide-react';
+import { Badge } from '../components/ui/badge';
+import { ScrollArea } from '../components/ui/scroll-area';
 
 const fmt = (n: number | null) =>
     n != null
@@ -79,6 +81,7 @@ export default function Budget() {
 
     return (
         <>
+            <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
             <div className="px-4 py-6 space-y-4">
                 {/* Навигация по месяцу */}
                 <div className="flex items-center justify-between mb-2">
@@ -134,21 +137,28 @@ export default function Budget() {
                                         const delta = event.factAmount != null && event.plannedAmount != null
                                             ? event.factAmount - event.plannedAmount : null;
                                         const isIncome = event.type === 'INCOME';
+                                        const isFundTransfer = event.type === 'FUND_TRANSFER';
                                         const isExecuted = event.status === 'EXECUTED';
+                                        const displayName = isFundTransfer
+                                            ? `↪ ${event.targetFundName ?? 'Копилка'}`
+                                            : event.categoryName;
+                                        const amountColor = isIncome
+                                            ? 'var(--color-success)'
+                                            : isFundTransfer
+                                                ? 'hsl(var(--primary))'
+                                                : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
                                         return (
                                             <div key={event.id}
                                                 onClick={() => setSelectedEvent(event)}
                                                 className="px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors">
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-sm truncate">{event.categoryName}</span>
+                                                        <span className="font-medium text-sm truncate">{displayName}</span>
                                                         {event.mandatory && (
-                                                            <span className="text-xs px-1.5 py-0.5 rounded"
-                                                                style={{ background: 'rgba(239,68,68,0.2)', color: 'var(--color-danger)' }}>обяз</span>
+                                                            <Badge variant="outline" className="text-xs border-destructive/60 text-destructive px-1.5 py-0">обяз</Badge>
                                                         )}
                                                         {isExecuted && (
-                                                            <span className="text-xs px-1.5 py-0.5 rounded"
-                                                                style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--color-success)' }}>✓</span>
+                                                            <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
                                                         )}
                                                     </div>
                                                     {event.description && (
@@ -156,8 +166,7 @@ export default function Budget() {
                                                     )}
                                                 </div>
                                                 <div className="text-right shrink-0 space-y-0.5">
-                                                    <div className="text-sm font-semibold"
-                                                        style={{ color: isIncome ? 'var(--color-success)' : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)' }}>
+                                                    <div className="text-sm font-semibold" style={{ color: amountColor }}>
                                                         {isIncome ? '+' : '-'}{fmt(event.plannedAmount)}
                                                     </div>
                                                     {event.factAmount != null && (
@@ -180,6 +189,7 @@ export default function Budget() {
                     );
                 })}
             </div>
+            </ScrollArea>
             {selectedEvent && (
                 <EditEventSheet
                     event={selectedEvent}
