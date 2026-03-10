@@ -9,11 +9,16 @@ import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.FundTransaction;
 import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.CategoryType;
+import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundStatus;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
+import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
@@ -65,6 +70,7 @@ public class TargetFundService {
     private final FundTransactionRepository transactionRepository;
     private final FinancialEventRepository eventRepository;
     private final BalanceCheckpointRepository checkpointRepository;
+    private final CategoryRepository categoryRepository;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -233,10 +239,73 @@ public class TargetFundService {
                 .build();
         transactionRepository.save(tx);
 
+        // Создаём EXECUTED событие типа FUND_TRANSFER для видимости в бюджете
+        Category category = getOrCreateFundTransferCategory();
+        FinancialEvent transferEvent = FinancialEvent.builder()
+                .type(EventType.FUND_TRANSFER)
+                .status(EventStatus.EXECUTED)
+                .factAmount(amount)
+                .date(LocalDate.now())
+                .category(category)
+                .targetFundId(fund.getId())
+                .description("В копилку: " + fund.getName())
+                .build();
+        eventRepository.save(transferEvent);
+
         log.info("fund_transfer fund_id={} amount={} balance_before={} balance_after={} key={}",
                 fundId, amount, oldBalance, newBalance, idempotencyKey);
 
         return toDto(fund);
+    }
+
+    /**
+     * Выполняет перевод в фонд для уже существующего FUND_TRANSFER события.
+     * Не создаёт новое FinancialEvent — оно уже есть.
+     * Идемпотентен по idempotencyKey.
+     *
+     * @param fundId          идентификатор фонда
+     * @param amount          сумма пополнения
+     * @param idempotencyKey  ключ идемпотентности события
+     */
+    @Transactional
+    public void doTransferForEvent(UUID fundId, BigDecimal amount, UUID idempotencyKey) {
+        if (transactionRepository.existsByIdempotencyKey(idempotencyKey)) return;
+
+        TargetFund fund = fundRepository.findById(fundId)
+                .filter(f -> !f.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
+
+        BigDecimal newBalance = fund.getCurrentBalance().add(amount);
+        fund.setCurrentBalance(newBalance);
+        if (fund.getTargetAmount() != null && newBalance.compareTo(fund.getTargetAmount()) >= 0) {
+            fund.setStatus(FundStatus.REACHED);
+        }
+        fundRepository.save(fund);
+
+        FundTransaction tx = FundTransaction.builder()
+                .fund(fund)
+                .idempotencyKey(idempotencyKey)
+                .amount(amount)
+                .transactionDate(LocalDate.now())
+                .build();
+        transactionRepository.save(tx);
+
+        log.info("fund_transfer_for_event fund_id={} amount={} balance_after={} key={}",
+                fundId, amount, newBalance, idempotencyKey);
+    }
+
+    /**
+     * Возвращает или создаёт системную категорию "Переводы в копилки".
+     */
+    Category getOrCreateFundTransferCategory() {
+        return categoryRepository.findByNameAndDeletedFalse("Переводы в копилки")
+                .orElseGet(() -> {
+                    Category c = Category.builder()
+                            .name("Переводы в копилки")
+                            .type(CategoryType.EXPENSE)
+                            .build();
+                    return categoryRepository.save(c);
+                });
     }
 
     /**

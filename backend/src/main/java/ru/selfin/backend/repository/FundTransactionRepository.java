@@ -11,5 +11,7 @@ import java.util.UUID;
 public interface FundTransactionRepository extends JpaRepository<FundTransaction, UUID> {
     Optional<FundTransaction> findByIdempotencyKey(UUID idempotencyKey);
 
+    boolean existsByIdempotencyKey(UUID idempotencyKey);
+
     List<FundTransaction> findByFundIdAndDeletedFalseAndTransactionDateAfter(UUID fundId, LocalDate since);
 }
