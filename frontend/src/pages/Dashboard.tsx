@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
-import { fetchDashboard, fetchAnalyticsReport } from '../api';
-import type { AnalyticsReport, DashboardData } from '../types/api';
+import { fetchDashboard, fetchAnalyticsReport, fetchEvents } from '../api';
+import type { AnalyticsReport, DashboardData, FinancialEvent } from '../types/api';
 import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
+import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
+
+const fmtAmt = (n: number | null) => n != null ? fmt(n) : '—';
 
 const fmtDay = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
@@ -16,15 +19,19 @@ function deltaColor(delta: number): string {
 }
 
 export default function Dashboard() {
+    const todayStr = new Date().toISOString().slice(0, 10);
+
     const [data, setData] = useState<DashboardData | null>(null);
     const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
+    const [todayEvents, setTodayEvents] = useState<FinancialEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        Promise.all([fetchDashboard(), fetchAnalyticsReport()])
-            .then(([dash, rep]) => {
+        Promise.all([fetchDashboard(), fetchAnalyticsReport(), fetchEvents(todayStr, todayStr)])
+            .then(([dash, rep, evts]) => {
                 setData(dash);
                 setAnalytics(rep);
+                setTodayEvents(evts);
             })
             .catch(e => setError(e.message));
     }, []);
@@ -39,22 +46,101 @@ export default function Dashboard() {
 
     const balancePositive = data.currentBalance >= 0;
 
+    // Прогноз конца дня: currentBalance + плановые суммы ещё не исполненных событий сегодня
+    const unexecutedToday = todayEvents.filter(e => e.status === 'PLANNED');
+    const endOfDayForecast = unexecutedToday.reduce((bal, e) => {
+        const amt = e.plannedAmount ?? 0;
+        return e.type === 'INCOME' ? bal + amt : bal - amt;
+    }, data.currentBalance);
+    const hasUnexecutedToday = unexecutedToday.length > 0;
+
+    const incomeToday = todayEvents.filter(e => e.type === 'INCOME');
+    const expenseToday = todayEvents.filter(e => e.type === 'EXPENSE' || e.type === 'FUND_TRANSFER');
+
     return (
         <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
-        <div className="px-4 py-6 space-y-5">
-            {/* Hero: Текущий баланс */}
-            <div className="rounded-2xl p-6 text-center space-y-2"
+        <div className="pl-4 pr-5 py-6 space-y-5">
+            {/* Hero: Текущий баланс + события сегодня */}
+            <div className="rounded-2xl p-5 space-y-3"
                 style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Баланс на сегодня</p>
-                <p className="text-5xl font-bold tracking-tight"
-                    style={{ color: balancePositive ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                    {fmt(data.currentBalance)}
-                </p>
-                <div className="flex items-center justify-center gap-2 text-sm"
-                    style={{ color: 'var(--color-text-muted)' }}>
-                    {data.endOfMonthForecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                    <span>Прогноз на конец месяца: <b style={{ color: data.endOfMonthForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>{fmt(data.endOfMonthForecast)}</b></span>
+
+                {/* Главное число */}
+                <div className="text-center space-y-1">
+                    <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Текущий баланс</p>
+                    <p className="text-5xl font-bold tracking-tight"
+                        style={{ color: balancePositive ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                        {fmt(data.currentBalance)}
+                    </p>
+                    <div className="flex items-center justify-center gap-2 text-sm"
+                        style={{ color: 'var(--color-text-muted)' }}>
+                        {data.endOfMonthForecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        <span>Прогноз конец месяца:{' '}
+                            <b style={{ color: data.endOfMonthForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                                {fmt(data.endOfMonthForecast)}
+                            </b>
+                        </span>
+                    </div>
                 </div>
+
+                {/* События сегодня */}
+                {todayEvents.length > 0 && (
+                    <div className="pt-2 border-t space-y-2" style={{ borderColor: 'var(--color-border)' }}>
+                        <p className="text-xs font-semibold uppercase" style={{ color: 'var(--color-text-muted)' }}>
+                            Сегодня
+                        </p>
+
+                        {/* Доходы */}
+                        {incomeToday.map(e => (
+                            <div key={e.id} className="flex items-center justify-between gap-2 text-sm">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <span className="truncate">{e.categoryName}</span>
+                                    {e.mandatory && (
+                                        <Badge variant="outline" className="text-xs border-destructive/60 text-destructive px-1.5 py-0 shrink-0">обяз</Badge>
+                                    )}
+                                    {e.status === 'EXECUTED' && (
+                                        <span className="text-xs shrink-0" style={{ color: 'var(--color-success)' }}>✓</span>
+                                    )}
+                                </div>
+                                <span className="font-medium shrink-0" style={{ color: 'var(--color-success)' }}>
+                                    +{fmtAmt(e.factAmount ?? e.plannedAmount)}
+                                </span>
+                            </div>
+                        ))}
+
+                        {/* Расходы и переводы в копилку */}
+                        {expenseToday.map(e => (
+                            <div key={e.id} className="flex items-center justify-between gap-2 text-sm">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <span className="truncate">
+                                        {e.type === 'FUND_TRANSFER'
+                                            ? `↪ ${e.targetFundName ?? 'Копилка'}`
+                                            : e.categoryName}
+                                    </span>
+                                    {e.mandatory && (
+                                        <Badge variant="outline" className="text-xs border-destructive/60 text-destructive px-1.5 py-0 shrink-0">обяз</Badge>
+                                    )}
+                                    {e.status === 'EXECUTED' && (
+                                        <span className="text-xs shrink-0" style={{ color: 'var(--color-success)' }}>✓</span>
+                                    )}
+                                </div>
+                                <span className="font-medium shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                                    -{fmtAmt(e.factAmount ?? e.plannedAmount)}
+                                </span>
+                            </div>
+                        ))}
+
+                        {/* Прогноз конца дня — только если есть неисполненные */}
+                        {hasUnexecutedToday && (
+                            <div className="flex justify-between items-center pt-2 border-t text-sm font-semibold"
+                                style={{ borderColor: 'var(--color-border)' }}>
+                                <span style={{ color: 'var(--color-text-muted)' }}>Прогноз конца дня</span>
+                                <span style={{ color: endOfDayForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                                    {fmt(endOfDayForecast)}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Алерт кассового разрыва */}
@@ -100,7 +186,7 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {data.progressBars.length === 0 && !data.cashGapAlert && (
+            {data.progressBars.length === 0 && !data.cashGapAlert && todayEvents.length === 0 && (
                 <div className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                     Нет событий за текущий месяц. Добавь первую трату кнопкой «+»!
                 </div>
@@ -109,7 +195,7 @@ export default function Dashboard() {
             {/* ── Аналитика ─────────────────────────────── */}
             {analytics && (
                 <>
-                    {/* Секция 1: Кассовый календарь */}
+                    {/* Секция 1: Кассовый календарь (только будущие дни) */}
                     <CashFlowSection cashFlow={analytics.cashFlow} />
 
                     {/* Секция 2: Отчёт План-Факт */}
@@ -127,11 +213,12 @@ export default function Dashboard() {
     );
 }
 
-// ─── Секция 1: Кассовый календарь ───────────────────────────────────────────
+// ─── Секция 1: Кассовый календарь (только будущие дни) ──────────────────────
 
 function CashFlowSection({ cashFlow }: { cashFlow: AnalyticsReport['cashFlow'] }) {
-    if (cashFlow.length === 0) return null;
-    const today = new Date().toISOString().slice(0, 10);
+    // Показываем только будущие дни (не сегодня, не прошлое)
+    const futureDays = cashFlow.filter(d => d.isFuture);
+    if (futureDays.length === 0) return null;
 
     return (
         <div className="rounded-2xl p-5"
@@ -140,8 +227,7 @@ function CashFlowSection({ cashFlow }: { cashFlow: AnalyticsReport['cashFlow'] }
                 КАССОВЫЙ КАЛЕНДАРЬ
             </h3>
             <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
-                {cashFlow.map(day => {
-                    const isToday = day.date === today;
+                {futureDays.map(day => {
                     const balanceColor = day.runningBalance < 0 ? 'var(--color-danger)' : 'var(--color-success)';
                     return (
                         <div key={day.date}
@@ -150,14 +236,10 @@ function CashFlowSection({ cashFlow }: { cashFlow: AnalyticsReport['cashFlow'] }
                                 minWidth: '64px',
                                 background: day.isGap
                                     ? 'rgba(239,68,68,0.12)'
-                                    : day.isFuture
-                                        ? 'var(--color-surface-2)'
-                                        : 'rgba(34,197,94,0.08)',
-                                border: isToday
-                                    ? '1px solid var(--color-accent)'
-                                    : day.isGap
-                                        ? '1px solid var(--color-danger)'
-                                        : '1px solid var(--color-border)',
+                                    : 'var(--color-surface-2)',
+                                border: day.isGap
+                                    ? '1px solid var(--color-danger)'
+                                    : '1px solid var(--color-border)',
                             }}>
                             <p className="text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>
                                 {fmtDay(day.date)}
@@ -166,7 +248,7 @@ function CashFlowSection({ cashFlow }: { cashFlow: AnalyticsReport['cashFlow'] }
                                 {fmt(day.runningBalance)}
                             </p>
                             {(day.dailyIncome > 0 || day.dailyExpense > 0) && (
-                                <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)', fontSize: '10px' }}>
+                                <p className="mt-1" style={{ color: 'var(--color-text-muted)', fontSize: '10px' }}>
                                     {day.dailyIncome > 0 && <span style={{ color: 'var(--color-success)' }}>+{fmt(day.dailyIncome)}</span>}
                                     {day.dailyExpense > 0 && <span style={{ color: 'var(--color-danger)' }}>{' '}−{fmt(day.dailyExpense)}</span>}
                                 </p>

@@ -65,3 +65,14 @@ body {
     @apply border-border;
   }
 }
+
+/* ── Date picker indicator: make visible on dark background ── */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+  cursor: pointer;
+  opacity: 0.7;
+  border-radius: 3px;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}

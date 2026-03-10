@@ -82,7 +82,7 @@ export default function Budget() {
     return (
         <>
             <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
-            <div className="px-4 py-6 space-y-4">
+            <div className="pl-4 pr-5 py-6 space-y-4">
                 {/* Навигация по месяцу */}
                 <div className="flex items-center justify-between mb-2">
                     <button

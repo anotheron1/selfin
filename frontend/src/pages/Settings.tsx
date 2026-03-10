@@ -151,7 +151,7 @@ export default function Settings() {
     return (
         <>
         <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
-            <div className="px-4 py-6 space-y-6">
+            <div className="pl-4 pr-5 py-6 space-y-6">
                 <h1 className="text-xl font-bold">Настройки</h1>
 
                 {/* Баланс счёта */}
