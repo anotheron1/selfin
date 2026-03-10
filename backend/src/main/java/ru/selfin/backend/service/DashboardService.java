@@ -78,17 +78,20 @@ public class DashboardService {
         List<FinancialEvent> monthEvents = eventRepository
                 .findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
 
-        // --- 3. Текущий баланс (факт) = стартовый баланс + события от effectiveStart до asOfDate ---
+        // --- 3. Текущий баланс (факт) = стартовый баланс + только ИСПОЛНЕННЫЕ события до asOfDate ---
+        // PLANNED-события (без factAmount) не учитываются: деньги не потрачены = в балансе не убываем.
         final LocalDate start = effectiveStart;
         BigDecimal currentBalance = startBalance.add(
                 monthEvents.stream()
                         .filter(e -> !e.getDate().isBefore(start) && !e.getDate().isAfter(asOfDate))
+                        .filter(e -> e.getFactAmount() != null)   // только исполненные факты
                         .map(this::signedAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add));
 
-        // --- 4. Прогноз на конец месяца = текущий баланс + план будущих событий ---
+        // --- 4. Прогноз на конец месяца = факт + плановые суммы ещё не исполненных событий (сегодня и далее) ---
         BigDecimal forecastDelta = monthEvents.stream()
-                .filter(e -> e.getDate().isAfter(asOfDate))
+                .filter(e -> !e.getDate().isBefore(asOfDate))    // сегодня и будущие (не только isAfter)
+                .filter(e -> e.getFactAmount() == null)           // только не исполненные
                 .map(e -> {
                     BigDecimal amount = e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO;
                     return e.getType() == EventType.INCOME ? amount : amount.negate();
