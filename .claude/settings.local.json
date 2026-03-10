@@ -69,7 +69,12 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/funds)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/analytics)",
       "Bash(xargs grep -l \"Update\\\\|TargetFund\")",
-      "Bash(xargs grep -l \"TargetFund\\\\|FundsOverview\")"
+      "Bash(xargs grep -l \"TargetFund\\\\|FundsOverview\")",
+      "Bash(where npm)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test -Dtest=\"DashboardServiceTest\" --no-transfer-progress)",
+      "Bash(node --version)",
+      "Bash(npm --version)"
     ]
   }
 }
