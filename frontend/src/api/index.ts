@@ -9,6 +9,7 @@ import type {
     FinancialEvent,
     FinancialEventCreateDto,
     FundsOverview,
+    MultiMonthReport,
     TargetFund,
 } from '../types/api';
 
@@ -89,6 +90,10 @@ export const fetchDashboard = (date?: string) =>
  */
 export const fetchAnalyticsReport = (date?: string) =>
     get<AnalyticsReport>(`/analytics/report${date ? `?date=${date}` : ''}`);
+
+/** Загружает многомесячный отчёт план-факт по категориям. */
+export const fetchMultiMonthReport = (startDate: string, endDate: string) =>
+    get<MultiMonthReport>(`/analytics/multi-month?startDate=${startDate}&endDate=${endDate}`);
 
 // --- Funds ---
 

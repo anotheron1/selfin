@@ -8,6 +8,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.DashboardDto;
+import ru.selfin.backend.dto.MultiMonthReportDto;
 import ru.selfin.backend.service.AnalyticsService;
 import ru.selfin.backend.service.DashboardService;
 
@@ -42,5 +43,15 @@ public class AnalyticsController {
     public AnalyticsReportDto getReport(
             @Parameter(description = "Опорная дата (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return analyticsService.getReport(date != null ? date : LocalDate.now());
+    }
+
+    @Operation(summary = "Многомесячный отчёт план-факт",
+            description = "Возвращает доходы, расходы и переводы в копилки с разбивкой по категориям "
+                    + "и месяцам за указанный период.")
+    @GetMapping("/multi-month")
+    public MultiMonthReportDto getMultiMonth(
+            @Parameter(description = "Начало периода, формат YYYY-MM-DD") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @Parameter(description = "Конец периода, формат YYYY-MM-DD") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return analyticsService.getMultiMonthReport(startDate, endDate);
     }
 }

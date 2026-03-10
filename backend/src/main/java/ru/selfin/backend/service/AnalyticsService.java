@@ -5,14 +5,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.AnalyticsReportDto.*;
+import ru.selfin.backend.dto.MultiMonthReportDto;
+import ru.selfin.backend.dto.MultiMonthReportDto.*;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.WeekFields;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -309,5 +314,126 @@ public class AnalyticsService {
     /** Возвращает {@code BigDecimal.ZERO} если значение {@code null}. */
     private BigDecimal orZero(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
+    }
+
+    /**
+     * Строит многомесячный отчёт план-факт по категориям.
+     * Возвращает строки: итоговые (Доходы / Расходы / Переводы) + категории + Баланс.
+     *
+     * @param startDate начало периода
+     * @param endDate   конец периода
+     * @return {@link MultiMonthReportDto}
+     */
+    @Transactional(readOnly = true)
+    public MultiMonthReportDto getMultiMonthReport(LocalDate startDate, LocalDate endDate) {
+        List<FinancialEvent> events = eventRepository.findAllByDeletedFalseAndDateBetween(startDate, endDate);
+
+        // Build sorted month list
+        List<YearMonth> months = new ArrayList<>();
+        YearMonth current = YearMonth.from(startDate);
+        YearMonth last = YearMonth.from(endDate);
+        while (!current.isAfter(last)) {
+            months.add(current);
+            current = current.plusMonths(1);
+        }
+        DateTimeFormatter ymFmt = DateTimeFormatter.ofPattern("yyyy-MM");
+        List<String> monthLabels = months.stream().map(ym -> ym.format(ymFmt)).toList();
+
+        // Group events by (yearMonth, categoryId)
+        record EventKey(YearMonth month, UUID categoryId) {}
+
+        Map<EventKey, List<FinancialEvent>> grouped = events.stream()
+                .collect(Collectors.groupingBy(e -> new EventKey(YearMonth.from(e.getDate()), e.getCategory().getId())));
+
+        // Collect category metadata
+        Map<UUID, String> categoryNames = events.stream()
+                .collect(Collectors.toMap(e -> e.getCategory().getId(), e -> e.getCategory().getName(), (a, b) -> a));
+        Map<UUID, CategoryType> categoryTypes = events.stream()
+                .collect(Collectors.toMap(e -> e.getCategory().getId(), e -> e.getCategory().getType(), (a, b) -> a));
+        Map<UUID, EventType> categoryEventTypes = events.stream()
+                .collect(Collectors.toMap(e -> e.getCategory().getId(), e -> e.getType(), (a, b) -> a));
+
+        // Totals accumulators
+        Map<String, BigDecimal> totalIncomePlanned = new HashMap<>();
+        Map<String, BigDecimal> totalIncomeActual = new HashMap<>();
+        Map<String, BigDecimal> totalExpensePlanned = new HashMap<>();
+        Map<String, BigDecimal> totalExpenseActual = new HashMap<>();
+        Map<String, BigDecimal> totalFundTransferPlanned = new HashMap<>();
+        Map<String, BigDecimal> totalFundTransferActual = new HashMap<>();
+
+        // Build per-category rows (sorted alphabetically)
+        List<RowDto> categoryRows = new ArrayList<>();
+        List<UUID> sortedCategories = categoryNames.keySet().stream()
+                .sorted(Comparator.comparing(categoryNames::get))
+                .toList();
+
+        for (UUID catId : sortedCategories) {
+            EventType evtType = categoryEventTypes.get(catId);
+            CategoryType catType = categoryTypes.get(catId);
+            List<MonthValueDto> values = new ArrayList<>();
+
+            for (YearMonth ym : months) {
+                String monthLabel = ym.format(ymFmt);
+                List<FinancialEvent> monthEvents = grouped.getOrDefault(new EventKey(ym, catId), List.of());
+
+                BigDecimal planned = monthEvents.stream()
+                        .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal actual = monthEvents.stream()
+                        .filter(e -> e.getFactAmount() != null)
+                        .map(FinancialEvent::getFactAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                boolean hasAnyFact = monthEvents.stream().anyMatch(e -> e.getFactAmount() != null);
+
+                values.add(new MonthValueDto(monthLabel, planned, hasAnyFact ? actual : null));
+
+                // Accumulate totals
+                if (evtType == EventType.INCOME) {
+                    totalIncomePlanned.merge(monthLabel, planned, BigDecimal::add);
+                    if (hasAnyFact) totalIncomeActual.merge(monthLabel, actual, BigDecimal::add);
+                } else if (evtType == EventType.EXPENSE) {
+                    totalExpensePlanned.merge(monthLabel, planned, BigDecimal::add);
+                    if (hasAnyFact) totalExpenseActual.merge(monthLabel, actual, BigDecimal::add);
+                } else if (evtType == EventType.FUND_TRANSFER) {
+                    totalFundTransferPlanned.merge(monthLabel, planned, BigDecimal::add);
+                    if (hasAnyFact) totalFundTransferActual.merge(monthLabel, actual, BigDecimal::add);
+                }
+            }
+            categoryRows.add(new RowDto(RowType.CATEGORY, categoryNames.get(catId), catType, values));
+        }
+
+        // Assemble final result: totals interleaved with their category rows
+        List<RowDto> result = new ArrayList<>();
+        result.add(buildTotalRow(RowType.TOTAL_INCOME, "Доходы", null, monthLabels, totalIncomePlanned, totalIncomeActual));
+        categoryRows.stream().filter(r -> r.categoryType() == CategoryType.INCOME).forEach(result::add);
+        result.add(buildTotalRow(RowType.TOTAL_EXPENSE, "Расходы", null, monthLabels, totalExpensePlanned, totalExpenseActual));
+        categoryRows.stream().filter(r -> r.categoryType() == CategoryType.EXPENSE).forEach(result::add);
+        result.add(buildTotalRow(RowType.TOTAL_FUND_TRANSFER, "Переводы в копилки", null, monthLabels, totalFundTransferPlanned, totalFundTransferActual));
+
+        // Balance row: income - expense - fund_transfer
+        List<MonthValueDto> balanceValues = monthLabels.stream().map(m -> {
+            BigDecimal plannedBalance = totalIncomePlanned.getOrDefault(m, BigDecimal.ZERO)
+                    .subtract(totalExpensePlanned.getOrDefault(m, BigDecimal.ZERO))
+                    .subtract(totalFundTransferPlanned.getOrDefault(m, BigDecimal.ZERO));
+            BigDecimal actualBalance = totalIncomeActual.getOrDefault(m, BigDecimal.ZERO)
+                    .subtract(totalExpenseActual.getOrDefault(m, BigDecimal.ZERO))
+                    .subtract(totalFundTransferActual.getOrDefault(m, BigDecimal.ZERO));
+            boolean hasActual = totalIncomeActual.containsKey(m) || totalExpenseActual.containsKey(m);
+            return new MonthValueDto(m, plannedBalance, hasActual ? actualBalance : null);
+        }).toList();
+        result.add(new RowDto(RowType.BALANCE, "Баланс", null, balanceValues));
+
+        return new MultiMonthReportDto(monthLabels, result);
+    }
+
+    private RowDto buildTotalRow(RowType type, String label, CategoryType catType,
+                                  List<String> months,
+                                  Map<String, BigDecimal> planned, Map<String, BigDecimal> actual) {
+        List<MonthValueDto> values = months.stream().map(m ->
+                new MonthValueDto(m,
+                        planned.getOrDefault(m, BigDecimal.ZERO),
+                        actual.containsKey(m) ? actual.get(m) : null)
+        ).toList();
+        return new RowDto(type, label, catType, values);
     }
 }
