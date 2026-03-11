@@ -4,7 +4,7 @@ import { LayoutDashboard, CalendarDays, PiggyBank, BarChart2, Settings } from 'l
 const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Дашборд' },
     { to: '/budget', icon: CalendarDays, label: 'Бюджет' },
-    { to: '/funds', icon: PiggyBank, label: 'Фонды' },
+    { to: '/funds', icon: PiggyBank, label: 'Цели' },
     { to: '/analytics', icon: BarChart2, label: 'Аналитика' },
     { to: '/settings', icon: Settings, label: 'Настройки' },
 ];

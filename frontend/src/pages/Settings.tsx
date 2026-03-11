@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-    fetchCategories, createCategory, updateCategory, deleteCategory, toggleMandatory,
+    fetchCategories, createCategory, updateCategory, deleteCategory, cycleCategoryPriority,
     fetchSnapshots, createSnapshot,
     fetchCheckpoints, createCheckpoint, updateCheckpoint, deleteCheckpoint,
 } from '../api';
 import type { BalanceCheckpoint, BudgetSnapshot, Category, CategoryType } from '../types/api';
-import { Plus, ShieldCheck, Shield, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
+import PriorityButton from '../components/PriorityButton';
+import { Plus, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
 
 const inputStyle = {
@@ -67,16 +68,15 @@ export default function Settings() {
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim()) return;
-        await createCategory({ name: name.trim(), type, mandatory: false });
+        await createCategory({ name: name.trim(), type, priority: 'MEDIUM' });
         setName('');
         load();
         showToast('Категория добавлена');
     };
 
-    const handleToggleMandatory = async (id: string, currentMandatory: boolean) => {
-        await toggleMandatory(id);
+    const handleCyclePriority = async (id: string) => {
+        await cycleCategoryPriority(id);
         load();
-        showToast(currentMandatory ? 'Убрано из обязательных' : 'Отмечено как обязательное');
     };
 
     const startEditCat = (cat: Category) => {
@@ -89,7 +89,7 @@ export default function Settings() {
 
     const handleUpdateCategory = async (cat: Category) => {
         if (!editCatName.trim()) return;
-        await updateCategory(cat.id, { name: editCatName.trim(), type: editCatType, mandatory: cat.mandatory });
+        await updateCategory(cat.id, { name: editCatName.trim(), type: editCatType, priority: cat.priority });
         setEditCatId(null);
         load();
         showToast('Категория обновлена');
@@ -329,24 +329,12 @@ export default function Settings() {
                                         style={{ borderBottom: '1px solid var(--color-border)' }}>
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm">{c.name}</span>
-                                            {c.mandatory && (
-                                                <span className="text-xs px-1.5 py-0.5 rounded"
-                                                    style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--color-danger)' }}>
-                                                    обяз
-                                                </span>
-                                            )}
+                                            <PriorityButton
+                                                priority={c.priority}
+                                                onCycle={() => handleCyclePriority(c.id)}
+                                            />
                                         </div>
                                         <div className="flex gap-1">
-                                            <button
-                                                onClick={() => handleToggleMandatory(c.id, c.mandatory)}
-                                                title={c.mandatory ? 'Убрать из обязательных' : 'Сделать обязательной'}
-                                                className="p-1.5 rounded-lg transition-colors"
-                                                style={{
-                                                    color: c.mandatory ? 'var(--color-danger)' : 'var(--color-text-muted)',
-                                                    background: c.mandatory ? 'rgba(239,68,68,0.1)' : 'transparent'
-                                                }}>
-                                                {c.mandatory ? <ShieldCheck size={16} /> : <Shield size={16} />}
-                                            </button>
                                             <button
                                                 onClick={() => startEditCat(c)}
                                                 title="Редактировать"

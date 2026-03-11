@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { fetchEvents } from '../api';
+import { fetchEvents, cycleEventPriority } from '../api';
 import type { FinancialEvent } from '../types/api';
 import EditEventSheet from '../components/EditEventSheet';
+import PriorityButton from '../components/PriorityButton';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 
@@ -156,16 +157,18 @@ export default function Budget() {
                                             : isFundTransfer
                                                 ? 'hsl(var(--primary))'
                                                 : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
+                                        const isLowPlanned = event.priority === 'LOW' && event.status === 'PLANNED';
                                         return (
                                             <div key={event.id}
                                                 onClick={() => setSelectedEvent(event)}
-                                                className="px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors">
+                                                className={`px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isLowPlanned ? ' opacity-60' : ''}`}>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
                                                         <span className="font-medium text-sm truncate">{displayName}</span>
-                                                        {event.mandatory && (
-                                                            <Badge variant="outline" className="text-xs border-destructive/60 text-destructive px-1.5 py-0">обяз</Badge>
-                                                        )}
+                                                        <PriorityButton
+                                                            priority={event.priority}
+                                                            onCycle={() => cycleEventPriority(event.id).then(load)}
+                                                        />
                                                         {isExecuted && (
                                                             <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
                                                         )}

@@ -2,6 +2,7 @@ package ru.selfin.backend.dto;
 
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -17,7 +18,7 @@ public record FinancialEventDto(
         BigDecimal plannedAmount,
         BigDecimal factAmount,
         EventStatus status,
-        boolean mandatory,
+        Priority priority,
         String description,
         String rawInput,
         LocalDateTime createdAt,

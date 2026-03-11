@@ -10,6 +10,7 @@ import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -60,7 +61,7 @@ class DashboardServiceTest {
                 .plannedAmount(planned)
                 .factAmount(fact)
                 .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
-                .mandatory(false)
+                .priority(Priority.MEDIUM)
                 .deleted(false)
                 .build();
     }

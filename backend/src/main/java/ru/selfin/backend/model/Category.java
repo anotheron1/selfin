@@ -3,6 +3,7 @@ package ru.selfin.backend.model;
 import jakarta.persistence.*;
 import lombok.*;
 import ru.selfin.backend.model.enums.CategoryType;
+import ru.selfin.backend.model.enums.Priority;
 
 import java.util.UUID;
 
@@ -26,9 +27,10 @@ public class Category {
     @Column(nullable = false)
     private CategoryType type;
 
-    @Column(name = "is_mandatory", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     @Builder.Default
-    private boolean mandatory = false;
+    private Priority priority = Priority.MEDIUM;
 
     @Column(name = "is_deleted", nullable = false)
     @Builder.Default

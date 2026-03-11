@@ -11,6 +11,7 @@ import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -182,7 +183,7 @@ public class AnalyticsService {
     private MandatoryBurnRate buildMandatoryBurnRate(List<FinancialEvent> events,
                                                       LocalDate monthStart, LocalDate monthEnd) {
         List<FinancialEvent> mandatory = events.stream()
-                .filter(e -> e.isMandatory() && e.getType() == EventType.EXPENSE)
+                .filter(e -> e.getPriority() == Priority.HIGH && e.getType() == EventType.EXPENSE)
                 .toList();
 
         // Разбиваем месяц на недели (пн–вс), обрезая по границам месяца

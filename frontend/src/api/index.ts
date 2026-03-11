@@ -28,10 +28,10 @@ export const updateCategory = (id: string, body: Omit<Category, 'id'>) => put<Ca
 export const deleteCategory = (id: string) => del(`/categories/${id}`);
 
 /**
- * Инвертирует флаг `mandatory` у категории.
+ * Циклически меняет приоритет категории (HIGH → MEDIUM → LOW → HIGH).
  * Использует PATCH без тела — достаточно идентификатора в URL.
  */
-export const toggleMandatory = (id: string) => patch<Category>(`/categories/${id}/mandatory`);
+export const cycleCategoryPriority = (id: string) => patch<Category>(`/categories/${id}/priority`);
 
 // --- Events ---
 
@@ -68,6 +68,12 @@ export const updateEvent = (id: string, dto: FinancialEventCreateDto) =>
  */
 export const patchEventFact = (id: string, factAmount: number | undefined, description?: string) =>
     patch<FinancialEvent>(`/events/${id}/fact`, { factAmount, description });
+
+/** Циклически меняет приоритет события (HIGH → MEDIUM → LOW → HIGH). */
+export const cycleEventPriority = (id: string) => patch<FinancialEvent>(`/events/${id}/priority`);
+
+/** Загружает нереализованные хотелки: LOW-priority PLANNED события с датой в прошлом. */
+export const fetchWishlist = () => get<FinancialEvent[]>('/events/wishlist');
 
 /** Удаляет событие (soft delete — физически запись остаётся в БД). */
 export const deleteEvent = (id: string) => del(`/events/${id}`);

@@ -57,10 +57,10 @@ public class CategoryController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "Переключить флаг 'обязательная' у категории")
-    @PatchMapping("/{id}/mandatory")
-    public CategoryDto toggleMandatory(
+    @Operation(summary = "Циклически сменить приоритет категории (HIGH → MEDIUM → LOW → HIGH)")
+    @PatchMapping("/{id}/priority")
+    public CategoryDto cyclePriority(
             @Parameter(description = "ID категории") @PathVariable UUID id) {
-        return categoryService.toggleMandatory(id);
+        return categoryService.cyclePriority(id);
     }
 }

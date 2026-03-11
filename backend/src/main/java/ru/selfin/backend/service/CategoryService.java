@@ -7,6 +7,7 @@ import ru.selfin.backend.dto.CategoryCreateDto;
 import ru.selfin.backend.dto.CategoryDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.CategoryRepository;
 
 import java.util.List;
@@ -49,7 +50,7 @@ public class CategoryService {
         Category category = Category.builder()
                 .name(dto.name())
                 .type(dto.type())
-                .mandatory(dto.mandatory())
+                .priority(dto.priority() != null ? dto.priority() : Priority.MEDIUM)
                 .build();
         return toDto(categoryRepository.save(category));
     }
@@ -69,7 +70,7 @@ public class CategoryService {
                 .orElseThrow(() -> new ResourceNotFoundException("Category", id));
         category.setName(dto.name());
         category.setType(dto.type());
-        category.setMandatory(dto.mandatory());
+        category.setPriority(dto.priority() != null ? dto.priority() : Priority.MEDIUM);
         return toDto(categoryRepository.save(category));
     }
 
@@ -89,20 +90,28 @@ public class CategoryService {
     }
 
     /**
-     * Инвертирует флаг {@code mandatory} у категории.
-     * Используется для быстрого переключения обязательности из UI без полного PUT.
+     * Циклически меняет приоритет категории: HIGH → MEDIUM → LOW → HIGH.
+     * Используется для быстрого переключения из UI без полного PUT.
      *
      * @param id идентификатор категории
-     * @return категория с обновлённым флагом
+     * @return категория с обновлённым приоритетом
      * @throws ResourceNotFoundException если категория не найдена или удалена
      */
     @Transactional
-    public CategoryDto toggleMandatory(UUID id) {
+    public CategoryDto cyclePriority(UUID id) {
         Category category = categoryRepository.findById(id)
                 .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Category", id));
-        category.setMandatory(!category.isMandatory());
+        category.setPriority(nextPriority(category.getPriority()));
         return toDto(categoryRepository.save(category));
+    }
+
+    private Priority nextPriority(Priority current) {
+        return switch (current) {
+            case HIGH -> Priority.MEDIUM;
+            case MEDIUM -> Priority.LOW;
+            case LOW -> Priority.HIGH;
+        };
     }
 
     /**
@@ -112,6 +121,6 @@ public class CategoryService {
      * @return DTO для передачи клиенту
      */
     public CategoryDto toDto(Category c) {
-        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.isMandatory());
+        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority());
     }
 }

@@ -68,6 +68,20 @@ public class FinancialEventController {
         return eventService.updateFact(id, dto);
     }
 
+    @Operation(summary = "Циклически сменить приоритет события (HIGH → MEDIUM → LOW → HIGH)")
+    @PatchMapping("/{id}/priority")
+    public FinancialEventDto cyclePriority(
+            @Parameter(description = "ID события") @PathVariable UUID id) {
+        return eventService.cyclePriority(id);
+    }
+
+    @Operation(summary = "Нереализованные хотелки",
+            description = "LOW-priority PLANNED события с датой раньше сегодня")
+    @GetMapping("/wishlist")
+    public List<FinancialEventDto> getWishlist() {
+        return eventService.findWishlist();
+    }
+
     @Operation(summary = "Удалить событие (soft delete)")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
