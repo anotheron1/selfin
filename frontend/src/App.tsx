@@ -15,7 +15,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-dvh" style={{ paddingBottom: 'var(--nav-height)' }}>
+      <div className="min-h-dvh overflow-x-hidden" style={{ paddingBottom: 'var(--nav-height)' }}>
         <main className="max-w-2xl mx-auto">
           <Routes>
             <Route path="/" element={<Dashboard key={refreshKey} />} />

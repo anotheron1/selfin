@@ -4,12 +4,13 @@ export type CategoryType = 'INCOME' | 'EXPENSE';
 export type EventType = 'INCOME' | 'EXPENSE' | 'FUND_TRANSFER';
 export type EventStatus = 'PLANNED' | 'EXECUTED' | 'CANCELLED';
 export type FundStatus = 'FUNDING' | 'REACHED';
+export type Priority = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface Category {
     id: string;
     name: string;
     type: CategoryType;
-    mandatory: boolean;
+    priority: Priority;
 }
 
 export interface FinancialEvent {
@@ -21,7 +22,7 @@ export interface FinancialEvent {
     plannedAmount: number | null;
     factAmount: number | null;
     status: EventStatus;
-    mandatory: boolean;
+    priority: Priority;
     description: string | null;
     rawInput: string | null;
     createdAt: string;
@@ -35,7 +36,7 @@ export interface FinancialEventCreateDto {
     type: EventType;
     plannedAmount?: number;
     factAmount?: number;
-    mandatory?: boolean;
+    priority?: Priority;
     description?: string;
     rawInput?: string;
     targetFundId?: string;

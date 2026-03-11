@@ -4,7 +4,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -22,6 +24,10 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
 
     /** Идемпотентность: ищем событие по ключу клиента */
     Optional<FinancialEvent> findByIdempotencyKey(UUID idempotencyKey);
+
+    /** Хотелки: LOW-priority PLANNED события с датой раньше сегодня (нереализованные) */
+    List<FinancialEvent> findAllByDeletedFalseAndPriorityAndStatusAndDateBeforeOrderByDateAsc(
+            Priority priority, EventStatus status, LocalDate date);
 
     /**
      * Сумма эффективных сумм по типу события для расчёта баланса кармашка

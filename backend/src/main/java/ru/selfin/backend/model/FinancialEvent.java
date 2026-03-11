@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -65,9 +66,10 @@ public class FinancialEvent {
     @Builder.Default
     private EventStatus status = EventStatus.PLANNED;
 
-    @Column(name = "is_mandatory", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     @Builder.Default
-    private boolean mandatory = false;
+    private Priority priority = Priority.MEDIUM;
 
     private String description;
 

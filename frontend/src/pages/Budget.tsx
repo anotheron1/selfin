@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { fetchEvents, fetchDashboard } from '../api';
-import type { CashGapAlert, FinancialEvent } from '../types/api';
+import { fetchEvents, cycleEventPriority } from '../api';
+import type { FinancialEvent } from '../types/api';
 import EditEventSheet from '../components/EditEventSheet';
-import { AlertTriangle } from 'lucide-react';
+import PriorityButton from '../components/PriorityButton';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 
@@ -58,20 +58,14 @@ export default function Budget() {
     const [loading, setLoading] = useState(true);
     const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
-    const [cashGap, setCashGap] = useState<CashGapAlert | null>(null);
 
     const load = useCallback(() => {
         const start = formatDateYMD(new Date(year, month, 1));
         const end = formatDateYMD(new Date(year, month + 1, 0));
         setLoading(true);
-        const dateParam = formatDateYMD(new Date(year, month, 15));
-        Promise.all([
-            fetchEvents(start, end),
-            fetchDashboard(dateParam),
-        ]).then(([evts, dash]) => {
-            setEvents(evts);
-            setCashGap(dash.cashGapAlert);
-        }).finally(() => setLoading(false));
+        fetchEvents(start, end)
+            .then(setEvents)
+            .finally(() => setLoading(false));
     }, [year, month]);
 
     useEffect(() => { load(); }, [load]);
@@ -79,10 +73,24 @@ export default function Budget() {
     const weeks = buildWeeks(year, month);
     const monthLabel = new Date(year, month).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
+    // Компактный итог месяца
+    const totalPlannedIncome = events
+        .filter(e => e.type === 'INCOME')
+        .reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+    const totalFactIncome = events
+        .filter(e => e.type === 'INCOME' && e.status === 'EXECUTED')
+        .reduce((s, e) => s + (e.factAmount ?? e.plannedAmount ?? 0), 0);
+    const totalPlannedExpense = events
+        .filter(e => e.type === 'EXPENSE')
+        .reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+    const totalFactExpense = events
+        .filter(e => e.type === 'EXPENSE' && e.status === 'EXECUTED')
+        .reduce((s, e) => s + (e.factAmount ?? e.plannedAmount ?? 0), 0);
+
     return (
         <>
             <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
-            <div className="px-4 py-6 space-y-4">
+            <div className="pl-4 pr-5 py-6 space-y-4">
                 {/* Навигация по месяцу */}
                 <div className="flex items-center justify-between mb-2">
                     <button
@@ -94,26 +102,28 @@ export default function Budget() {
                         className="text-lg px-3 py-1 rounded-lg" style={{ color: 'var(--color-accent)' }}>›</button>
                 </div>
 
-                {loading && <p className="text-center text-sm animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</p>}
-
-                {/* Баннер кассового разрыва */}
-                {!loading && cashGap && (
-                    <div className="flex items-start gap-3 rounded-2xl px-4 py-3"
-                        style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)' }}>
-                        <AlertTriangle size={18} style={{ color: 'var(--color-danger)', flexShrink: 0, marginTop: 2 }} />
-                        <div>
-                            <p className="text-sm font-semibold" style={{ color: 'var(--color-danger)' }}>Кассовый разрыв!</p>
-                            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                {new Date(cashGap.gapDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
-                                {' — '}
-                                не хватит{' '}
-                                <span style={{ color: 'var(--color-danger)' }}>
-                                    {new Intl.NumberFormat('ru-RU').format(Math.abs(cashGap.gapAmount))} ₽
-                                </span>
-                            </p>
+                {/* Компактный итог месяца */}
+                {!loading && (
+                    <div className="rounded-2xl px-5 py-3 text-sm space-y-1"
+                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                        <div className="flex justify-between">
+                            <span style={{ color: 'var(--color-text-muted)' }}>Доходы</span>
+                            <span>
+                                <span style={{ color: 'var(--color-success)' }}>факт {fmt(totalFactIncome)}</span>
+                                <span style={{ color: 'var(--color-text-muted)' }}> / план {fmt(totalPlannedIncome)}</span>
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span style={{ color: 'var(--color-text-muted)' }}>Расходы</span>
+                            <span>
+                                <span>факт {fmt(totalFactExpense)}</span>
+                                <span style={{ color: 'var(--color-text-muted)' }}> / план {fmt(totalPlannedExpense)}</span>
+                            </span>
                         </div>
                     </div>
                 )}
+
+                {loading && <p className="text-center text-sm animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</p>}
 
                 {!loading && weeks.map(week => {
                     const weekEvents = events.filter((e: FinancialEvent) => e.date >= week.start && e.date <= week.end);
@@ -147,16 +157,18 @@ export default function Budget() {
                                             : isFundTransfer
                                                 ? 'hsl(var(--primary))'
                                                 : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
+                                        const isLowPlanned = event.priority === 'LOW' && event.status === 'PLANNED';
                                         return (
                                             <div key={event.id}
                                                 onClick={() => setSelectedEvent(event)}
-                                                className="px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors">
+                                                className={`px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isLowPlanned ? ' opacity-60' : ''}`}>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
                                                         <span className="font-medium text-sm truncate">{displayName}</span>
-                                                        {event.mandatory && (
-                                                            <Badge variant="outline" className="text-xs border-destructive/60 text-destructive px-1.5 py-0">обяз</Badge>
-                                                        )}
+                                                        <PriorityButton
+                                                            priority={event.priority}
+                                                            onCycle={() => cycleEventPriority(event.id).then(load)}
+                                                        />
                                                         {isExecuted && (
                                                             <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
                                                         )}

@@ -3,6 +3,7 @@ package ru.selfin.backend.dto;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -14,7 +15,7 @@ public record FinancialEventCreateDto(
                 @NotNull EventType type,
                 @PositiveOrZero BigDecimal plannedAmount,
                 @PositiveOrZero BigDecimal factAmount,
-                Boolean mandatory,
+                Priority priority,
                 String description,
                 String rawInput,
                 UUID targetFundId) {

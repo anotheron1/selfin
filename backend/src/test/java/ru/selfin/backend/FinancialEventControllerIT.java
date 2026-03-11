@@ -59,7 +59,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto dto = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(1000), null, false, "Тестовый расход", null, null);
+                BigDecimal.valueOf(1000), null, null,"Тестовый расход", null, null);
 
         // Создаём событие
         mockMvc.perform(post("/api/v1/events")
@@ -78,7 +78,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto dto = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(500), null, false, null, null, null);
+                BigDecimal.valueOf(500), null, null,null, null, null);
 
         // Первый запрос
         String first = mockMvc.perform(post("/api/v1/events")
@@ -107,7 +107,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto create = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(2000), null, false, null, null, null);
+                BigDecimal.valueOf(2000), null, null,null, null, null);
 
         String created = mockMvc.perform(post("/api/v1/events")
                 .header("Idempotency-Key", UUID.randomUUID().toString())
@@ -120,7 +120,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto update = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(2000), BigDecimal.valueOf(1800), false, null, null, null);
+                BigDecimal.valueOf(2000), BigDecimal.valueOf(1800), null,null, null, null);
 
         mockMvc.perform(put("/api/v1/events/" + eventId)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -139,7 +139,7 @@ class FinancialEventControllerIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new FinancialEventCreateDto(
                         LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                        BigDecimal.valueOf(300), null, false, "Удал.", null, null))))
+                        BigDecimal.valueOf(300), null, null,"Удал.", null, null))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 

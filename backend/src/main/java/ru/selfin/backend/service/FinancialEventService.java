@@ -14,6 +14,7 @@ import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
@@ -88,7 +89,7 @@ public class FinancialEventService {
                                                         .type(dto.type())
                                                         .plannedAmount(dto.plannedAmount())
                                                         .factAmount(dto.factAmount())
-                                                        .mandatory(Boolean.TRUE.equals(dto.mandatory()))
+                                                        .priority(dto.priority() != null ? dto.priority() : Priority.MEDIUM)
                                                         .description(dto.description())
                                                         .rawInput(dto.rawInput())
                                                         .targetFundId(dto.targetFundId())
@@ -124,7 +125,7 @@ public class FinancialEventService {
                 event.setType(dto.type());
                 event.setPlannedAmount(dto.plannedAmount());
                 event.setFactAmount(dto.factAmount());
-                event.setMandatory(Boolean.TRUE.equals(dto.mandatory()));
+                event.setPriority(dto.priority() != null ? dto.priority() : Priority.MEDIUM);
                 event.setDescription(dto.description());
                 event.setRawInput(dto.rawInput());
                 event.setTargetFundId(dto.targetFundId());
@@ -196,6 +197,42 @@ public class FinancialEventService {
         }
 
         /**
+         * Циклически меняет приоритет события: HIGH → MEDIUM → LOW → HIGH.
+         *
+         * @param id идентификатор события
+         * @return обновлённое событие
+         * @throws ResourceNotFoundException если событие не найдено или удалено
+         */
+        @Transactional
+        public FinancialEventDto cyclePriority(UUID id) {
+                FinancialEvent event = eventRepository.findById(id)
+                                .filter(e -> !e.isDeleted())
+                                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+                event.setPriority(nextPriority(event.getPriority()));
+                return toDto(eventRepository.save(event));
+        }
+
+        private Priority nextPriority(Priority current) {
+                return switch (current) {
+                        case HIGH -> Priority.MEDIUM;
+                        case MEDIUM -> Priority.LOW;
+                        case LOW -> Priority.HIGH;
+                };
+        }
+
+        /**
+         * Возвращает нереализованные хотелки: события с приоритетом LOW,
+         * статусом PLANNED и датой раньше сегодня.
+         *
+         * @return список DTO, отсортированный по дате по возрастанию
+         */
+        public List<FinancialEventDto> findWishlist() {
+                return eventRepository.findAllByDeletedFalseAndPriorityAndStatusAndDateBeforeOrderByDateAsc(
+                                Priority.LOW, EventStatus.PLANNED, LocalDate.now())
+                                .stream().map(this::toDto).toList();
+        }
+
+        /**
          * Помечает событие как удалённое (soft delete).
          * Событие не удаляется физически и не возвращается в запросах по периоду,
          * но сохраняется в БД для аудита.
@@ -230,7 +267,7 @@ public class FinancialEventService {
                                 e.getId(), e.getDate(),
                                 e.getCategory().getId(), e.getCategory().getName(),
                                 e.getType(), e.getPlannedAmount(), e.getFactAmount(),
-                                e.getStatus(), e.isMandatory(), e.getDescription(),
+                                e.getStatus(), e.getPriority(), e.getDescription(),
                                 e.getRawInput(), e.getCreatedAt(),
                                 e.getTargetFundId(), fundName);
         }

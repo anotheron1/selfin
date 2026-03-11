@@ -10,6 +10,7 @@ import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -60,7 +61,7 @@ class DashboardServiceTest {
                 .plannedAmount(planned)
                 .factAmount(fact)
                 .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
-                .mandatory(false)
+                .priority(Priority.MEDIUM)
                 .deleted(false)
                 .build();
     }
@@ -96,11 +97,13 @@ class DashboardServiceTest {
     }
 
     @Test
-    @DisplayName("Текущий баланс: если факт отсутствует — используется плановая сумма")
-    void currentBalance_fallsBackToPlanned() {
+    @DisplayName("Текущий баланс: PLANNED события (без factAmount) не учитываются — ни в балансе, ни в прогнозе (прошедшие)")
+    void currentBalance_plannedEventsIgnored() {
         LocalDate monthStart = TODAY.withDayOfMonth(1);
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
 
+        // Оба события — прошедшие PLANNED (factAmount == null):
+        // не входят в currentBalance (не исполнены) и не входят в прогноз (прошлое, уже не случится)
         List<FinancialEvent> events = List.of(
                 event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(50_000), null),
                 event(EventType.EXPENSE, LocalDate.of(2026, 3, 5), bd(10_000), null));
@@ -109,7 +112,35 @@ class DashboardServiceTest {
 
         DashboardDto dto = dashboardService.getDashboard(TODAY);
 
-        assertThat(dto.currentBalance()).isEqualByComparingTo(bd(40_000));
+        assertThat(dto.currentBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(dto.endOfMonthForecast()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("Прогноз EOM включает сегодняшние и будущие PLANNED события, но не прошлые")
+    void endOfMonthForecast_includesOnlyFutureAndTodayPlanned() {
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+
+        List<FinancialEvent> events = List.of(
+                // Прошлое, исполнено — в currentBalance
+                event(EventType.INCOME, LocalDate.of(2026, 3, 5), bd(100_000), bd(100_000)),
+                // Прошлое, НЕ исполнено — ни в балансе, ни в прогнозе
+                event(EventType.EXPENSE, LocalDate.of(2026, 3, 10), bd(5_000), null),
+                // Сегодня (15), не исполнено — только в прогнозе
+                event(EventType.EXPENSE, TODAY, bd(3_000), null),
+                // Будущее, не исполнено — только в прогнозе
+                event(EventType.EXPENSE, LocalDate.of(2026, 3, 20), bd(20_000), null));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(events);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        // currentBalance = 100_000 (только исполненный факт)
+        assertThat(dto.currentBalance()).isEqualByComparingTo(bd(100_000));
+        // forecastDelta = -3_000 (сегодня) - 20_000 (будущее) = -23_000
+        // endOfMonthForecast = 100_000 - 23_000 = 77_000
+        assertThat(dto.endOfMonthForecast()).isEqualByComparingTo(bd(77_000));
     }
 
     @Test

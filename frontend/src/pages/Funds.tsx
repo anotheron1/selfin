@@ -9,6 +9,7 @@ import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
+import WishlistSection from '../components/WishlistSection';
 
 const fmt = (n: number | null) =>
     n != null
@@ -341,6 +342,9 @@ export default function Funds() {
                         />
                     ))
                 )}
+
+                {/* Хотелки */}
+                <WishlistSection />
             </div>
             </ScrollArea>
 
