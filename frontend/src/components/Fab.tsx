@@ -16,7 +16,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     const [form, setForm] = useState<Partial<FinancialEventCreateDto>>({
         date: new Date().toISOString().slice(0, 10),
         type: 'EXPENSE',
-        mandatory: false,
+        priority: 'MEDIUM',
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -38,11 +38,13 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     }, [form.type]);
 
     const handleTypeChange = (type: 'EXPENSE' | 'INCOME' | 'FUND_TRANSFER') => {
-        setForm(f => ({ ...f, type, categoryId: undefined, targetFundId: undefined }));
+        setForm(f => ({ ...f, type, categoryId: undefined, targetFundId: undefined, priority: 'MEDIUM' }));
     };
 
     const filteredCategories = categories.filter(c => c.type === form.type);
     const activeFunds = funds.filter(f => f.status !== 'REACHED');
+    const selectedCategory = categories.find(c => c.id === form.categoryId);
+    const showPrioritySelector = form.type !== 'FUND_TRANSFER' && selectedCategory?.priority !== 'HIGH';
 
     const isFundTransfer = form.type === 'FUND_TRANSFER';
     const canSubmit = isFundTransfer
@@ -55,7 +57,12 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         setLoading(true);
         setError(null);
         try {
-            await createEvent(form as FinancialEventCreateDto);
+            const effectivePriority: FinancialEventCreateDto['priority'] = (() => {
+                if (isFundTransfer) return 'MEDIUM';
+                if (selectedCategory?.priority === 'HIGH') return 'HIGH';
+                return form.priority ?? 'MEDIUM';
+            })();
+            await createEvent({ ...form as FinancialEventCreateDto, priority: effectivePriority });
             onSuccess();
             onClose();
         } catch (err) {
@@ -123,7 +130,15 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         /* Категория — отфильтрована по типу */
                         <Select
                             value={form.categoryId || ''}
-                            onValueChange={val => setForm(f => ({ ...f, categoryId: val }))}
+                            onValueChange={val => {
+                                const cat = categories.find(c => c.id === val);
+                                setForm(f => ({
+                                    ...f,
+                                    categoryId: val,
+                                    // Keep form.priority neutral (MEDIUM) — effectivePriority derives HIGH on submit
+                                    priority: cat?.priority === 'HIGH' ? 'MEDIUM' : f.priority ?? 'MEDIUM',
+                                }));
+                            }}
                             disabled={catLoading}
                         >
                             <SelectTrigger>
@@ -163,12 +178,40 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                     />
 
-                    {/* Комментарий */}
+                    {/* Название транзакции */}
                     <Input
-                        placeholder="Комментарий (необязательно)"
+                        placeholder="Название транзакции (необязательно)"
                         value={form.description ?? ''}
                         onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
                     />
+
+                    {/* Приоритет — только если не FUND_TRANSFER и не HIGH-категория */}
+                    {showPrioritySelector && (
+                        <div className="flex gap-2">
+                            {(['HIGH', 'MEDIUM', 'LOW'] as const).map(p => {
+                                const label = p === 'HIGH' ? 'обяз' : p === 'MEDIUM' ? '·' : 'хотелка';
+                                const isActive = form.priority === p;
+                                return (
+                                    <button
+                                        key={p}
+                                        type="button"
+                                        className="flex-1 text-xs px-2 py-1.5 rounded border transition-colors"
+                                        style={isActive ? {
+                                            background: p === 'HIGH' ? 'rgba(239,68,68,0.15)' : p === 'LOW' ? 'rgba(100,116,139,0.15)' : 'rgba(108,99,255,0.15)',
+                                            borderColor: p === 'HIGH' ? 'hsl(var(--destructive))' : p === 'LOW' ? 'var(--color-border)' : 'var(--color-accent)',
+                                            color: p === 'HIGH' ? 'hsl(var(--destructive))' : p === 'LOW' ? 'var(--color-text-muted)' : 'var(--color-accent)',
+                                        } : {
+                                            borderColor: 'var(--color-border)',
+                                            color: 'var(--color-text-muted)',
+                                        }}
+                                        onClick={() => setForm(f => ({ ...f, priority: p }))}
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
 
                     {error && (
                         <p className="text-sm text-destructive">{error}</p>
