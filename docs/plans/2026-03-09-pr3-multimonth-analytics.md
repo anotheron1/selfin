@@ -1,8 +1,15 @@
-# PR 3: Multi-month Analytics
+# PR 3: Analytics Page
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a table view that shows income, expenses, and fund transfers by category across multiple months.
+**Goal:** Create a dedicated Analytics page that consolidates all detailed analytical views. Replaces the overloaded Dashboard with a focused operational view.
+
+**Scope (expanded per IA decision 2026-03-10, see `docs/plans/2026-03-10-information-architecture.md`):**
+1. Multi-month table (3/6/12 months) — shows income/expenses/transfers by category across months
+2. Current-month detail blocks — plan-fact table, mandatory burn rate, income gap (relocated from Dashboard)
+3. Period switcher: "Текущий месяц" / "3 мес" / "6 мес" / "12 мес"
+
+After this PR: Dashboard is cleaned up (plan-fact table, burn rate, income gap sections removed).
 
 **Architecture:** New endpoint `GET /api/v1/analytics/multi-month` aggregates existing events by month and category. Returns a flat list of rows (totals + per-category) with planned/actual amounts per month. New `Analytics.tsx` page renders this as a sticky-column table. No new DB tables needed.
 
@@ -552,9 +559,116 @@ git commit -m "feat(frontend): register Analytics route and add to BottomNav"
 
 ---
 
+## Task 7: Analytics page — period switcher + current-month detail view
+
+**Files:**
+- Modify: `frontend/src/pages/Analytics.tsx`
+
+**Goal:** When "Текущий месяц" is selected, show the three detail sections relocated from Dashboard: план-факт таблица, burn rate обязательных трат, дефицит доходов. When a multi-month preset is selected, show the table.
+
+**Step 1: Add "Текущий месяц" to period options**
+
+Replace `'3m' | '6m' | '12m'` with `'1m' | '3m' | '6m' | '12m'`. Label for `'1m'` = "Месяц".
+
+**Step 2: Extract detail components from Dashboard.tsx**
+
+Copy `PlanFactSection`, `PlanFactGroup`, `MandatoryBurnSection`, `IncomeGapSection` from `Dashboard.tsx` into `Analytics.tsx`. They already receive data from `AnalyticsReport` (fetched by `fetchAnalyticsReport()`).
+
+**Step 3: Conditional rendering in Analytics**
+
+```tsx
+// When preset === '1m': fetch AnalyticsReport, show PlanFactSection + MandatoryBurnSection + IncomeGapSection
+// When preset !== '1m': fetch MultiMonthReport, show the multi-month table
+```
+
+**Step 4: Commit**
+
+```bash
+git add frontend/src/pages/Analytics.tsx
+git commit -m "feat(frontend): add current-month detail view to Analytics (plan-fact, burn, income gap)"
+```
+
+---
+
+## Task 8: Clean up Dashboard.tsx
+
+**Files:**
+- Modify: `frontend/src/pages/Dashboard.tsx`
+
+**Goal:** Remove analytical detail sections that now live in Analytics. Keep only operational widgets.
+
+**Step 1: Remove from Dashboard.tsx**
+- `PlanFactSection` and `PlanFactGroup` components (and the `<PlanFactSection>` render call)
+- `MandatoryBurnSection` component (and render call)
+- `IncomeGapSection` component (and render call)
+- The `fetchAnalyticsReport` import and `analytics` state (no longer needed)
+- The `analytics && (...)` block with all 4 analytics sections
+
+**Keep in Dashboard.tsx:**
+- Hero block (balance + end-of-month forecast)
+- Today's events + end-of-day forecast
+- Cash gap alert
+- Progress bars (план/факт) — compact widget, stays
+- `CashFlowSection` — cash flow calendar for upcoming days
+
+**Step 2: Build check**
+
+```bash
+cd frontend && npm run build 2>&1 | tail -10
+```
+
+Expected: no TypeScript errors.
+
+**Step 3: Commit**
+
+```bash
+git add frontend/src/pages/Dashboard.tsx
+git commit -m "refactor(frontend): remove detailed analytics from Dashboard, moved to Analytics page"
+```
+
+---
+
+## Task 9: Clean up Budget.tsx
+
+**Files:**
+- Modify: `frontend/src/pages/Budget.tsx`
+
+**Goal:** Remove cash gap alert from Budget (it belongs to Dashboard). Add compact monthly summary header.
+
+**Step 1: Remove cash gap alert**
+- Remove `cashGap` state, `fetchDashboard` import, cash gap Promise.all
+- Remove the `{!loading && cashGap && (...)}` banner block
+
+**Step 2: Add compact monthly summary**
+
+After the month navigation, add a one-line summary showing total planned vs actual:
+```tsx
+// Compute from events array:
+const totalPlannedExpense = events.filter(e => e.type === 'EXPENSE').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+const totalFactExpense = events.filter(e => e.type === 'EXPENSE' && e.status === 'EXECUTED').reduce((s, e) => s + (e.factAmount ?? e.plannedAmount ?? 0), 0);
+const totalPlannedIncome = events.filter(e => e.type === 'INCOME').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+const totalFactIncome = events.filter(e => e.type === 'INCOME' && e.status === 'EXECUTED').reduce((s, e) => s + (e.factAmount ?? e.plannedAmount ?? 0), 0);
+```
+
+Display as two compact rows:
+```
+Доходы:   факт X ₽ / план Y ₽
+Расходы:  факт X ₽ / план Y ₽
+```
+
+**Step 3: Commit**
+
+```bash
+git add frontend/src/pages/Budget.tsx
+git commit -m "refactor(frontend): remove cash gap alert from Budget, add monthly summary header"
+```
+
+---
+
 ## Verification checklist
 
-- [ ] Navigate to Analytics → select "3 мес"
+- [ ] Navigate to Analytics → select "Месяц" → plan-fact table, burn rate, income gap are visible
+- [ ] Navigate to Analytics → select "3 мес" → multi-month table is shown (no detail blocks)
 - [ ] Table shows 3 month columns
 - [ ] "Доходы" total matches Budget page income total for same month
 - [ ] "Расходы" total matches Budget page expense total
@@ -562,3 +676,5 @@ git commit -m "feat(frontend): register Analytics route and add to BottomNav"
 - [ ] Future months (no facts) show only planned amounts in muted color
 - [ ] Horizontal scroll works correctly (no native Windows scrollbar visible)
 - [ ] BottomNav shows 5 items without layout issues
+- [ ] Dashboard no longer shows plan-fact table, burn rate, income gap — only balance, today, cash flow calendar, progress bars
+- [ ] Budget no longer shows cash gap alert — has compact monthly summary instead

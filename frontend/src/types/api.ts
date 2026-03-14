@@ -23,6 +23,7 @@ export interface FinancialEvent {
     factAmount: number | null;
     status: EventStatus;
     priority: Priority;
+    mandatory?: boolean;
     description: string | null;
     rawInput: string | null;
     createdAt: string;
@@ -37,6 +38,7 @@ export interface FinancialEventCreateDto {
     plannedAmount?: number;
     factAmount?: number;
     priority?: Priority;
+    mandatory?: boolean;
     description?: string;
     rawInput?: string;
     targetFundId?: string;
