@@ -327,6 +327,8 @@ export default function Funds() {
                 lastPlanDate = futurePlanned.map(e => e.date).sort().at(-1) ?? null;
             }
             setProjections({ endOfMonth, endOfPlans, lastPlanDate });
+        }).catch(() => {
+            // Projection fetch failed — leave projections null (hidden)
         });
     }, [data]);
 
