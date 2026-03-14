@@ -242,7 +242,7 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
                         </tr>
                     ))}
                     <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
-                        <td className="py-1.5">Итого</td>
+                        <td className="py-1.5 max-w-0">Итого</td>
                         <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(totalPlanned)}</td>
                         <td className="py-1.5 text-right">{fmt(totalFact)}</td>
                         <td className="py-1.5 text-right"
