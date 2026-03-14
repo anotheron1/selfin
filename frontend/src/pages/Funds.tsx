@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { fetchFunds, createFund, updateFund, deleteFund, transferToFund } from '../api';
-import type { FundsOverview, TargetFund } from '../types/api';
+import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchEvents } from '../api';
+import type { FundsOverview, TargetFund, FinancialEvent } from '../types/api';
 import { Wallet, Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { Input } from '../components/ui/input';
@@ -286,6 +286,11 @@ export default function Funds() {
     const [showCreate, setShowCreate] = useState(false);
     const [transferFund, setTransferFund] = useState<TargetFund | null>(null);
     const [editFund, setEditFund] = useState<TargetFund | null>(null);
+    const [projections, setProjections] = useState<{
+        endOfMonth: number;
+        endOfPlans: number | null;
+        lastPlanDate: string | null;
+    } | null>(null);
 
     const load = useCallback(() => {
         setError(null);
@@ -293,8 +298,43 @@ export default function Funds() {
     }, []);
     useEffect(() => { load(); }, [load]);
 
+    useEffect(() => {
+        if (!data) return;
+        const today = new Date();
+        const todayStr = today.toISOString().slice(0, 10);
+        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+        const farFuture = new Date(today.getTime() + 730 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+        const projectBalance = (base: number, evts: FinancialEvent[]) =>
+            evts
+                .filter(e => e.status === 'PLANNED')
+                .reduce((bal, e) => {
+                    const amt = e.plannedAmount ?? 0;
+                    return e.type === 'INCOME' ? bal + amt : bal - amt;
+                }, base);
+
+        Promise.all([
+            fetchEvents(todayStr, monthEnd),
+            fetchEvents(todayStr, farFuture),
+        ]).then(([monthEvts, allFutureEvts]) => {
+            const endOfMonth = projectBalance(data.pocketBalance, monthEvts);
+
+            const futurePlanned = allFutureEvts.filter(e => e.status === 'PLANNED');
+            let endOfPlans: number | null = null;
+            let lastPlanDate: string | null = null;
+            if (futurePlanned.length > 0) {
+                endOfPlans = projectBalance(data.pocketBalance, allFutureEvts);
+                lastPlanDate = futurePlanned.map(e => e.date).sort().at(-1) ?? null;
+            }
+            setProjections({ endOfMonth, endOfPlans, lastPlanDate });
+        });
+    }, [data]);
+
     if (error) return <div className="p-6 text-center text-sm" style={{ color: 'var(--color-danger, #ef4444)' }}>Ошибка: {error}</div>;
     if (!data) return <div className="p-6 text-center animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</div>;
+
+    const fmtDate = (s: string) =>
+        new Date(s + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 
     return (
         <>
@@ -303,14 +343,27 @@ export default function Funds() {
                 {/* Кармашек */}
                 <div className="rounded-2xl p-6 flex items-center justify-between"
                     style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
-                    <div className="flex items-center gap-4">
-                        <Wallet size={32} color="white" />
-                        <div>
-                            <p className="text-sm text-white/70">В кармашке 💼</p>
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <Wallet size={32} color="white" className="shrink-0" />
+                        <div className="min-w-0">
+                            <p className="text-sm text-white/70">В кармашке</p>
                             <p className="text-3xl font-bold text-white">
                                 {new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 })
                                     .format(data.pocketBalance)}
                             </p>
+                            {projections && (
+                                <div className="mt-2 space-y-0.5 text-sm text-white/80">
+                                    <p>На конец месяца:{' '}
+                                        <b>{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfMonth)}</b>
+                                    </p>
+                                    {projections.endOfPlans != null && projections.lastPlanDate && (
+                                        <p>На конец планов:{' '}
+                                            <b>{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfPlans)}</b>
+                                            <span className="text-white/60"> · до {fmtDate(projections.lastPlanDate)}</span>
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
