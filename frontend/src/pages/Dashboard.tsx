@@ -19,14 +19,25 @@ export default function Dashboard() {
     const [data, setData] = useState<DashboardData | null>(null);
     const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
     const [todayEvents, setTodayEvents] = useState<FinancialEvent[]>([]);
+    const [monthEvents, setMonthEvents] = useState<FinancialEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        Promise.all([fetchDashboard(), fetchAnalyticsReport(), fetchEvents(todayStr, todayStr)])
-            .then(([dash, rep, evts]) => {
+        const today = new Date();
+        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+
+        Promise.all([
+            fetchDashboard(),
+            fetchAnalyticsReport(),
+            fetchEvents(todayStr, todayStr),
+            fetchEvents(monthStart, monthEnd),
+        ])
+            .then(([dash, rep, evts, mEvts]) => {
                 setData(dash);
                 setAnalytics(rep);
                 setTodayEvents(evts);
+                setMonthEvents(mEvts);
             })
             .catch(e => setError(e.message));
     }, []);
@@ -175,6 +186,21 @@ export default function Dashboard() {
                                     <div className="h-2 rounded-full transition-all"
                                         style={{ width: `${pct}%`, background: color }} />
                                 </div>
+                                {/* Transaction names under this category */}
+                                {(() => {
+                                    const names = monthEvents
+                                        .filter(e => e.categoryName === bar.categoryName && e.description)
+                                        .map(e => e.description as string)
+                                        .filter((v, i, arr) => arr.indexOf(v) === i); // deduplicate
+                                    if (names.length === 0) return null;
+                                    const shown = names.slice(0, 5);
+                                    const extra = names.length - shown.length;
+                                    return (
+                                        <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--color-text-muted)' }}>
+                                            {shown.join(' · ')}{extra > 0 ? ` · и ещё ${extra}` : ''}
+                                        </p>
+                                    );
+                                })()}
                             </div>
                         );
                     })}
