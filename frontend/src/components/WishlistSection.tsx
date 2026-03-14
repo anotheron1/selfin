@@ -72,10 +72,12 @@ export default function WishlistSection() {
                             style={idx < items.length - 1 ? { borderBottom: '1px solid var(--color-border)' } : undefined}>
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex-1 min-w-0">
-                                    <div className="font-medium text-sm">{item.categoryName}</div>
+                                    <div className="font-medium text-sm">
+                                        {item.description || item.categoryName || 'Без названия'}
+                                    </div>
                                     {item.description && (
                                         <div className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>
-                                            {item.description}
+                                            {item.categoryName}
                                         </div>
                                     )}
                                     <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>

@@ -88,7 +88,7 @@ export default function Dashboard() {
                         {incomeToday.map(e => (
                             <div key={e.id} className="flex items-center justify-between gap-2 text-sm">
                                 <div className="flex items-center gap-2 min-w-0">
-                                    <span className="truncate">{e.categoryName}</span>
+                                    <span className="truncate">{e.description || e.categoryName || 'Без названия'}</span>
                                     {e.mandatory && (
                                         <Badge variant="outline" className="text-xs border-destructive/60 text-destructive px-1.5 py-0 shrink-0">обяз</Badge>
                                     )}
@@ -109,7 +109,7 @@ export default function Dashboard() {
                                     <span className="truncate">
                                         {e.type === 'FUND_TRANSFER'
                                             ? `↪ ${e.targetFundName ?? 'Копилка'}`
-                                            : e.categoryName}
+                                            : e.description || e.categoryName || 'Без названия'}
                                     </span>
                                     {e.mandatory && (
                                         <Badge variant="outline" className="text-xs border-destructive/60 text-destructive px-1.5 py-0 shrink-0">обяз</Badge>
