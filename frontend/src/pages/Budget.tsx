@@ -50,6 +50,13 @@ function buildWeeks(year: number, month: number): Week[] {
     return weeks;
 }
 
+const DAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+function getDayLabel(dateStr: string): { dow: string; dayNum: number } {
+    const d = new Date(dateStr + 'T00:00:00');
+    return { dow: DAY_NAMES[d.getDay()], dayNum: d.getDate() };
+}
+
 export default function Budget() {
     const now = new Date();
     const [year, setYear] = useState(now.getFullYear());
@@ -109,15 +116,19 @@ export default function Budget() {
                         <div className="flex justify-between">
                             <span style={{ color: 'var(--color-text-muted)' }}>Доходы</span>
                             <span>
-                                <span style={{ color: 'var(--color-success)' }}>факт {fmt(totalFactIncome)}</span>
-                                <span style={{ color: 'var(--color-text-muted)' }}> / план {fmt(totalPlannedIncome)}</span>
+                                {totalFactIncome > 0 && (
+                                    <span style={{ color: 'var(--color-success)' }}>факт {fmt(totalFactIncome)} / </span>
+                                )}
+                                <span style={{ color: 'var(--color-text-muted)' }}>план {fmt(totalPlannedIncome)}</span>
                             </span>
                         </div>
                         <div className="flex justify-between">
                             <span style={{ color: 'var(--color-text-muted)' }}>Расходы</span>
                             <span>
-                                <span>факт {fmt(totalFactExpense)}</span>
-                                <span style={{ color: 'var(--color-text-muted)' }}> / план {fmt(totalPlannedExpense)}</span>
+                                {totalFactExpense > 0 && (
+                                    <span>факт {fmt(totalFactExpense)} / </span>
+                                )}
+                                <span style={{ color: 'var(--color-text-muted)' }}>план {fmt(totalPlannedExpense)}</span>
                             </span>
                         </div>
                     </div>
@@ -140,61 +151,98 @@ export default function Budget() {
                                 </span>
                             </button>
                             {isOpen && (
-                                <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
+                                <div>
                                     {weekEvents.length === 0 ? (
                                         <p className="px-5 py-3 text-sm" style={{ color: 'var(--color-text-muted)' }}>Нет событий</p>
-                                    ) : weekEvents.map((event: FinancialEvent) => {
-                                        const delta = event.factAmount != null && event.plannedAmount != null
-                                            ? event.factAmount - event.plannedAmount : null;
-                                        const isIncome = event.type === 'INCOME';
-                                        const isFundTransfer = event.type === 'FUND_TRANSFER';
-                                        const isExecuted = event.status === 'EXECUTED';
-                                        const displayName = isFundTransfer
-                                            ? `↪ ${event.targetFundName ?? 'Копилка'}`
-                                            : event.categoryName;
-                                        const amountColor = isIncome
-                                            ? 'var(--color-success)'
-                                            : isFundTransfer
-                                                ? 'hsl(var(--primary))'
-                                                : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
-                                        const isLowPlanned = event.priority === 'LOW' && event.status === 'PLANNED';
-                                        return (
-                                            <div key={event.id}
-                                                onClick={() => setSelectedEvent(event)}
-                                                className={`px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isLowPlanned ? ' opacity-60' : ''}`}>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-sm truncate">{displayName}</span>
-                                                        <PriorityButton
-                                                            priority={event.priority}
-                                                            onCycle={() => cycleEventPriority(event.id).then(load)}
-                                                        />
-                                                        {isExecuted && (
-                                                            <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
-                                                        )}
+                                    ) : (() => {
+                                        // Group events by date
+                                        const byDay = weekEvents.reduce<Record<string, FinancialEvent[]>>((acc, e) => {
+                                            (acc[e.date] ??= []).push(e);
+                                            return acc;
+                                        }, {});
+                                        const sortedDays = Object.keys(byDay).sort();
+
+                                        return sortedDays.map((day, dayIdx) => {
+                                            const { dow, dayNum } = getDayLabel(day);
+                                            const dayEvts = byDay[day];
+                                            return (
+                                                <div
+                                                    key={day}
+                                                    style={{
+                                                        display: 'grid',
+                                                        gridTemplateColumns: '48px 1fr',
+                                                        borderTop: dayIdx > 0 ? '1px solid var(--color-border)' : undefined,
+                                                    }}
+                                                >
+                                                    {/* Left: date label */}
+                                                    <div className="flex flex-col items-center justify-start pt-3 pb-2 select-none"
+                                                        style={{ color: 'var(--color-text-muted)', fontSize: '11px', lineHeight: 1.3 }}>
+                                                        <span>{dow}</span>
+                                                        <span className="font-semibold text-sm mt-0.5"
+                                                            style={{ color: 'var(--color-text)' }}>{dayNum}</span>
                                                     </div>
-                                                    {event.description && (
-                                                        <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>{event.description}</p>
-                                                    )}
-                                                </div>
-                                                <div className="text-right shrink-0 space-y-0.5">
-                                                    <div className="text-sm font-semibold" style={{ color: amountColor }}>
-                                                        {isIncome ? '+' : '-'}{fmt(event.plannedAmount)}
+                                                    {/* Right: events */}
+                                                    <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
+                                                        {dayEvts.map((event: FinancialEvent) => {
+                                                            const delta = event.factAmount != null && event.plannedAmount != null
+                                                                ? event.factAmount - event.plannedAmount : null;
+                                                            const isIncome = event.type === 'INCOME';
+                                                            const isFundTransfer = event.type === 'FUND_TRANSFER';
+                                                            const isExecuted = event.status === 'EXECUTED';
+                                                            const displayName = isFundTransfer
+                                                                ? `↪ ${event.targetFundName ?? 'Копилка'}`
+                                                                : event.description || event.categoryName || 'Без названия';
+                                                            const displaySubtitle = !isFundTransfer && event.description
+                                                                ? event.categoryName
+                                                                : null;
+                                                            const amountColor = isIncome
+                                                                ? 'var(--color-success)'
+                                                                : isFundTransfer
+                                                                    ? 'hsl(var(--primary))'
+                                                                    : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
+                                                            const isLowPlanned = event.priority === 'LOW' && event.status === 'PLANNED';
+                                                            return (
+                                                                <div key={event.id}
+                                                                    onClick={() => setSelectedEvent(event)}
+                                                                    className={`pr-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isLowPlanned ? ' opacity-60' : ''}`}>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="font-medium text-sm truncate">{displayName}</span>
+                                                                            <PriorityButton
+                                                                                priority={event.priority}
+                                                                                onCycle={() => cycleEventPriority(event.id).then(load)}
+                                                                            />
+                                                                            {isExecuted && (
+                                                                                <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
+                                                                            )}
+                                                                        </div>
+                                                                        {displaySubtitle && (
+                                                                            <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>{displaySubtitle}</p>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-right shrink-0 space-y-0.5">
+                                                                        <div className="text-sm font-semibold" style={{ color: amountColor }}>
+                                                                            {isIncome ? '+' : '-'}{fmt(event.plannedAmount)}
+                                                                        </div>
+                                                                        {event.factAmount != null && (
+                                                                            <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                                                                факт: {fmt(event.factAmount)}
+                                                                                {delta != null && (
+                                                                                    <span style={{ color: delta > 0 ? 'var(--color-danger)' : 'var(--color-success)', marginLeft: 4 }}>
+                                                                                        {delta > 0 ? '+' : ''}{fmt(delta)}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
-                                                    {event.factAmount != null && (
-                                                        <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                                            факт: {fmt(event.factAmount)}
-                                                            {delta != null && (
-                                                                <span style={{ color: delta > 0 ? 'var(--color-danger)' : 'var(--color-success)', marginLeft: 4 }}>
-                                                                    {delta > 0 ? '+' : ''}{fmt(delta)}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )}
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        });
+                                    })()}
                                 </div>
                             )}
                         </div>
