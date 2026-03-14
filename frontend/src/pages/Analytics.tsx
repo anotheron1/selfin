@@ -89,7 +89,6 @@ export default function Analytics() {
                     <div className="px-4 pb-6 space-y-5">
                         <PlanFactSection planFact={analytics.planFact} />
                         <MandatoryBurnSection burn={analytics.mandatoryBurn} />
-                        <IncomeGapSection gap={analytics.incomeGap} />
                     </div>
                 </ScrollArea>
             )}
@@ -111,7 +110,7 @@ export default function Analytics() {
                                         Статья
                                     </th>
                                     {report.months.map(m => (
-                                        <th key={m} className="text-right px-3 py-2 font-medium text-muted-foreground min-w-[100px]">
+                                        <th key={m} className="text-right px-4 py-2 font-medium text-muted-foreground min-w-[100px]">
                                             {new Date(m + '-01').toLocaleDateString('ru-RU', { month: 'short', year: '2-digit' })}
                                         </th>
                                     ))}
@@ -147,7 +146,7 @@ function AnalyticsRow({ row, months }: { row: MultiMonthRow; months: string[] })
             </td>
             {months.map(m => {
                 const v = valueMap.get(m);
-                if (!v) return <td key={m} className="text-right px-3 py-2 text-muted-foreground">—</td>;
+                if (!v) return <td key={m} className="text-right px-4 py-2 text-muted-foreground">—</td>;
 
                 const isNegativeBalance = isBalance && v.actual != null && v.actual < 0;
                 const actualColor = isBalance
@@ -155,7 +154,7 @@ function AnalyticsRow({ row, months }: { row: MultiMonthRow; months: string[] })
                     : isIncome ? 'text-green-500' : 'text-foreground';
 
                 return (
-                    <td key={m} className={`text-right px-3 py-2 ${isNegativeBalance ? 'bg-destructive/10' : ''}`}>
+                    <td key={m} className={`text-right px-4 py-2 ${isNegativeBalance ? 'bg-destructive/10' : ''}`}>
                         {v.actual != null ? (
                             <div>
                                 <div className={`font-medium ${actualColor}`}>{fmtTable(v.actual)}</div>
@@ -187,14 +186,16 @@ function PlanFactSection({ planFact }: { planFact: AnalyticsReport['planFact'] }
             {incomeRows.length > 0 && (
                 <PlanFactGroup label="Доходы" rows={incomeRows}
                     totalPlanned={planFact.totalPlannedIncome}
-                    totalFact={planFact.totalFactIncome} />
+                    totalFact={planFact.totalFactIncome}
+                    isIncome={true} />
             )}
 
             {expenseRows.length > 0 && (
                 <PlanFactGroup label="Расходы" rows={expenseRows}
                     totalPlanned={planFact.totalPlannedExpense}
                     totalFact={planFact.totalFactExpense}
-                    mt={incomeRows.length > 0} />
+                    mt={incomeRows.length > 0}
+                    isIncome={false} />
             )}
 
             {planFact.categories.length === 0 && (
@@ -204,14 +205,16 @@ function PlanFactSection({ planFact }: { planFact: AnalyticsReport['planFact'] }
     );
 }
 
-function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
+function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
     label: string;
     rows: AnalyticsReport['planFact']['categories'];
     totalPlanned: number;
     totalFact: number;
     mt?: boolean;
+    isIncome: boolean;
 }) {
-    const totalDelta = totalFact - totalPlanned;
+    // Positive = good: for income fact>plan is good; for expenses plan>fact is good
+    const totalDelta = isIncome ? totalFact - totalPlanned : totalPlanned - totalFact;
     return (
         <div className={mt ? 'mt-4' : ''}>
             <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-muted)' }}>
@@ -235,10 +238,16 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
                             </td>
                             <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(row.planned)}</td>
                             <td className="py-1.5 text-right">{fmt(row.fact)}</td>
-                            <td className="py-1.5 text-right font-medium"
-                                style={{ color: deltaColor(row.delta) }}>
-                                {row.delta >= 0 ? '+' : ''}{fmt(row.delta)}
-                            </td>
+                            {(() => {
+                                // Backend returns delta = fact - plan. For expenses, invert so positive = saved (good).
+                                const displayDelta = isIncome ? row.delta : -row.delta;
+                                return (
+                                    <td className="py-1.5 text-right font-medium"
+                                        style={{ color: deltaColor(displayDelta) }}>
+                                        {displayDelta >= 0 ? '+' : ''}{fmt(Math.abs(displayDelta))}
+                                    </td>
+                                );
+                            })()}
                         </tr>
                     ))}
                     <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
@@ -247,7 +256,7 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
                         <td className="py-1.5 text-right">{fmt(totalFact)}</td>
                         <td className="py-1.5 text-right"
                             style={{ color: deltaColor(totalDelta) }}>
-                            {totalDelta >= 0 ? '+' : ''}{fmt(totalDelta)}
+                            {totalDelta >= 0 ? '+' : ''}{fmt(Math.abs(totalDelta))}
                         </td>
                     </tr>
                 </tbody>
