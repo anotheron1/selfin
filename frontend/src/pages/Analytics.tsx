@@ -217,10 +217,10 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
             <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-muted)' }}>
                 {label.toUpperCase()}
             </p>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
                 <thead>
                     <tr style={{ color: 'var(--color-text-muted)', fontSize: '11px' }}>
-                        <th className="text-left pb-1 font-normal">Категория</th>
+                        <th className="text-left pb-1 font-normal w-2/5">Категория</th>
                         <th className="text-right pb-1 font-normal">План</th>
                         <th className="text-right pb-1 font-normal">Факт</th>
                         <th className="text-right pb-1 font-normal">Δ</th>
@@ -230,7 +230,9 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
                     {rows.map(row => (
                         <tr key={row.categoryName}
                             style={{ borderTop: '1px solid var(--color-border)' }}>
-                            <td className="py-1.5">{row.categoryName}</td>
+                            <td className="py-1.5 max-w-0">
+                                <span className="block truncate">{row.categoryName}</span>
+                            </td>
                             <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(row.planned)}</td>
                             <td className="py-1.5 text-right">{fmt(row.fact)}</td>
                             <td className="py-1.5 text-right font-medium"

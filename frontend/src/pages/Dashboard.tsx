@@ -165,9 +165,9 @@ export default function Dashboard() {
                         const color = pct < 70 ? 'var(--color-success)' : pct < 90 ? 'var(--color-warning)' : 'var(--color-danger)';
                         return (
                             <div key={bar.categoryName}>
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span>{bar.categoryName}</span>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>
+                                <div className="flex justify-between gap-2 text-sm mb-1 min-w-0">
+                                    <span className="truncate">{bar.categoryName}</span>
+                                    <span className="shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                                         {fmt(bar.currentFact)} / {fmt(bar.plannedLimit)}
                                     </span>
                                 </div>
