@@ -3,7 +3,6 @@ import { fetchDashboard, fetchAnalyticsReport, fetchEvents } from '../api';
 import type { AnalyticsReport, DashboardData, FinancialEvent } from '../types/api';
 import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
-import { ScrollArea } from '../components/ui/scroll-area';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
@@ -65,8 +64,8 @@ export default function Dashboard() {
     const expenseToday = todayEvents.filter(e => e.type === 'EXPENSE' || e.type === 'FUND_TRANSFER');
 
     return (
-        <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
-        <div className="pl-4 pr-5 py-6 space-y-5 overflow-x-hidden">
+        <div className="overflow-y-auto overflow-x-hidden" style={{ height: 'calc(100dvh - var(--nav-height))' }}>
+        <div className="pl-4 pr-5 py-6 space-y-5">
             {/* Hero: Текущий баланс + события сегодня */}
             <div className="rounded-2xl p-5 space-y-3"
                 style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
@@ -219,7 +218,7 @@ export default function Dashboard() {
                 <CashFlowSection cashFlow={analytics.cashFlow} />
             )}
         </div>
-        </ScrollArea>
+        </div>
     );
 }
 
