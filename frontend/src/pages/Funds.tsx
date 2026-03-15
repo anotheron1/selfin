@@ -301,9 +301,10 @@ export default function Funds() {
     useEffect(() => {
         if (!data) return;
         const today = new Date();
-        const todayStr = today.toISOString().slice(0, 10);
-        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
-        const farFuture = new Date(today.getTime() + 730 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const localDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const todayStr = localDate(today);
+        const monthEnd = localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+        const farFuture = localDate(new Date(today.getTime() + 730 * 24 * 60 * 60 * 1000));
 
         const projectBalance = (base: number, evts: FinancialEvent[]) =>
             evts

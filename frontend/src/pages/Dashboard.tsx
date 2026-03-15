@@ -14,7 +14,8 @@ const fmtDay = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 
 export default function Dashboard() {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const _today = new Date();
+    const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
 
     const [data, setData] = useState<DashboardData | null>(null);
     const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
