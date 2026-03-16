@@ -24,8 +24,9 @@ export default function Dashboard() {
 
     useEffect(() => {
         const today = new Date();
-        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+        const ld = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const monthStart = ld(new Date(today.getFullYear(), today.getMonth(), 1));
+        const monthEnd = ld(new Date(today.getFullYear(), today.getMonth() + 1, 0));
 
         Promise.all([
             fetchDashboard(),
@@ -64,7 +65,7 @@ export default function Dashboard() {
     const expenseToday = todayEvents.filter(e => e.type === 'EXPENSE' || e.type === 'FUND_TRANSFER');
 
     return (
-        <div className="overflow-y-auto overflow-x-hidden" style={{ height: 'calc(100dvh - var(--nav-height))' }}>
+        <div className="overflow-y-auto overflow-x-hidden" style={{ height: 'calc(100dvh - var(--nav-height))', scrollbarWidth: 'thin', scrollbarColor: 'var(--color-border) transparent' }}>
         <div className="pl-4 pr-5 py-6 space-y-5">
             {/* Hero: Текущий баланс + события сегодня */}
             <div className="rounded-2xl p-5 space-y-3"
@@ -179,7 +180,7 @@ export default function Dashboard() {
                                 <div className="flex justify-between gap-2 text-sm mb-1 min-w-0">
                                     <span className="truncate">{bar.categoryName}</span>
                                     <span className="shrink-0" style={{ color: 'var(--color-text-muted)' }}>
-                                        {fmt(bar.currentFact)} / {fmt(bar.plannedLimit)}
+                                        {fmt(bar.plannedLimit)} / {fmt(bar.currentFact)}
                                     </span>
                                 </div>
                                 <div className="h-2 rounded-full" style={{ background: 'var(--color-surface-2)' }}>

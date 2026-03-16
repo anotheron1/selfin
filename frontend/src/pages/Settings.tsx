@@ -138,8 +138,8 @@ export default function Settings() {
     };
 
     const grouped = {
-        EXPENSE: categories.filter(c => c.type === 'EXPENSE'),
-        INCOME: categories.filter(c => c.type === 'INCOME'),
+        EXPENSE: categories.filter(c => c.type === 'EXPENSE').sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+        INCOME: categories.filter(c => c.type === 'INCOME').sort((a, b) => a.name.localeCompare(b.name, 'ru')),
     };
 
     const fmtDate = (d: string) =>

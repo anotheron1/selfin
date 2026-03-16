@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchEvents } from '../api';
 import type { FundsOverview, TargetFund, FinancialEvent } from '../types/api';
-import { Wallet, Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
+import { Wallet, Plus, ArrowDownToLine, Pencil, Trash2, HelpCircle } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -288,9 +288,12 @@ export default function Funds() {
     const [editFund, setEditFund] = useState<TargetFund | null>(null);
     const [projections, setProjections] = useState<{
         endOfMonth: number;
+        end3Month: number;
+        end6Month: number;
         endOfPlans: number | null;
         lastPlanDate: string | null;
     } | null>(null);
+    const [showHelp, setShowHelp] = useState(false);
 
     const load = useCallback(() => {
         setError(null);
@@ -306,28 +309,32 @@ export default function Funds() {
         const monthEnd = localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
         const farFuture = localDate(new Date(today.getTime() + 730 * 24 * 60 * 60 * 1000));
 
-        const projectBalance = (base: number, evts: FinancialEvent[]) =>
-            evts
-                .filter(e => e.status === 'PLANNED')
-                .reduce((bal, e) => {
-                    const amt = e.plannedAmount ?? 0;
-                    return e.type === 'INCOME' ? bal + amt : bal - amt;
-                }, base);
+        const month3End = localDate(new Date(today.getFullYear(), today.getMonth() + 3, 0));
+        const month6End = localDate(new Date(today.getFullYear(), today.getMonth() + 6, 0));
 
-        Promise.all([
-            fetchEvents(todayStr, monthEnd),
-            fetchEvents(todayStr, farFuture),
-        ]).then(([monthEvts, allFutureEvts]) => {
-            const endOfMonth = projectBalance(data.pocketBalance, monthEvts);
+        fetchEvents(todayStr, farFuture).then(allFutureEvts => {
+            const planned = allFutureEvts.filter(e => e.status === 'PLANNED');
+            const project = (cutoff: string) =>
+                planned
+                    .filter(e => e.date <= cutoff)
+                    .reduce((bal, e) => {
+                        const amt = e.plannedAmount ?? 0;
+                        return e.type === 'INCOME' ? bal + amt : bal - amt;
+                    }, data.pocketBalance);
 
-            const futurePlanned = allFutureEvts.filter(e => e.status === 'PLANNED');
             let endOfPlans: number | null = null;
             let lastPlanDate: string | null = null;
-            if (futurePlanned.length > 0) {
-                endOfPlans = projectBalance(data.pocketBalance, allFutureEvts);
-                lastPlanDate = futurePlanned.map(e => e.date).sort().at(-1) ?? null;
+            if (planned.length > 0) {
+                endOfPlans = project(farFuture);
+                lastPlanDate = planned.map(e => e.date).sort().at(-1) ?? null;
             }
-            setProjections({ endOfMonth, endOfPlans, lastPlanDate });
+            setProjections({
+                endOfMonth: project(monthEnd),
+                end3Month: project(month3End),
+                end6Month: project(month6End),
+                endOfPlans,
+                lastPlanDate,
+            });
         }).catch(() => {
             // Projection fetch failed — leave projections null (hidden)
         });
@@ -346,22 +353,44 @@ export default function Funds() {
                 {/* Кармашек */}
                 <div className="rounded-2xl p-6 flex items-center justify-between"
                     style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <Wallet size={32} color="white" className="shrink-0" />
-                        <div className="min-w-0">
-                            <p className="text-sm text-white/70">В кармашке</p>
+                    <div className="flex items-start gap-4 flex-1 min-w-0">
+                        <Wallet size={32} color="white" className="shrink-0 mt-1" />
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                                <p className="text-sm text-white/70">В кармашке</p>
+                                <button
+                                    onClick={() => setShowHelp(h => !h)}
+                                    className="text-white/50 hover:text-white/90 transition-colors"
+                                    aria-label="Что такое кармашек">
+                                    <HelpCircle size={14} />
+                                </button>
+                            </div>
+                            {showHelp && (
+                                <div className="mt-1 mb-2 text-xs text-white/70 leading-relaxed rounded-xl bg-black/20 px-3 py-2">
+                                    <b className="text-white/90">Кармашек</b> — свободные деньги на счету, не зарезервированные ни в одной копилке.<br />
+                                    Формула: <span className="text-white/90">баланс счёта − сумма копилок</span>.<br />
+                                    Если отрицательный — вы зарезервировали в копилках больше, чем сейчас на счету.<br />
+                                    Прогнозы учитывают все запланированные доходы и расходы.
+                                </div>
+                            )}
                             <p className="text-3xl font-bold text-white">
                                 {new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 })
                                     .format(data.pocketBalance)}
                             </p>
                             {projections && (
-                                <div className="mt-2 space-y-0.5 text-sm text-white/80">
-                                    <p>На конец месяца:{' '}
-                                        <b>{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfMonth)}</b>
+                                <div className="mt-2 space-y-0.5 text-xs text-white/80">
+                                    <p>Конец месяца:{' '}
+                                        <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfMonth)}</b>
+                                    </p>
+                                    <p>Через 3 месяца:{' '}
+                                        <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.end3Month)}</b>
+                                    </p>
+                                    <p>Через 6 месяцев:{' '}
+                                        <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.end6Month)}</b>
                                     </p>
                                     {projections.endOfPlans != null && projections.lastPlanDate && (
-                                        <p>На конец планов:{' '}
-                                            <b>{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfPlans)}</b>
+                                        <p>Конец планов:{' '}
+                                            <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfPlans)}</b>
                                             <span className="text-white/60"> · до {fmtDate(projections.lastPlanDate)}</span>
                                         </p>
                                     )}

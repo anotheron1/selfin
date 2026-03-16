@@ -41,7 +41,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         setForm(f => ({ ...f, type, categoryId: undefined, targetFundId: undefined, priority: 'MEDIUM' }));
     };
 
-    const filteredCategories = categories.filter(c => c.type === form.type);
+    const filteredCategories = categories.filter(c => c.type === form.type).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     const activeFunds = funds.filter(f => f.status !== 'REACHED');
     const selectedCategory = categories.find(c => c.id === form.categoryId);
     const showPrioritySelector = form.type !== 'FUND_TRANSFER' && selectedCategory?.priority !== 'HIGH';

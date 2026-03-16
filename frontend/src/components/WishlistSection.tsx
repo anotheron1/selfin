@@ -23,7 +23,7 @@ export default function WishlistSection() {
     const load = useCallback(() => {
         setLoading(true);
         fetchWishlist()
-            .then(setItems)
+            .then(data => setItems(data.filter(e => e.status === 'PLANNED')))
             .finally(() => setLoading(false));
     }, []);
 
