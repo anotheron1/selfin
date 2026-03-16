@@ -2,6 +2,7 @@ package ru.selfin.backend.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
 
 import java.math.BigDecimal;
@@ -54,4 +55,17 @@ public class TargetFund {
     @Column(name = "is_deleted", nullable = false)
     @Builder.Default
     private boolean deleted = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "purchase_type", nullable = false)
+    @Builder.Default
+    private FundPurchaseType purchaseType = FundPurchaseType.SAVINGS;
+
+    /** Годовая процентная ставка по кредиту (%), nullable */
+    @Column(name = "credit_rate", precision = 5, scale = 2)
+    private BigDecimal creditRate;
+
+    /** Срок кредита в месяцах, nullable */
+    @Column(name = "credit_term_months")
+    private Integer creditTermMonths;
 }
