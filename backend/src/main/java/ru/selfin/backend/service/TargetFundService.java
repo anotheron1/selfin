@@ -123,12 +123,12 @@ public class TargetFundService {
         if (latestCheckpoint.isPresent()) {
             LocalDate fromDate = latestCheckpoint.get().getDate();
             BigDecimal checkpointAmount = latestCheckpoint.get().getAmount();
-            income = eventRepository.sumEffectiveByTypeFromDate(EventType.INCOME, fromDate);
-            expense = eventRepository.sumEffectiveByTypeFromDate(EventType.EXPENSE, fromDate);
+            income = eventRepository.sumFactExecutedByTypeFromDate(EventType.INCOME, fromDate);
+            expense = eventRepository.sumFactExecutedByTypeFromDate(EventType.EXPENSE, fromDate);
             return checkpointAmount.add(income).subtract(expense).subtract(fundBalances);
         } else {
-            income = eventRepository.sumEffectiveByType(EventType.INCOME);
-            expense = eventRepository.sumEffectiveByType(EventType.EXPENSE);
+            income = eventRepository.sumFactExecutedByType(EventType.INCOME);
+            expense = eventRepository.sumFactExecutedByType(EventType.EXPENSE);
             return income.subtract(expense).subtract(fundBalances);
         }
     }

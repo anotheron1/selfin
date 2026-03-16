@@ -53,4 +53,31 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
            "ELSE e.plannedAmount END), 0) " +
            "FROM FinancialEvent e WHERE e.type = :type AND e.deleted = false AND e.date >= :fromDate")
     BigDecimal sumEffectiveByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
+
+    /**
+     * Сумма фактических (только EXECUTED) сумм по типу события.
+     * Используется для расчёта кармашка — только реально исполненные события.
+     *
+     * @param type тип события (INCOME или EXPENSE)
+     * @return сумма factAmount всех EXECUTED событий; {@code 0} если нет
+     */
+    @Query("SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e " +
+           "WHERE e.type = :type " +
+           "AND e.status = ru.selfin.backend.model.enums.EventStatus.EXECUTED " +
+           "AND e.factAmount IS NOT NULL AND e.deleted = false")
+    BigDecimal sumFactExecutedByType(@Param("type") EventType type);
+
+    /**
+     * Сумма фактических (только EXECUTED) сумм по типу события начиная с даты (включительно).
+     * Используется для расчёта кармашка при наличии {@code BalanceCheckpoint}.
+     *
+     * @param type     тип события
+     * @param fromDate нижняя граница дат (включительно)
+     * @return сумма factAmount всех EXECUTED событий; {@code 0} если нет
+     */
+    @Query("SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e " +
+           "WHERE e.type = :type " +
+           "AND e.status = ru.selfin.backend.model.enums.EventStatus.EXECUTED " +
+           "AND e.factAmount IS NOT NULL AND e.deleted = false AND e.date >= :fromDate")
+    BigDecimal sumFactExecutedByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
 }
