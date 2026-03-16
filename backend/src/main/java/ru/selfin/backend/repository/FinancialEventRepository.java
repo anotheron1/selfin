@@ -82,5 +82,5 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     BigDecimal sumFactExecutedByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
 
     /** Планировщик фондов: все не-удалённые события с любым статусом кроме CANCELLED */
-    List<FinancialEvent> findAllByDeletedFalseAndStatusNot(EventStatus status);
+    List<FinancialEvent> findAllByDeletedFalseAndStatusNot(EventStatus excludeStatus);
 }

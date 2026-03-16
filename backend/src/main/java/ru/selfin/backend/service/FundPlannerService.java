@@ -2,6 +2,7 @@ package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FundPlannerDto;
 import ru.selfin.backend.dto.FundPlannerMonthDto;
 import ru.selfin.backend.model.FinancialEvent;
@@ -18,6 +19,7 @@ import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FundPlannerService {
 
     private final FinancialEventRepository eventRepository;
