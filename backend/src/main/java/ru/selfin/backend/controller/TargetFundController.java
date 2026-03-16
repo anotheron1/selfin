@@ -9,9 +9,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import ru.selfin.backend.dto.FundPlannerDto;
 import ru.selfin.backend.dto.FundsOverviewDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
+import ru.selfin.backend.service.FundPlannerService;
 import ru.selfin.backend.service.TargetFundService;
 
 import java.math.BigDecimal;
@@ -31,11 +33,18 @@ import java.util.UUID;
 public class TargetFundController {
 
     private final TargetFundService fundService;
+    private final FundPlannerService fundPlannerService;
 
     @Operation(summary = "Обзор всех фондов", description = "Возвращает баланс кармашка и список всех активных целевых фондов с прогрессом")
     @GetMapping
     public FundsOverviewDto getOverview() {
         return fundService.getOverview();
+    }
+
+    @Operation(summary = "Планировщик фондов", description = "Возвращает агрегаты по 36 месяцам начиная с текущего: доходы, обязательные расходы, все расходы")
+    @GetMapping("/planner")
+    public FundPlannerDto getPlanner() {
+        return fundPlannerService.getPlanner();
     }
 
     @Operation(summary = "Создать новый целевой фонд")
