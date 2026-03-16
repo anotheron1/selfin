@@ -63,6 +63,8 @@ export interface DashboardData {
     progressBars: CategoryProgressBar[];
 }
 
+export type PurchaseType = 'SAVINGS' | 'CREDIT';
+
 export interface TargetFund {
     id: string;
     name: string;
@@ -72,6 +74,9 @@ export interface TargetFund {
     priority: number;
     targetDate: string | null;
     estimatedCompletionDate: string | null;
+    purchaseType: PurchaseType;
+    creditRate: number | null;
+    creditTermMonths: number | null;
 }
 
 export interface FundsOverview {
@@ -179,4 +184,17 @@ export interface BalanceCheckpoint {
 export interface BalanceCheckpointCreateDto {
     date: string;
     amount: number;
+}
+
+// --- Fund Planner ---
+
+export interface FundPlannerMonth {
+    yearMonth: string;
+    plannedIncome: number;
+    mandatoryExpenses: number;
+    allPlannedExpenses: number;
+}
+
+export interface FundPlannerData {
+    months: FundPlannerMonth[];
 }

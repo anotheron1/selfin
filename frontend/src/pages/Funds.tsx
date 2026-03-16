@@ -9,7 +9,9 @@ import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import WishlistSection from '../components/WishlistSection';
+import type { PurchaseType } from '../types/api';
 
 const fmt = (n: number | null) =>
     n != null
@@ -22,6 +24,9 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
     const [name, setName] = useState('');
     const [target, setTarget] = useState('');
     const [targetDate, setTargetDate] = useState('');
+    const [purchaseType, setPurchaseType] = useState<PurchaseType>('SAVINGS');
+    const [creditRate, setCreditRate] = useState('');
+    const [creditTermMonths, setCreditTermMonths] = useState('');
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -33,6 +38,9 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                 name: name.trim(),
                 targetAmount: target ? Number(target) : undefined,
                 targetDate: targetDate || undefined,
+                purchaseType,
+                creditRate: purchaseType === 'CREDIT' && creditRate ? Number(creditRate) : undefined,
+                creditTermMonths: purchaseType === 'CREDIT' && creditTermMonths ? Number(creditTermMonths) : undefined,
             });
             onSuccess();
             onClose();
@@ -66,6 +74,34 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                             onChange={e => setTargetDate(e.target.value)}
                         />
                     </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">Тип покупки</label>
+                        <Select value={purchaseType} onValueChange={v => setPurchaseType(v as PurchaseType)}>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="SAVINGS">Накопление</SelectItem>
+                                <SelectItem value="CREDIT">Кредит</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    {purchaseType === 'CREDIT' && (
+                        <>
+                            <Input
+                                type="number"
+                                placeholder="Процентная ставка, % (необязательно)"
+                                value={creditRate}
+                                onChange={e => setCreditRate(e.target.value)}
+                            />
+                            <Input
+                                type="number"
+                                placeholder="Срок кредита, мес. (необязательно)"
+                                value={creditTermMonths}
+                                onChange={e => setCreditTermMonths(e.target.value)}
+                            />
+                        </>
+                    )}
                     <Button
                         type="submit"
                         className="w-full"
@@ -139,6 +175,9 @@ function EditFundModal({ fund, onClose, onSuccess }: {
     const [name, setName] = useState(fund.name);
     const [target, setTarget] = useState(fund.targetAmount != null ? String(fund.targetAmount) : '');
     const [targetDate, setTargetDate] = useState(fund.targetDate ?? '');
+    const [purchaseType, setPurchaseType] = useState<PurchaseType>(fund.purchaseType ?? 'SAVINGS');
+    const [creditRate, setCreditRate] = useState(fund.creditRate != null ? String(fund.creditRate) : '');
+    const [creditTermMonths, setCreditTermMonths] = useState(fund.creditTermMonths != null ? String(fund.creditTermMonths) : '');
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -150,6 +189,9 @@ function EditFundModal({ fund, onClose, onSuccess }: {
                 name: name.trim(),
                 targetAmount: target ? Number(target) : undefined,
                 targetDate: targetDate || undefined,
+                purchaseType,
+                creditRate: purchaseType === 'CREDIT' && creditRate ? Number(creditRate) : undefined,
+                creditTermMonths: purchaseType === 'CREDIT' && creditTermMonths ? Number(creditTermMonths) : undefined,
             });
             onSuccess();
             onClose();
@@ -193,6 +235,34 @@ function EditFundModal({ fund, onClose, onSuccess }: {
                             onChange={e => setTargetDate(e.target.value)}
                         />
                     </div>
+                    <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">Тип покупки</label>
+                        <Select value={purchaseType} onValueChange={v => setPurchaseType(v as PurchaseType)}>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="SAVINGS">Накопление</SelectItem>
+                                <SelectItem value="CREDIT">Кредит</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    {purchaseType === 'CREDIT' && (
+                        <>
+                            <Input
+                                type="number"
+                                placeholder="Процентная ставка, % (необязательно)"
+                                value={creditRate}
+                                onChange={e => setCreditRate(e.target.value)}
+                            />
+                            <Input
+                                type="number"
+                                placeholder="Срок кредита, мес. (необязательно)"
+                                value={creditTermMonths}
+                                onChange={e => setCreditTermMonths(e.target.value)}
+                            />
+                        </>
+                    )}
                     <Button
                         type="submit"
                         className="w-full"
