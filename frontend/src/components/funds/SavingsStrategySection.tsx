@@ -62,9 +62,11 @@ function CreditParams({ fund, monthlyContribution, onSaved }: CreditParamsProps)
     const [rate, setRate] = useState(fund.creditRate != null ? String(fund.creditRate) : '');
     const [term, setTerm] = useState(fund.creditTermMonths != null ? String(fund.creditTermMonths) : '');
     const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleSave = async () => {
         setSaving(true);
+        setError(null);
         try {
             await updateFund(fund.id, {
                 name: fund.name,
@@ -72,6 +74,8 @@ function CreditParams({ fund, monthlyContribution, onSaved }: CreditParamsProps)
                 creditTermMonths: term ? Number(term) : undefined,
             });
             onSaved();
+        } catch {
+            setError('Ошибка сохранения');
         } finally {
             setSaving(false);
         }
@@ -139,6 +143,7 @@ function CreditParams({ fund, monthlyContribution, onSaved }: CreditParamsProps)
                     </Button>
                 </div>
             </div>
+            {error && <p className="text-xs text-destructive mt-1">{error}</p>}
             {indicator && <div>{indicator}</div>}
         </div>
     );
@@ -152,6 +157,8 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
     const [fundPercents, setFundPercents] = useState<Record<string, number>>({});
 
     // Initialize percents for each fund (0 by default)
+    const fundIdKey = funds.map(f => f.id).join(',');
+
     useEffect(() => {
         setFundPercents(prev => {
             const next: Record<string, number> = {};
@@ -160,7 +167,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
             }
             return next;
         });
-    }, [funds]);
+    }, [fundIdKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Load planner data when section is first opened
     useEffect(() => {
@@ -169,7 +176,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
         }
     }, [isOpen, plannerData]);
 
-    const activeFunds = funds.filter(f => !(f as TargetFund & { deleted?: boolean }).deleted);
+    const activeFunds = funds;
 
     const plannedIncome = plannerData
         ? avgFirstMonths(plannerData.months, 3)
@@ -194,7 +201,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
         })
         : [];
 
-    const tickFormatter = (v: number) => v >= 1000 ? Math.round(v / 1000) + 'к' : String(v);
+    const tickFormatter = (v: number) => Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'к' : String(v);
 
     return (
         <div
@@ -328,6 +335,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                 {!isCredit && projection}
                                 {isCredit && (
                                     <CreditParams
+                                        key={`${fund.id}-${fund.creditRate ?? 'null'}-${fund.creditTermMonths ?? 'null'}`}
                                         fund={fund}
                                         monthlyContribution={monthly}
                                         onSaved={onFundUpdated}
