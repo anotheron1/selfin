@@ -65,7 +65,7 @@ export default function Dashboard() {
     const expenseToday = todayEvents.filter(e => e.type === 'EXPENSE' || e.type === 'FUND_TRANSFER');
 
     return (
-        <div className="overflow-y-auto overflow-x-hidden" style={{ height: 'calc(100dvh - var(--nav-height))', scrollbarWidth: 'thin', scrollbarColor: 'var(--color-border) transparent' }}>
+        <div className="overflow-y-auto overflow-x-hidden scrollbar-none" style={{ height: 'calc(100dvh - var(--nav-height))' }}>
         <div className="pl-4 pr-5 py-6 space-y-5">
             {/* Hero: Текущий баланс + события сегодня */}
             <div className="rounded-2xl p-5 space-y-3"
