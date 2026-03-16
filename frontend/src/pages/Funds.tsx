@@ -29,6 +29,13 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
     const [creditTermMonths, setCreditTermMonths] = useState('');
     const [loading, setLoading] = useState(false);
 
+    useEffect(() => {
+        if (purchaseType !== 'CREDIT') {
+            setCreditRate('');
+            setCreditTermMonths('');
+        }
+    }, [purchaseType]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim()) return;
@@ -90,12 +97,18 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                         <>
                             <Input
                                 type="number"
+                                min="0.01"
+                                max="99.99"
+                                step="0.01"
                                 placeholder="Процентная ставка, % (необязательно)"
                                 value={creditRate}
                                 onChange={e => setCreditRate(e.target.value)}
                             />
                             <Input
                                 type="number"
+                                min="1"
+                                max="360"
+                                step="1"
                                 placeholder="Срок кредита, мес. (необязательно)"
                                 value={creditTermMonths}
                                 onChange={e => setCreditTermMonths(e.target.value)}
@@ -180,6 +193,13 @@ function EditFundModal({ fund, onClose, onSuccess }: {
     const [creditTermMonths, setCreditTermMonths] = useState(fund.creditTermMonths != null ? String(fund.creditTermMonths) : '');
     const [loading, setLoading] = useState(false);
 
+    useEffect(() => {
+        if (purchaseType !== 'CREDIT') {
+            setCreditRate('');
+            setCreditTermMonths('');
+        }
+    }, [purchaseType]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim()) return;
@@ -251,12 +271,18 @@ function EditFundModal({ fund, onClose, onSuccess }: {
                         <>
                             <Input
                                 type="number"
+                                min="0.01"
+                                max="99.99"
+                                step="0.01"
                                 placeholder="Процентная ставка, % (необязательно)"
                                 value={creditRate}
                                 onChange={e => setCreditRate(e.target.value)}
                             />
                             <Input
                                 type="number"
+                                min="1"
+                                max="360"
+                                step="1"
                                 placeholder="Срок кредита, мес. (необязательно)"
                                 value={creditTermMonths}
                                 onChange={e => setCreditTermMonths(e.target.value)}
