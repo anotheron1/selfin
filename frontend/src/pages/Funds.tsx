@@ -11,6 +11,7 @@ import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import WishlistSection from '../components/WishlistSection';
+import SavingsStrategySection from '../components/funds/SavingsStrategySection';
 import type { PurchaseType } from '../types/api';
 
 const fmt = (n: number | null) =>
@@ -526,6 +527,12 @@ export default function Funds() {
 
                 {/* Хотелки */}
                 <WishlistSection />
+
+                {/* Планировщик копилок */}
+                <SavingsStrategySection
+                    funds={data.funds}
+                    onFundUpdated={load}
+                />
             </div>
             </ScrollArea>
 
