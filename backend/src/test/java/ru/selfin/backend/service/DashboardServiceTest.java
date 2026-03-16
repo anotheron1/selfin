@@ -310,6 +310,49 @@ class DashboardServiceTest {
 
     // ─── helpers ───────────────────────────────────────────────────────────────
 
+    private FinancialEvent eventWithCategory(EventType type, String categoryName,
+            BigDecimal planned, BigDecimal fact) {
+        Category category = Category.builder()
+                .id(UUID.randomUUID())
+                .name(categoryName)
+                .type(CategoryType.EXPENSE)
+                .build();
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(TODAY.withDayOfMonth(5))
+                .category(category)
+                .type(type)
+                .plannedAmount(planned)
+                .factAmount(fact)
+                .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
+                .priority(Priority.MEDIUM)
+                .deleted(false)
+                .build();
+    }
+
+    @Test
+    @DisplayName("Прогресс-бары: сортировка по имени категории в русском алфавитном порядке")
+    void progressBars_sortedAlphabetically() {
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+
+        // Три расходных категории — передаём в порядке, обратном алфавитному
+        List<FinancialEvent> events = List.of(
+                eventWithCategory(EventType.EXPENSE, "Еда",     bd(10_000), bd(8_000)),
+                eventWithCategory(EventType.EXPENSE, "Аренда",  bd(30_000), bd(30_000)),
+                eventWithCategory(EventType.EXPENSE, "Бензин",  bd(5_000),  bd(3_300))
+        );
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(events);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        List<String> names = dto.progressBars().stream()
+                .map(DashboardDto.CategoryProgressBar::categoryName)
+                .toList();
+        assertThat(names).containsExactly("Аренда", "Бензин", "Еда");
+    }
+
     private static BigDecimal bd(long value) {
         return BigDecimal.valueOf(value);
     }

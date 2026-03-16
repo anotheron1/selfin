@@ -16,7 +16,9 @@ import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.text.Collator;
 import java.time.LocalDate;
+import java.util.Locale;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.WeekFields;
@@ -165,6 +167,8 @@ public class AnalyticsService {
             }
         }
 
+        Collator collator = Collator.getInstance(new Locale("ru", "RU"));
+        categories.sort((a, b) -> collator.compare(a.categoryName(), b.categoryName()));
         return new PlanFactReport(categories, totalPlannedIncome, totalFactIncome, totalPlannedExpense, totalFactExpense);
     }
 
@@ -364,8 +368,9 @@ public class AnalyticsService {
 
         // Build per-category rows (sorted alphabetically)
         List<RowDto> categoryRows = new ArrayList<>();
+        Collator collator = Collator.getInstance(new Locale("ru", "RU"));
         List<UUID> sortedCategories = categoryNames.keySet().stream()
-                .sorted(Comparator.comparing(categoryNames::get))
+                .sorted((a, b) -> collator.compare(categoryNames.get(a), categoryNames.get(b)))
                 .toList();
 
         for (UUID catId : sortedCategories) {

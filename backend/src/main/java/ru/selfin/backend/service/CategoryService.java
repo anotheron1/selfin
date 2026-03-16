@@ -10,7 +10,9 @@ import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.CategoryRepository;
 
+import java.text.Collator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -34,7 +36,9 @@ public class CategoryService {
      * @return список DTO категорий; пустой список если ни одной категории нет
      */
     public List<CategoryDto> findAll() {
+        Collator collator = Collator.getInstance(new Locale("ru", "RU"));
         return categoryRepository.findAllByDeletedFalse().stream()
+                .sorted((a, b) -> collator.compare(a.getName(), b.getName()))
                 .map(this::toDto)
                 .toList();
     }

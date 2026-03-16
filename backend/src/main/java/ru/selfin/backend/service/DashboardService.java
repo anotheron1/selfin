@@ -12,9 +12,11 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.Collator;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -175,6 +177,8 @@ public class DashboardService {
                             .divide(planned, 0, RoundingMode.HALF_UP).intValue();
             bars.add(new DashboardDto.CategoryProgressBar(entry.getKey(), fact, planned, pct));
         }
+        Collator collator = Collator.getInstance(new Locale("ru", "RU"));
+        bars.sort((a, b) -> collator.compare(a.categoryName(), b.categoryName()));
         return bars;
     }
 }
