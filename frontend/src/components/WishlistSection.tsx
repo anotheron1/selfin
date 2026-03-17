@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { fetchWishlist, deleteEvent, updateEvent } from '../api';
-import type { FinancialEvent } from '../types/api';
+import { ExternalLink, Plus } from 'lucide-react';
+import { fetchWishlist, deleteEvent, updateEvent, createWishlistItem } from '../api';
+import type { FinancialEvent, WishlistCreateDto } from '../types/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -19,6 +20,13 @@ export default function WishlistSection() {
     const [loading, setLoading] = useState(true);
     const [reschedulingId, setReschedulingId] = useState<string | null>(null);
     const [newDate, setNewDate] = useState('');
+    const [showAddForm, setShowAddForm] = useState(false);
+    const [addForm, setAddForm] = useState<{ description: string; plannedAmount: string; url: string }>({
+        description: '',
+        plannedAmount: '',
+        url: '',
+    });
+    const [submitting, setSubmitting] = useState(false);
 
     const load = useCallback(() => {
         setLoading(true);
@@ -49,6 +57,25 @@ export default function WishlistSection() {
         load();
     };
 
+    async function handleAddSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        if (!addForm.description.trim()) return;
+        setSubmitting(true);
+        try {
+            const dto: WishlistCreateDto = {
+                description: addForm.description.trim(),
+                plannedAmount: addForm.plannedAmount ? Number(addForm.plannedAmount) : null,
+                url: addForm.url.trim() || null,
+            };
+            await createWishlistItem(dto);
+            setAddForm({ description: '', plannedAmount: '', url: '' });
+            setShowAddForm(false);
+            await load();
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
     if (loading) return (
         <div className="text-sm text-center animate-pulse py-4" style={{ color: 'var(--color-text-muted)' }}>
             Загрузка хотелок...
@@ -57,7 +84,84 @@ export default function WishlistSection() {
 
     return (
         <div className="space-y-3">
-            <h2 className="font-semibold">Хотелки</h2>
+            <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>
+                    Хотелки
+                </span>
+                <button
+                    onClick={() => setShowAddForm(v => !v)}
+                    className="w-6 h-6 rounded flex items-center justify-center transition-colors"
+                    style={{ color: 'var(--color-text-muted)' }}
+                    title="Добавить хотелку"
+                >
+                    <Plus size={14} />
+                </button>
+            </div>
+            {showAddForm && (
+                <form
+                    onSubmit={handleAddSubmit}
+                    className="mb-3 flex flex-col gap-1.5 p-2 rounded"
+                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
+                >
+                    <input
+                        type="text"
+                        required
+                        placeholder="Название *"
+                        value={addForm.description}
+                        onChange={e => setAddForm(v => ({ ...v, description: e.target.value }))}
+                        className="rounded px-2 py-1 text-sm w-full outline-none"
+                        style={{
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border)',
+                            color: 'var(--color-text)',
+                        }}
+                    />
+                    <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Цена (необязательно)"
+                        value={addForm.plannedAmount}
+                        onChange={e => setAddForm(v => ({ ...v, plannedAmount: e.target.value }))}
+                        className="rounded px-2 py-1 text-sm w-full outline-none"
+                        style={{
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border)',
+                            color: 'var(--color-text)',
+                        }}
+                    />
+                    <input
+                        type="url"
+                        placeholder="Ссылка (необязательно)"
+                        value={addForm.url}
+                        onChange={e => setAddForm(v => ({ ...v, url: e.target.value }))}
+                        className="rounded px-2 py-1 text-sm w-full outline-none"
+                        style={{
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border)',
+                            color: 'var(--color-text)',
+                        }}
+                    />
+                    <div className="flex gap-2 justify-end">
+                        <button
+                            type="button"
+                            onClick={() => setShowAddForm(false)}
+                            className="text-xs px-2 py-1 rounded"
+                            style={{ color: 'var(--color-text-muted)' }}
+                        >
+                            Отмена
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={submitting}
+                            className="text-xs px-3 py-1 rounded"
+                            style={{ background: 'var(--color-primary)', color: '#fff' }}
+                        >
+                            {submitting ? '...' : 'Добавить'}
+                        </button>
+                    </div>
+                </form>
+            )}
             {items.length === 0 ? (
                 <div className="rounded-2xl px-5 py-4 text-sm"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
@@ -80,8 +184,21 @@ export default function WishlistSection() {
                                             {item.categoryName}
                                         </div>
                                     )}
-                                    <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                                    <div className="text-xs mt-0.5 flex items-center" style={{ color: 'var(--color-text-muted)' }}>
                                         план {fmt(item.plannedAmount)} · {formatPeriod(item.date)}
+                                        {item.url && (
+                                            <a
+                                                href={item.url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="ml-1 inline-flex items-center"
+                                                style={{ color: 'var(--color-text-muted)' }}
+                                                title={item.url}
+                                                onClick={e => e.stopPropagation()}
+                                            >
+                                                <ExternalLink size={11} />
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">

@@ -13,6 +13,7 @@ import type {
     MultiMonthReport,
     PurchaseType,
     TargetFund,
+    WishlistCreateDto,
 } from '../types/api';
 
 // --- Categories ---
@@ -76,6 +77,10 @@ export const cycleEventPriority = (id: string) => patch<FinancialEvent>(`/events
 
 /** Загружает нереализованные хотелки: LOW-priority PLANNED события с датой в прошлом. */
 export const fetchWishlist = () => get<FinancialEvent[]>('/events/wishlist');
+
+/** Создаёт новую хотелку вручную. */
+export const createWishlistItem = (dto: WishlistCreateDto): Promise<FinancialEvent> =>
+    post<FinancialEvent>('/events/wishlist', dto);
 
 /** Удаляет событие (soft delete — физически запись остаётся в БД). */
 export const deleteEvent = (id: string) => del(`/events/${id}`);

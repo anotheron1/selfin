@@ -26,9 +26,16 @@ export interface FinancialEvent {
     mandatory?: boolean;
     description: string | null;
     rawInput: string | null;
+    url?: string | null;
     createdAt: string;
     targetFundId?: string;
     targetFundName?: string;
+}
+
+export interface WishlistCreateDto {
+    description: string;
+    plannedAmount?: number | null;
+    url?: string | null;
 }
 
 export interface FinancialEventCreateDto {

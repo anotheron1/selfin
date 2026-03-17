@@ -528,6 +528,9 @@ export default function Funds() {
                 {/* Хотелки */}
                 <WishlistSection />
 
+                {/* Разделитель секций */}
+                <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
+
                 {/* Планировщик копилок */}
                 <SavingsStrategySection
                     funds={data.funds}
