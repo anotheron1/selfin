@@ -24,6 +24,12 @@ public class FundPlannerService {
 
     private final FinancialEventRepository eventRepository;
 
+    /**
+     * Возвращает агрегацию плановых событий по месяцам на 36 месяцев вперёд
+     * для использования в планировщике накоплений.
+     *
+     * @return DTO с помесячной разбивкой плановых доходов и расходов
+     */
     public FundPlannerDto getPlanner() {
         List<FinancialEvent> events =
                 eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED);
