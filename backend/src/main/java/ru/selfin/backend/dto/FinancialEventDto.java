@@ -23,5 +23,6 @@ public record FinancialEventDto(
         String rawInput,
         LocalDateTime createdAt,
         UUID targetFundId,
-        String targetFundName) {
+        String targetFundName,
+        String url) {
 }

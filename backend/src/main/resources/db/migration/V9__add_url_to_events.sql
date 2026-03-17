@@ -1,0 +1,1 @@
+ALTER TABLE financial_events ADD COLUMN url VARCHAR(2048);

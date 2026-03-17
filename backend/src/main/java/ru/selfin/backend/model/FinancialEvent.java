@@ -77,6 +77,9 @@ public class FinancialEvent {
     @Column(name = "raw_input", columnDefinition = "TEXT")
     private String rawInput;
 
+    @Column(length = 2048)
+    private String url;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

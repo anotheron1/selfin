@@ -8,9 +8,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
+import ru.selfin.backend.dto.WishlistCreateDto;
 import ru.selfin.backend.service.FinancialEventService;
 
 import java.time.LocalDate;
@@ -80,6 +82,14 @@ public class FinancialEventController {
     @GetMapping("/wishlist")
     public List<FinancialEventDto> getWishlist() {
         return eventService.findWishlist();
+    }
+
+    /** Ручное создание новой хотелки. */
+    @Operation(summary = "Создать хотелку вручную")
+    @PostMapping("/wishlist")
+    @ResponseStatus(HttpStatus.CREATED)
+    public FinancialEventDto createWishlistItem(@RequestBody @Valid WishlistCreateDto dto) {
+        return eventService.createWishlistItem(dto);
     }
 
     @Operation(summary = "Удалить событие (soft delete)")

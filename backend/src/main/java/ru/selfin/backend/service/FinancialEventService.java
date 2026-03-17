@@ -9,6 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
+import ru.selfin.backend.dto.WishlistCreateDto;
+import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
@@ -269,6 +271,35 @@ public class FinancialEventService {
                                 e.getType(), e.getPlannedAmount(), e.getFactAmount(),
                                 e.getStatus(), e.getPriority(), e.getDescription(),
                                 e.getRawInput(), e.getCreatedAt(),
-                                e.getTargetFundId(), fundName);
+                                e.getTargetFundId(), fundName, e.getUrl());
+        }
+
+        /**
+         * Создаёт новую хотелку вручную.
+         * Находит или создаёт категорию "Хотелки" (тип EXPENSE),
+         * затем сохраняет событие с LOW приоритетом и вчерашней датой,
+         * чтобы оно сразу попало в выдачу {@code GET /events/wishlist}.
+         */
+        @Transactional
+        public FinancialEventDto createWishlistItem(WishlistCreateDto dto) {
+                Category category = categoryRepository.findByNameAndDeletedFalse("Хотелки")
+                                .orElseGet(() -> categoryRepository.save(
+                                                Category.builder()
+                                                                .name("Хотелки")
+                                                                .type(CategoryType.EXPENSE)
+                                                                .build()));
+
+                FinancialEvent event = FinancialEvent.builder()
+                                .date(LocalDate.now().minusDays(1))
+                                .category(category)
+                                .type(EventType.EXPENSE)
+                                .priority(Priority.LOW)
+                                .status(EventStatus.PLANNED)
+                                .description(dto.description())
+                                .plannedAmount(dto.plannedAmount())
+                                .url(dto.url())
+                                .build();
+
+                return toDto(eventRepository.save(event));
         }
 }
