@@ -229,8 +229,7 @@ public class FinancialEventService {
          * @return список DTO, отсортированный по дате по возрастанию
          */
         public List<FinancialEventDto> findWishlist() {
-                return eventRepository.findAllByDeletedFalseAndPriorityAndStatusAndDateBeforeOrderByDateAsc(
-                                Priority.LOW, EventStatus.PLANNED, LocalDate.now())
+                return eventRepository.findWishlistItems(Priority.LOW, EventStatus.PLANNED, LocalDate.now())
                                 .stream().map(this::toDto).toList();
         }
 
@@ -290,7 +289,6 @@ public class FinancialEventService {
                                                                 .build()));
 
                 FinancialEvent event = FinancialEvent.builder()
-                                .date(LocalDate.now().minusDays(1))
                                 .category(category)
                                 .type(EventType.EXPENSE)
                                 .priority(Priority.LOW)

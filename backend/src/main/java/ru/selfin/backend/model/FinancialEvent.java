@@ -44,7 +44,6 @@ public class FinancialEvent {
     @Column(name = "idempotency_key", unique = true)
     private UUID idempotencyKey;
 
-    @Column(nullable = false)
     private LocalDate date;
 
     @ManyToOne(fetch = FetchType.LAZY)

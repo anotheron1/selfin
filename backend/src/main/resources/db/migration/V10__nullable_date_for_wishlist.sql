@@ -1,0 +1,1 @@
+ALTER TABLE financial_events ALTER COLUMN date DROP NOT NULL;
