@@ -140,7 +140,7 @@ export default function Budget() {
                 {loading && <p className="text-center text-sm animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</p>}
 
                 {!loading && weeks.map(week => {
-                    const weekEvents = events.filter((e: FinancialEvent) => e.date >= week.start && e.date <= week.end);
+                    const weekEvents = events.filter((e: FinancialEvent) => e.date != null && e.date >= week.start && e.date <= week.end);
                     const isOpen = openWeeks[week.label] !== false;
                     return (
                         <div key={week.label} className="rounded-2xl overflow-hidden"
@@ -160,7 +160,7 @@ export default function Budget() {
                                     ) : (() => {
                                         // Group events by date
                                         const byDay = weekEvents.reduce<Record<string, FinancialEvent[]>>((acc, e) => {
-                                            (acc[e.date] ??= []).push(e);
+                                            (acc[e.date!] ??= []).push(e);
                                             return acc;
                                         }, {});
                                         const sortedDays = Object.keys(byDay).sort();

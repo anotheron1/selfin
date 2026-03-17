@@ -15,7 +15,7 @@ export interface Category {
 
 export interface FinancialEvent {
     id: string;
-    date: string;
+    date: string | null;
     categoryId: string;
     categoryName: string;
     type: EventType;

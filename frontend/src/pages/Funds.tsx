@@ -413,7 +413,7 @@ export default function Funds() {
             const planned = allFutureEvts.filter(e => e.status === 'PLANNED');
             const project = (cutoff: string) =>
                 planned
-                    .filter(e => e.date <= cutoff)
+                    .filter(e => e.date != null && e.date <= cutoff)
                     .reduce((bal, e) => {
                         const amt = e.plannedAmount ?? 0;
                         return e.type === 'INCOME' ? bal + amt : bal - amt;

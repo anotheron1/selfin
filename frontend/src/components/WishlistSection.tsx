@@ -192,7 +192,7 @@ export default function WishlistSection() {
                                         </div>
                                     )}
                                     <div className="text-xs mt-0.5 flex items-center" style={{ color: 'var(--color-text-muted)' }}>
-                                        план {fmt(item.plannedAmount)} · {formatPeriod(item.date)}
+                                        план {fmt(item.plannedAmount)}{item.date ? ` · ${formatPeriod(item.date)}` : ''}
                                         {item.url && (
                                             <a
                                                 href={item.url}

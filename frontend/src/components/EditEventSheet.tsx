@@ -23,7 +23,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         setLoading(true);
         try {
             const dto: FinancialEventCreateDto = {
-                date: event.date,
+                date: event.date ?? '',
                 categoryId: event.categoryId,
                 type: event.type,
                 plannedAmount: event.plannedAmount ?? undefined,
@@ -64,7 +64,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                 <SheetHeader>
                     <SheetTitle>{event.categoryName}</SheetTitle>
                     <SheetDescription className="text-xs">
-                        {new Date(event.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                        {event.date ? new Date(event.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : ''}
                         {' · '}План: {fmt(event.plannedAmount)}
                     </SheetDescription>
                 </SheetHeader>
