@@ -1,5 +1,6 @@
 package ru.selfin.backend.dto;
 
+import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
 
 import java.math.BigDecimal;
@@ -16,5 +17,8 @@ public record TargetFundDto(
         /** Желаемая дата достижения цели, заданная пользователем */
         LocalDate targetDate,
         /** Умный прогноз: вычисляется сервисом на основе среднемесячного пополнения */
-        LocalDate estimatedCompletionDate) {
+        LocalDate estimatedCompletionDate,
+        FundPurchaseType purchaseType,
+        BigDecimal creditRate,
+        Integer creditTermMonths) {
 }

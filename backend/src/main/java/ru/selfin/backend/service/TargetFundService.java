@@ -16,6 +16,7 @@ import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
@@ -147,6 +148,9 @@ public class TargetFundService {
                 .targetAmount(dto.targetAmount())
                 .priority(dto.priority() != null ? dto.priority() : 100)
                 .targetDate(dto.targetDate())
+                .purchaseType(dto.purchaseType() != null ? dto.purchaseType() : FundPurchaseType.SAVINGS)
+                .creditRate(dto.creditRate())
+                .creditTermMonths(dto.creditTermMonths())
                 .build();
         return toDto(fundRepository.save(fund));
     }
@@ -168,6 +172,9 @@ public class TargetFundService {
         fund.setTargetAmount(dto.targetAmount());
         fund.setTargetDate(dto.targetDate());
         if (dto.priority() != null) fund.setPriority(dto.priority());
+        if (dto.purchaseType() != null) fund.setPurchaseType(dto.purchaseType());
+        fund.setCreditRate(dto.creditRate());
+        fund.setCreditTermMonths(dto.creditTermMonths());
         return toDto(fundRepository.save(fund));
     }
 
@@ -319,7 +326,8 @@ public class TargetFundService {
         return new TargetFundDto(
                 f.getId(), f.getName(), f.getTargetAmount(),
                 f.getCurrentBalance(), f.getStatus(), f.getPriority(),
-                f.getTargetDate(), calcEstimatedCompletion(f));
+                f.getTargetDate(), calcEstimatedCompletion(f),
+                f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths());
     }
 
     /**

@@ -8,8 +8,10 @@ import type {
     DashboardData,
     FinancialEvent,
     FinancialEventCreateDto,
+    FundPlannerData,
     FundsOverview,
     MultiMonthReport,
+    PurchaseType,
     TargetFund,
 } from '../types/api';
 
@@ -107,12 +109,16 @@ export const fetchMultiMonthReport = (startDate: string, endDate: string) =>
 export const fetchFunds = () => get<FundsOverview>('/funds');
 
 /** Создаёт новый целевой фонд (копилку). */
-export const createFund = (body: { name: string; targetAmount?: number; priority?: number; targetDate?: string }) =>
+export const createFund = (body: { name: string; targetAmount?: number; priority?: number; targetDate?: string; purchaseType?: PurchaseType; creditRate?: number; creditTermMonths?: number }) =>
     post<TargetFund>('/funds', body);
 
 /** Обновляет целевой фонд (название, целевую сумму, срок достижения). */
-export const updateFund = (id: string, body: { name: string; targetAmount?: number; priority?: number; targetDate?: string }) =>
+export const updateFund = (id: string, body: { name: string; targetAmount?: number; priority?: number; targetDate?: string; purchaseType?: PurchaseType; creditRate?: number; creditTermMonths?: number }) =>
     put<TargetFund>(`/funds/${id}`, body);
+
+/** Загружает данные планировщика копилок: доходы и расходы по месяцам. */
+export const fetchPlannerData = (): Promise<FundPlannerData> =>
+    get('/funds/planner');
 
 /** Удаляет целевой фонд (soft delete). */
 export const deleteFund = (id: string) => del(`/funds/${id}`);

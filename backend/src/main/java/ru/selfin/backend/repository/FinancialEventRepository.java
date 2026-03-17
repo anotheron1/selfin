@@ -80,4 +80,7 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
            "AND e.status = ru.selfin.backend.model.enums.EventStatus.EXECUTED " +
            "AND e.factAmount IS NOT NULL AND e.deleted = false AND e.date >= :fromDate")
     BigDecimal sumFactExecutedByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
+
+    /** Планировщик фондов: все не-удалённые события с любым статусом кроме CANCELLED */
+    List<FinancialEvent> findAllByDeletedFalseAndStatusNot(EventStatus excludeStatus);
 }
