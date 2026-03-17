@@ -23,7 +23,6 @@ import {
     rebalancePercents,
     scalePercentsToFit,
     maxPercent,
-    type BuildResult,
 } from './savingsStrategyUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -171,8 +170,6 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
         }
     }, [isOpen, plannerData]);
 
-    const activeFunds = funds;
-
     const avgIncome = plannerData ? avgFirstMonths(plannerData.months, 3) : 0;
     const totalPercent = Object.values(fundPercents).reduce((s, v) => s + v, 0);
     const totalMonthly = Math.round(avgIncome * totalPercent / 100);
@@ -180,7 +177,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
 
     // Chart data
     const { chartData, completionLabels } = plannerData
-        ? buildChartData(plannerData.months, activeFunds, fundPercents, allowOvertime)
+        ? buildChartData(plannerData.months, funds, fundPercents, allowOvertime)
         : { chartData: [], completionLabels: [] };
 
     const tickFormatter = (v: number) => Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'к' : String(v);
@@ -218,7 +215,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
                             <span style={{ color: 'var(--color-text-muted)' }}>
                                 Распределено:{' '}
-                                <span className="font-medium" style={{ color: totalPercent > 50 && allowOvertime ? '#f97316' : 'var(--color-text)' }}>
+                                <span className="font-medium" style={{ color: totalPercent > cap ? '#f97316' : 'var(--color-text)' }}>
                                     {Math.round(totalPercent)}% из {cap}% ({fmtRub(totalMonthly)}/мес)
                                 </span>
                             </span>
@@ -252,13 +249,13 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                     )}
 
                     {/* Fund cards */}
-                    {activeFunds.length === 0 && (
+                    {funds.length === 0 && (
                         <p className="text-sm text-center py-2" style={{ color: 'var(--color-text-muted)' }}>
                             Нет активных копилок
                         </p>
                     )}
 
-                    {activeFunds.map(fund => {
+                    {funds.map(fund => {
                         const percent = fundPercents[fund.id] ?? 0;
                         const monthly = Math.round(avgIncome * percent / 100);
                         const isCredit = fund.purchaseType === 'CREDIT';
@@ -413,7 +410,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                     )}
                                     {completionLabels.map(({ label, name }) => (
                                         <ReferenceLine
-                                            key={label}
+                                            key={`${label}-${name}`}
                                             x={label}
                                             stroke="var(--color-border)"
                                             strokeDasharray="4 4">
