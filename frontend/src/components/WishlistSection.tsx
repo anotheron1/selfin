@@ -27,6 +27,7 @@ export default function WishlistSection() {
         url: '',
     });
     const [submitting, setSubmitting] = useState(false);
+    const [addError, setAddError] = useState<string | null>(null);
 
     const load = useCallback(() => {
         setLoading(true);
@@ -61,6 +62,7 @@ export default function WishlistSection() {
         e.preventDefault();
         if (!addForm.description.trim()) return;
         setSubmitting(true);
+        setAddError(null);
         try {
             const dto: WishlistCreateDto = {
                 description: addForm.description.trim(),
@@ -71,6 +73,8 @@ export default function WishlistSection() {
             setAddForm({ description: '', plannedAmount: '', url: '' });
             setShowAddForm(false);
             await load();
+        } catch {
+            setAddError('Не удалось добавить. Попробуйте ещё раз.');
         } finally {
             setSubmitting(false);
         }
@@ -142,6 +146,9 @@ export default function WishlistSection() {
                             color: 'var(--color-text)',
                         }}
                     />
+                    {addError && (
+                        <p className="text-xs" style={{ color: '#ef4444' }}>{addError}</p>
+                    )}
                     <div className="flex gap-2 justify-end">
                         <button
                             type="button"
