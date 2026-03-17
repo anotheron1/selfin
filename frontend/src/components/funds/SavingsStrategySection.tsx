@@ -7,6 +7,8 @@ import {
     YAxis,
     Tooltip,
     Legend,
+    ReferenceLine,
+    Label,
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import { fetchPlannerData, updateFund } from '../../api/index';
@@ -14,28 +16,20 @@ import type { TargetFund, FundPlannerData, FundPlannerMonth } from '../../types/
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import {
+    calcPMT,
+    fmtYearMonth,
+    buildChartData,
+    rebalancePercents,
+    scalePercentsToFit,
+    maxPercent,
+    type BuildResult,
+} from './savingsStrategyUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmtRub = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
-
-/** Formats "2026-03" → "мар 26" */
-function fmtYearMonth(ym: string): string {
-    const [year, month] = ym.split('-');
-    const date = new Date(Number(year), Number(month) - 1, 1);
-    const shortMonth = date.toLocaleDateString('ru-RU', { month: 'short' }).replace('.', '');
-    const shortYear = String(year).slice(2);
-    return `${shortMonth} ${shortYear}`;
-}
-
-/** Annuity PMT formula: P × r × (1+r)^n / ((1+r)^n − 1) */
-function calcPMT(principal: number, annualRate: number, termMonths: number): number {
-    const r = annualRate / 100 / 12;
-    if (r === 0) return principal / termMonths;
-    const pow = Math.pow(1 + r, termMonths);
-    return (principal * r * pow) / (pow - 1);
-}
 
 function avgFirstMonths(months: FundPlannerMonth[], count: number): number {
     const slice = months.slice(0, count);
@@ -155,6 +149,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
     const [isOpen, setIsOpen] = useState(false);
     const [plannerData, setPlannerData] = useState<FundPlannerData | null>(null);
     const [fundPercents, setFundPercents] = useState<Record<string, number>>({});
+    const [allowOvertime, setAllowOvertime] = useState(false);
 
     // Initialize percents for each fund (0 by default)
     const fundIdKey = funds.map(f => f.id).join(',');
@@ -178,28 +173,15 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
 
     const activeFunds = funds;
 
-    const plannedIncome = plannerData
-        ? avgFirstMonths(plannerData.months, 3)
-        : 0;
-
+    const avgIncome = plannerData ? avgFirstMonths(plannerData.months, 3) : 0;
     const totalPercent = Object.values(fundPercents).reduce((s, v) => s + v, 0);
-    const totalMonthly = Math.round(plannedIncome * totalPercent / 100);
+    const totalMonthly = Math.round(avgIncome * totalPercent / 100);
+    const cap = allowOvertime ? 100 : 50;
 
     // Chart data
-    const chartData = plannerData
-        ? plannerData.months.map(m => {
-            const savingsLoad = activeFunds.reduce((sum, f) => {
-                return sum + Math.round(m.plannedIncome * (fundPercents[f.id] ?? 0) / 100);
-            }, 0);
-            return {
-                label: fmtYearMonth(m.yearMonth),
-                'Доход': Math.round(m.plannedIncome),
-                'Обяз. расходы': Math.round(m.mandatoryExpenses),
-                'Все расходы': Math.round(m.allPlannedExpenses),
-                'Расходы + копилки': Math.round(m.allPlannedExpenses + savingsLoad),
-            };
-        })
-        : [];
+    const { chartData, completionLabels } = plannerData
+        ? buildChartData(plannerData.months, activeFunds, fundPercents, allowOvertime)
+        : { chartData: [], completionLabels: [] };
 
     const tickFormatter = (v: number) => Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'к' : String(v);
 
@@ -230,16 +212,33 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                             <span style={{ color: 'var(--color-text-muted)' }}>
                                 Плановый доход:{' '}
                                 <span className="font-medium" style={{ color: 'var(--color-text)' }}>
-                                    ~{fmtRub(Math.round(plannedIncome))}/мес
+                                    ~{fmtRub(Math.round(avgIncome))}/мес
                                 </span>
                             </span>
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
                             <span style={{ color: 'var(--color-text-muted)' }}>
-                                Итого откладываю:{' '}
-                                <span className="font-medium" style={{ color: 'var(--color-text)' }}>
-                                    {totalPercent}% ({fmtRub(totalMonthly)}/мес)
+                                Распределено:{' '}
+                                <span className="font-medium" style={{ color: totalPercent > 50 && allowOvertime ? '#f97316' : 'var(--color-text)' }}>
+                                    {Math.round(totalPercent)}% из {cap}% ({fmtRub(totalMonthly)}/мес)
                                 </span>
                             </span>
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={allowOvertime}
+                                    onChange={e => {
+                                        const next = e.target.checked;
+                                        setAllowOvertime(next);
+                                        if (!next) {
+                                            setFundPercents(prev => scalePercentsToFit(prev, 50));
+                                        }
+                                    }}
+                                    className="w-3.5 h-3.5 cursor-pointer"
+                                />
+                                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                    Учитывать подработки
+                                </span>
+                            </label>
                         </div>
                     )}
 
@@ -261,7 +260,7 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
 
                     {activeFunds.map(fund => {
                         const percent = fundPercents[fund.id] ?? 0;
-                        const monthly = Math.round(plannedIncome * percent / 100);
+                        const monthly = Math.round(avgIncome * percent / 100);
                         const isCredit = fund.purchaseType === 'CREDIT';
 
                         let projection: React.ReactNode = null;
@@ -318,14 +317,13 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                     <input
                                         type="range"
                                         min={0}
-                                        max={50}
+                                        max={maxPercent(fund.targetAmount, fund.purchaseType, avgIncome, cap)}
                                         step={1}
                                         value={percent}
                                         onChange={e =>
-                                            setFundPercents(prev => ({
-                                                ...prev,
-                                                [fund.id]: Number(e.target.value),
-                                            }))
+                                            setFundPercents(prev =>
+                                                rebalancePercents(fund.id, Number(e.target.value), prev, cap)
+                                            )
                                         }
                                         className="w-full h-2 rounded-full cursor-pointer accent-[hsl(var(--primary))]"
                                     />
@@ -403,6 +401,29 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                         dot={false}
                                         strokeWidth={2}
                                     />
+                                    {allowOvertime && (
+                                        <Line
+                                            type="monotone"
+                                            dataKey="Доход + подработки"
+                                            stroke="#6b7280"
+                                            dot={false}
+                                            strokeWidth={1.5}
+                                            strokeDasharray="6 3"
+                                        />
+                                    )}
+                                    {completionLabels.map(({ label, name }) => (
+                                        <ReferenceLine
+                                            key={label}
+                                            x={label}
+                                            stroke="var(--color-border)"
+                                            strokeDasharray="4 4">
+                                            <Label
+                                                value={name}
+                                                position="insideTopRight"
+                                                style={{ fontSize: 10, fill: 'var(--color-text-muted)' }}
+                                            />
+                                        </ReferenceLine>
+                                    ))}
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
