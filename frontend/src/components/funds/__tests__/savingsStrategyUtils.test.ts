@@ -189,15 +189,14 @@ describe('buildChartData', () => {
         expect(completionLabels).toHaveLength(0);
     });
 
-    it('credit fund contributes fixed PMT for term months then stops', () => {
-        // term = 2 months, so contributes in idx 0 and 1, not idx 2
+    it('credit fund does NOT contribute to chart line — PMT is informational only', () => {
         const months = [makeMonth('2026-03'), makeMonth('2026-04'), makeMonth('2026-05')];
-        const creditFund = makeCreditFund('b', 'Машина', 120000, 0, 2); // 0% rate, term=2
-        // PMT at 0% = 120000/2 = 60000
+        const creditFund = makeCreditFund('b', 'Машина', 120000, 0, 2);
         const { chartData } = buildChartData(months, [creditFund], { b: 0 }, false);
-        expect(chartData[0]['Расходы + копилки']).toBe(60000 + 60000); // allExp + PMT
-        expect(chartData[1]['Расходы + копилки']).toBe(60000 + 60000);
-        expect(chartData[2]['Расходы + копилки']).toBe(60000); // term over
+        // CREDIT не добавляет в chart — линия = allExpenses всегда
+        expect(chartData[0]['Расходы + копилки']).toBe(60000);
+        expect(chartData[1]['Расходы + копилки']).toBe(60000);
+        expect(chartData[2]['Расходы + копилки']).toBe(60000);
     });
 
     it('overtime line absent when allowOvertime=false', () => {

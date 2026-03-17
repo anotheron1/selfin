@@ -116,7 +116,7 @@ export function maxPercent(
  * - SAVINGS funds: contribute monthly = income * percent / 100, capped at remaining target.
  *   When accumulated >= targetAmount the fund completes and contributions stop.
  *   Funds with targetAmount = null contribute forever (freed-up cash never appears).
- * - CREDIT funds: fixed annuity payment each month for creditTermMonths.
+ * - CREDIT funds: skipped — PMT is informational only, shown on the fund card.
  * - Returns chart data + labels for completed funds (for ReferenceLine markers).
  */
 export function buildChartData(
@@ -139,17 +139,8 @@ export function buildChartData(
         let totalContribution = 0;
 
         for (const f of funds) {
-            if (f.purchaseType === 'CREDIT') {
-                if (
-                    f.creditRate != null &&
-                    f.creditTermMonths != null &&
-                    f.targetAmount != null &&
-                    idx < f.creditTermMonths
-                ) {
-                    totalContribution += calcPMT(f.targetAmount, f.creditRate, f.creditTermMonths);
-                }
-                continue;
-            }
+            // CREDIT funds: PMT is informational only (shown on the fund card), not added to the chart line
+            if (f.purchaseType === 'CREDIT') continue;
 
             const state = fundState[f.id];
             if (!state || state.complete) continue;
