@@ -1,4 +1,4 @@
-import type { FundPlannerMonth, TargetFund } from '../../types/api';
+import type { FundPlannerMonth, PurchaseType, TargetFund } from '../../types/api';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -14,7 +14,7 @@ export function calcPMT(principal: number, annualRate: number, termMonths: numbe
 export function fmtYearMonth(ym: string): string {
     const [year, month] = ym.split('-');
     const date = new Date(Number(year), Number(month) - 1, 1);
-    const shortMonth = date.toLocaleDateString('ru-RU', { month: 'short' }).replace('.', '');
+    const shortMonth = date.toLocaleDateString('ru-RU', { month: 'short' }).replace(/\./g, '');
     const shortYear = String(year).slice(2);
     return `${shortMonth} ${shortYear}`;
 }
@@ -42,6 +42,9 @@ export type BuildResult = {
  * 1. The target fund gets `newValue` (clamped to `cap`).
  * 2. Total across all funds never exceeds `cap`.
  * 3. Other funds are reduced proportionally if needed.
+ *
+ * Precondition: current values should sum to at most `cap` before calling.
+ * Use scalePercentsToFit() first when the cap decreases (e.g. overtime toggle-off).
  */
 export function rebalancePercents(
     fundId: string,
@@ -88,12 +91,14 @@ export function scalePercentsToFit(
 
 /**
  * Returns the maximum meaningful slider % for a fund.
- * For SAVINGS funds: capped at the % needed to pay off the fund in one month.
- * For CREDIT funds or null-target funds: returns globalCap unchanged.
+ * - CREDIT funds / null-target funds: returns globalCap.
+ * - SAVINGS funds with targetAmount: returns min(globalCap, ceil(targetAmount/avgIncome*100)).
+ *   When fundMax < globalCap, this prevents the slider from going above single-month payoff.
+ *   When fundMax >= globalCap, the function just returns globalCap.
  */
 export function maxPercent(
     targetAmount: number | null | undefined,
-    purchaseType: string,
+    purchaseType: PurchaseType,
     avgIncome: number,
     globalCap: number,
 ): number {
@@ -105,7 +110,7 @@ export function maxPercent(
 }
 
 /**
- * Runs the savings simulation over all 36 months.
+ * Runs the savings simulation over the provided months array.
  *
  * Rules:
  * - SAVINGS funds: contribute monthly = income * percent / 100, capped at remaining target.
