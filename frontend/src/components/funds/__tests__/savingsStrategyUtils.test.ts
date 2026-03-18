@@ -5,6 +5,7 @@ import {
     maxPercent,
     buildChartData,
     calcPMT,
+    calcPlannerStats,
 } from '../savingsStrategyUtils';
 import type { FundPlannerMonth, TargetFund } from '../../../types/api';
 
@@ -227,5 +228,82 @@ describe('buildChartData', () => {
         const { chartData } = buildChartData(months, funds, percents);
         expect(chartData[0]['Факт расходы']).toBe(50000);
         expect(chartData[1]['Факт расходы']).toBeUndefined();
+    });
+});
+
+// ─── calcPlannerStats ─────────────────────────────────────────────────────────
+
+describe('calcPlannerStats', () => {
+    const makeMonth = (
+        plannedIncome: number,
+        mandatoryExpenses: number,
+        allPlannedExpenses: number,
+        yearMonth = '2026-03',
+    ): FundPlannerMonth => ({
+        yearMonth,
+        plannedIncome,
+        mandatoryExpenses,
+        allPlannedExpenses,
+        factExpenses: null,
+    });
+
+    it('returns zeros when no active months', () => {
+        const stats = calcPlannerStats([]);
+        expect(stats.avgIncome).toBe(0);
+        expect(stats.avgAfterMandatory).toBe(0);
+        expect(stats.avgAfterAll).toBe(0);
+        expect(stats.minAfterMandatory).toBe(null);
+        expect(stats.minAfterAll).toBe(null);
+    });
+
+    it('excludes months with zero income from calculations', () => {
+        const months = [
+            makeMonth(100000, 30000, 50000, '2026-03'),
+            makeMonth(0, 0, 0, '2026-04'),           // zero — excluded
+            makeMonth(80000, 20000, 40000, '2026-05'),
+        ];
+        const stats = calcPlannerStats(months);
+        // avgIncome: (100000 + 80000) / 2 = 90000
+        expect(stats.avgIncome).toBe(90000);
+        // avgAfterAll: ((100000-50000) + (80000-40000)) / 2 = (50000+40000)/2 = 45000
+        expect(stats.avgAfterAll).toBe(45000);
+    });
+
+    it('computes avgAfterMandatory correctly', () => {
+        const months = [
+            makeMonth(100000, 60000, 80000, '2026-03'),
+            makeMonth(100000, 40000, 70000, '2026-04'),
+        ];
+        const stats = calcPlannerStats(months);
+        // afterMandatory: [40000, 60000] → avg 50000
+        expect(stats.avgAfterMandatory).toBe(50000);
+    });
+
+    it('finds minimum month for afterAll', () => {
+        const months = [
+            makeMonth(100000, 30000, 50000, '2026-03'),
+            makeMonth(100000, 30000, 90000, '2026-08'), // worst
+        ];
+        const stats = calcPlannerStats(months);
+        expect(stats.minAfterAll).not.toBeNull();
+        expect(stats.minAfterAll!.value).toBe(10000);     // 100000 - 90000
+        expect(stats.minAfterAll!.label).toBe('авг 26');
+    });
+
+    it('returns null min when min equals avg', () => {
+        const months = [makeMonth(100000, 30000, 50000, '2026-03')];
+        const stats = calcPlannerStats(months);
+        // min === avg → return null to suppress display
+        expect(stats.minAfterAll).toBeNull();
+        expect(stats.minAfterMandatory).toBeNull();
+    });
+
+    it('handles negative remainder (expenses exceed income)', () => {
+        const months = [
+            makeMonth(50000, 60000, 70000, '2026-03'),
+        ];
+        const stats = calcPlannerStats(months);
+        expect(stats.avgAfterMandatory).toBe(-10000);
+        expect(stats.avgAfterAll).toBe(-20000);
     });
 });

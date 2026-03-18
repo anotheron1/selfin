@@ -175,3 +175,60 @@ export function buildChartData(
 
     return { chartData, completionLabels };
 }
+
+// ─── Planner stats ────────────────────────────────────────────────────────────
+
+export type MinPoint = { value: number; label: string };
+
+export type PlannerStats = {
+    /** Average planned income across active months (plannedIncome > 0) */
+    avgIncome: number;
+    /** Average (income − mandatory expenses) across active months */
+    avgAfterMandatory: number;
+    /** Average (income − all planned expenses) across active months */
+    avgAfterAll: number;
+    /** Worst month for (income − mandatory). null if equals avg (suppress display). */
+    minAfterMandatory: MinPoint | null;
+    /** Worst month for (income − all). null if equals avg (suppress display). */
+    minAfterAll: MinPoint | null;
+};
+
+/**
+ * Computes summary statistics for the planner summary bar.
+ * Only months with plannedIncome > 0 are included (active horizon).
+ * If min equals avg, minAfterX is returned as null (no parenthetical shown).
+ */
+export function calcPlannerStats(months: FundPlannerMonth[]): PlannerStats {
+    const active = months.filter(m => m.plannedIncome > 0);
+
+    if (active.length === 0) {
+        return { avgIncome: 0, avgAfterMandatory: 0, avgAfterAll: 0, minAfterMandatory: null, minAfterAll: null };
+    }
+
+    const sum = (arr: number[]) => arr.reduce((s, v) => s + v, 0);
+    const avg = (arr: number[]) => Math.round(sum(arr) / arr.length);
+
+    const incomes = active.map(m => m.plannedIncome);
+    const afterMandatory = active.map(m => m.plannedIncome - m.mandatoryExpenses);
+    const afterAll = active.map(m => m.plannedIncome - m.allPlannedExpenses);
+
+    const avgIncome = avg(incomes);
+    const avgAfterMandatory = avg(afterMandatory);
+    const avgAfterAll = avg(afterAll);
+
+    const findMin = (values: number[]): MinPoint | null => {
+        const minVal = Math.round(Math.min(...values));
+        const avgVal = Math.round(sum(values) / values.length);
+        if (minVal === avgVal) return null; // suppress display
+        const idx = values.findIndex(v => Math.round(v) === minVal);
+        return { value: minVal, label: fmtYearMonth(active[idx].yearMonth) };
+    };
+
+    return {
+        avgIncome,
+        avgAfterMandatory,
+        avgAfterAll,
+        minAfterMandatory: findMin(afterMandatory),
+        minAfterAll: findMin(afterAll),
+    };
+}
