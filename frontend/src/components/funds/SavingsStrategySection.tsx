@@ -21,7 +21,6 @@ import {
     fmtYearMonth,
     buildChartData,
     rebalancePercents,
-    scalePercentsToFit,
     maxPercent,
 } from './savingsStrategyUtils';
 
@@ -148,7 +147,6 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
     const [isOpen, setIsOpen] = useState(false);
     const [plannerData, setPlannerData] = useState<FundPlannerData | null>(null);
     const [fundPercents, setFundPercents] = useState<Record<string, number>>({});
-    const [allowOvertime, setAllowOvertime] = useState(false);
 
     // Initialize percents for each fund (0 by default)
     const fundIdKey = funds.map(f => f.id).join(',');
@@ -171,13 +169,23 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
     }, [isOpen, plannerData]);
 
     const avgIncome = plannerData ? avgFirstMonths(plannerData.months, 3) : 0;
+    const avgMandatory = plannerData
+        ? Math.round(plannerData.months.slice(0, 3).reduce((s, m) => s + (m.mandatoryExpenses ?? 0), 0) / Math.min(3, plannerData.months.length))
+        : 0;
+    const avgAll = plannerData
+        ? Math.round(plannerData.months.slice(0, 3).reduce((s, m) => s + (m.allPlannedExpenses ?? 0), 0) / Math.min(3, plannerData.months.length))
+        : 0;
+    const remainingAfterMandatory = Math.max(0, avgIncome - avgMandatory);
+    const remainingAfterAll = Math.max(0, avgIncome - avgAll);
     const totalPercent = Object.values(fundPercents).reduce((s, v) => s + v, 0);
     const totalMonthly = Math.round(avgIncome * totalPercent / 100);
-    const cap = allowOvertime ? 100 : 50;
+    const cap = avgIncome > 0
+        ? Math.max(1, Math.round((remainingAfterAll / avgIncome) * 100))
+        : 50;
 
     // Chart data
     const { chartData, completionLabels } = plannerData
-        ? buildChartData(plannerData.months, funds, fundPercents, allowOvertime)
+        ? buildChartData(plannerData.months, funds, fundPercents)
         : { chartData: [], completionLabels: [] };
 
     const tickFormatter = (v: number) => Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'к' : String(v);
@@ -209,33 +217,30 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                             <span style={{ color: 'var(--color-text-muted)' }}>
                                 Плановый доход:{' '}
                                 <span className="font-medium" style={{ color: 'var(--color-text)' }}>
-                                    ~{fmtRub(Math.round(avgIncome))}/мес
+                                    ~{avgIncome.toLocaleString()} ₽/мес
+                                </span>
+                            </span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>|</span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>
+                                Остаток (обяз.):{' '}
+                                <span className="font-medium" style={{ color: 'var(--color-text)' }}>
+                                    ~{remainingAfterMandatory.toLocaleString()} ₽/мес
+                                </span>
+                            </span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>|</span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>
+                                Остаток (все расходы):{' '}
+                                <span className="font-medium" style={{ color: 'var(--color-text)' }}>
+                                    ~{remainingAfterAll.toLocaleString()} ₽/мес
                                 </span>
                             </span>
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
                             <span style={{ color: 'var(--color-text-muted)' }}>
                                 Распределено:{' '}
                                 <span className="font-medium" style={{ color: totalPercent > cap ? '#f97316' : 'var(--color-text)' }}>
-                                    {Math.round(totalPercent)}% из {cap}% ({fmtRub(totalMonthly)}/мес)
+                                    {fmtRub(totalMonthly)}/мес ({Math.round(totalPercent)}% свободных)
                                 </span>
                             </span>
-                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                <input
-                                    type="checkbox"
-                                    checked={allowOvertime}
-                                    onChange={e => {
-                                        const next = e.target.checked;
-                                        setAllowOvertime(next);
-                                        if (!next) {
-                                            setFundPercents(prev => scalePercentsToFit(prev, 50));
-                                        }
-                                    }}
-                                    className="w-3.5 h-3.5 cursor-pointer"
-                                />
-                                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                    Учитывать подработки
-                                </span>
-                            </label>
                         </div>
                     )}
 
@@ -398,16 +403,6 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                         dot={false}
                                         strokeWidth={2}
                                     />
-                                    {allowOvertime && (
-                                        <Line
-                                            type="monotone"
-                                            dataKey="Доход + подработки"
-                                            stroke="#6b7280"
-                                            dot={false}
-                                            strokeWidth={1.5}
-                                            strokeDasharray="6 3"
-                                        />
-                                    )}
                                     {completionLabels.map(({ label, name }) => (
                                         <ReferenceLine
                                             key={`${label}-${name}`}

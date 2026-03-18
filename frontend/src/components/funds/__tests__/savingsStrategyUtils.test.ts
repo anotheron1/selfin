@@ -107,6 +107,7 @@ const makeMonth = (yearMonth: string, income = 100000, mandatory = 40000, allExp
     plannedIncome: income,
     mandatoryExpenses: mandatory,
     allPlannedExpenses: allExpenses,
+    factExpenses: null,
 });
 
 const makeSavingsFund = (id: string, name: string, targetAmount: number | null): TargetFund => ({
@@ -141,7 +142,7 @@ describe('buildChartData', () => {
     it('with 0% for all funds, копилки line equals all expenses', () => {
         const months = [makeMonth('2026-03'), makeMonth('2026-04')];
         const funds = [makeSavingsFund('a', 'A', 50000)];
-        const { chartData } = buildChartData(months, funds, { a: 0 }, false);
+        const { chartData } = buildChartData(months, funds, { a: 0 });
         expect(chartData[0]['Расходы + копилки']).toBe(60000);
         expect(chartData[1]['Расходы + копилки']).toBe(60000);
     });
@@ -154,7 +155,7 @@ describe('buildChartData', () => {
             makeMonth('2026-05'),
         ];
         const funds = [makeSavingsFund('a', 'Покраска', 20000)];
-        const { chartData, completionLabels } = buildChartData(months, funds, { a: 10 }, false);
+        const { chartData, completionLabels } = buildChartData(months, funds, { a: 10 });
 
         // month 1: 10000 contribution
         expect(chartData[0]['Расходы + копилки']).toBe(70000);
@@ -173,7 +174,7 @@ describe('buildChartData', () => {
         // month 2: need 5000 more, contribute 5000 (not 10000)
         const months = [makeMonth('2026-03'), makeMonth('2026-04'), makeMonth('2026-05')];
         const funds = [makeSavingsFund('a', 'Watch', 15000)];
-        const { chartData } = buildChartData(months, funds, { a: 10 }, false);
+        const { chartData } = buildChartData(months, funds, { a: 10 });
         // month 2: allExpenses(60000) + 5000 partial = 65000
         expect(chartData[1]['Расходы + копилки']).toBe(65000);
         // month 3: complete, 0
@@ -183,7 +184,7 @@ describe('buildChartData', () => {
     it('null-target fund contributes forever', () => {
         const months = [makeMonth('2026-03'), makeMonth('2026-04'), makeMonth('2026-05')];
         const funds = [makeSavingsFund('a', 'Карман', null)];
-        const { chartData, completionLabels } = buildChartData(months, funds, { a: 10 }, false);
+        const { chartData, completionLabels } = buildChartData(months, funds, { a: 10 });
         expect(chartData[0]['Расходы + копилки']).toBe(70000);
         expect(chartData[2]['Расходы + копилки']).toBe(70000);
         expect(completionLabels).toHaveLength(0);
@@ -192,23 +193,11 @@ describe('buildChartData', () => {
     it('credit fund does NOT contribute to chart line — PMT is informational only', () => {
         const months = [makeMonth('2026-03'), makeMonth('2026-04'), makeMonth('2026-05')];
         const creditFund = makeCreditFund('b', 'Машина', 120000, 0, 2);
-        const { chartData } = buildChartData(months, [creditFund], { b: 0 }, false);
+        const { chartData } = buildChartData(months, [creditFund], { b: 0 });
         // CREDIT не добавляет в chart — линия = allExpenses всегда
         expect(chartData[0]['Расходы + копилки']).toBe(60000);
         expect(chartData[1]['Расходы + копилки']).toBe(60000);
         expect(chartData[2]['Расходы + копилки']).toBe(60000);
-    });
-
-    it('overtime line absent when allowOvertime=false', () => {
-        const months = [makeMonth('2026-03')];
-        const { chartData } = buildChartData(months, [], {}, false);
-        expect(chartData[0]['Доход + подработки']).toBeUndefined();
-    });
-
-    it('overtime line present and equals 1.5× income when allowOvertime=true', () => {
-        const months = [makeMonth('2026-03', 100000)];
-        const { chartData } = buildChartData(months, [], {}, true);
-        expect(chartData[0]['Доход + подработки']).toBe(150000);
     });
 
     it('calcPMT: 0% rate returns principal/term', () => {
@@ -223,7 +212,7 @@ describe('buildChartData', () => {
             creditRate: null,       // params not yet set
             creditTermMonths: null,
         };
-        const { chartData } = buildChartData(months, [incompleteCreditFund], { c: 0 }, false);
+        const { chartData } = buildChartData(months, [incompleteCreditFund], { c: 0 });
         expect(chartData[0]['Расходы + копилки']).toBe(60000); // allExpenses only, no PMT added
     });
 });

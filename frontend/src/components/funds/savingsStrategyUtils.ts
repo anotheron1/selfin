@@ -27,7 +27,6 @@ export type ChartPoint = {
     'Обяз. расходы': number;
     'Все расходы': number;
     'Расходы + копилки': number;
-    'Доход + подработки'?: number;
 };
 
 export type BuildResult = {
@@ -123,7 +122,6 @@ export function buildChartData(
     months: FundPlannerMonth[],
     funds: TargetFund[],
     fundPercents: Record<string, number>,
-    allowOvertime: boolean,
 ): BuildResult {
     // Initialize simulation state for SAVINGS funds
     const fundState: Record<string, { accumulated: number; complete: boolean }> = {};
@@ -167,10 +165,6 @@ export function buildChartData(
             'Все расходы': Math.round(m.allPlannedExpenses),
             'Расходы + копилки': Math.round(m.allPlannedExpenses + totalContribution),
         };
-
-        if (allowOvertime) {
-            point['Доход + подработки'] = Math.round(m.plannedIncome * 1.5);
-        }
 
         return point;
     });
