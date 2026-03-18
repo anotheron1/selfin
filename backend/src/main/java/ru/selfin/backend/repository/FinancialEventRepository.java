@@ -25,10 +25,11 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     /** Идемпотентность: ищем событие по ключу клиента */
     Optional<FinancialEvent> findByIdempotencyKey(UUID idempotencyKey);
 
-    /** Хотелки: LOW-priority PLANNED события без даты ИЛИ с датой раньше сегодня. */
+    /** Хотелки: LOW-priority PLANNED события без даты ИЛИ с датой раньше сегодня, без фактической суммы. */
     @Query("SELECT e FROM FinancialEvent e WHERE e.deleted = false " +
            "AND e.priority = :priority AND e.status = :status " +
            "AND (e.date IS NULL OR e.date < :today) " +
+           "AND (e.factAmount IS NULL OR e.factAmount = 0) " +
            "ORDER BY e.createdAt ASC")
     List<FinancialEvent> findWishlistItems(
         @Param("priority") Priority priority,
