@@ -102,12 +102,12 @@ describe('maxPercent', () => {
 
 // ─── buildChartData ───────────────────────────────────────────────────────────
 
-const makeMonth = (yearMonth: string, income = 100000, mandatory = 40000, allExpenses = 60000): FundPlannerMonth => ({
+const makeMonth = (yearMonth: string, income = 100000, mandatory = 40000, allExpenses = 60000, factExpenses: number | null = null): FundPlannerMonth => ({
     yearMonth,
     plannedIncome: income,
     mandatoryExpenses: mandatory,
     allPlannedExpenses: allExpenses,
-    factExpenses: null,
+    factExpenses,
 });
 
 const makeSavingsFund = (id: string, name: string, targetAmount: number | null): TargetFund => ({
@@ -214,5 +214,18 @@ describe('buildChartData', () => {
         };
         const { chartData } = buildChartData(months, [incompleteCreditFund], { c: 0 });
         expect(chartData[0]['Расходы + копилки']).toBe(60000); // allExpenses only, no PMT added
+    });
+
+    it('populates Факт расходы for month 0 when factExpenses is set', () => {
+        const months = [
+            makeMonth('2026-01', 100000, 30000, 60000, 50000), // factExpenses = 50000
+            makeMonth('2026-02', 100000, 30000, 60000, null),
+            makeMonth('2026-03', 100000, 30000, 60000, null),
+        ];
+        const funds: TargetFund[] = [];
+        const percents: Record<string, number> = {};
+        const { chartData } = buildChartData(months, funds, percents);
+        expect(chartData[0]['Факт расходы']).toBe(50000);
+        expect(chartData[1]['Факт расходы']).toBeUndefined();
     });
 });

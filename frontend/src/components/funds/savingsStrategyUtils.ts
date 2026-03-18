@@ -44,7 +44,7 @@ export type BuildResult = {
  * 3. Other funds are reduced proportionally if needed.
  *
  * Precondition: current values should sum to at most `cap` before calling.
- * Use scalePercentsToFit() first when the cap decreases (e.g. overtime toggle-off).
+ * Use scalePercentsToFit() first when the cap decreases.
  */
 export function rebalancePercents(
     fundId: string,
@@ -73,7 +73,6 @@ export function rebalancePercents(
 
 /**
  * Scales ALL fund percentages down so their total fits within `cap`.
- * Used when the overtime checkbox is toggled off (cap drops from 100 to 50).
  * Proportions are preserved. Returns unchanged object if already within cap.
  */
 export function scalePercentsToFit(
