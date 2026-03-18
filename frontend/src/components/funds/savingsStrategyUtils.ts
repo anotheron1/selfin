@@ -27,6 +27,7 @@ export type ChartPoint = {
     'Обяз. расходы': number;
     'Все расходы': number;
     'Расходы + копилки': number;
+    'Факт расходы'?: number;
 };
 
 export type BuildResult = {
@@ -165,6 +166,10 @@ export function buildChartData(
             'Все расходы': Math.round(m.allPlannedExpenses),
             'Расходы + копилки': Math.round(m.allPlannedExpenses + totalContribution),
         };
+
+        if (idx === 0 && m.factExpenses != null && m.factExpenses > 0) {
+            point['Факт расходы'] = Math.round(m.factExpenses);
+        }
 
         return point;
     });

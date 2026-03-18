@@ -265,6 +265,14 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                         const monthly = Math.round(avgIncome * percent / 100);
                         const isCredit = fund.purchaseType === 'CREDIT';
 
+                        // PMT snap values for CREDIT funds
+                        let pmt: number | null = null;
+                        let pmtPercent: number | null = null;
+                        if (isCredit && fund.creditRate != null && fund.creditTermMonths != null && fund.targetAmount != null && fund.targetAmount > 0) {
+                            pmt = calcPMT(fund.targetAmount, fund.creditRate, fund.creditTermMonths);
+                            pmtPercent = avgIncome > 0 ? Math.round((pmt / avgIncome) * 100) : null;
+                        }
+
                         let projection: React.ReactNode = null;
                         if (!isCredit) {
                             if (fund.targetAmount != null && monthly > 0) {
@@ -322,13 +330,26 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                         max={maxPercent(fund.targetAmount, fund.purchaseType, avgIncome, cap)}
                                         step={1}
                                         value={percent}
-                                        onChange={e =>
+                                        onChange={e => {
+                                            let newVal = Number(e.target.value);
+                                            if (isCredit && pmtPercent != null && pmtPercent > 0) {
+                                                const prev = percent;
+                                                // Snap up from 0 to PMT
+                                                if (prev === 0 && newVal > 0 && newVal < pmtPercent) newVal = pmtPercent;
+                                                // Snap down from PMT to 0
+                                                if (prev === pmtPercent && newVal > 0 && newVal < pmtPercent) newVal = 0;
+                                            }
                                             setFundPercents(prev =>
-                                                rebalancePercents(fund.id, Number(e.target.value), prev, cap)
-                                            )
-                                        }
+                                                rebalancePercents(fund.id, newVal, prev, cap)
+                                            );
+                                        }}
                                         className="w-full h-2 rounded-full cursor-pointer accent-[hsl(var(--primary))]"
                                     />
+                                    {isCredit && pmtPercent != null && percent === pmtPercent && pmt != null && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Ежемесячный платёж: {fmtRub(Math.round(pmt))} ({pmtPercent}%)
+                                        </p>
+                                    )}
                                 </div>
 
                                 {/* Projection or credit params */}
@@ -402,6 +423,16 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                         stroke="hsl(var(--primary))"
                                         dot={false}
                                         strokeWidth={2}
+                                    />
+                                    <Line
+                                        type="monotone"
+                                        dataKey="Факт расходы"
+                                        stroke="#ef4444"
+                                        dot={{ r: 5, fill: '#ef4444' }}
+                                        activeDot={{ r: 7 }}
+                                        strokeWidth={0}
+                                        name="Факт расходы"
+                                        legendType="circle"
                                     />
                                     {completionLabels.map(({ label, name }) => (
                                         <ReferenceLine
