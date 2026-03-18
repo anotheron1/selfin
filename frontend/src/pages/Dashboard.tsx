@@ -9,6 +9,35 @@ const fmt = (n: number) =>
 
 const fmtAmt = (n: number | null) => n != null ? fmt(n) : '—';
 
+interface BarState {
+    barColor: string;
+    barWidth: string;
+    badge: string;
+    badgeColor: string;
+}
+
+function getBarState(planned: number, fact: number): BarState {
+    if (planned === 0 && fact > 0) {
+        return { barColor: '#f59e0b', barWidth: '100%', badge: 'Не запланировано', badgeColor: '#f59e0b' };
+    }
+    if (planned > 0 && fact === 0) {
+        return { barColor: '#6b7280', barWidth: '0%', badge: 'Не выполнено', badgeColor: '#6b7280' };
+    }
+    if (planned > 0 && fact > planned * 1.05) {
+        return { barColor: '#ef4444', barWidth: '100%', badge: 'Перерасход', badgeColor: '#ef4444' };
+    }
+    if (planned > 0 && fact >= planned * 0.95) {
+        const pct = Math.min(Math.round((fact / planned) * 100), 100);
+        return { barColor: '#22c55e', barWidth: `${pct}%`, badge: 'Выполнено', badgeColor: '#22c55e' };
+    }
+    if (planned > 0 && fact > 0) {
+        const pct = Math.round((fact / planned) * 100);
+        return { barColor: '#60a5fa', barWidth: `${pct}%`, badge: 'В процессе', badgeColor: '#60a5fa' };
+    }
+    // plan=0, fact=0 — show empty bar, no badge
+    return { barColor: '#6b7280', barWidth: '0%', badge: '', badgeColor: '#6b7280' };
+}
+
 const fmtDay = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 
@@ -173,19 +202,34 @@ export default function Dashboard() {
                         ПЛАН / ФАКТ ЗА МЕСЯЦ
                     </h3>
                     {data.progressBars.map(bar => {
-                        const pct = Math.min(bar.percentage, 100);
-                        const color = pct < 70 ? 'var(--color-success)' : pct < 90 ? 'var(--color-warning)' : 'var(--color-danger)';
+                        const state = getBarState(bar.plannedLimit, bar.currentFact);
                         return (
                             <div key={bar.categoryName}>
                                 <div className="flex justify-between gap-2 text-sm mb-1 min-w-0">
-                                    <span className="truncate">{bar.categoryName}</span>
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        <span className="truncate">{bar.categoryName}</span>
+                                        {state.badge && (
+                                            <span
+                                                className="shrink-0 text-xs px-1.5 py-0 rounded-full"
+                                                style={{
+                                                    color: state.badgeColor,
+                                                    background: `${state.badgeColor}22`,
+                                                    fontSize: '10px',
+                                                    lineHeight: '18px',
+                                                    whiteSpace: 'nowrap',
+                                                }}
+                                            >
+                                                {state.badge}
+                                            </span>
+                                        )}
+                                    </div>
                                     <span className="shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                                         {fmt(bar.plannedLimit)} / {fmt(bar.currentFact)}
                                     </span>
                                 </div>
                                 <div className="h-2 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
                                     <div className="h-2 rounded-full transition-all"
-                                        style={{ width: `${pct}%`, background: color }} />
+                                        style={{ width: state.barWidth, background: state.barColor }} />
                                 </div>
                                 {/* Transaction names under this category */}
                                 {(() => {
