@@ -278,9 +278,12 @@ function MandatoryBurnSection({ burn }: { burn: AnalyticsReport['mandatoryBurn']
     return (
         <div className="rounded-2xl p-5"
             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
+            <h3 className="font-semibold text-sm mb-1" style={{ color: 'var(--color-text-muted)' }}>
                 ОБЯЗАТЕЛЬНЫЕ ТРАТЫ
             </h3>
+            <p className="text-xs text-muted-foreground mb-3">
+                Расходы с высоким приоритетом (ипотека, коммуналка и др.) — план и факт по неделям месяца
+            </p>
 
             <div className="mb-1 flex justify-between text-sm">
                 <span>Всего</span>
