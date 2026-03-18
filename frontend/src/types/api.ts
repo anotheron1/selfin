@@ -201,6 +201,7 @@ export interface FundPlannerMonth {
     mandatoryExpenses: number;
     allPlannedExpenses: number;
     factExpenses: number | null;
+    factIncome: number | null;
 }
 
 export interface FundPlannerData {

@@ -103,12 +103,13 @@ describe('maxPercent', () => {
 
 // ─── buildChartData ───────────────────────────────────────────────────────────
 
-const makeMonth = (yearMonth: string, income = 100000, mandatory = 40000, allExpenses = 60000, factExpenses: number | null = null): FundPlannerMonth => ({
+const makeMonth = (yearMonth: string, income = 100000, mandatory = 40000, allExpenses = 60000, factExpenses: number | null = null, factIncome: number | null = null): FundPlannerMonth => ({
     yearMonth,
     plannedIncome: income,
     mandatoryExpenses: mandatory,
     allPlannedExpenses: allExpenses,
     factExpenses,
+    factIncome,
 });
 
 const makeSavingsFund = (id: string, name: string, targetAmount: number | null): TargetFund => ({
@@ -217,24 +218,27 @@ describe('buildChartData', () => {
         expect(chartData[0]['Расходы + копилки']).toBe(60000); // allExpenses only, no PMT added
     });
 
-    it('populates Факт расходы for month 0 when factExpenses is set', () => {
+    it('month 0 lines show fact-to-date + remaining plan (projected month-end)', () => {
         const months = [
-            makeMonth('2026-01', 100000, 30000, 60000, 50000), // factExpenses = 50000
-            makeMonth('2026-02', 100000, 30000, 60000, null),
-            makeMonth('2026-03', 100000, 30000, 60000, null),
+            // plannedIncome=100k (remaining), factExpenses=50k, factIncome=75k
+            makeMonth('2026-01', 100000, 30000, 60000, 50000, 75000),
+            makeMonth('2026-02', 100000, 30000, 60000, null, null),
         ];
         const funds: TargetFund[] = [];
         const percents: Record<string, number> = {};
         const { chartData } = buildChartData(months, funds, percents);
-        // Dot shows actual spending only
-        expect(chartData[0]['Факт расходы']).toBe(50000);
-        expect(chartData[1]['Факт расходы']).toBeUndefined();
-        // Lines for month 0 include factOffset → projected month-end total
+        // Доход = remaining planned + fact income already received
+        expect(chartData[0]['Доход']).toBe(100000 + 75000);
+        // Expense lines = remaining planned + fact expenses already incurred
         expect(chartData[0]['Обяз. расходы']).toBe(30000 + 50000);
         expect(chartData[0]['Все расходы']).toBe(60000 + 50000);
         expect(chartData[0]['Расходы + копилки']).toBe(60000 + 50000);
+        // Dot shows actual spending only (not projected)
+        expect(chartData[0]['Факт расходы']).toBe(50000);
         // Other months: no offset applied
+        expect(chartData[1]['Доход']).toBe(100000);
         expect(chartData[1]['Все расходы']).toBe(60000);
+        expect(chartData[1]['Факт расходы']).toBeUndefined();
     });
 });
 
@@ -252,6 +256,7 @@ describe('calcPlannerStats', () => {
         mandatoryExpenses,
         allPlannedExpenses,
         factExpenses: null,
+        factIncome: null,
     });
 
     it('returns zeros when no active months', () => {

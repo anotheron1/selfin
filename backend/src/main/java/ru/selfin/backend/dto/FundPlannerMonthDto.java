@@ -7,5 +7,6 @@ public record FundPlannerMonthDto(
         BigDecimal plannedIncome,
         BigDecimal mandatoryExpenses,
         BigDecimal allPlannedExpenses,
-        BigDecimal factExpenses
+        BigDecimal factExpenses,
+        BigDecimal factIncome
 ) {}

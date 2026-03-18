@@ -72,9 +72,16 @@ public class FundPlannerService {
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             BigDecimal factExpenses = null;
+            BigDecimal factIncome = null;
             if (i == 0) {
                 factExpenses = allMonthEvents.stream()
                         .filter(e -> e.getType() == EventType.EXPENSE
+                                && e.getStatus() == EventStatus.EXECUTED
+                                && e.getFactAmount() != null)
+                        .map(FinancialEvent::getFactAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                factIncome = allMonthEvents.stream()
+                        .filter(e -> e.getType() == EventType.INCOME
                                 && e.getStatus() == EventStatus.EXECUTED
                                 && e.getFactAmount() != null)
                         .map(FinancialEvent::getFactAmount)
@@ -86,7 +93,8 @@ public class FundPlannerService {
                     plannedIncome,
                     mandatoryExpenses,
                     allPlannedExpenses,
-                    factExpenses));
+                    factExpenses,
+                    factIncome));
         }
 
         return new FundPlannerDto(months);
