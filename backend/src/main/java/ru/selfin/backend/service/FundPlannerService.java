@@ -36,6 +36,7 @@ public class FundPlannerService {
                 eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED);
 
         YearMonth current = YearMonth.now();
+        LocalDate today = LocalDate.now();
         List<FundPlannerMonthDto> months = new ArrayList<>(36);
 
         for (int i = 0; i < 36; i++) {
@@ -51,7 +52,7 @@ public class FundPlannerService {
             // For future months: use all events in the month.
             List<FinancialEvent> monthEvents = (i == 0)
                     ? allMonthEvents.stream()
-                            .filter(e -> !e.getDate().isBefore(LocalDate.now()))
+                            .filter(e -> !e.getDate().isBefore(today))
                             .toList()
                     : allMonthEvents;
 
