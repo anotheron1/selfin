@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { updateEvent } from '../api';
-import type { FinancialEvent, FinancialEventCreateDto } from '../types/api';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from './ui/sheet';
+import { useState, useEffect } from 'react';
+import { updateEvent, fetchCategories } from '../api';
+import type { Category, FinancialEvent, FinancialEventCreateDto, EventType, Priority } from '../types/api';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface EditEventSheetProps {
     event: FinancialEvent;
@@ -16,18 +17,31 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         event.factAmount != null ? String(event.factAmount) : ''
     );
     const [description, setDescription] = useState(event.description ?? '');
+    const [plannedAmount, setPlannedAmount] = useState<string>(
+        event.plannedAmount != null ? String(event.plannedAmount) : ''
+    );
+    const [date, setDate] = useState(event.date ?? '');
+    const [categoryId, setCategoryId] = useState(event.categoryId ?? '');
+    const [type, setType] = useState<EventType>(event.type);
+    const [priority, setPriority] = useState<Priority>(event.priority ?? 'MEDIUM');
+    const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        fetchCategories().then(setCategories).catch(console.error);
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         try {
             const dto: FinancialEventCreateDto = {
-                date: event.date ?? '',
-                categoryId: event.categoryId,
-                type: event.type,
-                plannedAmount: event.plannedAmount ?? undefined,
+                date: date || (event.date ?? ''),
+                categoryId: categoryId || undefined,
+                type,
+                plannedAmount: plannedAmount !== '' ? Number(plannedAmount) : undefined,
                 factAmount: factAmount !== '' ? Number(factAmount) : undefined,
+                priority,
                 mandatory: event.mandatory,
                 description: description || undefined,
                 rawInput: event.rawInput ?? undefined,
@@ -55,21 +69,35 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         }
     };
 
-    const fmt = (n: number | null) =>
-        n != null ? new Intl.NumberFormat('ru-RU').format(n) + ' ₽' : '—';
-
     return (
         <Sheet open onOpenChange={(open) => !open && onClose()}>
             <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
                 <SheetHeader>
-                    <SheetTitle>{event.categoryName}</SheetTitle>
-                    <SheetDescription className="text-xs">
-                        {event.date ? new Date(event.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }) : ''}
-                        {' · '}План: {fmt(event.plannedAmount)}
-                    </SheetDescription>
+                    <SheetTitle>Редактировать событие</SheetTitle>
                 </SheetHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
+                    <div>
+                        <label className="text-xs text-muted-foreground block mb-1">
+                            Название
+                        </label>
+                        <Input
+                            placeholder="Название события..."
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-muted-foreground block mb-1">
+                            Плановая сумма, ₽
+                        </label>
+                        <Input
+                            type="number"
+                            placeholder="0"
+                            value={plannedAmount}
+                            onChange={e => setPlannedAmount(e.target.value)}
+                        />
+                    </div>
                     <div>
                         <label className="text-xs text-muted-foreground block mb-1">
                             Фактическая сумма, ₽
@@ -83,13 +111,59 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                     </div>
                     <div>
                         <label className="text-xs text-muted-foreground block mb-1">
-                            Комментарий
+                            Дата
                         </label>
                         <Input
-                            placeholder="Добавить заметку..."
-                            value={description}
-                            onChange={e => setDescription(e.target.value)}
+                            type="date"
+                            value={date}
+                            onChange={e => setDate(e.target.value)}
                         />
+                    </div>
+                    <div>
+                        <label className="text-xs text-muted-foreground block mb-1">
+                            Категория
+                        </label>
+                        <Select value={categoryId} onValueChange={setCategoryId}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Выберите категорию" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {categories.map(cat => (
+                                    <SelectItem key={cat.id} value={cat.id}>
+                                        {cat.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div>
+                        <label className="text-xs text-muted-foreground block mb-1">
+                            Тип
+                        </label>
+                        <Select value={type} onValueChange={(v) => setType(v as EventType)}>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="INCOME">Доход</SelectItem>
+                                <SelectItem value="EXPENSE">Расход</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div>
+                        <label className="text-xs text-muted-foreground block mb-1">
+                            Приоритет
+                        </label>
+                        <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="HIGH">Высокий</SelectItem>
+                                <SelectItem value="MEDIUM">Средний</SelectItem>
+                                <SelectItem value="LOW">Низкий</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                     <div className="flex gap-2 pt-1">
                         <Button
@@ -106,7 +180,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             className="flex-1"
                             disabled={loading}
                         >
-                            {loading ? 'Сохраняем...' : 'Сохранить факт'}
+                            {loading ? 'Сохраняем...' : 'Сохранить'}
                         </Button>
                     </div>
                 </form>
