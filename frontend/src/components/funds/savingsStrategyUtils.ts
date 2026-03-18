@@ -158,12 +158,16 @@ export function buildChartData(
             }
         }
 
+        // For the current month (idx=0): add actual expenses already incurred so that
+        // each line shows the projected month-end total (fact-to-date + remaining plan).
+        const factOffset = idx === 0 ? Math.round(m.factExpenses ?? 0) : 0;
+
         const point: ChartPoint = {
             label: fmtYearMonth(m.yearMonth),
             'Доход': Math.round(m.plannedIncome),
-            'Обяз. расходы': Math.round(m.mandatoryExpenses),
-            'Все расходы': Math.round(m.allPlannedExpenses),
-            'Расходы + копилки': Math.round(m.allPlannedExpenses + totalContribution),
+            'Обяз. расходы': Math.round(m.mandatoryExpenses + factOffset),
+            'Все расходы': Math.round(m.allPlannedExpenses + factOffset),
+            'Расходы + копилки': Math.round(m.allPlannedExpenses + totalContribution + factOffset),
         };
 
         if (idx === 0 && m.factExpenses != null && m.factExpenses > 0) {

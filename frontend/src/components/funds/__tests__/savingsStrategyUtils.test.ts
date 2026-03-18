@@ -226,8 +226,15 @@ describe('buildChartData', () => {
         const funds: TargetFund[] = [];
         const percents: Record<string, number> = {};
         const { chartData } = buildChartData(months, funds, percents);
+        // Dot shows actual spending only
         expect(chartData[0]['Факт расходы']).toBe(50000);
         expect(chartData[1]['Факт расходы']).toBeUndefined();
+        // Lines for month 0 include factOffset → projected month-end total
+        expect(chartData[0]['Обяз. расходы']).toBe(30000 + 50000);
+        expect(chartData[0]['Все расходы']).toBe(60000 + 50000);
+        expect(chartData[0]['Расходы + копилки']).toBe(60000 + 50000);
+        // Other months: no offset applied
+        expect(chartData[1]['Все расходы']).toBe(60000);
     });
 });
 
