@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ExternalLink, Plus } from 'lucide-react';
+import { ExternalLink, Pencil, Plus } from 'lucide-react';
 import { fetchWishlist, deleteEvent, updateEvent, createWishlistItem } from '../api';
 import type { FinancialEvent, WishlistCreateDto } from '../types/api';
 import { Button } from './ui/button';
@@ -28,6 +28,15 @@ export default function WishlistSection() {
     });
     const [submitting, setSubmitting] = useState(false);
     const [addError, setAddError] = useState<string | null>(null);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editForm, setEditForm] = useState<{ description: string; plannedAmount: string; url: string; date: string }>({
+        description: '',
+        plannedAmount: '',
+        url: '',
+        date: '',
+    });
+    const [editSubmitting, setEditSubmitting] = useState(false);
+    const [editError, setEditError] = useState<string | null>(null);
 
     const load = useCallback(() => {
         setLoading(true);
@@ -77,6 +86,52 @@ export default function WishlistSection() {
             setAddError('Не удалось добавить. Попробуйте ещё раз.');
         } finally {
             setSubmitting(false);
+        }
+    }
+
+    const handleEditOpen = (item: FinancialEvent) => {
+        setEditingId(item.id);
+        setEditForm({
+            description: item.description ?? '',
+            plannedAmount: item.plannedAmount != null ? String(item.plannedAmount) : '',
+            url: item.url ?? '',
+            date: item.date ?? '',
+        });
+        setEditError(null);
+        // Close reschedule panel if open for this item
+        if (reschedulingId === item.id) {
+            setReschedulingId(null);
+            setNewDate('');
+        }
+    };
+
+    const handleEditCancel = () => {
+        setEditingId(null);
+        setEditError(null);
+    };
+
+    async function handleEditSubmit(e: React.FormEvent, item: FinancialEvent) {
+        e.preventDefault();
+        if (!editForm.description.trim()) return;
+        setEditSubmitting(true);
+        setEditError(null);
+        try {
+            // date is @NotNull on backend — fall back to today if cleared
+            const today = new Date().toISOString().slice(0, 10);
+            await updateEvent(item.id, {
+                date: editForm.date || today,
+                categoryId: item.categoryId,
+                type: item.type,
+                plannedAmount: editForm.plannedAmount ? parseFloat(editForm.plannedAmount) : undefined,
+                priority: item.priority,
+                description: editForm.description.trim() || undefined,
+            });
+            setEditingId(null);
+            await load();
+        } catch {
+            setEditError('Не удалось сохранить. Попробуйте ещё раз.');
+        } finally {
+            setEditSubmitting(false);
         }
     }
 
@@ -222,6 +277,15 @@ export default function WishlistSection() {
                                     <Button
                                         size="sm"
                                         variant="ghost"
+                                        className="h-7 w-7 p-0"
+                                        style={{ color: 'var(--color-text-muted)' }}
+                                        title="Редактировать"
+                                        onClick={() => handleEditOpen(item)}>
+                                        <Pencil size={13} />
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
                                         className="text-xs h-7 w-7 p-0"
                                         style={{ color: 'var(--color-text-muted)' }}
                                         onClick={() => handleDelete(item.id)}>
@@ -245,6 +309,86 @@ export default function WishlistSection() {
                                         ОК
                                     </Button>
                                 </div>
+                            )}
+                            {editingId === item.id && (
+                                <form
+                                    onSubmit={e => handleEditSubmit(e, item)}
+                                    className="flex flex-col gap-1.5 p-2 rounded"
+                                    style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
+                                >
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="Название *"
+                                        value={editForm.description}
+                                        onChange={e => setEditForm(v => ({ ...v, description: e.target.value }))}
+                                        className="rounded px-2 py-1 text-sm w-full outline-none"
+                                        style={{
+                                            background: 'var(--color-surface)',
+                                            border: '1px solid var(--color-border)',
+                                            color: 'var(--color-text)',
+                                        }}
+                                    />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        placeholder="Цена (необязательно)"
+                                        value={editForm.plannedAmount}
+                                        onChange={e => setEditForm(v => ({ ...v, plannedAmount: e.target.value }))}
+                                        className="rounded px-2 py-1 text-sm w-full outline-none"
+                                        style={{
+                                            background: 'var(--color-surface)',
+                                            border: '1px solid var(--color-border)',
+                                            color: 'var(--color-text)',
+                                        }}
+                                    />
+                                    <input
+                                        type="url"
+                                        placeholder="Ссылка (необязательно)"
+                                        value={editForm.url}
+                                        onChange={e => setEditForm(v => ({ ...v, url: e.target.value }))}
+                                        className="rounded px-2 py-1 text-sm w-full outline-none"
+                                        style={{
+                                            background: 'var(--color-surface)',
+                                            border: '1px solid var(--color-border)',
+                                            color: 'var(--color-text)',
+                                        }}
+                                    />
+                                    <input
+                                        type="date"
+                                        placeholder="Дата (необязательно)"
+                                        value={editForm.date}
+                                        onChange={e => setEditForm(v => ({ ...v, date: e.target.value }))}
+                                        className="rounded px-2 py-1 text-sm w-full outline-none"
+                                        style={{
+                                            background: 'var(--color-surface)',
+                                            border: '1px solid var(--color-border)',
+                                            color: 'var(--color-text)',
+                                        }}
+                                    />
+                                    {editError && (
+                                        <p className="text-xs" style={{ color: '#ef4444' }}>{editError}</p>
+                                    )}
+                                    <div className="flex gap-2 justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleEditCancel}
+                                            className="text-xs px-2 py-1 rounded"
+                                            style={{ color: 'var(--color-text-muted)' }}
+                                        >
+                                            Отмена
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            disabled={editSubmitting}
+                                            className="text-xs px-3 py-1 rounded"
+                                            style={{ background: 'var(--color-primary)', color: '#fff' }}
+                                        >
+                                            {editSubmitting ? '...' : 'Сохранить'}
+                                        </button>
+                                    </div>
+                                </form>
                             )}
                         </div>
                     ))}
