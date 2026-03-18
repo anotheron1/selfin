@@ -10,9 +10,10 @@ import {
     ReferenceLine,
     Label,
 } from 'recharts';
+import { HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchPlannerData, updateFund } from '../../api/index';
-import type { TargetFund, FundPlannerData, FundPlannerMonth } from '../../types/api';
+import type { TargetFund, FundPlannerData } from '../../types/api';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -22,18 +23,13 @@ import {
     buildChartData,
     rebalancePercents,
     maxPercent,
+    calcPlannerStats,
 } from './savingsStrategyUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmtRub = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
-
-function avgFirstMonths(months: FundPlannerMonth[], count: number): number {
-    const slice = months.slice(0, count);
-    if (slice.length === 0) return 0;
-    return slice.reduce((sum, m) => sum + m.plannedIncome, 0) / slice.length;
-}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -145,6 +141,7 @@ function CreditParams({ fund, monthlyContribution, onSaved }: CreditParamsProps)
 
 export default function SavingsStrategySection({ funds, onFundUpdated }: Props) {
     const [isOpen, setIsOpen] = useState(false);
+    const [showPlannerHelp, setShowPlannerHelp] = useState(false);
     const [plannerData, setPlannerData] = useState<FundPlannerData | null>(null);
     const [fundPercents, setFundPercents] = useState<Record<string, number>>({});
 
@@ -168,15 +165,10 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
         }
     }, [isOpen, plannerData]);
 
-    const avgIncome = plannerData ? avgFirstMonths(plannerData.months, 3) : 0;
-    const avgMandatory = plannerData
-        ? Math.round(plannerData.months.slice(0, 3).reduce((s, m) => s + (m.mandatoryExpenses ?? 0), 0) / Math.min(3, plannerData.months.length))
-        : 0;
-    const avgAll = plannerData
-        ? Math.round(plannerData.months.slice(0, 3).reduce((s, m) => s + (m.allPlannedExpenses ?? 0), 0) / Math.min(3, plannerData.months.length))
-        : 0;
-    const remainingAfterMandatory = Math.max(0, avgIncome - avgMandatory);
-    const remainingAfterAll = Math.max(0, avgIncome - avgAll);
+    const stats = plannerData ? calcPlannerStats(plannerData.months) : null;
+    const avgIncome = stats?.avgIncome ?? 0;
+    const remainingAfterMandatory = stats?.avgAfterMandatory ?? 0;
+    const remainingAfterAll = stats?.avgAfterAll ?? 0;
     const totalPercent = Object.values(fundPercents).reduce((s, v) => s + v, 0);
     const totalMonthly = Math.round(avgIncome * totalPercent / 100);
     const cap = avgIncome > 0
@@ -199,7 +191,16 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                 onClick={() => setIsOpen(o => !o)}
                 className="w-full flex items-center justify-between px-5 py-4 text-left"
                 aria-expanded={isOpen}>
-                <span className="font-semibold">Планировщик копилок</span>
+                <span className="flex items-center gap-1.5">
+                    <span className="font-semibold">Планировщик копилок</span>
+                    <button
+                        onClick={e => { e.stopPropagation(); setShowPlannerHelp(h => !h); }}
+                        className="transition-colors"
+                        style={{ color: 'var(--color-text-muted)' }}
+                        aria-label="Что такое планировщик копилок">
+                        <HelpCircle size={14} />
+                    </button>
+                </span>
                 <span
                     className={cn('transition-transform duration-200 text-lg leading-none', isOpen && 'rotate-180')}
                     style={{ color: 'var(--color-text-muted)' }}>
@@ -209,11 +210,33 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
 
             {isOpen && (
                 <div className="px-5 pb-5 space-y-4">
+                    {showPlannerHelp && (
+                        <div
+                            className="text-xs leading-relaxed rounded-xl px-3 py-2 space-y-2"
+                            style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
+                            <div>
+                                <b style={{ color: 'var(--color-text)' }}>Плановый доход</b> — среднее плановых поступлений
+                                по месяцам в горизонте планирования (только месяцы с ненулевым доходом).
+                            </div>
+                            <div>
+                                <b style={{ color: 'var(--color-text)' }}>После обяз. расходов</b> — сколько остаётся
+                                в типичный месяц, если вычесть только HIGH-priority расходы (ипотека, коммуналка и т.д.).
+                                Это теоретический максимум, который можно направить в копилки. В скобках — худший месяц за горизонт.
+                            </div>
+                            <div>
+                                <b style={{ color: 'var(--color-text)' }}>Доступно для копилок</b> — сколько остаётся
+                                после всех запланированных расходов. Именно на эту сумму ориентируются слайдеры
+                                распределения. В скобках — худший месяц за горизонт.
+                            </div>
+                        </div>
+                    )}
+
                     {/* Summary bar */}
                     {plannerData && (
                         <div
                             className="flex flex-wrap gap-x-4 gap-y-1 text-sm rounded-xl px-4 py-2.5"
                             style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+                            {/* Плановый доход */}
                             <span style={{ color: 'var(--color-text-muted)' }}>
                                 Плановый доход:{' '}
                                 <span className="font-medium" style={{ color: 'var(--color-text)' }}>
@@ -221,17 +244,31 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                                 </span>
                             </span>
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
+
+                            {/* После обяз. расходов */}
                             <span style={{ color: 'var(--color-text-muted)' }}>
                                 После обяз. расходов:{' '}
                                 <span className="font-medium" style={{ color: 'var(--color-text)' }}>
                                     ~{remainingAfterMandatory.toLocaleString()} ₽/мес
+                                    {stats?.minAfterMandatory != null && (
+                                        <span className="font-normal" style={{ color: 'var(--color-text-muted)' }}>
+                                            {' '}(min {stats.minAfterMandatory.value.toLocaleString()} ₽ в {stats.minAfterMandatory.label})
+                                        </span>
+                                    )}
                                 </span>
                             </span>
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
+
+                            {/* Доступно для копилок */}
                             <span style={{ color: 'var(--color-text-muted)' }}>
                                 Доступно для копилок:{' '}
                                 <span className="font-medium" style={{ color: 'var(--color-text)' }}>
                                     ~{remainingAfterAll.toLocaleString()} ₽/мес
+                                    {stats?.minAfterAll != null && (
+                                        <span className="font-normal" style={{ color: 'var(--color-text-muted)' }}>
+                                            {' '}(min {stats.minAfterAll.value.toLocaleString()} ₽ в {stats.minAfterAll.label})
+                                        </span>
+                                    )}
                                 </span>
                             </span>
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
