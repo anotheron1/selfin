@@ -91,7 +91,7 @@ public class FinancialEventService {
                                                         .type(dto.type())
                                                         .plannedAmount(dto.plannedAmount())
                                                         .factAmount(dto.factAmount())
-                                                        .priority(dto.priority() != null ? dto.priority() : Priority.MEDIUM)
+                                                        .priority(dto.priority() != null ? dto.priority() : category.getPriority())
                                                         .description(dto.description())
                                                         .rawInput(dto.rawInput())
                                                         .targetFundId(dto.targetFundId())
@@ -127,7 +127,7 @@ public class FinancialEventService {
                 event.setType(dto.type());
                 event.setPlannedAmount(dto.plannedAmount());
                 event.setFactAmount(dto.factAmount());
-                event.setPriority(dto.priority() != null ? dto.priority() : Priority.MEDIUM);
+                event.setPriority(dto.priority() != null ? dto.priority() : category.getPriority());
                 event.setDescription(dto.description());
                 event.setRawInput(dto.rawInput());
                 event.setTargetFundId(dto.targetFundId());
