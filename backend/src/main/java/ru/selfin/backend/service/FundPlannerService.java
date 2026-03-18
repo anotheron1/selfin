@@ -60,11 +60,22 @@ public class FundPlannerService {
                     .map(e -> Objects.requireNonNullElse(e.getPlannedAmount(), BigDecimal.ZERO))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+            BigDecimal factExpenses = null;
+            if (i == 0) {
+                factExpenses = monthEvents.stream()
+                        .filter(e -> e.getType() == EventType.EXPENSE
+                                && e.getStatus() == EventStatus.EXECUTED
+                                && e.getFactAmount() != null)
+                        .map(FinancialEvent::getFactAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+            }
+
             months.add(new FundPlannerMonthDto(
                     month.toString(),
                     plannedIncome,
                     mandatoryExpenses,
-                    allPlannedExpenses));
+                    allPlannedExpenses,
+                    factExpenses));
         }
 
         return new FundPlannerDto(months);

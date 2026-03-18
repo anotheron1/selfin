@@ -6,5 +6,6 @@ public record FundPlannerMonthDto(
         String yearMonth,
         BigDecimal plannedIncome,
         BigDecimal mandatoryExpenses,
-        BigDecimal allPlannedExpenses
+        BigDecimal allPlannedExpenses,
+        BigDecimal factExpenses
 ) {}
