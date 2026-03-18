@@ -391,6 +391,7 @@ export default function Funds() {
         lastPlanDate: string | null;
     } | null>(null);
     const [showHelp, setShowHelp] = useState(false);
+    const [showFunds, setShowFunds] = useState(true);
 
     const load = useCallback(() => {
         setError(null);
@@ -464,10 +465,9 @@ export default function Funds() {
                             </div>
                             {showHelp && (
                                 <div className="mt-1 mb-2 text-xs text-white/70 leading-relaxed rounded-xl bg-black/20 px-3 py-2">
-                                    <b className="text-white/90">Кармашек</b> — свободные деньги на счету, не зарезервированные ни в одной копилке.<br />
-                                    Формула: <span className="text-white/90">баланс счёта − сумма копилок</span>.<br />
-                                    Если отрицательный — вы зарезервировали в копилках больше, чем сейчас на счету.<br />
-                                    Прогнозы учитывают все запланированные доходы и расходы.
+                                    <b className="text-white/90">Кармашек</b> — фактически свободные деньги прямо сейчас: баланс счёта за вычетом всего, что уже лежит в копилках.<br />
+                                    Если отрицательный — в копилках зарезервировано больше, чем есть на счету.<br />
+                                    Прогнозы показывают, каким будет кармашек с учётом запланированных доходов и расходов — но без учёта будущих пополнений копилок.
                                 </div>
                             )}
                             <p className="text-3xl font-bold text-white">
@@ -499,7 +499,12 @@ export default function Funds() {
 
                 {/* Заголовок с кнопкой создания */}
                 <div className="flex items-center justify-between">
-                    <h2 className="font-semibold">Копилки</h2>
+                    <button
+                        onClick={() => setShowFunds(v => !v)}
+                        className="flex items-center gap-2 font-semibold">
+                        <span>Копилки</span>
+                        <span style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}>{showFunds ? '▲' : '▼'}</span>
+                    </button>
                     <Button
                         onClick={() => setShowCreate(true)}
                         size="sm"
@@ -509,7 +514,7 @@ export default function Funds() {
                 </div>
 
                 {/* Карточки фондов */}
-                {data.funds.length === 0 ? (
+                {showFunds && (data.funds.length === 0 ? (
                     <div className="text-center py-10 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                         Нет целевых фондов.<br />Нажми «Создать», чтобы открыть первую копилку!
                     </div>
@@ -523,7 +528,7 @@ export default function Funds() {
                             onEdit={setEditFund}
                         />
                     ))
-                )}
+                ))}
 
                 {/* Хотелки */}
                 <WishlistSection />

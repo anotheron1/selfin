@@ -222,14 +222,14 @@ export default function SavingsStrategySection({ funds, onFundUpdated }: Props) 
                             </span>
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
                             <span style={{ color: 'var(--color-text-muted)' }}>
-                                Остаток (обяз.):{' '}
+                                После обяз. расходов:{' '}
                                 <span className="font-medium" style={{ color: 'var(--color-text)' }}>
                                     ~{remainingAfterMandatory.toLocaleString()} ₽/мес
                                 </span>
                             </span>
                             <span style={{ color: 'var(--color-text-muted)' }}>|</span>
                             <span style={{ color: 'var(--color-text-muted)' }}>
-                                Остаток (все расходы):{' '}
+                                Доступно для копилок:{' '}
                                 <span className="font-medium" style={{ color: 'var(--color-text)' }}>
                                     ~{remainingAfterAll.toLocaleString()} ₽/мес
                                 </span>

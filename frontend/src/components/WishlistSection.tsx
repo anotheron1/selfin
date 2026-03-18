@@ -37,6 +37,7 @@ export default function WishlistSection() {
     });
     const [editSubmitting, setEditSubmitting] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
+    const [isOpen, setIsOpen] = useState(true);
 
     const load = useCallback(() => {
         setLoading(true);
@@ -142,20 +143,27 @@ export default function WishlistSection() {
     );
 
     return (
-        <div className="space-y-3">
-            <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>
-                    Хотелки
-                </span>
+        <div className="rounded-2xl overflow-hidden"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <div className="flex items-center justify-between px-5 py-3">
                 <button
-                    onClick={() => setShowAddForm(v => !v)}
-                    className="w-6 h-6 rounded flex items-center justify-center transition-colors"
-                    style={{ color: 'var(--color-text-muted)' }}
-                    title="Добавить хотелку"
-                >
-                    <Plus size={14} />
+                    onClick={() => setIsOpen(v => !v)}
+                    className="flex items-center gap-2 font-semibold text-sm flex-1 text-left">
+                    <span>Хотелки</span>
+                    <span style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}>{isOpen ? '▲' : '▼'}</span>
                 </button>
+                {isOpen && (
+                    <button
+                        onClick={() => setShowAddForm(v => !v)}
+                        className="w-6 h-6 rounded flex items-center justify-center transition-colors"
+                        style={{ color: 'var(--color-text-muted)' }}
+                        title="Добавить хотелку"
+                    >
+                        <Plus size={14} />
+                    </button>
+                )}
             </div>
+        {isOpen && <div className="px-5 pb-4 space-y-3">
             {showAddForm && (
                 <form
                     onSubmit={handleAddSubmit}
@@ -225,13 +233,11 @@ export default function WishlistSection() {
                 </form>
             )}
             {items.length === 0 ? (
-                <div className="rounded-2xl px-5 py-4 text-sm"
-                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
+                <div className="py-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                     Нереализованных хотелок нет
                 </div>
             ) : (
-                <div className="rounded-2xl overflow-hidden"
-                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
                     {items.map((item, idx) => (
                         <div key={item.id}
                             className="px-5 py-3 space-y-2"
@@ -394,6 +400,7 @@ export default function WishlistSection() {
                     ))}
                 </div>
             )}
+        </div>}
         </div>
     );
 }

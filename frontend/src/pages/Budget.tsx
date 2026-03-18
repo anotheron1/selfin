@@ -60,67 +60,9 @@ function getDayLabel(dateStr: string): { dow: string; dayNum: number } {
     return { dow: DAY_NAMES[d.getDay()], dayNum: d.getDate() };
 }
 
-function mergeEventsByName(events: FinancialEvent[]): FinancialEvent[] {
-    // Group events by display name: description → rawInput → categoryName (mirrors rendering logic)
-    const getName = (e: FinancialEvent): string | null => {
-        const d = e.description?.trim();
-        if (d) return d;
-        const r = e.rawInput?.trim();
-        if (r) return r;
-        const c = e.categoryName?.trim();
-        if (c) return c;
-        return null;
-    };
-
-    const withName = events.filter(e => getName(e) !== null);
-    const withoutDesc = events.filter(e => getName(e) === null);
-
-    const byDesc = new Map<string, FinancialEvent[]>();
-    for (const e of withName) {
-        const key = getName(e)!;
-        const group = byDesc.get(key) ?? [];
-        group.push(e);
-        byDesc.set(key, group);
-    }
-
-    const result: FinancialEvent[] = [...withoutDesc];
-
-    for (const group of byDesc.values()) {
-        // Separate plan-only events from fact events within the group
-        const planOnly = group.filter(e => e.factAmount === null || e.factAmount === 0);
-        const factEvents = group.filter(e => e.factAmount !== null && e.factAmount > 0);
-
-        if (planOnly.length > 0 && factEvents.length > 0) {
-            // Merge each plan event with a corresponding fact event (1:1 pairing)
-            const usedFact = new Set<string>();
-            for (const planEvt of planOnly) {
-                const fact = factEvents.find(f => !usedFact.has(f.id));
-                if (fact) {
-                    usedFact.add(fact.id);
-                    // Use the earlier date as the merged event's date
-                    const mergedDate = planEvt.date && fact.date
-                        ? planEvt.date <= fact.date ? planEvt.date : fact.date
-                        : planEvt.date ?? fact.date;
-                    result.push({ ...planEvt, factAmount: fact.factAmount, date: mergedDate });
-                } else {
-                    result.push(planEvt);
-                }
-            }
-            // Any unmatched fact events are left as-is
-            for (const fact of factEvents) {
-                if (!usedFact.has(fact.id)) {
-                    result.push(fact);
-                }
-            }
-        } else {
-            // No pairing possible — add all as-is
-            for (const e of group) {
-                result.push(e);
-            }
-        }
-    }
-
-    return result;
+function getDisplayName(event: FinancialEvent): string {
+    if (event.type === 'FUND_TRANSFER') return event.targetFundName ?? 'Копилка';
+    return event.description || event.rawInput || event.categoryName || '';
 }
 
 export default function Budget() {
@@ -146,7 +88,11 @@ export default function Budget() {
     const weeks = buildWeeks(year, month);
     const monthLabel = new Date(year, month).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
-    const mergedEvents = mergeEventsByName(events);
+    const totalPlannedIncome = events.filter(e => e.type === 'INCOME').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+    const totalFactIncome = events.filter(e => e.type === 'INCOME' && e.factAmount != null).reduce((s, e) => s + (e.factAmount ?? 0), 0);
+    const totalPlannedExpense = events.filter(e => e.type === 'EXPENSE').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+    const totalFactExpense = events.filter(e => e.type === 'EXPENSE' && e.factAmount != null).reduce((s, e) => s + (e.factAmount ?? 0), 0);
+    const hasFactData = events.some(e => e.factAmount != null);
 
     return (
         <>
@@ -163,10 +109,41 @@ export default function Budget() {
                         className="text-lg px-3 py-1 rounded-lg" style={{ color: 'var(--color-accent)' }}>›</button>
                 </div>
 
+                {/* Сводка месяца */}
+                {!loading && events.length > 0 && (
+                    <div className="rounded-2xl px-5 py-3 space-y-1 text-sm"
+                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                        <div className="flex justify-between">
+                            <span style={{ color: 'var(--color-text-muted)' }}>Доходы</span>
+                            <span>
+                                <span className="font-medium" style={{ color: 'var(--color-success)' }}>+{fmt(totalPlannedIncome)}</span>
+                                <span style={{ color: 'var(--color-text-muted)' }}> план</span>
+                                {hasFactData && totalFactIncome > 0 && (
+                                    <span style={{ color: 'var(--color-text-muted)' }}>
+                                        {' '}/ <span className="font-medium" style={{ color: 'var(--color-success)' }}>+{fmt(totalFactIncome)}</span> факт
+                                    </span>
+                                )}
+                            </span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span style={{ color: 'var(--color-text-muted)' }}>Расходы</span>
+                            <span>
+                                <span className="font-medium">-{fmt(totalPlannedExpense)}</span>
+                                <span style={{ color: 'var(--color-text-muted)' }}> план</span>
+                                {hasFactData && totalFactExpense > 0 && (
+                                    <span style={{ color: 'var(--color-text-muted)' }}>
+                                        {' '}/ <span className="font-medium">-{fmt(totalFactExpense)}</span> факт
+                                    </span>
+                                )}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
                 {loading && <p className="text-center text-sm animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</p>}
 
                 {!loading && weeks.map(week => {
-                    const weekEvents = mergedEvents.filter((e: FinancialEvent) => e.date != null && e.date >= week.start && e.date <= week.end);
+                    const weekEvents = events.filter((e: FinancialEvent) => e.date != null && e.date >= week.start && e.date <= week.end);
                     const isOpen = openWeeks[week.label] !== false;
                     return (
                         <div key={week.label} className="rounded-2xl overflow-hidden"
@@ -194,6 +171,15 @@ export default function Budget() {
                                         return sortedDays.map((day, dayIdx) => {
                                             const { dow, dayNum } = getDayLabel(day);
                                             const dayEvts = byDay[day];
+
+                                            // Split into planned (top) and executed (bottom), each sorted alpha
+                                            const planned = dayEvts
+                                                .filter(e => e.status === 'PLANNED')
+                                                .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
+                                            const executed = dayEvts
+                                                .filter(e => e.status !== 'PLANNED')
+                                                .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
+
                                             return (
                                                 <div
                                                     key={day}
@@ -212,7 +198,17 @@ export default function Budget() {
                                                     </div>
                                                     {/* Right: events */}
                                                     <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
-                                                        {dayEvts.map((event: FinancialEvent) => {
+                                                        {[...planned,
+                                                          ...(planned.length > 0 && executed.length > 0 ? ['__divider__'] : []),
+                                                          ...executed
+                                                        ].map((item, idx) => {
+                                                            if (item === '__divider__') {
+                                                                return (
+                                                                    <div key={`div-${idx}`}
+                                                                        style={{ borderTop: '1px dashed var(--color-border)', marginTop: -1 }} />
+                                                                );
+                                                            }
+                                                            const event = item as FinancialEvent;
                                                             const delta = event.factAmount != null && event.plannedAmount != null
                                                                 ? event.factAmount - event.plannedAmount : null;
                                                             const isIncome = event.type === 'INCOME';

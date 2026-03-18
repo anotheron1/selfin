@@ -18,10 +18,10 @@ interface BarState {
 
 function getBarState(planned: number, fact: number): BarState {
     if (planned === 0 && fact > 0) {
-        return { barColor: '#f59e0b', barWidth: '100%', badge: 'Не запланировано', badgeColor: '#f59e0b' };
+        return { barColor: 'transparent', barWidth: '0%', badge: 'Не запланировано', badgeColor: '#f59e0b' };
     }
     if (planned > 0 && fact === 0) {
-        return { barColor: '#6b7280', barWidth: '0%', badge: 'Не выполнено', badgeColor: '#6b7280' };
+        return { barColor: 'transparent', barWidth: '0%', badge: 'Не выполнено', badgeColor: '#6b7280' };
     }
     if (planned > 0 && fact > planned * 1.05) {
         return { barColor: '#ef4444', barWidth: '100%', badge: 'Перерасход', badgeColor: '#ef4444' };
