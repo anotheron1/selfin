@@ -60,6 +60,59 @@ function getDayLabel(dateStr: string): { dow: string; dayNum: number } {
     return { dow: DAY_NAMES[d.getDay()], dayNum: d.getDate() };
 }
 
+function mergeEventsByName(events: FinancialEvent[]): FinancialEvent[] {
+    // Group events by description (skip null/empty)
+    const withDesc = events.filter(e => e.description && e.description.trim() !== '');
+    const withoutDesc = events.filter(e => !e.description || e.description.trim() === '');
+
+    const byDesc = new Map<string, FinancialEvent[]>();
+    for (const e of withDesc) {
+        const key = e.description!.trim();
+        const group = byDesc.get(key) ?? [];
+        group.push(e);
+        byDesc.set(key, group);
+    }
+
+    const result: FinancialEvent[] = [...withoutDesc];
+
+    for (const group of byDesc.values()) {
+        // Separate plan-only events from fact events within the group
+        const planOnly = group.filter(e => e.factAmount === null || e.factAmount === 0);
+        const factEvents = group.filter(e => e.factAmount !== null && e.factAmount > 0);
+
+        if (planOnly.length > 0 && factEvents.length > 0) {
+            // Merge each plan event with a corresponding fact event (1:1 pairing)
+            const usedFact = new Set<string>();
+            for (const planEvt of planOnly) {
+                const fact = factEvents.find(f => !usedFact.has(f.id));
+                if (fact) {
+                    usedFact.add(fact.id);
+                    // Use the earlier date as the merged event's date
+                    const mergedDate = planEvt.date && fact.date
+                        ? planEvt.date <= fact.date ? planEvt.date : fact.date
+                        : planEvt.date ?? fact.date;
+                    result.push({ ...planEvt, factAmount: fact.factAmount, date: mergedDate });
+                } else {
+                    result.push(planEvt);
+                }
+            }
+            // Any unmatched fact events are left as-is
+            for (const fact of factEvents) {
+                if (!usedFact.has(fact.id)) {
+                    result.push(fact);
+                }
+            }
+        } else {
+            // No pairing possible — add all as-is
+            for (const e of group) {
+                result.push(e);
+            }
+        }
+    }
+
+    return result;
+}
+
 export default function Budget() {
     const now = new Date();
     const [year, setYear] = useState(now.getFullYear());
@@ -83,19 +136,7 @@ export default function Budget() {
     const weeks = buildWeeks(year, month);
     const monthLabel = new Date(year, month).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
-    // Компактный итог месяца
-    const totalPlannedIncome = events
-        .filter(e => e.type === 'INCOME')
-        .reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
-    const totalFactIncome = events
-        .filter(e => e.type === 'INCOME' && e.status === 'EXECUTED')
-        .reduce((s, e) => s + (e.factAmount ?? e.plannedAmount ?? 0), 0);
-    const totalPlannedExpense = events
-        .filter(e => e.type === 'EXPENSE')
-        .reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
-    const totalFactExpense = events
-        .filter(e => e.type === 'EXPENSE' && e.status === 'EXECUTED')
-        .reduce((s, e) => s + (e.factAmount ?? e.plannedAmount ?? 0), 0);
+    const mergedEvents = mergeEventsByName(events);
 
     return (
         <>
@@ -112,35 +153,10 @@ export default function Budget() {
                         className="text-lg px-3 py-1 rounded-lg" style={{ color: 'var(--color-accent)' }}>›</button>
                 </div>
 
-                {/* Компактный итог месяца */}
-                {!loading && (
-                    <div className="rounded-2xl px-5 py-3 text-sm space-y-1"
-                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                        <div className="flex justify-between">
-                            <span style={{ color: 'var(--color-text-muted)' }}>Доходы</span>
-                            <span>
-                                {totalFactIncome > 0 && (
-                                    <span style={{ color: 'var(--color-success)' }}>факт {fmt(totalFactIncome)} / </span>
-                                )}
-                                <span style={{ color: 'var(--color-text-muted)' }}>план {fmt(totalPlannedIncome)}</span>
-                            </span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span style={{ color: 'var(--color-text-muted)' }}>Расходы</span>
-                            <span>
-                                {totalFactExpense > 0 && (
-                                    <span>факт {fmt(totalFactExpense)} / </span>
-                                )}
-                                <span style={{ color: 'var(--color-text-muted)' }}>план {fmt(totalPlannedExpense)}</span>
-                            </span>
-                        </div>
-                    </div>
-                )}
-
                 {loading && <p className="text-center text-sm animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</p>}
 
                 {!loading && weeks.map(week => {
-                    const weekEvents = events.filter((e: FinancialEvent) => e.date != null && e.date >= week.start && e.date <= week.end);
+                    const weekEvents = mergedEvents.filter((e: FinancialEvent) => e.date != null && e.date >= week.start && e.date <= week.end);
                     const isOpen = openWeeks[week.label] !== false;
                     return (
                         <div key={week.label} className="rounded-2xl overflow-hidden"

@@ -3,7 +3,7 @@ import { LayoutDashboard, CalendarDays, PiggyBank, BarChart2, Settings } from 'l
 
 const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Дашборд' },
-    { to: '/budget', icon: CalendarDays, label: 'Бюджет' },
+    { to: '/budget', icon: CalendarDays, label: 'Журнал' },
     { to: '/funds', icon: PiggyBank, label: 'Цели' },
     { to: '/analytics', icon: BarChart2, label: 'Аналитика' },
     { to: '/settings', icon: Settings, label: 'Настройки' },
@@ -11,7 +11,7 @@ const navItems = [
 
 /**
  * Фиксированная нижняя навигационная панель приложения.
- * Содержит 5 вкладок: Дашборд, Бюджет, Фонды, Аналитика, Настройки.
+ * Содержит 5 вкладок: Дашборд, Журнал, Фонды, Аналитика, Настройки.
  * Активная вкладка подсвечивается акцентным цветом через `NavLink`.
  * Высота задана CSS-переменной `--nav-height` (64px) и учитывается в отступах страниц.
  */
