@@ -383,12 +383,16 @@ export default function Funds() {
     const [showCreate, setShowCreate] = useState(false);
     const [transferFund, setTransferFund] = useState<TargetFund | null>(null);
     const [editFund, setEditFund] = useState<TargetFund | null>(null);
-    const [projections, setProjections] = useState<{
+    type ProjectionSet = {
         endOfMonth: number;
         end3Month: number;
         end6Month: number;
         endOfPlans: number | null;
         lastPlanDate: string | null;
+    };
+    const [projections, setProjections] = useState<{
+        mandatory: ProjectionSet; // факт + все доходы − только обязательные расходы
+        full: ProjectionSet;      // факт + все доходы − все расходы
     } | null>(null);
     const [showHelp, setShowHelp] = useState(false);
     const [showFunds, setShowFunds] = useState(true);
@@ -412,7 +416,13 @@ export default function Funds() {
 
         fetchEvents(todayStr, farFuture).then(allFutureEvts => {
             const planned = allFutureEvts.filter(e => e.status === 'PLANNED');
-            const project = (cutoff: string) =>
+
+            // Обязательные = высокий приоритет или явный флаг mandatory
+            const isMandatory = (e: FinancialEvent) =>
+                e.mandatory === true || e.priority === 'HIGH';
+
+            // Факт + все доходы − все расходы (включая необязательные и копилки)
+            const projectFull = (cutoff: string) =>
                 planned
                     .filter(e => e.date != null && e.date <= cutoff)
                     .reduce((bal, e) => {
@@ -420,18 +430,36 @@ export default function Funds() {
                         return e.type === 'INCOME' ? bal + amt : bal - amt;
                     }, data.pocketBalance);
 
-            let endOfPlans: number | null = null;
-            let lastPlanDate: string | null = null;
-            if (planned.length > 0) {
-                endOfPlans = project(farFuture);
-                lastPlanDate = planned.map(e => e.date).sort().at(-1) ?? null;
-            }
+            // Факт + все доходы − только обязательные расходы (необязательные и копилки пропускаем)
+            const projectMandatory = (cutoff: string) =>
+                planned
+                    .filter(e => e.date != null && e.date <= cutoff)
+                    .reduce((bal, e) => {
+                        const amt = e.plannedAmount ?? 0;
+                        if (e.type === 'INCOME') return bal + amt;
+                        if (e.type === 'EXPENSE' && isMandatory(e)) return bal - amt;
+                        return bal;
+                    }, data.pocketBalance);
+
+            const lastPlanDate = planned.length > 0
+                ? (planned.map(e => e.date).filter(Boolean).sort().at(-1) ?? null)
+                : null;
+
             setProjections({
-                endOfMonth: project(monthEnd),
-                end3Month: project(month3End),
-                end6Month: project(month6End),
-                endOfPlans,
-                lastPlanDate,
+                mandatory: {
+                    endOfMonth: projectMandatory(monthEnd),
+                    end3Month: projectMandatory(month3End),
+                    end6Month: projectMandatory(month6End),
+                    endOfPlans: lastPlanDate ? projectMandatory(farFuture) : null,
+                    lastPlanDate,
+                },
+                full: {
+                    endOfMonth: projectFull(monthEnd),
+                    end3Month: projectFull(month3End),
+                    end6Month: projectFull(month6End),
+                    endOfPlans: lastPlanDate ? projectFull(farFuture) : null,
+                    lastPlanDate,
+                },
             });
         }).catch(() => {
             // Projection fetch failed — leave projections null (hidden)
@@ -464,35 +492,50 @@ export default function Funds() {
                                 </button>
                             </div>
                             {showHelp && (
-                                <div className="mt-1 mb-2 text-xs text-white/70 leading-relaxed rounded-xl bg-black/20 px-3 py-2">
-                                    <b className="text-white/90">Кармашек</b> — фактически свободные деньги прямо сейчас: баланс счёта за вычетом всего, что уже лежит в копилках.<br />
-                                    Если отрицательный — в копилках зарезервировано больше, чем есть на счету.<br />
-                                    Прогнозы показывают, каким будет кармашек с учётом запланированных доходов и расходов — но без учёта будущих пополнений копилок.
+                                <div className="mt-1 mb-2 text-xs text-white/70 leading-relaxed rounded-xl bg-black/20 px-3 py-2 space-y-2">
+                                    <div>
+                                        <b className="text-white/90">Сейчас (факт)</b> — реальные свободные деньги прямо сейчас.<br />
+                                        Формула: <span className="text-white/90">баланс счёта</span> (чекпоинт + все исполненные доходы − все исполненные расходы) <span className="text-white/90">− сумма во всех копилках</span>.<br />
+                                        Если отрицательный — в копилках зарезервировано больше, чем есть на счету.
+                                    </div>
+                                    <div>
+                                        <b className="text-white/90">После обязательных</b> — прогноз с учётом только обязательных событий: все плановые доходы придут, но из расходов вычитаются только высокоприоритетные (ипотека, коммуналка и т.д.). Необязательные расходы и переводы в копилки не учитываются — это и есть максимум, который ты теоретически можешь пустить в копилки.
+                                    </div>
+                                    <div>
+                                        <b className="text-white/90">После всех расходов</b> — прогноз при полном выполнении плана: все доходы, все расходы, все переводы в копилки. Это минимум, который останется, если всё пойдёт по плану.
+                                    </div>
                                 </div>
                             )}
+                            {/* Факт */}
+                            <p className="text-xs text-white/60 mt-1">Сейчас (факт)</p>
                             <p className="text-3xl font-bold text-white">
                                 {new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 })
                                     .format(data.pocketBalance)}
                             </p>
-                            {projections && (
-                                <div className="mt-2 space-y-0.5 text-xs text-white/80">
-                                    <p>Конец месяца:{' '}
-                                        <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfMonth)}</b>
-                                    </p>
-                                    <p>Через 3 месяца:{' '}
-                                        <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.end3Month)}</b>
-                                    </p>
-                                    <p>Через 6 месяцев:{' '}
-                                        <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.end6Month)}</b>
-                                    </p>
-                                    {projections.endOfPlans != null && projections.lastPlanDate && (
-                                        <p>Конец планов:{' '}
-                                            <b className="text-white">{new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(projections.endOfPlans)}</b>
-                                            <span className="text-white/60"> · до {fmtDate(projections.lastPlanDate)}</span>
-                                        </p>
-                                    )}
-                                </div>
-                            )}
+                            {projections && (() => {
+                                const fmtC = (n: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
+                                const row = (label: string, p: typeof projections.full) => (
+                                    <div key={label} className="mt-2">
+                                        <p className="text-white/50 text-xs mb-0.5">{label}</p>
+                                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-white/80">
+                                            <span>Конец мес: <b className="text-white">{fmtC(p.endOfMonth)}</b></span>
+                                            <span>3 мес: <b className="text-white">{fmtC(p.end3Month)}</b></span>
+                                            <span>6 мес: <b className="text-white">{fmtC(p.end6Month)}</b></span>
+                                            {p.endOfPlans != null && p.lastPlanDate && (
+                                                <span>Конец планов: <b className="text-white">{fmtC(p.endOfPlans)}</b>
+                                                    <span className="text-white/50"> · до {fmtDate(p.lastPlanDate)}</span>
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                                return (
+                                    <>
+                                        {row('После обязательных расходов', projections.mandatory)}
+                                        {row('После всех расходов', projections.full)}
+                                    </>
+                                );
+                            })()}
                         </div>
                     </div>
                 </div>
