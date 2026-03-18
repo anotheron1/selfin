@@ -61,13 +61,23 @@ function getDayLabel(dateStr: string): { dow: string; dayNum: number } {
 }
 
 function mergeEventsByName(events: FinancialEvent[]): FinancialEvent[] {
-    // Group events by description (skip null/empty)
-    const withDesc = events.filter(e => e.description && e.description.trim() !== '');
-    const withoutDesc = events.filter(e => !e.description || e.description.trim() === '');
+    // Group events by display name: description → rawInput → categoryName (mirrors rendering logic)
+    const getName = (e: FinancialEvent): string | null => {
+        const d = e.description?.trim();
+        if (d) return d;
+        const r = e.rawInput?.trim();
+        if (r) return r;
+        const c = e.categoryName?.trim();
+        if (c) return c;
+        return null;
+    };
+
+    const withName = events.filter(e => getName(e) !== null);
+    const withoutDesc = events.filter(e => getName(e) === null);
 
     const byDesc = new Map<string, FinancialEvent[]>();
-    for (const e of withDesc) {
-        const key = e.description!.trim();
+    for (const e of withName) {
+        const key = getName(e)!;
         const group = byDesc.get(key) ?? [];
         group.push(e);
         byDesc.set(key, group);
