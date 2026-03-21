@@ -31,7 +31,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class FinancialEvent {
+public class FinancialEvent implements Transaction {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -89,6 +89,14 @@ public class FinancialEvent {
     /** FK to target_fund. Populated only when type = FUND_TRANSFER. */
     @Column(name = "target_fund_id")
     private UUID targetFundId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "event_kind", nullable = false)
+    @Builder.Default
+    private EventKind eventKind = EventKind.PLAN;
+
+    @Column(name = "parent_event_id")
+    private UUID parentEventId;
 
     @Column(name = "is_deleted", nullable = false)
     @Builder.Default
