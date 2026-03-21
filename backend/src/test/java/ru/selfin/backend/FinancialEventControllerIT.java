@@ -11,6 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.dto.FactCreateDto;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.model.enums.EventType;
 
@@ -128,6 +129,74 @@ class FinancialEventControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PLANNED"))
                 .andExpect(jsonPath("$.plannedAmount").value(1800));
+    }
+
+    @Test
+    void createLinkedFact_success() throws Exception {
+        String catId = getFirstCategoryId();
+
+        // Создаём PLAN-событие
+        FinancialEventCreateDto planDto = new FinancialEventCreateDto(
+                LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
+                BigDecimal.valueOf(5000), null, "Плановый расход", null, null);
+
+        String planBody = mockMvc.perform(post("/api/v1/events")
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(planDto)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eventKind").value("PLAN"))
+                .andReturn().getResponse().getContentAsString();
+
+        String planId = objectMapper.readTree(planBody).get("id").asText();
+
+        // Создаём связанный FACT
+        FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(4850), "Фактический расход");
+
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(factDto)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eventKind").value("FACT"))
+                .andExpect(jsonPath("$.parentEventId").value(planId))
+                .andExpect(jsonPath("$.factAmount").value(4850));
+
+        // Проверяем, что план теперь EXECUTED
+        String today = LocalDate.now().toString();
+        mockMvc.perform(get("/api/v1/events?startDate=" + today + "&endDate=" + today))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == '" + planId + "')].status").value("EXECUTED"));
+    }
+
+    @Test
+    void deletePlanWithLinkedFacts_returns409() throws Exception {
+        String catId = getFirstCategoryId();
+
+        // Создаём PLAN-событие
+        FinancialEventCreateDto planDto = new FinancialEventCreateDto(
+                LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
+                BigDecimal.valueOf(3000), null, "Удаляемый план", null, null);
+
+        String planBody = mockMvc.perform(post("/api/v1/events")
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(planDto)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String planId = objectMapper.readTree(planBody).get("id").asText();
+
+        // Привязываем факт к плану
+        FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(2900), null);
+
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(factDto)))
+                .andExpect(status().isOk());
+
+        // Попытка удалить план с привязанными фактами → 409
+        mockMvc.perform(delete("/api/v1/events/" + planId))
+                .andExpect(status().isConflict());
     }
 
     @Test

@@ -9,6 +9,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
+import ru.selfin.backend.dto.FactCreateDto;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
@@ -90,6 +91,16 @@ public class FinancialEventController {
     @ResponseStatus(HttpStatus.CREATED)
     public FinancialEventDto createWishlistItem(@RequestBody @Valid WishlistCreateDto dto) {
         return eventService.createWishlistItem(dto);
+    }
+
+    @Operation(summary = "Создать связанный факт к плану",
+            description = "Создаёт FACT-событие, привязанное к указанному PLAN-событию. "
+                    + "Дата, сумма и описание факта могут отличаться от плана.")
+    @PostMapping("/{planId}/facts")
+    public FinancialEventDto createLinkedFact(
+            @Parameter(description = "ID планового события") @PathVariable UUID planId,
+            @Valid @RequestBody FactCreateDto dto) {
+        return eventService.createLinkedFact(planId, dto);
     }
 
     @Operation(summary = "Удалить событие (soft delete)")
