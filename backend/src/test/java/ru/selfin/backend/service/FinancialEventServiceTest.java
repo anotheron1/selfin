@@ -116,6 +116,38 @@ class FinancialEventServiceTest {
                 .hasMessageContaining("Cannot delete PLAN");
     }
 
+    @Test
+    @DisplayName("softDelete: удаление FACT переводит родительский PLAN обратно в PLANNED")
+    void softDelete_lastFact_revertsPlanToPlanned() {
+        UUID planId = UUID.randomUUID();
+        UUID factId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.EXECUTED);
+        FinancialEvent fact = FinancialEvent.builder()
+                .id(factId)
+                .eventKind(EventKind.FACT)
+                .parentEventId(planId)
+                .category(cat)
+                .type(EventType.EXPENSE)
+                .factAmount(BigDecimal.TEN)
+                .status(EventStatus.EXECUTED)
+                .deleted(false)
+                .build();
+
+        when(eventRepository.findById(factId)).thenReturn(Optional.of(fact));
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        // After deletion, no remaining facts
+        when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
+                .thenReturn(Collections.emptyList());
+        when(eventRepository.save(any())).thenReturn(fact);
+        doNothing().when(eventRepository).flush();
+
+        service.softDelete(factId);
+
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
+        verify(eventRepository, times(2)).save(any()); // deleted fact + reverted plan
+    }
+
     // --- helpers ---
 
     private Category category() {

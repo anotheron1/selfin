@@ -58,8 +58,19 @@ public class FinancialEventService {
                 : eventRepository.findAllById(parentIds).stream()
                         .collect(Collectors.toMap(FinancialEvent::getId, e -> e));
 
+        // Batch-load fund names to avoid N+1 queries
+        Set<UUID> fundIds = events.stream()
+                .map(FinancialEvent::getTargetFundId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<UUID, String> fundNameById = fundIds.isEmpty()
+                ? Collections.emptyMap()
+                : targetFundRepository.findAllById(fundIds).stream()
+                        .collect(Collectors.toMap(TargetFund::getId, TargetFund::getName));
+
         return events.stream()
-                .map(e -> toDto(e, aggByPlan.get(e.getId()), parentById.get(e.getParentEventId())))
+                .map(e -> toDto(e, aggByPlan.get(e.getId()), parentById.get(e.getParentEventId()), fundNameById.get(e.getTargetFundId())))
                 .toList();
     }
 
@@ -104,9 +115,14 @@ public class FinancialEventService {
                     "Cannot update a FACT record via PUT — use the fact-specific endpoint");
         }
 
-        Category category = categoryRepository.findById(dto.categoryId())
-                .filter(c -> !c.isDeleted())
-                .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+        Category category;
+        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
+            category = targetFundService.getOrCreateFundTransferCategory();
+        } else {
+            category = categoryRepository.findById(dto.categoryId())
+                    .filter(c -> !c.isDeleted())
+                    .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+        }
 
         // Capture old fact for audit log (kept for backward compat on old executed events)
         BigDecimal oldFact = event.getFactAmount();
@@ -227,6 +243,7 @@ public class FinancialEventService {
 
         event.setDeleted(true);
         eventRepository.save(event);
+        eventRepository.flush();
 
         // If deleting a FACT, revert parent PLAN to PLANNED if it has no other FACTs
         if (event.getEventKind() == EventKind.FACT && event.getParentEventId() != null) {
@@ -252,9 +269,15 @@ public class FinancialEventService {
         String fundName = null;
         if (e.getTargetFundId() != null) {
             fundName = targetFundRepository.findById(e.getTargetFundId())
-                    .map(f -> f.getName()).orElse(null);
+                    .map(TargetFund::getName).orElse(null);
         }
+        return toDto(e, agg, parentPlan, fundName);
+    }
 
+    private FinancialEventDto toDto(FinancialEvent e,
+                                    FactAggregateProjection agg,
+                                    FinancialEvent parentPlan,
+                                    String fundName) {
         int linkedFactsCount = agg != null ? agg.getCount().intValue() : 0;
         BigDecimal linkedFactsAmount = agg != null ? agg.getTotalAmount() : null;
 
