@@ -101,13 +101,45 @@ public class DashboardService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal endOfMonthForecast = currentBalance.add(forecastDelta);
 
-        // --- 5. Кассовый разрыв ---
-        DashboardDto.CashGapAlert cashGapAlert = detectCashGap(monthEvents, currentBalance, asOfDate, monthEnd);
+        // --- 5. Прогноз «до следующей зп» (расширенный горизонт, кросс-месячный) ---
+        // Горизонт: asOfDate → asOfDate + 45 дней. Ищем первое неисполненное INCOME-событие.
+        LocalDate horizonEnd = asOfDate.plusDays(45);
+        List<FinancialEvent> horizonEvents = eventRepository
+                .findAllByDeletedFalseAndDateBetween(asOfDate, horizonEnd);
 
-        // --- 6. Прогресс-бары по категориям (всегда за весь месяц) ---
+        LocalDate nextSalaryDate = horizonEvents.stream()
+                .filter(e -> e.getType() == EventType.INCOME && e.getFactAmount() == null)
+                .filter(e -> e.getDate().isAfter(asOfDate))      // строго будущие
+                .map(FinancialEvent::getDate)
+                .min(LocalDate::compareTo)
+                .orElse(null);
+
+        LocalDate gapHorizon; // горизонт для кассового разрыва
+        BigDecimal nextSalaryForecast;
+        if (nextSalaryDate != null) {
+            // Суммируем все неисполненные события от сегодня до nextSalaryDate включительно
+            BigDecimal periodDelta = horizonEvents.stream()
+                    .filter(e -> !e.getDate().isBefore(asOfDate) && !e.getDate().isAfter(nextSalaryDate))
+                    .filter(e -> e.getFactAmount() == null)
+                    .map(e -> {
+                        BigDecimal amount = e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO;
+                        return e.getType() == EventType.INCOME ? amount : amount.negate();
+                    })
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            nextSalaryForecast = currentBalance.add(periodDelta);
+            gapHorizon = nextSalaryDate;
+        } else {
+            nextSalaryForecast = endOfMonthForecast;
+            gapHorizon = monthEnd;
+        }
+
+        // --- 6. Кассовый разрыв (горизонт расширен до nextSalaryDate или конца месяца) ---
+        DashboardDto.CashGapAlert cashGapAlert = detectCashGap(horizonEvents, currentBalance, asOfDate, gapHorizon);
+
+        // --- 7. Прогресс-бары по категориям (всегда за весь месяц) ---
         List<DashboardDto.CategoryProgressBar> progressBars = buildProgressBars(monthEvents);
 
-        return new DashboardDto(currentBalance, endOfMonthForecast, cashGapAlert, progressBars);
+        return new DashboardDto(currentBalance, endOfMonthForecast, nextSalaryDate, nextSalaryForecast, cashGapAlert, progressBars);
     }
 
     /**
@@ -127,7 +159,8 @@ public class DashboardService {
 
     /**
      * Обнаруживает первый день после {@code from}, в котором нарастающий баланс
-     * уходит в минус при последовательном применении плановых сумм событий.
+     * уходит в минус при последовательном применении сумм событий.
+     * Для каждого события: факт, если есть; иначе — план.
      */
     private DashboardDto.CashGapAlert detectCashGap(
             List<FinancialEvent> events, BigDecimal startBalance,
@@ -143,7 +176,9 @@ public class DashboardService {
         while (!current.isAfter(until)) {
             List<FinancialEvent> dayEvents = byDate.getOrDefault(current, List.of());
             for (FinancialEvent e : dayEvents) {
-                BigDecimal amount = e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO;
+                BigDecimal amount = e.getFactAmount() != null ? e.getFactAmount()
+                        : e.getPlannedAmount() != null ? e.getPlannedAmount()
+                        : BigDecimal.ZERO;
                 runningBalance = e.getType() == EventType.INCOME
                         ? runningBalance.add(amount)
                         : runningBalance.subtract(amount);

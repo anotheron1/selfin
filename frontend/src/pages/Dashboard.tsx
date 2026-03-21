@@ -107,15 +107,27 @@ export default function Dashboard() {
                         style={{ color: balancePositive ? 'var(--color-success)' : 'var(--color-danger)' }}>
                         {fmt(data.currentBalance)}
                     </p>
-                    <div className="flex items-center justify-center gap-2 text-sm"
-                        style={{ color: 'var(--color-text-muted)' }}>
-                        {data.endOfMonthForecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                        <span>Прогноз конец месяца:{' '}
-                            <b style={{ color: data.endOfMonthForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                                {fmt(data.endOfMonthForecast)}
-                            </b>
-                        </span>
-                    </div>
+                    {data.nextSalaryDate ? (
+                        <div className="flex items-center justify-center gap-2 text-sm"
+                            style={{ color: 'var(--color-text-muted)' }}>
+                            {data.nextSalaryForecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                            <span>До след. зп ({new Date(data.nextSalaryDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}):{' '}
+                                <b style={{ color: data.nextSalaryForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                                    {fmt(data.nextSalaryForecast)}
+                                </b>
+                            </span>
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center gap-2 text-sm"
+                            style={{ color: 'var(--color-text-muted)' }}>
+                            {data.endOfMonthForecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                            <span>Прогноз конец месяца:{' '}
+                                <b style={{ color: data.endOfMonthForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                                    {fmt(data.endOfMonthForecast)}
+                                </b>
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 {/* События сегодня */}

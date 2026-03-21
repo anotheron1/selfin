@@ -12,13 +12,20 @@ import java.util.List;
  *                            (при отсутствии факта используется план)
  * @param endOfMonthForecast  прогноз баланса на конец месяца: текущий баланс плюс плановые
  *                            суммы будущих событий
- * @param cashGapAlert        первый день потенциального кассового разрыва в текущем месяце,
- *                            или {@code null} если разрыва нет
+ * @param nextSalaryDate      дата ближайшего запланированного дохода (зп), или {@code null}
+ *                            если нет запланированных доходов в горизонте 45 дней
+ * @param nextSalaryForecast  прогноз баланса на дату ближайшей зп: отражает, сколько
+ *                            останется после всех расходов до следующего поступления;
+ *                            равен {@code endOfMonthForecast} если {@code nextSalaryDate == null}
+ * @param cashGapAlert        первый день потенциального кассового разрыва в горизонте
+ *                            планирования (до следующей зп или конца месяца), или {@code null}
  * @param progressBars        список прогресс-баров расходных категорий: план vs факт
  */
 public record DashboardDto(
         BigDecimal currentBalance,
         BigDecimal endOfMonthForecast,
+        LocalDate nextSalaryDate,
+        BigDecimal nextSalaryForecast,
         CashGapAlert cashGapAlert,
         List<CategoryProgressBar> progressBars) {
 

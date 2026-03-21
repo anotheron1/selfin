@@ -66,6 +66,8 @@ export interface CategoryProgressBar {
 export interface DashboardData {
     currentBalance: number;
     endOfMonthForecast: number;
+    nextSalaryDate: string | null;
+    nextSalaryForecast: number;
     cashGapAlert: CashGapAlert | null;
     progressBars: CategoryProgressBar[];
 }
