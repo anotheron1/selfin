@@ -117,6 +117,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             />
                         </div>
                     )}
+                    {event.eventKind !== 'FACT' && (
                     <div>
                         <label className="text-xs text-muted-foreground block mb-1">
                             Дата
@@ -127,6 +128,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             onChange={e => setDate(e.target.value)}
                         />
                     </div>
+                    )}
                     {event.eventKind !== 'FACT' && (
                         <div>
                             <label className="text-xs text-muted-foreground block mb-1">
