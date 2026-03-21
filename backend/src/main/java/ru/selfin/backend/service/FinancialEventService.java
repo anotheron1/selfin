@@ -4,300 +4,298 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.selfin.backend.dto.FinancialEventCreateDto;
-import ru.selfin.backend.dto.FinancialEventDto;
-import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
-import ru.selfin.backend.dto.WishlistCreateDto;
-import ru.selfin.backend.model.enums.CategoryType;
+import org.springframework.web.server.ResponseStatusException;
+import ru.selfin.backend.dto.*;
 import ru.selfin.backend.exception.ResourceNotFoundException;
-import ru.selfin.backend.model.Category;
-import ru.selfin.backend.model.FinancialEvent;
-import ru.selfin.backend.model.enums.EventStatus;
-import ru.selfin.backend.model.enums.EventType;
-import ru.selfin.backend.model.enums.Priority;
-import ru.selfin.backend.repository.CategoryRepository;
-import ru.selfin.backend.repository.FinancialEventRepository;
-import ru.selfin.backend.repository.TargetFundRepository;
+import ru.selfin.backend.model.*;
+import ru.selfin.backend.model.enums.*;
+import ru.selfin.backend.repository.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
-/**
- * Сервис управления финансовыми событиями (доходы, расходы, переводы в фонды).
- * Реализует план-факт модель: каждое событие хранит плановую сумму ({@code plannedAmount})
- * и фактическую ({@code factAmount}). Статус управляется автоматически по наличию факта.
- *
- * <p>Все операции мутации защищены идемпотентностью через клиентский {@code Idempotency-Key}
- * (для создания) или soft-delete вместо физического удаления.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class FinancialEventService {
 
-        private final FinancialEventRepository eventRepository;
-        private final CategoryRepository categoryRepository;
-        private final TargetFundRepository targetFundRepository;
+    private final FinancialEventRepository eventRepository;
+    private final CategoryRepository categoryRepository;
+    private final TargetFundRepository targetFundRepository;
 
-        @Autowired @Lazy
-        private TargetFundService targetFundService;
+    @Autowired @Lazy
+    private TargetFundService targetFundService;
 
-        /**
-         * Возвращает все не удалённые события за период {@code [start, end]} включительно,
-         * отсортированные по дате по возрастанию.
-         *
-         * @param start начало периода (включительно)
-         * @param end   конец периода (включительно)
-         * @return список DTO событий, пустой список если событий нет
-         */
-        public List<FinancialEventDto> findByPeriod(LocalDate start, LocalDate end) {
-                return eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAsc(start, end)
-                                .stream().map(this::toDto).toList();
-        }
+    public List<FinancialEventDto> findByPeriod(LocalDate start, LocalDate end) {
+        List<FinancialEvent> events =
+                eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAsc(start, end);
 
-        /**
-         * Идемпотентное создание события.
-         * Если событие с данным {@code idempotencyKey} уже существует — возвращает его без
-         * повторного создания в БД. Это защищает от дублирования при сетевых ретраях.
-         *
-         * @param idempotencyKey UUID, сгенерированный клиентом; должен быть уникален на одно намерение
-         * @param dto            данные нового события
-         * @return созданное или найденное по ключу событие
-         * @throws ResourceNotFoundException если указанная категория не найдена или удалена
-         */
-        @Transactional
-        public FinancialEventDto createIdempotent(UUID idempotencyKey, FinancialEventCreateDto dto) {
-                return eventRepository.findByIdempotencyKey(idempotencyKey)
-                                .map(this::toDto)
-                                .orElseGet(() -> {
-                                        Category category;
-                                        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
-                                                category = targetFundService.getOrCreateFundTransferCategory();
-                                        } else {
-                                                category = categoryRepository.findById(dto.categoryId())
-                                                                .filter(c -> !c.isDeleted())
-                                                                .orElseThrow(() -> new ResourceNotFoundException(
-                                                                                "Category", dto.categoryId()));
-                                        }
-                                        FinancialEvent event = FinancialEvent.builder()
-                                                        .idempotencyKey(idempotencyKey)
-                                                        .date(dto.date())
-                                                        .category(category)
-                                                        .type(dto.type())
-                                                        .plannedAmount(dto.plannedAmount())
-                                                        .factAmount(dto.factAmount())
-                                                        .priority(dto.priority() != null ? dto.priority() : category.getPriority())
-                                                        .description(dto.description())
-                                                        .rawInput(dto.rawInput())
-                                                        .targetFundId(dto.targetFundId())
-                                                        .build();
-                                        return toDto(eventRepository.save(event));
-                                });
-        }
+        // Aggregate fact counts/amounts for PLAN enrichment
+        List<UUID> planIds = events.stream()
+                .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .map(FinancialEvent::getId)
+                .toList();
 
-        /**
-         * Полное обновление события: все поля заменяются значениями из {@code dto}.
-         * Статус пересчитывается автоматически: наличие {@code factAmount} → {@code EXECUTED},
-         * отсутствие → {@code PLANNED}. Изменение факта пишется в аудит-лог.
-         *
-         * @param id  идентификатор существующего события
-         * @param dto новые данные для всех полей события
-         * @return обновлённое событие
-         * @throws ResourceNotFoundException если событие или категория не найдены / удалены
-         */
-        @Transactional
-        public FinancialEventDto update(UUID id, FinancialEventCreateDto dto) {
-                FinancialEvent event = eventRepository.findById(id)
-                                .filter(e -> !e.isDeleted())
-                                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
-                Category category = categoryRepository.findById(dto.categoryId())
+        Map<UUID, FactAggregateProjection> aggByPlan = planIds.isEmpty()
+                ? Collections.emptyMap()
+                : eventRepository.findFactAggregatesByPlanIds(planIds).stream()
+                        .collect(Collectors.toMap(FactAggregateProjection::getParentEventId, p -> p));
+
+        // Load parent plans for FACT enrichment (parentPlanDescription)
+        Set<UUID> parentIds = events.stream()
+                .filter(e -> e.getEventKind() == EventKind.FACT && e.getParentEventId() != null)
+                .map(FinancialEvent::getParentEventId)
+                .collect(Collectors.toSet());
+
+        Map<UUID, FinancialEvent> parentById = parentIds.isEmpty()
+                ? Collections.emptyMap()
+                : eventRepository.findAllById(parentIds).stream()
+                        .collect(Collectors.toMap(FinancialEvent::getId, e -> e));
+
+        return events.stream()
+                .map(e -> toDto(e, aggByPlan.get(e.getId()), parentById.get(e.getParentEventId())))
+                .toList();
+    }
+
+    @Transactional
+    public FinancialEventDto createIdempotent(UUID idempotencyKey, FinancialEventCreateDto dto) {
+        return eventRepository.findByIdempotencyKey(idempotencyKey)
+                .map(e -> toDto(e, null, null))
+                .orElseGet(() -> {
+                    Category category;
+                    if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
+                        category = targetFundService.getOrCreateFundTransferCategory();
+                    } else {
+                        category = categoryRepository.findById(dto.categoryId())
                                 .filter(c -> !c.isDeleted())
-                                .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+                                .orElseThrow(() -> new ResourceNotFoundException(
+                                        "Category", dto.categoryId()));
+                    }
+                    FinancialEvent event = FinancialEvent.builder()
+                            .idempotencyKey(idempotencyKey)
+                            .eventKind(EventKind.PLAN)
+                            .date(dto.date())
+                            .category(category)
+                            .type(dto.type())
+                            .plannedAmount(dto.plannedAmount())
+                            .priority(dto.priority() != null ? dto.priority() : category.getPriority())
+                            .description(dto.description())
+                            .rawInput(dto.rawInput())
+                            .targetFundId(dto.targetFundId())
+                            .build();
+                    return toDto(eventRepository.save(event), null, null);
+                });
+    }
 
-                // Сохраняем старый факт ДО перезаписи — для корректного аудит-лога
-                BigDecimal oldFact = event.getFactAmount();
+    @Transactional
+    public FinancialEventDto update(UUID id, FinancialEventCreateDto dto) {
+        FinancialEvent event = eventRepository.findById(id)
+                .filter(e -> !e.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
 
-                event.setDate(dto.date());
-                event.setCategory(category);
-                event.setType(dto.type());
-                event.setPlannedAmount(dto.plannedAmount());
-                event.setFactAmount(dto.factAmount());
-                event.setPriority(dto.priority() != null ? dto.priority() : category.getPriority());
-                event.setDescription(dto.description());
-                event.setRawInput(dto.rawInput());
-                event.setTargetFundId(dto.targetFundId());
-                // Авто-статус: если передан factAmount → EXECUTED, иначе оставляем PLANNED
-                if (dto.factAmount() != null && event.getStatus() == EventStatus.PLANNED) {
-                        event.setStatus(EventStatus.EXECUTED);
-                } else if (dto.factAmount() == null && event.getStatus() == EventStatus.EXECUTED) {
-                        event.setStatus(EventStatus.PLANNED);
+        if (event.getEventKind() == EventKind.FACT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Cannot update a FACT record via PUT — use the fact-specific endpoint");
+        }
+
+        Category category = categoryRepository.findById(dto.categoryId())
+                .filter(c -> !c.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+
+        // Capture old fact for audit log (kept for backward compat on old executed events)
+        BigDecimal oldFact = event.getFactAmount();
+
+        event.setDate(dto.date());
+        event.setCategory(category);
+        event.setType(dto.type());
+        event.setPlannedAmount(dto.plannedAmount());
+        event.setPriority(dto.priority() != null ? dto.priority() : category.getPriority());
+        event.setDescription(dto.description());
+        event.setRawInput(dto.rawInput());
+        event.setTargetFundId(dto.targetFundId());
+
+        if (oldFact != null) {
+            log.info("plan_update event_id={} category={} planned={} (fact retained on FACT record)",
+                    id, category.getName(), dto.plannedAmount());
+        }
+
+        return toDto(eventRepository.save(event), null, null);
+    }
+
+    @Transactional
+    public FinancialEventDto createLinkedFact(UUID planId, FactCreateDto dto) {
+        FinancialEvent plan = eventRepository.findById(planId)
+                .filter(e -> !e.isDeleted() && e.getEventKind() == EventKind.PLAN)
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent (PLAN)", planId));
+
+        FinancialEvent fact = FinancialEvent.builder()
+                .idempotencyKey(UUID.randomUUID())
+                .eventKind(EventKind.FACT)
+                .parentEventId(planId)
+                .date(dto.date())
+                .category(plan.getCategory())
+                .type(plan.getType())
+                .factAmount(dto.factAmount())
+                .priority(Priority.MEDIUM)
+                .status(EventStatus.EXECUTED)
+                .description(dto.description())
+                .build();
+
+        FinancialEvent savedFact = eventRepository.save(fact);
+
+        if (plan.getStatus() == EventStatus.PLANNED) {
+            plan.setStatus(EventStatus.EXECUTED);
+            eventRepository.save(plan);
+        }
+
+        return toDto(savedFact, null, plan);
+    }
+
+    @Transactional
+    public FinancialEventDto updateFact(UUID id, FinancialEventUpdateFactDto dto) {
+        FinancialEvent event = eventRepository.findById(id)
+                .filter(e -> !e.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+
+        BigDecimal oldFact = event.getFactAmount();
+        event.setFactAmount(dto.factAmount());
+        if (dto.description() != null) event.setDescription(dto.description());
+
+        if (dto.factAmount() != null && event.getStatus() == EventStatus.PLANNED)
+            event.setStatus(EventStatus.EXECUTED);
+        else if (dto.factAmount() == null && event.getStatus() == EventStatus.EXECUTED)
+            event.setStatus(EventStatus.PLANNED);
+
+        if (event.getType() == EventType.FUND_TRANSFER
+                && event.getTargetFundId() != null
+                && dto.factAmount() != null
+                && oldFact == null
+                && event.getIdempotencyKey() != null) {
+            targetFundService.doTransferForEvent(
+                    event.getTargetFundId(), dto.factAmount(), event.getIdempotencyKey());
+        }
+
+        BigDecimal delta = (dto.factAmount() != null ? dto.factAmount() : BigDecimal.ZERO)
+                .subtract(oldFact != null ? oldFact : BigDecimal.ZERO);
+        log.info("fact_patch event_id={} category={} fact_old={} fact_new={} delta={}",
+                id, event.getCategory().getName(), oldFact, dto.factAmount(), delta);
+
+        return toDto(eventRepository.save(event), null, null);
+    }
+
+    @Transactional
+    public FinancialEventDto cyclePriority(UUID id) {
+        FinancialEvent event = eventRepository.findById(id)
+                .filter(e -> !e.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+        event.setPriority(nextPriority(event.getPriority()));
+        return toDto(eventRepository.save(event), null, null);
+    }
+
+    private Priority nextPriority(Priority current) {
+        return switch (current) {
+            case HIGH -> Priority.MEDIUM;
+            case MEDIUM -> Priority.LOW;
+            case LOW -> Priority.HIGH;
+        };
+    }
+
+    public List<FinancialEventDto> findWishlist() {
+        return eventRepository.findWishlistItems(Priority.LOW, EventStatus.PLANNED, LocalDate.now())
+                .stream().map(e -> toDto(e, null, null)).toList();
+    }
+
+    @Transactional
+    public void softDelete(UUID id) {
+        FinancialEvent event = eventRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+
+        if (event.getEventKind() == EventKind.PLAN) {
+            List<FactAggregateProjection> aggs =
+                    eventRepository.findFactAggregatesByPlanIds(List.of(id));
+            if (!aggs.isEmpty() && aggs.get(0).getCount() > 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Cannot delete PLAN with linked FACTs — delete FACTs first");
+            }
+        }
+
+        event.setDeleted(true);
+        eventRepository.save(event);
+
+        // If deleting a FACT, revert parent PLAN to PLANNED if it has no other FACTs
+        if (event.getEventKind() == EventKind.FACT && event.getParentEventId() != null) {
+            eventRepository.findById(event.getParentEventId()).ifPresent(plan -> {
+                List<FactAggregateProjection> aggs =
+                        eventRepository.findFactAggregatesByPlanIds(List.of(plan.getId()));
+                if (aggs.isEmpty() || aggs.get(0).getCount() == 0) {
+                    plan.setStatus(EventStatus.PLANNED);
+                    eventRepository.save(plan);
                 }
+            });
+        }
+    }
 
-                // Аудит-лог изменения фактической суммы
-                if (dto.factAmount() != null) {
-                        BigDecimal delta = dto.factAmount()
-                                        .subtract(oldFact != null ? oldFact : BigDecimal.ZERO);
-                        log.info("fact_update event_id={} category={} planned={} fact_old={} fact_new={} delta={}",
-                                        id, category.getName(),
-                                        dto.plannedAmount(), oldFact, dto.factAmount(), delta);
-                }
-                return toDto(eventRepository.save(event));
+    /** Convenience overload used by callers that don't need enrichment. */
+    public FinancialEventDto toDto(FinancialEvent e) {
+        return toDto(e, null, null);
+    }
+
+    public FinancialEventDto toDto(FinancialEvent e,
+                                   FactAggregateProjection agg,
+                                   FinancialEvent parentPlan) {
+        String fundName = null;
+        if (e.getTargetFundId() != null) {
+            fundName = targetFundRepository.findById(e.getTargetFundId())
+                    .map(f -> f.getName()).orElse(null);
         }
 
-        /**
-         * Частичное обновление: только фактическая сумма и комментарий.
-         * Используется {@code PATCH /events/{id}/fact} из UI-экрана "Бюджет".
-         * Не требует пересылки всего тела события — меняет только то, что вводит пользователь.
-         * Статус пересчитывается так же, как в {@link #update}.
-         *
-         * @param id  идентификатор существующего события
-         * @param dto фактическая сумма (может быть {@code null} для снятия отметки) и комментарий
-         * @return обновлённое событие
-         * @throws ResourceNotFoundException если событие не найдено или удалено
-         */
-        @Transactional
-        public FinancialEventDto updateFact(UUID id, FinancialEventUpdateFactDto dto) {
-                FinancialEvent event = eventRepository.findById(id)
-                                .filter(e -> !e.isDeleted())
-                                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+        int linkedFactsCount = agg != null ? agg.getCount().intValue() : 0;
+        BigDecimal linkedFactsAmount = agg != null ? agg.getTotalAmount() : null;
 
-                BigDecimal oldFact = event.getFactAmount();
-                event.setFactAmount(dto.factAmount());
-                if (dto.description() != null) {
-                        event.setDescription(dto.description());
-                }
-
-                // Авто-статус по наличию фактической суммы
-                if (dto.factAmount() != null && event.getStatus() == EventStatus.PLANNED) {
-                        event.setStatus(EventStatus.EXECUTED);
-                } else if (dto.factAmount() == null && event.getStatus() == EventStatus.EXECUTED) {
-                        event.setStatus(EventStatus.PLANNED);
-                }
-
-                // Если это FUND_TRANSFER и исполняется впервые — выполняем реальный перевод в фонд
-                if (event.getType() == EventType.FUND_TRANSFER
-                                && event.getTargetFundId() != null
-                                && dto.factAmount() != null
-                                && oldFact == null
-                                && event.getIdempotencyKey() != null) {
-                        targetFundService.doTransferForEvent(
-                                        event.getTargetFundId(), dto.factAmount(), event.getIdempotencyKey());
-                }
-
-                // Аудит-лог
-                BigDecimal delta = (dto.factAmount() != null ? dto.factAmount() : BigDecimal.ZERO)
-                                .subtract(oldFact != null ? oldFact : BigDecimal.ZERO);
-                log.info("fact_patch event_id={} category={} fact_old={} fact_new={} delta={}",
-                                id, event.getCategory().getName(), oldFact, dto.factAmount(), delta);
-
-                return toDto(eventRepository.save(event));
+        String parentPlanDescription = null;
+        if (parentPlan != null) {
+            parentPlanDescription = parentPlan.getDescription() != null
+                    ? parentPlan.getDescription()
+                    : parentPlan.getCategory().getName();
         }
 
-        /**
-         * Циклически меняет приоритет события: HIGH → MEDIUM → LOW → HIGH.
-         *
-         * @param id идентификатор события
-         * @return обновлённое событие
-         * @throws ResourceNotFoundException если событие не найдено или удалено
-         */
-        @Transactional
-        public FinancialEventDto cyclePriority(UUID id) {
-                FinancialEvent event = eventRepository.findById(id)
-                                .filter(e -> !e.isDeleted())
-                                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
-                event.setPriority(nextPriority(event.getPriority()));
-                return toDto(eventRepository.save(event));
-        }
+        return new FinancialEventDto(
+                e.getId(), e.getDate(),
+                e.getCategory().getId(), e.getCategory().getName(),
+                e.getType(), e.getPlannedAmount(), e.getFactAmount(),
+                e.getStatus(), e.getPriority(), e.getDescription(),
+                e.getRawInput(), e.getCreatedAt(),
+                e.getTargetFundId(), fundName, e.getUrl(),
+                e.getEventKind(), e.getParentEventId(),
+                linkedFactsCount, linkedFactsAmount, parentPlanDescription);
+    }
 
-        private Priority nextPriority(Priority current) {
-                return switch (current) {
-                        case HIGH -> Priority.MEDIUM;
-                        case MEDIUM -> Priority.LOW;
-                        case LOW -> Priority.HIGH;
-                };
-        }
+    @Transactional
+    public FinancialEventDto createWishlistItem(WishlistCreateDto dto) {
+        Category category = categoryRepository.findByNameAndDeletedFalse("Хотелки")
+                .orElseGet(() -> categoryRepository.save(
+                        Category.builder()
+                                .name("Хотелки")
+                                .type(CategoryType.EXPENSE)
+                                .build()));
 
-        /**
-         * Возвращает нереализованные хотелки: события с приоритетом LOW,
-         * статусом PLANNED и датой раньше сегодня.
-         *
-         * @return список DTO, отсортированный по дате по возрастанию
-         */
-        public List<FinancialEventDto> findWishlist() {
-                return eventRepository.findWishlistItems(Priority.LOW, EventStatus.PLANNED, LocalDate.now())
-                                .stream().map(this::toDto).toList();
-        }
+        FinancialEvent event = FinancialEvent.builder()
+                .eventKind(EventKind.PLAN)
+                .category(category)
+                .type(EventType.EXPENSE)
+                .priority(Priority.LOW)
+                .status(EventStatus.PLANNED)
+                .description(dto.description())
+                .plannedAmount(dto.plannedAmount())
+                .url(dto.url())
+                .build();
 
-        /**
-         * Помечает событие как удалённое (soft delete).
-         * Событие не удаляется физически и не возвращается в запросах по периоду,
-         * но сохраняется в БД для аудита.
-         *
-         * @param id идентификатор события
-         * @throws ResourceNotFoundException если событие не найдено
-         */
-        @Transactional
-        public void softDelete(UUID id) {
-                FinancialEvent event = eventRepository.findById(id)
-                                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
-                event.setDeleted(true);
-                eventRepository.save(event);
-        }
-
-        /**
-         * Конвертирует entity в DTO для передачи клиенту.
-         * Включает денормализованные поля категории ({@code categoryId}, {@code categoryName})
-         * для удобства рендеринга без дополнительных запросов.
-         *
-         * @param e entity финансового события
-         * @return DTO с полными данными события
-         */
-        public FinancialEventDto toDto(FinancialEvent e) {
-                String fundName = null;
-                if (e.getTargetFundId() != null) {
-                        fundName = targetFundRepository.findById(e.getTargetFundId())
-                                        .map(f -> f.getName())
-                                        .orElse(null);
-                }
-                return new FinancialEventDto(
-                                e.getId(), e.getDate(),
-                                e.getCategory().getId(), e.getCategory().getName(),
-                                e.getType(), e.getPlannedAmount(), e.getFactAmount(),
-                                e.getStatus(), e.getPriority(), e.getDescription(),
-                                e.getRawInput(), e.getCreatedAt(),
-                                e.getTargetFundId(), fundName, e.getUrl());
-        }
-
-        /**
-         * Создаёт новую хотелку вручную.
-         * Находит или создаёт категорию "Хотелки" (тип EXPENSE),
-         * затем сохраняет событие с LOW приоритетом и вчерашней датой,
-         * чтобы оно сразу попало в выдачу {@code GET /events/wishlist}.
-         */
-        @Transactional
-        public FinancialEventDto createWishlistItem(WishlistCreateDto dto) {
-                Category category = categoryRepository.findByNameAndDeletedFalse("Хотелки")
-                                .orElseGet(() -> categoryRepository.save(
-                                                Category.builder()
-                                                                .name("Хотелки")
-                                                                .type(CategoryType.EXPENSE)
-                                                                .build()));
-
-                FinancialEvent event = FinancialEvent.builder()
-                                .category(category)
-                                .type(EventType.EXPENSE)
-                                .priority(Priority.LOW)
-                                .status(EventStatus.PLANNED)
-                                .description(dto.description())
-                                .plannedAmount(dto.plannedAmount())
-                                .url(dto.url())
-                                .build();
-
-                return toDto(eventRepository.save(event));
-        }
+        return toDto(eventRepository.save(event), null, null);
+    }
 }
