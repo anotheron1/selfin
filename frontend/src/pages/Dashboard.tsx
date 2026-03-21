@@ -41,6 +41,33 @@ function getBarState(planned: number, fact: number): BarState {
 const fmtDay = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 
+/**
+ * Строка прогноза в зарплатном горизонте: иконка тренда + метка + сумма.
+ * @param label  текст метки («До зп (28 мар)» / «После зп (28 мар)»)
+ * @param value  прогнозная сумма (null — не отображается)
+ * @param dimmed уменьшенная яркость для «вспомогательных» строк (стартовый капитал)
+ */
+function SalaryRow({ label, value, dimmed = false }: {
+    label: string;
+    value: number | null | undefined;
+    dimmed?: boolean;
+}) {
+    if (value == null) return null;
+    const positive = value >= 0;
+    return (
+        <div className="flex items-center justify-center gap-2 text-sm"
+            style={{ color: dimmed ? 'var(--color-text-muted)' : 'var(--color-text-muted)', opacity: dimmed ? 0.65 : 1 }}>
+            {positive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            <span>
+                {label}:{' '}
+                <b style={{ color: positive ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                    {fmt(value)}
+                </b>
+            </span>
+        </div>
+    );
+}
+
 export default function Dashboard() {
     const _today = new Date();
     const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
@@ -107,15 +134,27 @@ export default function Dashboard() {
                         style={{ color: balancePositive ? 'var(--color-success)' : 'var(--color-danger)' }}>
                         {fmt(data.currentBalance)}
                     </p>
+                    {/* Зарплатные горизонты: до/после/до-второй или fallback конец месяца */}
                     {data.nextSalaryDate ? (
-                        <div className="flex items-center justify-center gap-2 text-sm"
-                            style={{ color: 'var(--color-text-muted)' }}>
-                            {data.nextSalaryForecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                            <span>До след. зп ({new Date(data.nextSalaryDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}):{' '}
-                                <b style={{ color: data.nextSalaryForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                                    {fmt(data.nextSalaryForecast)}
-                                </b>
-                            </span>
+                        <div className="space-y-1 pt-1">
+                            {/* Строка 1: низшая точка перед первой зп */}
+                            <SalaryRow
+                                label={`До зп (${fmtDay(data.nextSalaryDate)})`}
+                                value={data.balanceBeforeNextSalary}
+                            />
+                            {/* Строка 2: стартовый капитал после первой зп */}
+                            <SalaryRow
+                                label={`После зп (${fmtDay(data.nextSalaryDate)})`}
+                                value={data.balanceAfterNextSalary}
+                                dimmed
+                            />
+                            {/* Строка 3: низшая точка перед второй зп (если есть) */}
+                            {data.secondSalaryDate && (
+                                <SalaryRow
+                                    label={`До зп (${fmtDay(data.secondSalaryDate)})`}
+                                    value={data.balanceBeforeSecondSalary}
+                                />
+                            )}
                         </div>
                     ) : (
                         <div className="flex items-center justify-center gap-2 text-sm"

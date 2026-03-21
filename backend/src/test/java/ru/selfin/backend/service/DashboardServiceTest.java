@@ -26,6 +26,15 @@ import static org.mockito.Mockito.*;
 /**
  * Unit-тесты ключевой финансовой математики DashboardService.
  * Без подключения к БД (чистый Mockito + список событий).
+ *
+ * <p>Сценарии тестирования:
+ * <ul>
+ *   <li>Текущий баланс (с чекпоинтом и без)</li>
+ *   <li>Прогноз конца месяца</li>
+ *   <li>Обнаружение кассового разрыва</li>
+ *   <li>Двойной зарплатный горизонт (balanceBeforeNextSalary / balanceAfterNextSalary / balanceBeforeSecondSalary)</li>
+ *   <li>Прогресс-бары категорий</li>
+ * </ul>
  */
 class DashboardServiceTest {
 
@@ -33,13 +42,14 @@ class DashboardServiceTest {
     private BalanceCheckpointRepository checkpointRepository;
     private DashboardService dashboardService;
 
+    /** Тестовая «сегодня» — 15 марта 2026, середина месяца. */
     private static final LocalDate TODAY = LocalDate.of(2026, 3, 15);
 
     @BeforeEach
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
         checkpointRepository = mock(BalanceCheckpointRepository.class);
-        // По умолчанию чекпоинтов нет — поведение как раньше (баланс от нуля)
+        // По умолчанию чекпоинтов нет — баланс от нуля
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
         dashboardService = new DashboardService(eventRepository, checkpointRepository);
     }
@@ -74,6 +84,21 @@ class DashboardServiceTest {
                 .build();
     }
 
+    /**
+     * Настраивает mock репозитория для стандартного сценария двух зарплат:
+     * сегодня 15.03, месячные события заданы, горизонтные события заданы.
+     */
+    private void stubTwoSalaryScenario(List<FinancialEvent> monthEvents, List<FinancialEvent> horizonEvents) {
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+        LocalDate horizonEnd = TODAY.plusDays(DashboardService.FORECAST_HORIZON_DAYS);
+
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(monthEvents);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(TODAY, horizonEnd))
+                .thenReturn(horizonEvents);
+    }
+
     // ─── currentBalance (без чекпоинта) ───────────────────────────────────────
 
     @Test
@@ -102,8 +127,6 @@ class DashboardServiceTest {
         LocalDate monthStart = TODAY.withDayOfMonth(1);
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
 
-        // Оба события — прошедшие PLANNED (factAmount == null):
-        // не входят в currentBalance (не исполнены) и не входят в прогноз (прошлое, уже не случится)
         List<FinancialEvent> events = List.of(
                 event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(50_000), null),
                 event(EventType.EXPENSE, LocalDate.of(2026, 3, 5), bd(10_000), null));
@@ -123,23 +146,17 @@ class DashboardServiceTest {
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
 
         List<FinancialEvent> events = List.of(
-                // Прошлое, исполнено — в currentBalance
                 event(EventType.INCOME, LocalDate.of(2026, 3, 5), bd(100_000), bd(100_000)),
-                // Прошлое, НЕ исполнено — ни в балансе, ни в прогнозе
                 event(EventType.EXPENSE, LocalDate.of(2026, 3, 10), bd(5_000), null),
-                // Сегодня (15), не исполнено — только в прогнозе
                 event(EventType.EXPENSE, TODAY, bd(3_000), null),
-                // Будущее, не исполнено — только в прогнозе
                 event(EventType.EXPENSE, LocalDate.of(2026, 3, 20), bd(20_000), null));
         when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
                 .thenReturn(events);
 
         DashboardDto dto = dashboardService.getDashboard(TODAY);
 
-        // currentBalance = 100_000 (только исполненный факт)
         assertThat(dto.currentBalance()).isEqualByComparingTo(bd(100_000));
         // forecastDelta = -3_000 (сегодня) - 20_000 (будущее) = -23_000
-        // endOfMonthForecast = 100_000 - 23_000 = 77_000
         assertThat(dto.endOfMonthForecast()).isEqualByComparingTo(bd(77_000));
     }
 
@@ -168,8 +185,6 @@ class DashboardServiceTest {
         when(checkpointRepository.findTopByOrderByDateDesc())
                 .thenReturn(Optional.of(checkpoint(cpDate, 50_000)));
 
-        // Событие ДО чекпоинта (5 марта) — не должно входить в расчёт
-        // Событие ПОСЛЕ (12 марта) — должно входить
         List<FinancialEvent> events = List.of(
                 event(EventType.EXPENSE, LocalDate.of(2026, 3, 5), bd(10_000), bd(10_000)),
                 event(EventType.EXPENSE, LocalDate.of(2026, 3, 12), bd(5_000), bd(5_000)));
@@ -185,19 +200,17 @@ class DashboardServiceTest {
     @Test
     @DisplayName("Чекпоинт до текущего месяца: мостик прибавляется к стартовому балансу")
     void currentBalance_withCheckpointBeforeCurrentMonth() {
-        LocalDate monthStart = TODAY.withDayOfMonth(1); // 2026-03-01
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
         LocalDate cpDate = LocalDate.of(2026, 2, 20);
 
         when(checkpointRepository.findTopByOrderByDateDesc())
                 .thenReturn(Optional.of(checkpoint(cpDate, 40_000)));
 
-        // Мостик: события с 20.02 по 28.02
         when(eventRepository.findAllByDeletedFalseAndDateBetween(cpDate, monthStart.minusDays(1)))
                 .thenReturn(List.of(
                         event(EventType.INCOME, LocalDate.of(2026, 2, 25), bd(20_000), bd(20_000))));
 
-        // Март: расход 10_000
         when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
                 .thenReturn(List.of(
                         event(EventType.EXPENSE, LocalDate.of(2026, 3, 5), bd(10_000), bd(10_000))));
@@ -213,10 +226,9 @@ class DashboardServiceTest {
     void currentBalance_onlyCheckpoint_noEvents() {
         LocalDate monthStart = TODAY.withDayOfMonth(1);
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
-        LocalDate cpDate = LocalDate.of(2026, 3, 1);
 
         when(checkpointRepository.findTopByOrderByDateDesc())
-                .thenReturn(Optional.of(checkpoint(cpDate, 99_000)));
+                .thenReturn(Optional.of(checkpoint(LocalDate.of(2026, 3, 1), 99_000)));
         when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
                 .thenReturn(List.of());
 
@@ -286,6 +298,168 @@ class DashboardServiceTest {
         assertThat(dto.cashGapAlert()).isNull();
     }
 
+    // ─── Двойной зарплатный горизонт ──────────────────────────────────────────
+
+    /**
+     * Базовый сценарий двух зарплат.
+     * Сегодня 15.03, текущий баланс 20 000 ₽.
+     * Расходы 16-27 марта: 15 000 ₽.
+     * Зп 28 марта: 50 000 ₽. Расходы 28 марта: 3 000 ₽.
+     * Расходы 29 марта - 14 апреля: 40 000 ₽.
+     * Вторая зп 15 апреля: 50 000 ₽.
+     *
+     * Ожидаем:
+     *   balanceBeforeNextSalary = 20_000 - 15_000 = 5_000
+     *   balanceAfterNextSalary  = 5_000 + 50_000 - 3_000 = 52_000
+     *   balanceBeforeSecondSalary = 52_000 - 40_000 = 12_000
+     */
+    @Test
+    @DisplayName("Два зарплатных горизонта: balanceBeforeNextSalary / balanceAfterNextSalary / balanceBeforeSecondSalary")
+    void twoSalaryHorizons_basicScenario() {
+        LocalDate mar28 = LocalDate.of(2026, 3, 28);
+        LocalDate apr15 = LocalDate.of(2026, 4, 15);
+
+        // Выполненные события — в месячный блок (март)
+        List<FinancialEvent> monthEvents = List.of(
+                event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(20_000), bd(20_000)) // стартовый доход
+        );
+        // Горизонтные события — всё будущее
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.EXPENSE, LocalDate.of(2026, 3, 20), bd(15_000), null),  // расход до зп
+                event(EventType.INCOME, mar28, bd(50_000), null),                        // первая зп
+                event(EventType.EXPENSE, mar28, bd(3_000), null),                        // расход в день зп
+                event(EventType.EXPENSE, LocalDate.of(2026, 4, 10), bd(40_000), null),  // расход между зп
+                event(EventType.INCOME, apr15, bd(50_000), null)                         // вторая зп
+        );
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        assertThat(dto.nextSalaryDate()).isEqualTo(mar28);
+        assertThat(dto.secondSalaryDate()).isEqualTo(apr15);
+        assertThat(dto.balanceBeforeNextSalary()).isEqualByComparingTo(bd(5_000));
+        assertThat(dto.balanceAfterNextSalary()).isEqualByComparingTo(bd(52_000));
+        assertThat(dto.balanceBeforeSecondSalary()).isEqualByComparingTo(bd(12_000));
+    }
+
+    @Test
+    @DisplayName("balanceBeforeNextSalary: событие в точный день зп не включается в 'до'")
+    void balanceBeforeNextSalary_excludesSalaryDayEvents() {
+        LocalDate mar28 = LocalDate.of(2026, 3, 28);
+
+        // Текущий баланс = 0, только событие точно в день зп
+        List<FinancialEvent> monthEvents = List.of();
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.INCOME, mar28, bd(50_000), null)
+        );
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        // До зп (27 марта) = 0, нет расходов между 15 и 27 марта
+        assertThat(dto.balanceBeforeNextSalary()).isEqualByComparingTo(BigDecimal.ZERO);
+        // После зп = 0 + 50_000
+        assertThat(dto.balanceAfterNextSalary()).isEqualByComparingTo(bd(50_000));
+    }
+
+    @Test
+    @DisplayName("balanceAfterNextSalary: включает все события в день зп — и доход, и расходы")
+    void balanceAfterNextSalary_includesAllSameDayEvents() {
+        LocalDate mar28 = LocalDate.of(2026, 3, 28);
+
+        List<FinancialEvent> monthEvents = List.of();
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.INCOME,  mar28, bd(50_000), null),
+                event(EventType.EXPENSE, mar28, bd(10_000), null),  // аренда в день зп
+                event(EventType.EXPENSE, mar28, bd(5_000),  null)   // ещё расход
+        );
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        // После = 0 + 50_000 - 10_000 - 5_000 = 35_000
+        assertThat(dto.balanceAfterNextSalary()).isEqualByComparingTo(bd(35_000));
+    }
+
+    @Test
+    @DisplayName("Если только одна зп в горизонте: secondSalaryDate и balanceBeforeSecondSalary — null")
+    void twoSalaryHorizons_onlyOneSalary_secondIsNull() {
+        LocalDate mar28 = LocalDate.of(2026, 3, 28);
+
+        List<FinancialEvent> monthEvents = List.of();
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.INCOME, mar28, bd(50_000), null)
+        );
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        assertThat(dto.nextSalaryDate()).isEqualTo(mar28);
+        assertThat(dto.secondSalaryDate()).isNull();
+        assertThat(dto.balanceBeforeSecondSalary()).isNull();
+    }
+
+    @Test
+    @DisplayName("Если нет зп в горизонте: все зп-поля null, используется endOfMonthForecast")
+    void twoSalaryHorizons_noSalary_allNull() {
+        List<FinancialEvent> monthEvents = List.of();
+        List<FinancialEvent> horizonEvents = List.of();
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        assertThat(dto.nextSalaryDate()).isNull();
+        assertThat(dto.balanceBeforeNextSalary()).isNull();
+        assertThat(dto.balanceAfterNextSalary()).isNull();
+        assertThat(dto.secondSalaryDate()).isNull();
+        assertThat(dto.balanceBeforeSecondSalary()).isNull();
+    }
+
+    @Test
+    @DisplayName("Кассовый разрыв обнаруживается между первой и второй зп (расширенный горизонт)")
+    void cashGap_detectedBetweenTwoSalaries() {
+        LocalDate mar28 = LocalDate.of(2026, 3, 28);
+        LocalDate apr15 = LocalDate.of(2026, 4, 15);
+
+        // Баланс сейчас = 0, зп 28 марта 5000, апрельские расходы превысят зп
+        List<FinancialEvent> monthEvents = List.of();
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.INCOME, mar28, bd(5_000), null),
+                event(EventType.EXPENSE, LocalDate.of(2026, 4, 5), bd(8_000), null), // уходим в минус
+                event(EventType.INCOME, apr15, bd(50_000), null)
+        );
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        // Кассовый разрыв 5.04: 0 + 5_000 (зп 28.03) - 8_000 (05.04) = -3_000
+        assertThat(dto.cashGapAlert()).isNotNull();
+        assertThat(dto.cashGapAlert().gapDate()).isEqualTo(LocalDate.of(2026, 4, 5));
+        assertThat(dto.cashGapAlert().gapAmount()).isNegative();
+    }
+
+    @Test
+    @DisplayName("Сегодняшние неисполненные расходы входят в balanceBeforeNextSalary")
+    void balanceBeforeNextSalary_includesTodayUnexecutedExpenses() {
+        LocalDate mar28 = LocalDate.of(2026, 3, 28);
+
+        // Баланс сейчас: 10_000 (исполненный доход в начале месяца)
+        List<FinancialEvent> monthEvents = List.of(
+                event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(10_000), bd(10_000))
+        );
+        // Неисполненный расход сегодня — должен войти в balanceBeforeNextSalary
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.EXPENSE, TODAY, bd(2_000), null),  // сегодня, не исполнено
+                event(EventType.INCOME, mar28, bd(50_000), null)
+        );
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        // balanceBeforeNextSalary = 10_000 - 2_000 = 8_000
+        assertThat(dto.balanceBeforeNextSalary()).isEqualByComparingTo(bd(8_000));
+    }
+
     // ─── progressBars ──────────────────────────────────────────────────────────
 
     @Test
@@ -336,7 +510,6 @@ class DashboardServiceTest {
         LocalDate monthStart = TODAY.withDayOfMonth(1);
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
 
-        // Три расходных категории — передаём в порядке, обратном алфавитному
         List<FinancialEvent> events = List.of(
                 eventWithCategory(EventType.EXPENSE, "Еда",     bd(10_000), bd(8_000)),
                 eventWithCategory(EventType.EXPENSE, "Аренда",  bd(30_000), bd(30_000)),

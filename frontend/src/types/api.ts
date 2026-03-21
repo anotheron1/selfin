@@ -65,9 +65,18 @@ export interface CategoryProgressBar {
 
 export interface DashboardData {
     currentBalance: number;
+    /** Прогноз баланса на конец месяца; используется если нет зп-событий. */
     endOfMonthForecast: number;
+    /** Дата ближайшей запланированной зп; null если в горизонте 70 дней нет дохода. */
     nextSalaryDate: string | null;
-    nextSalaryForecast: number;
+    /** Баланс в последний день перед nextSalaryDate («низшая точка» текущего периода). */
+    balanceBeforeNextSalary: number | null;
+    /** Баланс в конце дня nextSalaryDate, включая само поступление зп. */
+    balanceAfterNextSalary: number | null;
+    /** Дата второй ближайшей запланированной зп; null если только одна зп в горизонте. */
+    secondSalaryDate: string | null;
+    /** Баланс в последний день перед secondSalaryDate («низшая точка» второго периода). */
+    balanceBeforeSecondSalary: number | null;
     cashGapAlert: CashGapAlert | null;
     progressBars: CategoryProgressBar[];
 }
