@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.DashboardDto;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -122,10 +123,14 @@ public class DashboardService {
         // --- 4. Прогноз конец месяца = факт + плановые суммы ещё не исполненных событий (сегодня и далее) ---
         BigDecimal forecastDelta = monthEvents.stream()
                 .filter(e -> !e.getDate().isBefore(asOfDate))
-                .filter(e -> e.getFactAmount() == null)
+                .filter(e -> e.getStatus() != EventStatus.EXECUTED)
                 .map(this::plannedSignedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal endOfMonthForecast = currentBalance.add(forecastDelta);
+
+        // Subtract overdue mandatory plans not yet realized (HIGH priority, EXPENSE, past date, still PLANNED)
+        BigDecimal overdueMandate = eventRepository.sumOverdueMandatoryExpenses(monthStart, asOfDate);
+        endOfMonthForecast = endOfMonthForecast.subtract(overdueMandate);
 
         // --- 5. Два зарплатных горизонта (кросс-месячный, до 70 дней) ---
         LocalDate horizonEnd = asOfDate.plusDays(FORECAST_HORIZON_DAYS);

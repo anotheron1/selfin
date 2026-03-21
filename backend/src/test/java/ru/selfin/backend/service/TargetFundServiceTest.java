@@ -43,6 +43,8 @@ class TargetFundServiceTest {
         service = new TargetFundService(
                 fundRepository, transactionRepository,
                 eventRepository, checkpointRepository, categoryRepository);
+        // По умолчанию просроченных обязательных планов нет
+        when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
     }
 
     @Test
@@ -111,6 +113,21 @@ class TargetFundServiceTest {
         // Убеждаемся что старые «effective» методы не вызываются
         verify(eventRepository, never()).sumEffectiveByType(any());
         verify(eventRepository, never()).sumEffectiveByTypeFromDate(any(), any());
+    }
+
+    @Test
+    @DisplayName("Кармашек: вычитает просроченные обязательные планы текущего месяца")
+    void pocketBalance_deductsOverdueMandatoryExpenses() {
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
+        when(fundRepository.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of());
+        when(eventRepository.sumFactExecutedByType(EventType.INCOME)).thenReturn(bd(100_000));
+        when(eventRepository.sumFactExecutedByType(EventType.EXPENSE)).thenReturn(bd(30_000));
+        when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(bd(5_000));
+
+        FundsOverviewDto overview = service.getOverview();
+
+        // 100_000 - 30_000 - 0 (funds) - 5_000 (overdue) = 65_000
+        assertThat(overview.pocketBalance()).isEqualByComparingTo(bd(65_000));
     }
 
     private static BigDecimal bd(long value) {

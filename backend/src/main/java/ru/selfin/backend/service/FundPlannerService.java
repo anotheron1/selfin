@@ -66,6 +66,13 @@ public class FundPlannerService {
                     .map(e -> Objects.requireNonNullElse(e.getPlannedAmount(), BigDecimal.ZERO))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+            // Month 0: add overdue HIGH-priority EXPENSE plans (past date in current month, still PLANNED)
+            if (i == 0) {
+                BigDecimal overdueMandate = eventRepository.sumOverdueMandatoryExpenses(
+                        today.withDayOfMonth(1), today);
+                mandatoryExpenses = mandatoryExpenses.add(overdueMandate);
+            }
+
             BigDecimal allPlannedExpenses = monthEvents.stream()
                     .filter(e -> e.getType() == EventType.EXPENSE)
                     .map(e -> Objects.requireNonNullElse(e.getPlannedAmount(), BigDecimal.ZERO))

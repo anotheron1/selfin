@@ -121,16 +121,21 @@ public class TargetFundService {
         BigDecimal income;
         BigDecimal expense;
 
+        // Deduct overdue mandatory HIGH-priority EXPENSE plans (current month, still unrealized)
+        LocalDate today = LocalDate.now();
+        BigDecimal overdueMandate = eventRepository.sumOverdueMandatoryExpenses(
+                today.withDayOfMonth(1), today);
+
         if (latestCheckpoint.isPresent()) {
             LocalDate fromDate = latestCheckpoint.get().getDate();
             BigDecimal checkpointAmount = latestCheckpoint.get().getAmount();
             income = eventRepository.sumFactExecutedByTypeFromDate(EventType.INCOME, fromDate);
             expense = eventRepository.sumFactExecutedByTypeFromDate(EventType.EXPENSE, fromDate);
-            return checkpointAmount.add(income).subtract(expense).subtract(fundBalances);
+            return checkpointAmount.add(income).subtract(expense).subtract(fundBalances).subtract(overdueMandate);
         } else {
             income = eventRepository.sumFactExecutedByType(EventType.INCOME);
             expense = eventRepository.sumFactExecutedByType(EventType.EXPENSE);
-            return income.subtract(expense).subtract(fundBalances);
+            return income.subtract(expense).subtract(fundBalances).subtract(overdueMandate);
         }
     }
 

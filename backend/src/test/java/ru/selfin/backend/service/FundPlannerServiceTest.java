@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -27,6 +28,8 @@ class FundPlannerServiceTest {
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
         service = new FundPlannerService(eventRepository);
+        // По умолчанию просроченных обязательных планов нет
+        when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
     }
 
     private FinancialEvent makeEvent(LocalDate date, EventType type, EventStatus status,
@@ -84,6 +87,20 @@ class FundPlannerServiceTest {
 
         assertThat(month0.factExpenses()).isEqualByComparingTo(new BigDecimal("3000"));
         assertThat(month0.allPlannedExpenses()).isEqualByComparingTo(new BigDecimal("2000"));
+    }
+
+    @Test
+    @DisplayName("month-0 mandatoryExpenses includes overdue HIGH plans from current month")
+    void firstMonth_mandatoryExpenses_includesOverdueHighPlans() {
+        when(eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED))
+                .thenReturn(List.of());
+        when(eventRepository.sumOverdueMandatoryExpenses(any(), any()))
+                .thenReturn(new BigDecimal("3000"));
+
+        var result = service.getPlanner();
+        var month0 = result.months().get(0);
+
+        assertThat(month0.mandatoryExpenses()).isEqualByComparingTo(new BigDecimal("3000"));
     }
 
     @Test

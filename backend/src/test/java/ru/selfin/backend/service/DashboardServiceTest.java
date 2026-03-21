@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
@@ -51,6 +52,8 @@ class DashboardServiceTest {
         checkpointRepository = mock(BalanceCheckpointRepository.class);
         // По умолчанию чекпоинтов нет — баланс от нуля
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
+        // По умолчанию просроченных обязательных планов нет
+        when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
         dashboardService = new DashboardService(eventRepository, checkpointRepository);
     }
 
@@ -257,6 +260,24 @@ class DashboardServiceTest {
 
         // currentBalance = 80_000; forecastDelta = -30_000 + 10_000 = -20_000; EOM = 60_000
         assertThat(dto.endOfMonthForecast()).isEqualByComparingTo(bd(60_000));
+    }
+
+    @Test
+    @DisplayName("Прогноз конца месяца: вычитает просроченные обязательные планы")
+    void endOfMonthForecast_deductsOverdueMandatoryExpenses() {
+        LocalDate asOfDate = TODAY;
+        LocalDate monthStart = asOfDate.withDayOfMonth(1);
+        LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
+
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(List.of());
+        when(eventRepository.sumOverdueMandatoryExpenses(monthStart, asOfDate))
+                .thenReturn(new BigDecimal("2000"));
+
+        DashboardDto result = dashboardService.getDashboard(asOfDate);
+
+        // currentBalance = 0 (no events), forecastDelta = 0, overdueMandate = -2000
+        assertThat(result.endOfMonthForecast()).isEqualByComparingTo(new BigDecimal("-2000"));
     }
 
     // ─── detectCashGap ─────────────────────────────────────────────────────────
