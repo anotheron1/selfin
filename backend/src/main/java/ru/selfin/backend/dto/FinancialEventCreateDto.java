@@ -14,7 +14,6 @@ public record FinancialEventCreateDto(
                 UUID categoryId,
                 @NotNull EventType type,
                 @PositiveOrZero BigDecimal plannedAmount,
-                @PositiveOrZero BigDecimal factAmount,
                 Priority priority,
                 String description,
                 String rawInput,

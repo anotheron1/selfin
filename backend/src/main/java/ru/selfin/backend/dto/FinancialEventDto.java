@@ -1,5 +1,6 @@
 package ru.selfin.backend.dto;
 
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
@@ -24,5 +25,11 @@ public record FinancialEventDto(
         LocalDateTime createdAt,
         UUID targetFundId,
         String targetFundName,
-        String url) {
+        String url,
+        // Plan/Fact split fields
+        EventKind eventKind,
+        UUID parentEventId,
+        int linkedFactsCount,
+        BigDecimal linkedFactsAmount,
+        String parentPlanDescription) {
 }
