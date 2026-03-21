@@ -313,7 +313,9 @@ public class AnalyticsService {
      */
     private BigDecimal effectiveAmount(FinancialEvent event, boolean isFuture) {
         if (isFuture) return event.getPlannedAmount();
-        return event.getFactAmount() != null ? event.getFactAmount() : event.getPlannedAmount();
+        // Для прошлых дней берём только факт: неисполненные события не влияют на реальный баланс.
+        // Это согласует нарастающий баланс кассового календаря с currentBalance на дашборде.
+        return event.getFactAmount();
     }
 
     /** Возвращает {@code BigDecimal.ZERO} если значение {@code null}. */
