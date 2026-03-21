@@ -18,6 +18,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         type: 'EXPENSE',
         priority: 'MEDIUM',
     });
+    const [factAmountLocal, setFactAmountLocal] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
@@ -164,11 +165,8 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                     <Input
                         type="number"
                         placeholder={isFundTransfer ? 'Сумма (если уже перевёл), ₽' : 'Сумма (факт, если уже произошло), ₽'}
-                        value={form.factAmount ?? ''}
-                        onChange={e => setForm(f => ({
-                            ...f,
-                            factAmount: e.target.value ? Number(e.target.value) : undefined,
-                        }))}
+                        value={factAmountLocal}
+                        onChange={e => setFactAmountLocal(e.target.value)}
                     />
 
                     {/* Дата */}

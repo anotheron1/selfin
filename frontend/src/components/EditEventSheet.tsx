@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { updateEvent, fetchCategories } from '../api';
+import { updateEvent, fetchCategories, patchEventFact } from '../api';
 import type { Category, FinancialEvent, FinancialEventCreateDto, EventType, Priority } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
@@ -35,18 +35,22 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         e.preventDefault();
         setLoading(true);
         try {
-            const dto: FinancialEventCreateDto = {
-                date: date || (event.date ?? ''),
-                categoryId: categoryId || undefined,
-                type,
-                plannedAmount: plannedAmount !== '' ? Number(plannedAmount) : undefined,
-                factAmount: factAmount !== '' ? Number(factAmount) : undefined,
-                priority,
-                mandatory: event.mandatory,
-                description: description || undefined,
-                rawInput: event.rawInput ?? undefined,
-            };
-            await updateEvent(event.id, dto);
+            if (event.eventKind === 'FACT') {
+                // FACT records are updated via PATCH /events/{id}/fact
+                await patchEventFact(event.id, factAmount !== '' ? Number(factAmount) : undefined, description || undefined);
+            } else {
+                const dto: FinancialEventCreateDto = {
+                    date: date || (event.date ?? ''),
+                    categoryId: categoryId || undefined,
+                    type,
+                    plannedAmount: plannedAmount !== '' ? Number(plannedAmount) : undefined,
+                    priority,
+                    mandatory: event.mandatory,
+                    description: description || undefined,
+                    rawInput: event.rawInput ?? undefined,
+                };
+                await updateEvent(event.id, dto);
+            }
             onSuccess();
             onClose();
         } catch (err) {
@@ -73,7 +77,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         <Sheet open onOpenChange={(open) => !open && onClose()}>
             <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
                 <SheetHeader>
-                    <SheetTitle>Редактировать событие</SheetTitle>
+                    <SheetTitle>{event.eventKind === 'FACT' ? 'Редактировать факт' : 'Редактировать план'}</SheetTitle>
                 </SheetHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
@@ -87,28 +91,32 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             onChange={e => setDescription(e.target.value)}
                         />
                     </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            Плановая сумма, ₽
-                        </label>
-                        <Input
-                            type="number"
-                            placeholder="0"
-                            value={plannedAmount}
-                            onChange={e => setPlannedAmount(e.target.value)}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            Фактическая сумма, ₽
-                        </label>
-                        <Input
-                            type="number"
-                            placeholder={`План: ${event.plannedAmount ?? '—'}`}
-                            value={factAmount}
-                            onChange={e => setFactAmount(e.target.value)}
-                        />
-                    </div>
+                    {event.eventKind !== 'FACT' && (
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1">
+                                Плановая сумма, ₽
+                            </label>
+                            <Input
+                                type="number"
+                                placeholder="0"
+                                value={plannedAmount}
+                                onChange={e => setPlannedAmount(e.target.value)}
+                            />
+                        </div>
+                    )}
+                    {event.eventKind === 'FACT' && (
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1">
+                                Фактическая сумма, ₽
+                            </label>
+                            <Input
+                                type="number"
+                                placeholder={`Факт: ${event.factAmount ?? '—'}`}
+                                value={factAmount}
+                                onChange={e => setFactAmount(e.target.value)}
+                            />
+                        </div>
+                    )}
                     <div>
                         <label className="text-xs text-muted-foreground block mb-1">
                             Дата
@@ -119,52 +127,58 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             onChange={e => setDate(e.target.value)}
                         />
                     </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            Категория
-                        </label>
-                        <Select value={categoryId} onValueChange={setCategoryId}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Выберите категорию" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {categories.map(cat => (
-                                    <SelectItem key={cat.id} value={cat.id}>
-                                        {cat.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            Тип
-                        </label>
-                        <Select value={type} onValueChange={(v) => setType(v as EventType)}>
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="INCOME">Доход</SelectItem>
-                                <SelectItem value="EXPENSE">Расход</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            Приоритет
-                        </label>
-                        <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="HIGH">Высокий</SelectItem>
-                                <SelectItem value="MEDIUM">Средний</SelectItem>
-                                <SelectItem value="LOW">Низкий</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    {event.eventKind !== 'FACT' && (
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1">
+                                Категория
+                            </label>
+                            <Select value={categoryId} onValueChange={setCategoryId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Выберите категорию" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {categories.map(cat => (
+                                        <SelectItem key={cat.id} value={cat.id}>
+                                            {cat.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    {event.eventKind !== 'FACT' && (
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1">
+                                Тип
+                            </label>
+                            <Select value={type} onValueChange={(v) => setType(v as EventType)}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="INCOME">Доход</SelectItem>
+                                    <SelectItem value="EXPENSE">Расход</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    {event.eventKind !== 'FACT' && (
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1">
+                                Приоритет
+                            </label>
+                            <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="HIGH">Высокий</SelectItem>
+                                    <SelectItem value="MEDIUM">Средний</SelectItem>
+                                    <SelectItem value="LOW">Низкий</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                     <div className="flex gap-2 pt-1">
                         <Button
                             type="button"

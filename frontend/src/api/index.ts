@@ -6,6 +6,7 @@ import type {
     BudgetSnapshot,
     Category,
     DashboardData,
+    FactCreateDto,
     FinancialEvent,
     FinancialEventCreateDto,
     FundPlannerData,
@@ -84,6 +85,10 @@ export const createWishlistItem = (dto: WishlistCreateDto): Promise<FinancialEve
 
 /** Удаляет событие (soft delete — физически запись остаётся в БД). */
 export const deleteEvent = (id: string) => del(`/events/${id}`);
+
+/** Создаёт фактическое исполнение (FACT) для планового события (PLAN). */
+export const createLinkedFact = (planId: string, dto: FactCreateDto) =>
+    post<FinancialEvent>(`/events/${planId}/facts`, dto);
 
 // --- Analytics ---
 

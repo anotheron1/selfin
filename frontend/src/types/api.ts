@@ -30,6 +30,12 @@ export interface FinancialEvent {
     createdAt: string;
     targetFundId?: string;
     targetFundName?: string;
+    // Plan/Fact split fields
+    eventKind: 'PLAN' | 'FACT';
+    parentEventId: string | null;
+    linkedFactsCount: number;
+    linkedFactsAmount: number | null;
+    parentPlanDescription: string | null;
 }
 
 export interface WishlistCreateDto {
@@ -43,12 +49,17 @@ export interface FinancialEventCreateDto {
     categoryId?: string;
     type: EventType;
     plannedAmount?: number;
-    factAmount?: number;
     priority?: Priority;
     mandatory?: boolean;
     description?: string;
     rawInput?: string;
     targetFundId?: string;
+}
+
+export interface FactCreateDto {
+    date: string;
+    factAmount: number;
+    description?: string;
 }
 
 export interface CashGapAlert {

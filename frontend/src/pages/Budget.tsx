@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { fetchEvents, cycleEventPriority } from '../api';
 import type { FinancialEvent } from '../types/api';
 import EditEventSheet from '../components/EditEventSheet';
+import FactCreateSheet from '../components/FactCreateSheet';
 import PriorityButton from '../components/PriorityButton';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
@@ -73,6 +74,7 @@ export default function Budget() {
     const [loading, setLoading] = useState(true);
     const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
+    const [factSheetPlanId, setFactSheetPlanId] = useState<string | null>(null);
 
     const load = useCallback(() => {
         const start = formatDateYMD(new Date(year, month, 1));
@@ -88,11 +90,11 @@ export default function Budget() {
     const weeks = buildWeeks(year, month);
     const monthLabel = new Date(year, month).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
-    const totalPlannedIncome = events.filter(e => e.type === 'INCOME').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
-    const totalFactIncome = events.filter(e => e.type === 'INCOME' && e.factAmount != null).reduce((s, e) => s + (e.factAmount ?? 0), 0);
-    const totalPlannedExpense = events.filter(e => e.type === 'EXPENSE').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
-    const totalFactExpense = events.filter(e => e.type === 'EXPENSE' && e.factAmount != null).reduce((s, e) => s + (e.factAmount ?? 0), 0);
-    const hasFactData = events.some(e => e.factAmount != null);
+    const totalPlannedIncome = events.filter(e => e.type === 'INCOME' && e.eventKind === 'PLAN').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+    const totalFactIncome = events.filter(e => e.type === 'INCOME' && e.eventKind === 'FACT').reduce((s, e) => s + (e.factAmount ?? 0), 0);
+    const totalPlannedExpense = events.filter(e => e.type === 'EXPENSE' && e.eventKind === 'PLAN').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
+    const totalFactExpense = events.filter(e => e.type === 'EXPENSE' && e.eventKind === 'FACT').reduce((s, e) => s + (e.factAmount ?? 0), 0);
+    const hasFactData = events.some(e => e.eventKind === 'FACT' && e.factAmount != null);
 
     return (
         <>
@@ -172,12 +174,12 @@ export default function Budget() {
                                             const { dow, dayNum } = getDayLabel(day);
                                             const dayEvts = byDay[day];
 
-                                            // Split into planned (top) and executed (bottom), each sorted alpha
-                                            const planned = dayEvts
-                                                .filter(e => e.status === 'PLANNED')
+                                            // Split by eventKind: PLANs first, then FACTs
+                                            const planEvents = dayEvts
+                                                .filter(e => e.eventKind === 'PLAN')
                                                 .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
-                                            const executed = dayEvts
-                                                .filter(e => e.status !== 'PLANNED')
+                                            const factEvents = dayEvts
+                                                .filter(e => e.eventKind === 'FACT')
                                                 .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
 
                                             return (
@@ -198,9 +200,9 @@ export default function Budget() {
                                                     </div>
                                                     {/* Right: events */}
                                                     <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
-                                                        {[...planned,
-                                                          ...(planned.length > 0 && executed.length > 0 ? ['__divider__'] : []),
-                                                          ...executed
+                                                        {[...planEvents,
+                                                          ...(planEvents.length > 0 && factEvents.length > 0 ? ['__divider__'] : []),
+                                                          ...factEvents
                                                         ].map((item, idx) => {
                                                             if (item === '__divider__') {
                                                                 return (
@@ -214,6 +216,7 @@ export default function Budget() {
                                                             const isIncome = event.type === 'INCOME';
                                                             const isFundTransfer = event.type === 'FUND_TRANSFER';
                                                             const isExecuted = event.status === 'EXECUTED';
+                                                            const isLowPlanned = event.priority === 'LOW' && event.status === 'PLANNED';
                                                             const displayName = isFundTransfer
                                                                 ? `↪ ${event.targetFundName ?? 'Копилка'}`
                                                                 : event.description || event.categoryName || 'Без названия';
@@ -225,7 +228,6 @@ export default function Budget() {
                                                                 : isFundTransfer
                                                                     ? 'hsl(var(--primary))'
                                                                     : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
-                                                            const isLowPlanned = event.priority === 'LOW' && event.status === 'PLANNED';
                                                             return (
                                                                 <div key={event.id}
                                                                     onClick={() => setSelectedEvent(event)}
@@ -240,16 +242,35 @@ export default function Budget() {
                                                                             {isExecuted && (
                                                                                 <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
                                                                             )}
+                                                                            {event.eventKind === 'PLAN' && event.linkedFactsCount > 0 && (
+                                                                                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                                                                    {event.linkedFactsCount} {event.linkedFactsCount === 1 ? 'факт' : 'факта'}
+                                                                                </span>
+                                                                            )}
                                                                         </div>
                                                                         {displaySubtitle && (
                                                                             <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>{displaySubtitle}</p>
                                                                         )}
+                                                                        {event.eventKind === 'FACT' && event.parentPlanDescription && (
+                                                                            <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>
+                                                                                ← {event.parentPlanDescription}
+                                                                            </p>
+                                                                        )}
+                                                                        {event.eventKind === 'PLAN' && event.status === 'PLANNED' && (
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); setFactSheetPlanId(event.id); }}
+                                                                                className="text-xs mt-1"
+                                                                                style={{ color: 'hsl(var(--primary))' }}
+                                                                            >
+                                                                                + записать факт
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                     <div className="text-right shrink-0 space-y-0.5">
                                                                         <div className="text-sm font-semibold" style={{ color: amountColor }}>
-                                                                            {isIncome ? '+' : '-'}{fmt(event.plannedAmount)}
+                                                                            {isIncome ? '+' : '-'}{event.eventKind === 'FACT' ? fmt(event.factAmount) : fmt(event.plannedAmount)}
                                                                         </div>
-                                                                        {event.factAmount != null && (
+                                                                        {event.eventKind === 'PLAN' && event.factAmount != null && (
                                                                             <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                                                                                 факт: {fmt(event.factAmount)}
                                                                                 {delta != null && (
@@ -280,6 +301,15 @@ export default function Budget() {
                     event={selectedEvent}
                     onClose={() => setSelectedEvent(null)}
                     onSuccess={() => { setSelectedEvent(null); load(); }}
+                />
+            )}
+            {factSheetPlanId && (
+                <FactCreateSheet
+                    planId={factSheetPlanId}
+                    planDescription={events.find(e => e.id === factSheetPlanId)?.description ?? events.find(e => e.id === factSheetPlanId)?.categoryName ?? 'План'}
+                    open={!!factSheetPlanId}
+                    onClose={() => setFactSheetPlanId(null)}
+                    onCreated={() => { load(); setFactSheetPlanId(null); }}
                 />
             )}
         </>
