@@ -31,7 +31,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class FinancialEvent implements Transaction {
+public class FinancialEvent implements FinancialRecord {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

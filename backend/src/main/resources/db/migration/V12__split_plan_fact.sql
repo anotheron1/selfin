@@ -35,11 +35,18 @@ WHERE fact_amount IS NOT NULL
   AND is_deleted = FALSE;
 
 -- 4. Clear fact_amount from original PLAN records
+--    Skip soft-deleted rows: they had no FACT counterpart inserted in step 3,
+--    so clearing their fact_amount here would lose data irreversibly.
 UPDATE financial_events
 SET fact_amount = NULL
 WHERE fact_amount IS NOT NULL
-  AND event_kind = 'PLAN';
+  AND event_kind = 'PLAN'
+  AND is_deleted = FALSE;
 
 -- 5. Make event_kind NOT NULL now that all rows have a value
 ALTER TABLE financial_events
     ALTER COLUMN event_kind SET NOT NULL;
+
+-- 6. Index on parent_event_id for efficient fact lookups per plan
+CREATE INDEX idx_financial_events_parent_event_id ON financial_events(parent_event_id)
+    WHERE parent_event_id IS NOT NULL;

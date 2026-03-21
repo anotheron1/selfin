@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /** Common read contract for both PLAN and FACT records. */
-public interface Transaction {
+public interface FinancialRecord {
     UUID getId();
     LocalDate getDate();
     Category getCategory();
