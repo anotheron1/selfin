@@ -90,7 +90,106 @@ class AnalyticsServiceTest {
         assertThat(categoryLabels).containsExactly("Аренда", "Бензин", "Еда");
     }
 
+    // ─── calcStartBalance (P1 regression) ─────────────────────────────────────
+
+    /**
+     * Регрессия P1: если в мостике между чекпоинтом и началом месяца есть
+     * неисполненное PLANNED-событие (factAmount = null), оно НЕ должно влиять
+     * на начальный баланс аналитики. Только EXECUTED события меняют реальный баланс.
+     */
+    @Test
+    @DisplayName("calcStartBalance: PLANNED событие в мостике (без factAmount) не влияет на стартовый баланс")
+    void calcStartBalance_plannedBridgeEventIgnored() {
+        LocalDate monthStart = TODAY.withDayOfMonth(1); // 2026-03-01
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+        LocalDate cpDate = LocalDate.of(2026, 2, 20);
+
+        ru.selfin.backend.model.BalanceCheckpoint cp = ru.selfin.backend.model.BalanceCheckpoint.builder()
+                .id(UUID.randomUUID())
+                .date(cpDate)
+                .amount(bd(40_000))
+                .build();
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+
+        // Мостик: одно EXECUTED (факт 20_000) + одно PLANNED (факт null, план 10_000)
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(cpDate, monthStart.minusDays(1)))
+                .thenReturn(List.of(
+                        incomeOn(LocalDate.of(2026, 2, 25), bd(20_000), bd(20_000)),  // исполненное
+                        incomeOn(LocalDate.of(2026, 2, 28), bd(10_000), null)          // PLANNED — должно игнорироваться
+                ));
+
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(List.of());
+
+        AnalyticsReportDto report = service.getReport(TODAY);
+
+        // Стартовый баланс = 40_000 (чекпоинт) + 20_000 (EXECUTED) = 60_000.
+        // PLANNED событие 28.02 (10_000) НЕ должно быть добавлено.
+        // Нарастающий баланс на 1 марта (начало, до событий) = 60_000.
+        // getReport возвращает cashFlow где initialBalance = 60_000.
+        // Если нет событий в марте и сегодня 15.03 — в cashFlow будет одна запись (сегодня).
+        ru.selfin.backend.dto.AnalyticsReportDto.CashFlowDay today = report.cashFlow().stream()
+                .filter(d -> d.date().equals(TODAY))
+                .findFirst()
+                .orElseThrow();
+        // running balance at today = 60_000 (no march events)
+        assertThat(today.runningBalance()).isEqualByComparingTo(bd(60_000));
+    }
+
+    /**
+     * Регрессия P1 — обратный случай: EXECUTED событие в мостике учитывается корректно.
+     */
+    @Test
+    @DisplayName("calcStartBalance: EXECUTED событие в мостике корректно учитывается")
+    void calcStartBalance_executedBridgeEventCounted() {
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+        LocalDate cpDate = LocalDate.of(2026, 2, 20);
+
+        ru.selfin.backend.model.BalanceCheckpoint cp = ru.selfin.backend.model.BalanceCheckpoint.builder()
+                .id(UUID.randomUUID())
+                .date(cpDate)
+                .amount(bd(30_000))
+                .build();
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(cpDate, monthStart.minusDays(1)))
+                .thenReturn(List.of(
+                        expenseOn("Аренда", LocalDate.of(2026, 2, 25), bd(5_000), bd(5_000)) // EXECUTED расход
+                ));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(List.of());
+
+        AnalyticsReportDto report = service.getReport(TODAY);
+
+        // Стартовый баланс = 30_000 - 5_000 = 25_000
+        ru.selfin.backend.dto.AnalyticsReportDto.CashFlowDay today = report.cashFlow().stream()
+                .filter(d -> d.date().equals(TODAY))
+                .findFirst()
+                .orElseThrow();
+        assertThat(today.runningBalance()).isEqualByComparingTo(bd(25_000));
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
+
+    private FinancialEvent incomeOn(LocalDate date, BigDecimal planned, BigDecimal fact) {
+        Category cat = Category.builder()
+                .id(UUID.randomUUID())
+                .name("Зарплата")
+                .type(CategoryType.INCOME)
+                .build();
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(date)
+                .category(cat)
+                .type(EventType.INCOME)
+                .plannedAmount(planned)
+                .factAmount(fact)
+                .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
+                .priority(Priority.MEDIUM)
+                .deleted(false)
+                .build();
+    }
 
     private FinancialEvent expenseOn(String categoryName, LocalDate date,
             BigDecimal planned, BigDecimal fact) {

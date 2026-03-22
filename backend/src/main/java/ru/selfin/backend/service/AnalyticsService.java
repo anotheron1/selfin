@@ -271,10 +271,17 @@ public class AnalyticsService {
 
         if (cp.getDate().isBefore(monthStart)) {
             // Чекпоинт из прошлого месяца — суммируем «мостик» событий
-            // от даты чекпоинта до конца предыдущего месяца
+            // от даты чекпоинта до конца предыдущего месяца.
+            // Учитываем ТОЛЬКО исполненные события (factAmount != null),
+            // чтобы стартовый баланс Analytics совпадал с currentBalance на дашборде.
+            // Неисполненные PLANNED события в прошлом не влияют на реальный баланс.
             List<FinancialEvent> bridgeEvents = eventRepository
                     .findAllByDeletedFalseAndDateBetween(cp.getDate(), monthStart.minusDays(1));
-            startBalance = startBalance.add(netSum(bridgeEvents));
+            startBalance = startBalance.add(
+                    bridgeEvents.stream()
+                            .filter(e -> e.getFactAmount() != null)
+                            .map(this::signedAmount)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add));
         }
         return startBalance;
     }
@@ -304,12 +311,23 @@ public class AnalyticsService {
     }
 
     /**
-     * Возвращает эффективную сумму события: для прошлых дней — факт (или план при отсутствии),
-     * для будущих — только план.
+     * Возвращает эффективную сумму события в зависимости от горизонта:
+     * <ul>
+     *   <li><b>Будущие дни</b> ({@code isFuture = true}): возвращает {@code plannedAmount}
+     *       (факта ещё нет, используем прогноз).</li>
+     *   <li><b>Прошлые дни</b> ({@code isFuture = false}): возвращает <em>только</em>
+     *       {@code factAmount}. Если факта нет — возвращает {@code null},
+     *       и вызывающий код ({@link #buildCashFlow}) пропускает событие.</li>
+     * </ul>
+     *
+     * <p><b>Важно:</b> для прошлых дней fallback на {@code plannedAmount} намеренно отсутствует.
+     * Неисполненное плановое событие в прошлом не влияет на реальный баланс счёта —
+     * деньги не ушли. Это согласует нарастающий баланс кассового календаря
+     * с {@code currentBalance} на дашборде (который учитывает только исполненные события).
      *
      * @param event    финансовое событие
-     * @param isFuture {@code true} если дата события в будущем
-     * @return сумма или {@code null} если ни один из вариантов недоступен
+     * @param isFuture {@code true} если дата события строго после сегодня
+     * @return сумма или {@code null} если событие прошлое и без фактической суммы
      */
     private BigDecimal effectiveAmount(FinancialEvent event, boolean isFuture) {
         if (isFuture) return event.getPlannedAmount();

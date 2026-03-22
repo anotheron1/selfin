@@ -132,10 +132,14 @@ public class DashboardService {
         List<FinancialEvent> horizonEvents = eventRepository
                 .findAllByDeletedFalseAndDateBetween(asOfDate, horizonEnd);
 
-        // Первые два неисполненных INCOME-события строго в будущем (не сегодня)
+        // Первые два неисполненных INCOME-события начиная с сегодня (включительно).
+        // Включение сегодня позволяет корректно отобразить ситуацию, когда зп запланирована
+        // на текущую дату, но ещё не исполнена: nextSalaryDate = сегодня,
+        // balanceBeforeNextSalary = currentBalance (пустой диапазон [today, today)),
+        // balanceAfterNextSalary = currentBalance + все события сегодня (включая зп).
         List<LocalDate> salaryDates = horizonEvents.stream()
                 .filter(e -> e.getType() == EventType.INCOME && e.getFactAmount() == null)
-                .filter(e -> e.getDate().isAfter(asOfDate))
+                .filter(e -> !e.getDate().isBefore(asOfDate))
                 .map(FinancialEvent::getDate)
                 .distinct()
                 .sorted()
@@ -164,7 +168,16 @@ public class DashboardService {
         LocalDate gapHorizon = secondSalaryDate != null ? secondSalaryDate
                 : nextSalaryDate != null ? nextSalaryDate
                 : monthEnd;
-        DashboardDto.CashGapAlert cashGapAlert = detectCashGap(horizonEvents, currentBalance, asOfDate, gapHorizon);
+        // Для корректного обнаружения разрыва учитываем и сегодняшние неисполненные события:
+        // detectCashGap стартует с from+1, поэтому события asOfDate добавляем к стартовому балансу вручную.
+        // Это устраняет рассогласование: balanceBeforeNextSalary включает сегодняшние неисполненные расходы,
+        // а cashGapAlert должен их тоже видеть (иначе у пользователя красное число без красного алерта).
+        BigDecimal gapStartBalance = currentBalance.add(
+                horizonEvents.stream()
+                        .filter(e -> e.getDate().equals(asOfDate) && e.getFactAmount() == null)
+                        .map(this::plannedSignedAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        DashboardDto.CashGapAlert cashGapAlert = detectCashGap(horizonEvents, gapStartBalance, asOfDate, gapHorizon);
 
         // --- 7. Прогресс-бары по категориям (всегда за весь месяц) ---
         List<DashboardDto.CategoryProgressBar> progressBars = buildProgressBars(monthEvents);

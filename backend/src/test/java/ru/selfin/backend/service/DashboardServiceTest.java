@@ -298,6 +298,116 @@ class DashboardServiceTest {
         assertThat(dto.cashGapAlert()).isNull();
     }
 
+    // ─── cashGapAlert — P2 регрессия: сегодняшние события ────────────────────
+
+    /**
+     * Регрессия P2: неисполненный расход СЕГОДНЯ должен попасть в cashGapAlert,
+     * даже несмотря на то, что detectCashGap запускает цикл с asOfDate+1.
+     * Фикс: перед вызовом detectCashGap к startBalance применяются сегодняшние
+     * неисполненные события, чтобы стартовая точка gap-detection была корректной.
+     */
+    @Test
+    @DisplayName("Кассовый разрыв: сегодняшний неисполненный расход тоже вызывает алерт")
+    void cashGap_todayUnexecutedExpenseTriggersAlert() {
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+        LocalDate horizonEnd = TODAY.plusDays(DashboardService.FORECAST_HORIZON_DAYS);
+
+        // Текущий баланс 5 000 (исполненный доход ранее)
+        // Сегодня есть неисполненный расход 10 000 — уйдём в -5 000
+        List<FinancialEvent> monthEvents = List.of(
+                event(EventType.INCOME,  LocalDate.of(2026, 3, 1), bd(5_000), bd(5_000)),
+                event(EventType.EXPENSE, TODAY,                    bd(10_000), null)   // сегодня, не исполнено
+        );
+        // horizonEvents совпадает с частью месяца (нет зп → gapHorizon = monthEnd)
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.EXPENSE, TODAY, bd(10_000), null)
+        );
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(monthEvents);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(TODAY, horizonEnd))
+                .thenReturn(horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        // currentBalance = 5_000 (только исполненный доход)
+        assertThat(dto.currentBalance()).isEqualByComparingTo(bd(5_000));
+        // cashGapAlert должен сработать: 5_000 - 10_000 = -5_000 (сегодняшний расход применён к startBalance)
+        assertThat(dto.cashGapAlert()).isNotNull();
+        assertThat(dto.cashGapAlert().gapAmount()).isNegative();
+    }
+
+    /**
+     * Регрессия P2 (обратный случай): если сегодняшний расход не выводит баланс в минус,
+     * cashGapAlert не должен срабатывать.
+     */
+    @Test
+    @DisplayName("Кассовый разрыв: сегодняшний расход, который не уводит в минус, не даёт алерт")
+    void cashGap_todayUnexecutedExpense_noAlertIfStillPositive() {
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+        LocalDate horizonEnd = TODAY.plusDays(DashboardService.FORECAST_HORIZON_DAYS);
+
+        List<FinancialEvent> monthEvents = List.of(
+                event(EventType.INCOME,  LocalDate.of(2026, 3, 1), bd(100_000), bd(100_000)),
+                event(EventType.EXPENSE, TODAY, bd(10_000), null)  // сегодня, не исполнено — не уводит в минус
+        );
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.EXPENSE, TODAY, bd(10_000), null)
+        );
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(monthEvents);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(TODAY, horizonEnd))
+                .thenReturn(horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        assertThat(dto.cashGapAlert()).isNull();
+    }
+
+    // ─── Зп «сегодня» — P4 регрессия ─────────────────────────────────────────
+
+    /**
+     * Регрессия P4: если зп запланирована на сегодня и ещё не исполнена,
+     * nextSalaryDate должен равняться сегодняшней дате.
+     * balanceBeforeNextSalary = currentBalance (пустой диапазон [today, today)).
+     * balanceAfterNextSalary = currentBalance + все события сегодня (включая зп).
+     */
+    @Test
+    @DisplayName("Зп сегодня: nextSalaryDate = today, balanceBeforeNextSalary = currentBalance")
+    void todaySalary_nextSalaryDateIsToday() {
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+        LocalDate horizonEnd = TODAY.plusDays(DashboardService.FORECAST_HORIZON_DAYS);
+
+        // Текущий баланс: 3 000 (исполненный расход)
+        List<FinancialEvent> monthEvents = List.of(
+                event(EventType.EXPENSE, LocalDate.of(2026, 3, 10), bd(7_000), bd(7_000)),
+                event(EventType.INCOME, TODAY, bd(50_000), null)  // зп сегодня, не исполнена
+        );
+        // horizonEvents: только зп сегодня (и нет второй зп)
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.INCOME, TODAY, bd(50_000), null)
+        );
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(monthEvents);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(TODAY, horizonEnd))
+                .thenReturn(horizonEvents);
+
+        DashboardDto dto = dashboardService.getDashboard(TODAY);
+
+        // currentBalance = -7_000 (только исполненный расход)
+        assertThat(dto.currentBalance()).isEqualByComparingTo(bd(-7_000));
+        // nextSalaryDate = сегодня
+        assertThat(dto.nextSalaryDate()).isEqualTo(TODAY);
+        // balanceBeforeNextSalary = currentBalance (диапазон [today, today) пуст)
+        assertThat(dto.balanceBeforeNextSalary()).isEqualByComparingTo(bd(-7_000));
+        // balanceAfterNextSalary = -7_000 + 50_000 = 43_000
+        assertThat(dto.balanceAfterNextSalary()).isEqualByComparingTo(bd(43_000));
+        // secondSalaryDate = null (нет второй зп)
+        assertThat(dto.secondSalaryDate()).isNull();
+    }
+
     // ─── Двойной зарплатный горизонт ──────────────────────────────────────────
 
     /**
