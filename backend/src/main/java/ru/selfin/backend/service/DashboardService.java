@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.DashboardDto;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
@@ -99,7 +100,7 @@ public class DashboardService {
                 // от даты чекпоинта до конца предыдущего месяца
                 List<FinancialEvent> bridgeEvents = eventRepository
                         .findAllByDeletedFalseAndDateBetween(cp.getDate(), monthStart.minusDays(1));
-                startBalance = startBalance.add(netSum(bridgeEvents));
+                startBalance = startBalance.add(effectiveNetSum(bridgeEvents));
                 effectiveStart = monthStart;
             } else {
                 effectiveStart = cp.getDate();
@@ -120,10 +121,10 @@ public class DashboardService {
                         .map(this::signedAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add));
 
-        // --- 4. Прогноз конец месяца = факт + плановые суммы ещё не исполненных событий (сегодня и далее) ---
+        // --- 4. Прогноз конец месяца = факт + плановые суммы ещё не исполненных PLAN-событий (сегодня и далее) ---
         BigDecimal forecastDelta = monthEvents.stream()
                 .filter(e -> !e.getDate().isBefore(asOfDate))
-                .filter(e -> e.getStatus() != EventStatus.EXECUTED)
+                .filter(e -> e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.PLANNED)
                 .map(this::plannedSignedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal endOfMonthForecast = currentBalance.add(forecastDelta);
@@ -137,9 +138,11 @@ public class DashboardService {
         List<FinancialEvent> horizonEvents = eventRepository
                 .findAllByDeletedFalseAndDateBetween(asOfDate, horizonEnd);
 
-        // Первые два неисполненных INCOME-события строго в будущем (не сегодня)
+        // Первые два неисполненных INCOME PLAN-события строго в будущем (не сегодня)
         List<LocalDate> salaryDates = horizonEvents.stream()
-                .filter(e -> e.getType() == EventType.INCOME && e.getFactAmount() == null)
+                .filter(e -> e.getType() == EventType.INCOME
+                        && e.getEventKind() == EventKind.PLAN
+                        && e.getStatus() == EventStatus.PLANNED)
                 .filter(e -> e.getDate().isAfter(asOfDate))
                 .map(FinancialEvent::getDate)
                 .distinct()
@@ -159,8 +162,9 @@ public class DashboardService {
             balanceAfterNextSalary = calcBalanceAfter(horizonEvents, balanceBeforeNextSalary, nextSalaryDate);
 
             if (secondSalaryDate != null) {
+                // from = nextSalaryDate + 1: события в день первой зп уже учтены в balanceAfterNextSalary
                 balanceBeforeSecondSalary = calcBalanceBefore(
-                        horizonEvents, balanceAfterNextSalary, nextSalaryDate, secondSalaryDate);
+                        horizonEvents, balanceAfterNextSalary, nextSalaryDate.plusDays(1), secondSalaryDate);
             }
         }
 
@@ -204,7 +208,7 @@ public class DashboardService {
             LocalDate from, LocalDate salaryDate) {
         BigDecimal delta = events.stream()
                 .filter(e -> !e.getDate().isBefore(from) && e.getDate().isBefore(salaryDate))
-                .filter(e -> e.getFactAmount() == null)
+                .filter(e -> e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.PLANNED)
                 .map(this::plannedSignedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return startBalance.add(delta);
@@ -226,7 +230,7 @@ public class DashboardService {
             LocalDate salaryDate) {
         BigDecimal deltaOnDay = events.stream()
                 .filter(e -> e.getDate().equals(salaryDate))
-                .filter(e -> e.getFactAmount() == null)
+                .filter(e -> e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.PLANNED)
                 .map(this::plannedSignedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return balanceBeforeSalary.add(deltaOnDay);
@@ -258,13 +262,28 @@ public class DashboardService {
     }
 
     /**
-     * Суммарная знаковая сумма списка событий (факт приоритетнее плана).
+     * V12-совместимая суммарная знаковая сумма списка событий.
      *
-     * @param events список событий
-     * @return алгебраическая сумма знаковых сумм
+     * <p>После миграции V12 (plan-fact split) каждое исполненное событие порождает
+     * две записи: PLAN(EXECUTED, factAmount=null) и FACT(factAmount=X).
+     * Старый {@code netSum} считал обе — PLAN по plannedAmount, FACT по factAmount —
+     * что приводило к двойному учёту.
+     *
+     * <p>Правило:
+     * <ul>
+     *   <li>FACT-записи: берём factAmount (со знаком)</li>
+     *   <li>PLAN(PLANNED): берём plannedAmount (со знаком) — ещё не исполнен</li>
+     *   <li>PLAN(EXECUTED): <b>пропускаем</b> — уже учтён через FACT</li>
+     * </ul>
+     *
+     * @param events список событий (может содержать и PLAN, и FACT записи)
+     * @return алгебраическая сумма знаковых сумм без двойного учёта
      */
-    private BigDecimal netSum(List<FinancialEvent> events) {
-        return events.stream().map(this::signedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    private BigDecimal effectiveNetSum(List<FinancialEvent> events) {
+        return events.stream()
+                .filter(e -> !(e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.EXECUTED))
+                .map(this::signedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
@@ -287,8 +306,10 @@ public class DashboardService {
         BigDecimal runningBalance = startBalance;
         LocalDate current = from.plusDays(1);
 
+        // Пропускаем PLAN(EXECUTED) — их вклад уже учтён через FACT-записи
         Map<LocalDate, List<FinancialEvent>> byDate = events.stream()
                 .filter(e -> e.getDate().isAfter(from) && !e.getDate().isAfter(until))
+                .filter(e -> !(e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.EXECUTED))
                 .collect(Collectors.groupingBy(FinancialEvent::getDate));
 
         while (!current.isAfter(until)) {

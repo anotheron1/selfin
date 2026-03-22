@@ -45,29 +45,29 @@ class TargetFundServiceTest {
                 eventRepository, checkpointRepository, categoryRepository);
         // По умолчанию просроченных обязательных планов нет
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
+        // По умолчанию переводов в копилки нет (Variant B: FUND_TRANSFER = расход)
+        when(eventRepository.sumAllFactByType(EventType.FUND_TRANSFER)).thenReturn(BigDecimal.ZERO);
+        when(eventRepository.sumAllFactByTypeFromDate(any(), any())).thenReturn(BigDecimal.ZERO);
     }
 
     @Test
-    @DisplayName("Кармашек: без чекпоинта = факт доходов − факт расходов − балансы фондов (только EXECUTED)")
+    @DisplayName("Кармашек (Variant B): без чекпоинта = доходы − расходы − переводы в копилки (FUND_TRANSFER)")
     void pocketBalance_noCheckpoint_usesExecutedOnly() {
-        // Нет чекпоинта
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
-
-        // Нет фондов — баланс фондов = 0
         when(fundRepository.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of());
 
-        // Только исполненные события учитываются
         when(eventRepository.sumFactExecutedByType(EventType.INCOME)).thenReturn(bd(100_000));
         when(eventRepository.sumFactExecutedByType(EventType.EXPENSE)).thenReturn(bd(30_000));
+        when(eventRepository.sumAllFactByType(EventType.FUND_TRANSFER)).thenReturn(bd(5_000));
 
         FundsOverviewDto overview = service.getOverview();
 
-        // 100_000 - 30_000 - 0 = 70_000
-        assertThat(overview.pocketBalance()).isEqualByComparingTo(bd(70_000));
+        // 100_000 - 30_000 - 5_000 = 65_000
+        assertThat(overview.pocketBalance()).isEqualByComparingTo(bd(65_000));
     }
 
     @Test
-    @DisplayName("Кармашек: с чекпоинтом = чекпоинт + факт доходов − факт расходов − балансы фондов (только EXECUTED с даты чекпоинта)")
+    @DisplayName("Кармашек (Variant B): с чекпоинтом = чекпоинт + доходы − расходы − переводы (балансы фондов НЕ вычитаются)")
     void pocketBalance_withCheckpoint_usesExecutedFromDate() {
         LocalDate cpDate = LocalDate.of(2026, 3, 1);
         BalanceCheckpoint cp = BalanceCheckpoint.builder()
@@ -77,7 +77,7 @@ class TargetFundServiceTest {
                 .build();
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
 
-        // Один фонд с балансом 10_000 (не POCKET — входит в fundBalances)
+        // Фонд есть, но его баланс НЕ вычитается в Variant B
         TargetFund fund = TargetFund.builder()
                 .id(UUID.randomUUID())
                 .name("Отпуск")
@@ -88,16 +88,16 @@ class TargetFundServiceTest {
                 .deleted(false)
                 .build();
         when(fundRepository.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(fund));
-        // Прогноз завершения: нет транзакций за последние 3 месяца
         when(transactionRepository.findByFundIdAndDeletedFalseAndTransactionDateAfter(any(), any()))
                 .thenReturn(List.of());
 
         when(eventRepository.sumFactExecutedByTypeFromDate(EventType.INCOME, cpDate)).thenReturn(bd(75_000));
         when(eventRepository.sumFactExecutedByTypeFromDate(EventType.EXPENSE, cpDate)).thenReturn(bd(20_000));
+        when(eventRepository.sumAllFactByTypeFromDate(EventType.FUND_TRANSFER, cpDate)).thenReturn(bd(10_000));
 
         FundsOverviewDto overview = service.getOverview();
 
-        // 50_000 + 75_000 - 20_000 - 10_000 = 95_000
+        // 50_000 + 75_000 - 20_000 - 10_000 (transfers) = 95_000
         assertThat(overview.pocketBalance()).isEqualByComparingTo(bd(95_000));
     }
 
@@ -107,10 +107,10 @@ class TargetFundServiceTest {
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
         when(fundRepository.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of());
         when(eventRepository.sumFactExecutedByType(any())).thenReturn(BigDecimal.ZERO);
+        when(eventRepository.sumAllFactByType(any())).thenReturn(BigDecimal.ZERO);
 
         service.getOverview();
 
-        // Убеждаемся что старые «effective» методы не вызываются
         verify(eventRepository, never()).sumEffectiveByType(any());
         verify(eventRepository, never()).sumEffectiveByTypeFromDate(any(), any());
     }
@@ -122,11 +122,12 @@ class TargetFundServiceTest {
         when(fundRepository.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of());
         when(eventRepository.sumFactExecutedByType(EventType.INCOME)).thenReturn(bd(100_000));
         when(eventRepository.sumFactExecutedByType(EventType.EXPENSE)).thenReturn(bd(30_000));
+        when(eventRepository.sumAllFactByType(EventType.FUND_TRANSFER)).thenReturn(BigDecimal.ZERO);
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(bd(5_000));
 
         FundsOverviewDto overview = service.getOverview();
 
-        // 100_000 - 30_000 - 0 (funds) - 5_000 (overdue) = 65_000
+        // 100_000 - 30_000 - 0 (transfers) - 5_000 (overdue) = 65_000
         assertThat(overview.pocketBalance()).isEqualByComparingTo(bd(65_000));
     }
 

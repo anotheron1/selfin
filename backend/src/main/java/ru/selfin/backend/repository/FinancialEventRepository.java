@@ -108,6 +108,43 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     List<FactAggregateProjection> findFactAggregatesByPlanIds(@Param("planIds") List<UUID> planIds);
 
     /**
+     * Сумма фактических сумм по типу без фильтра eventKind.
+     * Необходим для FUND_TRANSFER: события, созданные через doTransfer, имеют
+     * eventKind=PLAN (DB default), а не FACT, поэтому стандартный
+     * sumFactExecutedByType их не видит.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
+        WHERE e.type = :type
+          AND e.factAmount IS NOT NULL
+          AND e.deleted = false
+        """)
+    BigDecimal sumAllFactByType(@Param("type") EventType type);
+
+    /** Аналог {@link #sumAllFactByType} с фильтром по дате. */
+    @Query("""
+        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
+        WHERE e.type = :type
+          AND e.factAmount IS NOT NULL
+          AND e.deleted = false AND e.date >= :fromDate
+        """)
+    BigDecimal sumAllFactByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
+
+    /**
+     * FACT-записи в диапазоне дат (для FundPlannerService).
+     * Возвращает только eventKind=FACT записи с factAmount != null.
+     */
+    @Query("""
+        SELECT e FROM FinancialEvent e
+        WHERE e.deleted = false
+          AND e.eventKind = ru.selfin.backend.model.EventKind.FACT
+          AND e.date >= :startDate AND e.date <= :endDate
+        """)
+    List<FinancialEvent> findFactsByDateRange(
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate);
+
+    /**
      * Просроченные обязательные (HIGH) расходы текущего месяца, которые ещё не исполнены.
      * Используется для резервирования в балансе кармашка и прогнозах.
      */

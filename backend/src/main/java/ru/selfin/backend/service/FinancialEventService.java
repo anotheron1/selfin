@@ -32,6 +32,16 @@ public class FinancialEventService {
     @Autowired @Lazy
     private TargetFundService targetFundService;
 
+    /**
+     * Возвращает список событий за период {@code [start, end]} с обогащением:
+     * для PLAN-записей — агрегаты привязанных FACT-записей (количество, сумма),
+     * для FACT-записей — описание родительского PLAN,
+     * для FUND_TRANSFER — название целевого фонда.
+     *
+     * @param start начало периода (включительно)
+     * @param end   конец периода (включительно)
+     * @return обогащённый список DTO, отсортированный по дате
+     */
     public List<FinancialEventDto> findByPeriod(LocalDate start, LocalDate end) {
         List<FinancialEvent> events =
                 eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAsc(start, end);
@@ -74,6 +84,16 @@ public class FinancialEventService {
                 .toList();
     }
 
+    /**
+     * Создаёт новое PLAN-событие с гарантией идемпотентности: если событие
+     * с таким {@code idempotencyKey} уже существует, возвращает его без изменений.
+     * Для FUND_TRANSFER без categoryId автоматически подставляется системная категория.
+     *
+     * @param idempotencyKey UUID из заголовка {@code Idempotency-Key}
+     * @param dto            данные для создания события
+     * @return DTO созданного или ранее существующего события
+     * @throws ResourceNotFoundException если категория не найдена
+     */
     @Transactional
     public FinancialEventDto createIdempotent(UUID idempotencyKey, FinancialEventCreateDto dto) {
         return eventRepository.findByIdempotencyKey(idempotencyKey)
@@ -104,6 +124,17 @@ public class FinancialEventService {
                 });
     }
 
+    /**
+     * Обновляет существующий PLAN-событие. FACT-записи обновлять через этот метод нельзя
+     * (выбросит 400). При наличии старого factAmount пишет в лог предупреждение
+     * (обратная совместимость с событиями до V12).
+     *
+     * @param id  идентификатор события
+     * @param dto новые данные
+     * @return обновлённый DTO
+     * @throws ResourceNotFoundException если событие не найдено
+     * @throws ResponseStatusException   400 при попытке обновить FACT-запись
+     */
     @Transactional
     public FinancialEventDto update(UUID id, FinancialEventCreateDto dto) {
         FinancialEvent event = eventRepository.findById(id)
@@ -144,6 +175,16 @@ public class FinancialEventService {
         return toDto(eventRepository.save(event), null, null);
     }
 
+    /**
+     * Создаёт FACT-запись, привязанную к существующему PLAN-событию.
+     * Родительский PLAN переводится в статус EXECUTED (если был PLANNED).
+     * FACT наследует категорию и тип от PLAN.
+     *
+     * @param planId идентификатор родительского PLAN-события
+     * @param dto    фактическая сумма и описание
+     * @return DTO созданной FACT-записи
+     * @throws ResourceNotFoundException если PLAN не найден или удалён
+     */
     @Transactional
     public FinancialEventDto createLinkedFact(UUID planId, FactCreateDto dto) {
         FinancialEvent plan = eventRepository.findById(planId)
@@ -173,6 +214,16 @@ public class FinancialEventService {
         return toDto(savedFact, null, plan);
     }
 
+    /**
+     * Обновляет фактическую сумму события (PATCH-семантика).
+     * Автоматически переключает статус: PLANNED ↔ EXECUTED в зависимости от наличия factAmount.
+     * Для FUND_TRANSFER при первичном заполнении факта инициирует перевод в копилку.
+     *
+     * @param id  идентификатор события
+     * @param dto новая фактическая сумма (может быть {@code null} для отмены)
+     * @return обновлённый DTO
+     * @throws ResourceNotFoundException если событие не найдено
+     */
     @Transactional
     public FinancialEventDto updateFact(UUID id, FinancialEventUpdateFactDto dto) {
         FinancialEvent event = eventRepository.findById(id)
@@ -205,6 +256,13 @@ public class FinancialEventService {
         return toDto(eventRepository.save(event), null, null);
     }
 
+    /**
+     * Циклически переключает приоритет события: HIGH → MEDIUM → LOW → HIGH.
+     *
+     * @param id идентификатор события
+     * @return обновлённый DTO
+     * @throws ResourceNotFoundException если событие не найдено
+     */
     @Transactional
     public FinancialEventDto cyclePriority(UUID id) {
         FinancialEvent event = eventRepository.findById(id)
@@ -214,6 +272,7 @@ public class FinancialEventService {
         return toDto(eventRepository.save(event), null, null);
     }
 
+    /** Возвращает следующий приоритет в цикле HIGH → MEDIUM → LOW → HIGH. */
     private Priority nextPriority(Priority current) {
         return switch (current) {
             case HIGH -> Priority.MEDIUM;
@@ -222,11 +281,25 @@ public class FinancialEventService {
         };
     }
 
+    /**
+     * Возвращает список хотелок: LOW-приоритетные PLANNED-события без даты.
+     *
+     * @return список DTO хотелок
+     */
     public List<FinancialEventDto> findWishlist() {
         return eventRepository.findWishlistItems(Priority.LOW, EventStatus.PLANNED, LocalDate.now())
                 .stream().map(e -> toDto(e, null, null)).toList();
     }
 
+    /**
+     * Мягко удаляет событие. Для PLAN с привязанными FACT-записями выбрасывает 409 CONFLICT.
+     * При удалении FACT-записи проверяет, остались ли у родительского PLAN другие факты;
+     * если нет — возвращает PLAN в статус PLANNED.
+     *
+     * @param id идентификатор события
+     * @throws ResourceNotFoundException если событие не найдено
+     * @throws ResponseStatusException   409 при наличии привязанных FACT-записей у PLAN
+     */
     @Transactional
     public void softDelete(UUID id) {
         FinancialEvent event = eventRepository.findById(id)
@@ -263,6 +336,16 @@ public class FinancialEventService {
         return toDto(e, null, null);
     }
 
+    /**
+     * Конвертирует entity в DTO с обогащением: агрегаты FACT-записей, описание
+     * родительского PLAN, название фонда. Загружает fundName из БД (N+1 допустим
+     * для единичных вызовов; пакетная загрузка — в {@link #findByPeriod}).
+     *
+     * @param e          entity события
+     * @param agg        агрегат привязанных FACT-записей (может быть {@code null})
+     * @param parentPlan родительский PLAN (может быть {@code null})
+     * @return обогащённый DTO
+     */
     public FinancialEventDto toDto(FinancialEvent e,
                                    FactAggregateProjection agg,
                                    FinancialEvent parentPlan) {
@@ -274,6 +357,15 @@ public class FinancialEventService {
         return toDto(e, agg, parentPlan, fundName);
     }
 
+    /**
+     * Внутренний маппер entity → DTO с уже загруженным именем фонда.
+     *
+     * @param e          entity события
+     * @param agg        агрегат привязанных FACT (может быть {@code null})
+     * @param parentPlan родительский PLAN (может быть {@code null})
+     * @param fundName   название целевого фонда (может быть {@code null})
+     * @return обогащённый DTO
+     */
     private FinancialEventDto toDto(FinancialEvent e,
                                     FactAggregateProjection agg,
                                     FinancialEvent parentPlan,
@@ -299,6 +391,13 @@ public class FinancialEventService {
                 linkedFactsCount, linkedFactsAmount, parentPlanDescription);
     }
 
+    /**
+     * Создаёт хотелку: LOW-приоритетное PLANNED-событие типа EXPENSE без даты.
+     * Категория «Хотелки» создаётся автоматически при первом вызове.
+     *
+     * @param dto описание и сумма хотелки
+     * @return DTO созданного события
+     */
     @Transactional
     public FinancialEventDto createWishlistItem(WishlistCreateDto dto) {
         Category category = categoryRepository.findByNameAndDeletedFalse("Хотелки")

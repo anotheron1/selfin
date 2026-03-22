@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.DashboardDto;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
@@ -59,6 +60,11 @@ class DashboardServiceTest {
 
     // ─── Вспомогательный билдер событий ───────────────────────────────────────
 
+    /**
+     * Создаёт тестовое событие, корректно моделирующее V12 plan-fact split:
+     * если fact задан — FACT-запись (eventKind=FACT, factAmount=fact);
+     * если fact == null — PLAN-запись (eventKind=PLAN, plannedAmount=planned).
+     */
     private FinancialEvent event(EventType type, LocalDate date,
             BigDecimal planned, BigDecimal fact) {
         Category category = Category.builder()
@@ -66,17 +72,35 @@ class DashboardServiceTest {
                 .name(type == EventType.INCOME ? "Зарплата" : "Еда")
                 .type(type == EventType.INCOME ? CategoryType.INCOME : CategoryType.EXPENSE)
                 .build();
-        return FinancialEvent.builder()
-                .id(UUID.randomUUID())
-                .date(date)
-                .category(category)
-                .type(type)
-                .plannedAmount(planned)
-                .factAmount(fact)
-                .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
-                .priority(Priority.MEDIUM)
-                .deleted(false)
-                .build();
+        if (fact != null) {
+            // FACT-запись: factAmount задан, plannedAmount = null (V12)
+            return FinancialEvent.builder()
+                    .id(UUID.randomUUID())
+                    .date(date)
+                    .category(category)
+                    .type(type)
+                    .eventKind(EventKind.FACT)
+                    .plannedAmount(null)
+                    .factAmount(fact)
+                    .status(EventStatus.EXECUTED)
+                    .priority(Priority.MEDIUM)
+                    .deleted(false)
+                    .build();
+        } else {
+            // PLAN-запись: plannedAmount задан, factAmount = null (V12)
+            return FinancialEvent.builder()
+                    .id(UUID.randomUUID())
+                    .date(date)
+                    .category(category)
+                    .type(type)
+                    .eventKind(EventKind.PLAN)
+                    .plannedAmount(planned)
+                    .factAmount(null)
+                    .status(EventStatus.PLANNED)
+                    .priority(Priority.MEDIUM)
+                    .deleted(false)
+                    .build();
+        }
     }
 
     private BalanceCheckpoint checkpoint(LocalDate date, long amount) {
@@ -285,15 +309,13 @@ class DashboardServiceTest {
     @Test
     @DisplayName("Кассовый разрыв: обнаруживает первый день с отрицательным балансом")
     void cashGap_detectsFirstNegativeDay() {
-        LocalDate monthStart = TODAY.withDayOfMonth(1);
-        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
-
-        List<FinancialEvent> events = List.of(
-                event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(5_000), bd(5_000)),
+        List<FinancialEvent> monthEvents = List.of(
+                event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(5_000), bd(5_000))
+        );
+        List<FinancialEvent> horizonEvents = List.of(
                 event(EventType.EXPENSE, LocalDate.of(2026, 3, 17), bd(10_000), null)
         );
-        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
-                .thenReturn(events);
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
 
         DashboardDto dto = dashboardService.getDashboard(TODAY);
 
@@ -305,14 +327,13 @@ class DashboardServiceTest {
     @Test
     @DisplayName("Кассовый разрыв: null если баланс всегда положительный")
     void cashGap_nullWhenNoGap() {
-        LocalDate monthStart = TODAY.withDayOfMonth(1);
-        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
-
-        List<FinancialEvent> events = List.of(
-                event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(100_000), bd(100_000)),
-                event(EventType.EXPENSE, LocalDate.of(2026, 3, 20), bd(50_000), null));
-        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
-                .thenReturn(events);
+        List<FinancialEvent> monthEvents = List.of(
+                event(EventType.INCOME, LocalDate.of(2026, 3, 1), bd(100_000), bd(100_000))
+        );
+        List<FinancialEvent> horizonEvents = List.of(
+                event(EventType.EXPENSE, LocalDate.of(2026, 3, 20), bd(50_000), null)
+        );
+        stubTwoSalaryScenario(monthEvents, horizonEvents);
 
         DashboardDto dto = dashboardService.getDashboard(TODAY);
 
@@ -489,8 +510,10 @@ class DashboardServiceTest {
         LocalDate monthStart = TODAY.withDayOfMonth(1);
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
 
+        // V12: PLAN (planned=20000) + FACT (fact=15000) = два отдельных события
         List<FinancialEvent> events = List.of(
-                event(EventType.EXPENSE, LocalDate.of(2026, 3, 5), bd(20_000), bd(15_000)));
+                event(EventType.EXPENSE, LocalDate.of(2026, 3, 5), bd(20_000), null),
+                event(EventType.EXPENSE, LocalDate.of(2026, 3, 5), null, bd(15_000)));
         when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
                 .thenReturn(events);
 
@@ -512,17 +535,31 @@ class DashboardServiceTest {
                 .name(categoryName)
                 .type(CategoryType.EXPENSE)
                 .build();
-        return FinancialEvent.builder()
-                .id(UUID.randomUUID())
-                .date(TODAY.withDayOfMonth(5))
-                .category(category)
-                .type(type)
-                .plannedAmount(planned)
-                .factAmount(fact)
-                .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
-                .priority(Priority.MEDIUM)
-                .deleted(false)
-                .build();
+        if (fact != null) {
+            return FinancialEvent.builder()
+                    .id(UUID.randomUUID())
+                    .date(TODAY.withDayOfMonth(5))
+                    .category(category)
+                    .type(type)
+                    .eventKind(EventKind.FACT)
+                    .factAmount(fact)
+                    .status(EventStatus.EXECUTED)
+                    .priority(Priority.MEDIUM)
+                    .deleted(false)
+                    .build();
+        } else {
+            return FinancialEvent.builder()
+                    .id(UUID.randomUUID())
+                    .date(TODAY.withDayOfMonth(5))
+                    .category(category)
+                    .type(type)
+                    .eventKind(EventKind.PLAN)
+                    .plannedAmount(planned)
+                    .status(EventStatus.PLANNED)
+                    .priority(Priority.MEDIUM)
+                    .deleted(false)
+                    .build();
+        }
     }
 
     @Test
@@ -531,10 +568,14 @@ class DashboardServiceTest {
         LocalDate monthStart = TODAY.withDayOfMonth(1);
         LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
 
+        // V12: для каждой категории — PLAN (planned) + FACT (fact)
         List<FinancialEvent> events = List.of(
-                eventWithCategory(EventType.EXPENSE, "Еда",     bd(10_000), bd(8_000)),
-                eventWithCategory(EventType.EXPENSE, "Аренда",  bd(30_000), bd(30_000)),
-                eventWithCategory(EventType.EXPENSE, "Бензин",  bd(5_000),  bd(3_300))
+                eventWithCategory(EventType.EXPENSE, "Еда",     bd(10_000), null),
+                eventWithCategory(EventType.EXPENSE, "Еда",     null,       bd(8_000)),
+                eventWithCategory(EventType.EXPENSE, "Аренда",  bd(30_000), null),
+                eventWithCategory(EventType.EXPENSE, "Аренда",  null,       bd(30_000)),
+                eventWithCategory(EventType.EXPENSE, "Бензин",  bd(5_000),  null),
+                eventWithCategory(EventType.EXPENSE, "Бензин",  null,       bd(3_300))
         );
         when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
                 .thenReturn(events);

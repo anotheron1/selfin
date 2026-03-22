@@ -10,6 +10,7 @@ import ru.selfin.backend.dto.TargetFundDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.FundTransaction;
 import ru.selfin.backend.model.TargetFund;
@@ -90,12 +91,7 @@ public class TargetFundService {
     public FundsOverviewDto getOverview() {
         List<TargetFund> funds = fundRepository.findAllByDeletedFalseOrderByPriorityAsc();
 
-        BigDecimal fundBalances = funds.stream()
-                .filter(f -> !POCKET_NAME.equals(f.getName()))
-                .map(TargetFund::getCurrentBalance)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal pocketBalance = calcPocketBalance(fundBalances);
+        BigDecimal pocketBalance = calcPocketBalance();
 
         List<TargetFundDto> fundDtos = funds.stream()
                 .filter(f -> !POCKET_NAME.equals(f.getName()))
@@ -105,37 +101,48 @@ public class TargetFundService {
     }
 
     /**
-     * Вычисляет баланс кармашка с учётом последнего {@code BalanceCheckpoint}.
-     * <p>
-     * Если чекпоинт зафиксирован — стартуем от реального остатка на счёте
-     * и прибавляем только исполненные (EXECUTED) суммы событий начиная с даты чекпоинта.
-     * Если чекпоинта нет — суммируем только исполненные (EXECUTED) события целиком.
-     * В обоих случаях из результата вычитаются балансы целевых фондов.
+     * Вычисляет баланс кармашка (свободные деньги) с учётом последнего {@code BalanceCheckpoint}.
      *
-     * @param fundBalances суммарный баланс всех активных целевых фондов
+     * <p><b>Модель Variant B:</b> FUND_TRANSFER = реальный расход, деньги ушли со счёта.
+     * Балансы копилок НЕ вычитаются отдельно — они уже учтены через FUND_TRANSFER факты.
+     *
+     * <pre>
+     *   кармашек = checkpoint.amount
+     *            + Σ(factAmount INCOME, date ≥ checkpoint.date)
+     *            − Σ(factAmount EXPENSE, date ≥ checkpoint.date)
+     *            − Σ(factAmount FUND_TRANSFER, date ≥ checkpoint.date)
+     *            − просроченные обязательные расходы
+     * </pre>
+     *
+     * <p>Для INCOME и EXPENSE используется {@code sumFactExecutedByType} (eventKind=FACT).
+     * Для FUND_TRANSFER используется {@code sumAllFactByType} (без фильтра eventKind),
+     * т.к. события, созданные через {@link #doTransfer}, имеют eventKind=PLAN (DB default).
+     *
      * @return баланс кармашка
      */
-    private BigDecimal calcPocketBalance(BigDecimal fundBalances) {
+    private BigDecimal calcPocketBalance() {
         Optional<BalanceCheckpoint> latestCheckpoint = checkpointRepository.findTopByOrderByDateDesc();
 
-        BigDecimal income;
-        BigDecimal expense;
-
-        // Deduct overdue mandatory HIGH-priority EXPENSE plans (current month, still unrealized)
         LocalDate today = LocalDate.now();
         BigDecimal overdueMandate = eventRepository.sumOverdueMandatoryExpenses(
                 today.withDayOfMonth(1), today);
+
+        BigDecimal income;
+        BigDecimal expense;
+        BigDecimal fundTransfer;
 
         if (latestCheckpoint.isPresent()) {
             LocalDate fromDate = latestCheckpoint.get().getDate();
             BigDecimal checkpointAmount = latestCheckpoint.get().getAmount();
             income = eventRepository.sumFactExecutedByTypeFromDate(EventType.INCOME, fromDate);
             expense = eventRepository.sumFactExecutedByTypeFromDate(EventType.EXPENSE, fromDate);
-            return checkpointAmount.add(income).subtract(expense).subtract(fundBalances).subtract(overdueMandate);
+            fundTransfer = eventRepository.sumAllFactByTypeFromDate(EventType.FUND_TRANSFER, fromDate);
+            return checkpointAmount.add(income).subtract(expense).subtract(fundTransfer).subtract(overdueMandate);
         } else {
             income = eventRepository.sumFactExecutedByType(EventType.INCOME);
             expense = eventRepository.sumFactExecutedByType(EventType.EXPENSE);
-            return income.subtract(expense).subtract(fundBalances).subtract(overdueMandate);
+            fundTransfer = eventRepository.sumAllFactByType(EventType.FUND_TRANSFER);
+            return income.subtract(expense).subtract(fundTransfer).subtract(overdueMandate);
         }
     }
 
@@ -251,9 +258,10 @@ public class TargetFundService {
                 .build();
         transactionRepository.save(tx);
 
-        // Создаём EXECUTED событие типа FUND_TRANSFER для видимости в бюджете
+        // Создаём EXECUTED FACT-событие типа FUND_TRANSFER для видимости в бюджете
         Category category = getOrCreateFundTransferCategory();
         FinancialEvent transferEvent = FinancialEvent.builder()
+                .eventKind(EventKind.FACT)
                 .type(EventType.FUND_TRANSFER)
                 .status(EventStatus.EXECUTED)
                 .factAmount(amount)
@@ -261,6 +269,7 @@ public class TargetFundService {
                 .category(category)
                 .targetFundId(fund.getId())
                 .description("В копилку: " + fund.getName())
+                .idempotencyKey(idempotencyKey)
                 .build();
         eventRepository.save(transferEvent);
 

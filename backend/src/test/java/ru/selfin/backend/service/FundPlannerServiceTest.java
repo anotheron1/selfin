@@ -3,6 +3,7 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
@@ -30,6 +31,8 @@ class FundPlannerServiceTest {
         service = new FundPlannerService(eventRepository);
         // По умолчанию просроченных обязательных планов нет
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
+        // По умолчанию FACT-записей текущего месяца нет
+        when(eventRepository.findFactsByDateRange(any(), any())).thenReturn(List.of());
     }
 
     private FinancialEvent makeEvent(LocalDate date, EventType type, EventStatus status,
@@ -40,9 +43,17 @@ class FundPlannerServiceTest {
         e.setType(type);
         e.setStatus(status);
         e.setPriority(priority);
-        e.setPlannedAmount(planned);
-        e.setFactAmount(fact);
         e.setDeleted(false);
+        // V12: PLAN records have plannedAmount only; FACT records have factAmount only
+        if (fact != null) {
+            e.setEventKind(EventKind.FACT);
+            e.setFactAmount(fact);
+            e.setPlannedAmount(null);
+        } else {
+            e.setEventKind(EventKind.PLAN);
+            e.setPlannedAmount(planned);
+            e.setFactAmount(null);
+        }
         return e;
     }
 
@@ -74,13 +85,22 @@ class FundPlannerServiceTest {
         LocalDate yesterday = today.minusDays(1);
         LocalDate tomorrow = today.plusDays(1);
 
-        FinancialEvent pastExecuted = makeEvent(yesterday, EventType.EXPENSE, EventStatus.EXECUTED,
-                Priority.MEDIUM, new BigDecimal("3000"), new BigDecimal("3000"));
+        // V12: PLAN record for executed event (factAmount=null, status=EXECUTED)
+        FinancialEvent pastPlan = makeEvent(yesterday, EventType.EXPENSE, EventStatus.EXECUTED,
+                Priority.MEDIUM, new BigDecimal("3000"), null);
+        // Future planned event
         FinancialEvent futurePlanned = makeEvent(tomorrow, EventType.EXPENSE, EventStatus.PLANNED,
                 Priority.MEDIUM, new BigDecimal("2000"), null);
 
+        // Plans query returns PLAN records only
         when(eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED))
-                .thenReturn(List.of(pastExecuted, futurePlanned));
+                .thenReturn(List.of(pastPlan, futurePlanned));
+
+        // V12: FACT record from separate query
+        FinancialEvent pastFact = makeEvent(yesterday, EventType.EXPENSE, EventStatus.EXECUTED,
+                Priority.MEDIUM, null, new BigDecimal("3000"));
+        when(eventRepository.findFactsByDateRange(any(), any()))
+                .thenReturn(List.of(pastFact));
 
         var result = service.getPlanner();
         var month0 = result.months().get(0);

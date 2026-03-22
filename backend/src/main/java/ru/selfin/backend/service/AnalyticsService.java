@@ -8,8 +8,10 @@ import ru.selfin.backend.dto.AnalyticsReportDto.*;
 import ru.selfin.backend.dto.MultiMonthReportDto;
 import ru.selfin.backend.dto.MultiMonthReportDto.*;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
+import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
@@ -274,7 +276,7 @@ public class AnalyticsService {
             // от даты чекпоинта до конца предыдущего месяца
             List<FinancialEvent> bridgeEvents = eventRepository
                     .findAllByDeletedFalseAndDateBetween(cp.getDate(), monthStart.minusDays(1));
-            startBalance = startBalance.add(netSum(bridgeEvents));
+            startBalance = startBalance.add(effectiveNetSum(bridgeEvents));
         }
         return startBalance;
     }
@@ -293,14 +295,18 @@ public class AnalyticsService {
     }
 
     /**
-     * Суммарная знаковая сумма списка событий.
+     * V12-совместимая суммарная знаковая сумма списка событий.
+     * Пропускает PLAN(EXECUTED) — их вклад уже учтён через FACT-записи.
      *
-     * @param events список событий
-     * @return сумма знаковых сумм всех событий
+     * @param events список событий (может содержать и PLAN, и FACT записи)
+     * @return алгебраическая сумма знаковых сумм без двойного учёта
      * @see #signedAmount(FinancialEvent)
      */
-    private BigDecimal netSum(List<FinancialEvent> events) {
-        return events.stream().map(this::signedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    private BigDecimal effectiveNetSum(List<FinancialEvent> events) {
+        return events.stream()
+                .filter(e -> !(e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.EXECUTED))
+                .map(this::signedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
@@ -434,6 +440,17 @@ public class AnalyticsService {
         return new MultiMonthReportDto(monthLabels, result);
     }
 
+    /**
+     * Формирует итоговую строку (TOTAL_INCOME / TOTAL_EXPENSE) для мультимесячного отчёта.
+     *
+     * @param type    тип строки (определяет визуальный стиль на фронте)
+     * @param label   человекочитаемая метка («Итого доходы» и т.д.)
+     * @param catType тип категории (INCOME / EXPENSE)
+     * @param months  список меток месяцев (ключи для плановых/фактических карт)
+     * @param planned плановые суммы по месяцам
+     * @param actual  фактические суммы по месяцам ({@code null}-значение = факт отсутствует)
+     * @return строка отчёта с помесячными значениями
+     */
     private RowDto buildTotalRow(RowType type, String label, CategoryType catType,
                                   List<String> months,
                                   Map<String, BigDecimal> planned, Map<String, BigDecimal> actual) {

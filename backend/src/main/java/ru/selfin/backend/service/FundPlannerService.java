@@ -32,48 +32,53 @@ public class FundPlannerService {
      * @return DTO с помесячной разбивкой плановых доходов и расходов
      */
     public FundPlannerDto getPlanner() {
-        List<FinancialEvent> events =
+        // PLANы (для плановых агрегатов)
+        List<FinancialEvent> plans =
                 eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED);
 
         YearMonth current = YearMonth.now();
         LocalDate today = LocalDate.now();
+
+        // FACT-записи текущего месяца (для фактических агрегатов)
+        LocalDate monthStart = current.atDay(1);
+        LocalDate monthEnd = current.atEndOfMonth();
+        List<FinancialEvent> currentMonthFacts =
+                eventRepository.findFactsByDateRange(monthStart, monthEnd);
+
         List<FundPlannerMonthDto> months = new ArrayList<>(36);
 
         for (int i = 0; i < 36; i++) {
             YearMonth month = current.plusMonths(i);
 
-            // All events in the month — used for factExpenses (must include past executed)
-            List<FinancialEvent> allMonthEvents = events.stream()
+            List<FinancialEvent> allMonthPlans = plans.stream()
                     .filter(e -> e.getDate() != null
                             && YearMonth.from(e.getDate()).equals(month))
                     .toList();
 
-            // For the current month: only events from today onwards feed the planned aggregates.
-            // For future months: use all events in the month.
-            List<FinancialEvent> monthEvents = (i == 0)
-                    ? allMonthEvents.stream()
+            // Текущий месяц: плановые агрегаты только от сегодня и далее
+            List<FinancialEvent> monthPlans = (i == 0)
+                    ? allMonthPlans.stream()
                             .filter(e -> !e.getDate().isBefore(today))
                             .toList()
-                    : allMonthEvents;
+                    : allMonthPlans;
 
-            BigDecimal plannedIncome = monthEvents.stream()
+            BigDecimal plannedIncome = monthPlans.stream()
                     .filter(e -> e.getType() == EventType.INCOME)
                     .map(e -> Objects.requireNonNullElse(e.getPlannedAmount(), BigDecimal.ZERO))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            BigDecimal mandatoryExpenses = monthEvents.stream()
+            BigDecimal mandatoryExpenses = monthPlans.stream()
                     .filter(e -> e.getPriority() == Priority.HIGH && e.getType() == EventType.EXPENSE)
                     .map(e -> Objects.requireNonNullElse(e.getPlannedAmount(), BigDecimal.ZERO))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            // Month 0: add overdue HIGH-priority EXPENSE plans (past date in current month, still PLANNED)
             if (i == 0) {
                 BigDecimal overdueMandate = eventRepository.sumOverdueMandatoryExpenses(
                         today.withDayOfMonth(1), today);
                 mandatoryExpenses = mandatoryExpenses.add(overdueMandate);
             }
 
-            BigDecimal allPlannedExpenses = monthEvents.stream()
+            BigDecimal allPlannedExpenses = monthPlans.stream()
                     .filter(e -> e.getType() == EventType.EXPENSE)
                     .map(e -> Objects.requireNonNullElse(e.getPlannedAmount(), BigDecimal.ZERO))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -81,16 +86,13 @@ public class FundPlannerService {
             BigDecimal factExpenses = null;
             BigDecimal factIncome = null;
             if (i == 0) {
-                factExpenses = allMonthEvents.stream()
-                        .filter(e -> e.getType() == EventType.EXPENSE
-                                && e.getStatus() == EventStatus.EXECUTED
-                                && e.getFactAmount() != null)
+                // Факты берём из отдельного запроса FACT-записей (после V12 PLANы не имеют factAmount)
+                factExpenses = currentMonthFacts.stream()
+                        .filter(e -> e.getType() == EventType.EXPENSE)
                         .map(FinancialEvent::getFactAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
-                factIncome = allMonthEvents.stream()
-                        .filter(e -> e.getType() == EventType.INCOME
-                                && e.getStatus() == EventStatus.EXECUTED
-                                && e.getFactAmount() != null)
+                factIncome = currentMonthFacts.stream()
+                        .filter(e -> e.getType() == EventType.INCOME)
                         .map(FinancialEvent::getFactAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
             }
