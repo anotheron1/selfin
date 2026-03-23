@@ -95,6 +95,9 @@ export default function Budget() {
     const totalPlannedExpense = events.filter(e => e.type === 'EXPENSE' && e.eventKind === 'PLAN').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
     const totalFactExpense = events.filter(e => e.type === 'EXPENSE' && e.eventKind === 'FACT').reduce((s, e) => s + (e.factAmount ?? 0), 0);
     const hasFactData = events.some(e => e.eventKind === 'FACT' && e.factAmount != null);
+    const lastFact = events
+        .filter(e => e.eventKind === 'FACT' && e.factAmount != null && e.date != null)
+        .sort((a, b) => (b.date! > a.date! ? 1 : -1))[0] ?? null;
 
     return (
         <>
@@ -139,6 +142,18 @@ export default function Budget() {
                                 )}
                             </span>
                         </div>
+                        {lastFact && (
+                            <div className="flex justify-between pt-1 mt-1" style={{ borderTop: '1px solid var(--color-border)' }}>
+                                <span style={{ color: 'var(--color-text-muted)' }}>Последний факт</span>
+                                <span style={{ color: 'var(--color-text-muted)' }}>
+                                    {new Date(lastFact.date! + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                                    {' · '}
+                                    <span className="font-medium" style={{ color: 'var(--color-text)' }}>
+                                        -{fmt(lastFact.factAmount)}
+                                    </span>
+                                </span>
+                            </div>
+                        )}
                     </div>
                 )}
 
