@@ -13,6 +13,7 @@ import ru.selfin.backend.dto.FactCreateDto;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
+import ru.selfin.backend.dto.StandaloneFactCreateDto;
 import ru.selfin.backend.dto.WishlistCreateDto;
 import ru.selfin.backend.service.FinancialEventService;
 
@@ -91,6 +92,14 @@ public class FinancialEventController {
     @ResponseStatus(HttpStatus.CREATED)
     public FinancialEventDto createWishlistItem(@RequestBody @Valid WishlistCreateDto dto) {
         return eventService.createWishlistItem(dto);
+    }
+
+    @Operation(summary = "Создать внеплановый факт",
+            description = "Создаёт standalone FACT-запись без родительского PLAN — для внеплановых трат.")
+    @PostMapping("/facts")
+    @ResponseStatus(HttpStatus.CREATED)
+    public FinancialEventDto createStandaloneFact(@Valid @RequestBody StandaloneFactCreateDto dto) {
+        return eventService.createStandaloneFact(dto);
     }
 
     @Operation(summary = "Создать связанный факт к плану",

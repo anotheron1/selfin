@@ -13,6 +13,7 @@ import type {
     FundsOverview,
     MultiMonthReport,
     PurchaseType,
+    StandaloneFactCreateDto,
     TargetFund,
     WishlistCreateDto,
 } from '../types/api';
@@ -89,6 +90,10 @@ export const deleteEvent = (id: string) => del(`/events/${id}`);
 /** Создаёт фактическое исполнение (FACT) для планового события (PLAN). */
 export const createLinkedFact = (planId: string, dto: FactCreateDto) =>
     post<FinancialEvent>(`/events/${planId}/facts`, dto);
+
+/** Создаёт внеплановый факт без родительского PLAN. */
+export const createStandaloneFact = (dto: StandaloneFactCreateDto) =>
+    post<FinancialEvent>('/events/facts', dto);
 
 // --- Analytics ---
 

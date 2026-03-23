@@ -125,6 +125,31 @@ public class FinancialEventService {
     }
 
     /**
+     * Создаёт standalone FACT-запись без родительского PLAN.
+     * Используется для внеплановых трат, когда план не создавался.
+     */
+    @Transactional
+    public FinancialEventDto createStandaloneFact(StandaloneFactCreateDto dto) {
+        Category category = categoryRepository.findById(dto.categoryId())
+                .filter(c -> !c.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+
+        FinancialEvent fact = FinancialEvent.builder()
+                .idempotencyKey(UUID.randomUUID())
+                .eventKind(EventKind.FACT)
+                .date(dto.date())
+                .category(category)
+                .type(dto.type())
+                .factAmount(dto.factAmount())
+                .priority(dto.priority() != null ? dto.priority() : category.getPriority())
+                .status(EventStatus.EXECUTED)
+                .description(dto.description())
+                .build();
+
+        return toDto(eventRepository.save(fact), null, null);
+    }
+
+    /**
      * Обновляет существующий PLAN-событие. FACT-записи обновлять через этот метод нельзя
      * (выбросит 400). При наличии старого factAmount пишет в лог предупреждение
      * (обратная совместимость с событиями до V12).

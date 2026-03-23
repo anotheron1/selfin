@@ -62,6 +62,15 @@ export interface FactCreateDto {
     description?: string;
 }
 
+export interface StandaloneFactCreateDto {
+    date: string;
+    categoryId: string;
+    type: EventType;
+    factAmount: number;
+    description?: string;
+    priority?: Priority;
+}
+
 export interface CashGapAlert {
     gapDate: string;
     gapAmount: number;

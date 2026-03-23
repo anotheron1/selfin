@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
-import { createEvent, fetchCategories, fetchFunds } from '../api';
+import { createEvent, createLinkedFact, createStandaloneFact, fetchCategories, fetchFunds } from '../api';
 import type { Category, FinancialEventCreateDto, TargetFund } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
@@ -63,7 +63,27 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                 if (selectedCategory?.priority === 'HIGH') return 'HIGH';
                 return form.priority ?? 'MEDIUM';
             })();
-            await createEvent({ ...form as FinancialEventCreateDto, priority: effectivePriority });
+            const factAmount = factAmountLocal ? parseFloat(factAmountLocal) : null;
+            const hasFactAmount = factAmount != null && !isNaN(factAmount);
+            const hasPlanAmount = !!form.plannedAmount;
+
+            if (hasFactAmount && !hasPlanAmount && !isFundTransfer) {
+                // Внеплановый факт — только фактическая сумма, без плана
+                await createStandaloneFact({
+                    date: form.date!,
+                    categoryId: form.categoryId!,
+                    type: form.type!,
+                    factAmount,
+                    description: form.description || undefined,
+                    priority: effectivePriority,
+                });
+            } else {
+                // Плановая транзакция (с планом или FUND_TRANSFER)
+                const plan = await createEvent({ ...form as FinancialEventCreateDto, priority: effectivePriority });
+                if (hasFactAmount && !isFundTransfer) {
+                    await createLinkedFact(plan.id, { date: form.date!, factAmount: factAmount!, description: form.description || undefined });
+                }
+            }
             onSuccess();
             onClose();
         } catch (err) {
