@@ -16,10 +16,8 @@
 
 1. Ввести константу `CASH_FLOW_HORIZON_DAYS = 14`.
 2. Вычислить `calendarEnd = max(monthEnd, today + 14)`.
-3. Передать `calendarEnd` вместо `monthEnd` в:
-   - выборку событий: `findAllByDeletedFalseAndDateBetween(monthStart, calendarEnd)` — чтобы события следующего месяца попали в расчет баланса.
-   - цикл `buildCashFlow` — чтобы ячейки генерировались до `calendarEnd`.
-4. Остальные секции отчета (`buildPlanFact`, `buildMandatoryBurnRate`, `buildIncomeGap`) продолжают использовать `monthEnd` — они привязаны к текущему месяцу.
+3. Если `calendarEnd > monthEnd` — сделать **вторую** выборку событий за диапазон `(monthEnd+1, calendarEnd)` и объединить с основной. Основная выборка `(monthStart, monthEnd)` передается в `buildPlanFact`, `buildMandatoryBurnRate`, `buildIncomeGap` без изменений.
+4. Объединенный список событий + `calendarEnd` передаются в `buildCashFlow` — чтобы ячейки генерировались до `calendarEnd` с учетом событий следующего месяца.
 
 ### Frontend
 
