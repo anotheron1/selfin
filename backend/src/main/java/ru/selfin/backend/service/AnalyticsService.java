@@ -116,6 +116,8 @@ public class AnalyticsService {
     private List<CashFlowDay> buildCashFlow(List<FinancialEvent> events,
                                              LocalDate monthStart, LocalDate endDate,
                                              LocalDate today, BigDecimal initialBalance) {
+        // Фильтр EventKind (PLAN vs FACT) здесь не нужен: расширенный диапазон содержит
+        // только будущие дни, у которых factAmount = null, поэтому двойного счёта нет.
         // Группируем события по дате
         Map<LocalDate, List<FinancialEvent>> byDate = events.stream()
                 .collect(Collectors.groupingBy(FinancialEvent::getDate));

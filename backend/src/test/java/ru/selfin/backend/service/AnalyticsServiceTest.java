@@ -7,6 +7,7 @@ import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.MultiMonthReportDto;
 import ru.selfin.backend.dto.MultiMonthReportDto.*;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
@@ -131,7 +132,6 @@ class AnalyticsServiceTest {
                 .map(AnalyticsReportDto.CategoryPlanFact::categoryName)
                 .toList();
         assertThat(pfCategories).containsExactly("Еда");
-        assertThat(pfCategories).doesNotContain("Зарплата");
     }
 
     @Test
@@ -171,6 +171,7 @@ class AnalyticsServiceTest {
                 .date(date)
                 .category(cat)
                 .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
                 .plannedAmount(planned)
                 .factAmount(fact)
                 .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
@@ -191,6 +192,7 @@ class AnalyticsServiceTest {
                 .date(date)
                 .category(cat)
                 .type(EventType.INCOME)
+                .eventKind(EventKind.PLAN)
                 .plannedAmount(planned)
                 .factAmount(fact)
                 .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
