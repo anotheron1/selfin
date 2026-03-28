@@ -66,7 +66,7 @@ function getDisplayName(event: FinancialEvent): string {
     return event.description || event.rawInput || event.categoryName || '';
 }
 
-export default function Budget() {
+export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const now = new Date();
     const [year, setYear] = useState(now.getFullYear());
     const [month, setMonth] = useState(now.getMonth());
@@ -86,6 +86,12 @@ export default function Budget() {
     }, [year, month]);
 
     useEffect(() => { load(); }, [load]);
+
+    // Фоновое обновление при добавлении через FAB (без сброса скролла)
+    useEffect(() => {
+        if (refreshSignal) load(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [refreshSignal]);
 
     const weeks = buildWeeks(year, month);
     const monthLabel = new Date(year, month).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });

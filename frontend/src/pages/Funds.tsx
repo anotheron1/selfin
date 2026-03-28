@@ -377,7 +377,7 @@ function FundCard({ fund, pocketBalance, onTransfer, onEdit }: {
 
 // ─── Страница Funds ───────────────────────────────────────────────────────────
 
-export default function Funds() {
+export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
     const [data, setData] = useState<FundsOverview | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showCreate, setShowCreate] = useState(false);
@@ -402,6 +402,12 @@ export default function Funds() {
         return fetchFunds().then(setData).catch((err: Error) => setError(err.message));
     }, []);
     useEffect(() => { load(); }, [load]);
+
+    // Фоновое обновление при добавлении через FAB
+    useEffect(() => {
+        if (refreshSignal) load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [refreshSignal]);
 
     useEffect(() => {
         if (!data) return;

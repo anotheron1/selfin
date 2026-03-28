@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { fetchDashboard, fetchAnalyticsReport, fetchEvents } from '../api';
 import type { AnalyticsReport, DashboardData, FinancialEvent } from '../types/api';
 import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
@@ -68,7 +68,7 @@ function SalaryRow({ label, value, dimmed = false }: {
     );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ refreshSignal }: { refreshSignal?: number }) {
     const _today = new Date();
     const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
 
@@ -78,7 +78,7 @@ export default function Dashboard() {
     const [monthEvents, setMonthEvents] = useState<FinancialEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
+    const loadAll = useCallback(() => {
         const today = new Date();
         const ld = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const monthStart = ld(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -97,7 +97,15 @@ export default function Dashboard() {
                 setMonthEvents(mEvts);
             })
             .catch(e => setError(e.message));
-    }, []);
+    }, [todayStr]);
+
+    useEffect(() => { loadAll(); }, [loadAll]);
+
+    // Фоновое обновление при добавлении через FAB
+    useEffect(() => {
+        if (refreshSignal) loadAll();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [refreshSignal]);
 
     if (error) return (
         <div className="p-6 text-center" style={{ color: 'var(--color-danger)' }}>Ошибка: {error}</div>

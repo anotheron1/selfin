@@ -18,9 +18,9 @@ export default function App() {
       <div className="min-h-dvh overflow-x-hidden" style={{ paddingBottom: 'var(--nav-height)' }}>
         <main className="max-w-2xl mx-auto">
           <Routes>
-            <Route path="/" element={<Dashboard key={refreshKey} />} />
-            <Route path="/budget" element={<Budget key={refreshKey} />} />
-            <Route path="/funds" element={<Funds key={refreshKey} />} />
+            <Route path="/" element={<Dashboard refreshSignal={refreshKey} />} />
+            <Route path="/budget" element={<Budget refreshSignal={refreshKey} />} />
+            <Route path="/funds" element={<Funds refreshSignal={refreshKey} />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
