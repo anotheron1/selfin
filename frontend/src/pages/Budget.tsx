@@ -76,10 +76,10 @@ export default function Budget() {
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
     const [factSheetPlanId, setFactSheetPlanId] = useState<string | null>(null);
 
-    const load = useCallback(() => {
+    const load = useCallback((silent = false) => {
         const start = formatDateYMD(new Date(year, month, 1));
         const end = formatDateYMD(new Date(year, month + 1, 0));
-        setLoading(true);
+        if (!silent) setLoading(true);
         fetchEvents(start, end)
             .then(setEvents)
             .finally(() => setLoading(false));
@@ -252,7 +252,7 @@ export default function Budget() {
                                                                             <span className="font-medium text-sm truncate">{displayName}</span>
                                                                             <PriorityButton
                                                                                 priority={event.priority}
-                                                                                onCycle={() => cycleEventPriority(event.id).then(load)}
+                                                                                onCycle={() => cycleEventPriority(event.id).then(() => load(true))}
                                                                             />
                                                                             {isExecuted && (
                                                                                 <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
@@ -315,7 +315,7 @@ export default function Budget() {
                 <EditEventSheet
                     event={selectedEvent}
                     onClose={() => setSelectedEvent(null)}
-                    onSuccess={() => { setSelectedEvent(null); load(); }}
+                    onSuccess={() => { setSelectedEvent(null); load(true); }}
                 />
             )}
             {factSheetPlanId && (
@@ -324,7 +324,7 @@ export default function Budget() {
                     planDescription={events.find(e => e.id === factSheetPlanId)?.description ?? events.find(e => e.id === factSheetPlanId)?.categoryName ?? 'План'}
                     open={!!factSheetPlanId}
                     onClose={() => setFactSheetPlanId(null)}
-                    onCreated={() => { load(); setFactSheetPlanId(null); }}
+                    onCreated={() => { load(true); setFactSheetPlanId(null); }}
                 />
             )}
         </>
