@@ -138,12 +138,15 @@ public class DashboardService {
         List<FinancialEvent> horizonEvents = eventRepository
                 .findAllByDeletedFalseAndDateBetween(asOfDate, horizonEnd);
 
-        // Первые два неисполненных INCOME PLAN-события строго в будущем (не сегодня)
+        // Первые два неисполненных INCOME PLAN-события категории "Зарплата" строго в будущем
         List<LocalDate> salaryDates = horizonEvents.stream()
                 .filter(e -> e.getType() == EventType.INCOME
                         && e.getEventKind() == EventKind.PLAN
                         && e.getStatus() == EventStatus.PLANNED)
                 .filter(e -> e.getDate().isAfter(asOfDate))
+                .filter(e -> e.getCategory() != null
+                        && e.getCategory().getName() != null
+                        && e.getCategory().getName().equalsIgnoreCase("зарплата"))
                 .map(FinancialEvent::getDate)
                 .distinct()
                 .sorted()
