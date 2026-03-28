@@ -90,6 +90,73 @@ class AnalyticsServiceTest {
         assertThat(categoryLabels).containsExactly("Аренда", "Бензин", "Еда");
     }
 
+    // ─── cashFlow horizon ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("cashFlow extends 14 days ahead, crossing month boundary; planFact stays within month")
+    void cashFlow_extendsBeyondMonthEnd() {
+        LocalDate today = LocalDate.of(2026, 3, 28);
+        LocalDate monthStart = today.withDayOfMonth(1);
+        LocalDate monthEnd = today.withDayOfMonth(today.lengthOfMonth()); // March 31
+        LocalDate calendarEnd = today.plusDays(14); // April 11
+
+        // March events (month-scoped query)
+        FinancialEvent marchExpense = expenseOn("Еда", LocalDate.of(2026, 3, 30), bd(5_000), null);
+        // April events (extended query)
+        FinancialEvent aprilIncome = incomeOn("Зарплата", LocalDate.of(2026, 4, 5), bd(100_000), null);
+
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(List.of(marchExpense));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthEnd.plusDays(1), calendarEnd))
+                .thenReturn(List.of(aprilIncome));
+
+        AnalyticsReportDto report = service.getReport(today);
+
+        // cashFlow should contain both March and April days
+        List<LocalDate> cashFlowDates = report.cashFlow().stream()
+                .map(AnalyticsReportDto.CashFlowDay::date)
+                .toList();
+        assertThat(cashFlowDates).contains(
+                LocalDate.of(2026, 3, 28),  // today
+                LocalDate.of(2026, 3, 30),  // march expense
+                LocalDate.of(2026, 4, 5)    // april income
+        );
+
+        // Last cashFlow date should not exceed calendarEnd
+        LocalDate lastDate = cashFlowDates.get(cashFlowDates.size() - 1);
+        assertThat(lastDate).isBeforeOrEqualTo(calendarEnd);
+
+        // planFact must NOT include April events — only Еда category
+        List<String> pfCategories = report.planFact().categories().stream()
+                .map(AnalyticsReportDto.CategoryPlanFact::categoryName)
+                .toList();
+        assertThat(pfCategories).containsExactly("Еда");
+        assertThat(pfCategories).doesNotContain("Зарплата");
+    }
+
+    @Test
+    @DisplayName("cashFlow stays within month when today+14 < monthEnd")
+    void cashFlow_staysWithinMonth_whenHorizonInsideMonth() {
+        // TODAY = March 15, today+14 = March 29, monthEnd = March 31
+        // calendarEnd = max(March 29, March 31) = March 31 — no second query
+        LocalDate monthStart = TODAY.withDayOfMonth(1);
+        LocalDate monthEnd = TODAY.withDayOfMonth(TODAY.lengthOfMonth());
+
+        FinancialEvent expense = expenseOn("Еда", LocalDate.of(2026, 3, 20), bd(3_000), null);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd))
+                .thenReturn(List.of(expense));
+
+        AnalyticsReportDto report = service.getReport(TODAY);
+
+        // Only one repository call (no extended query)
+        verify(eventRepository, times(1)).findAllByDeletedFalseAndDateBetween(any(), any());
+
+        // cashFlow should contain the event day and today
+        List<LocalDate> dates = report.cashFlow().stream()
+                .map(AnalyticsReportDto.CashFlowDay::date).toList();
+        assertThat(dates).contains(TODAY, LocalDate.of(2026, 3, 20));
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
 
     private FinancialEvent expenseOn(String categoryName, LocalDate date,
@@ -104,6 +171,26 @@ class AnalyticsServiceTest {
                 .date(date)
                 .category(cat)
                 .type(EventType.EXPENSE)
+                .plannedAmount(planned)
+                .factAmount(fact)
+                .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
+                .priority(Priority.MEDIUM)
+                .deleted(false)
+                .build();
+    }
+
+    private FinancialEvent incomeOn(String categoryName, LocalDate date,
+            BigDecimal planned, BigDecimal fact) {
+        Category cat = Category.builder()
+                .id(UUID.randomUUID())
+                .name(categoryName)
+                .type(CategoryType.INCOME)
+                .build();
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(date)
+                .category(cat)
+                .type(EventType.INCOME)
                 .plannedAmount(planned)
                 .factAmount(fact)
                 .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)

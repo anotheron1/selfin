@@ -45,9 +45,16 @@ public class AnalyticsService {
     private final FinancialEventRepository eventRepository;
     private final BalanceCheckpointRepository checkpointRepository;
 
+    /** Горизонт кассового календаря: количество дней вперёд от текущей даты. */
+    private static final int CASH_FLOW_HORIZON_DAYS = 14;
+
     /**
      * Формирует полный аналитический отчёт за месяц, в котором находится {@code asOfDate}.
      * Прошлые дни используют фактические суммы (при наличии), будущие — плановые.
+     * <p>
+     * Кассовый календарь расширяется на {@value #CASH_FLOW_HORIZON_DAYS} дней вперёд
+     * от {@code asOfDate}, при необходимости захватывая события следующего месяца.
+     * Остальные разделы отчёта (план-факт, burn rate, income gap) остаются в рамках месяца.
      *
      * @param asOfDate опорная дата расчёта (обычно сегодня)
      * @return агрегированный {@link AnalyticsReportDto}
@@ -56,40 +63,58 @@ public class AnalyticsService {
     public AnalyticsReportDto getReport(LocalDate asOfDate) {
         LocalDate monthStart = asOfDate.withDayOfMonth(1);
         LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
+        LocalDate calendarEnd = asOfDate.plusDays(CASH_FLOW_HORIZON_DAYS);
+        if (calendarEnd.isBefore(monthEnd)) {
+            calendarEnd = monthEnd;
+        }
 
-        List<FinancialEvent> events = eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
+        List<FinancialEvent> monthEvents = eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
+
+        // Для кассового календаря: если горизонт выходит за пределы месяца,
+        // подгружаем события следующего месяца и объединяем
+        List<FinancialEvent> cashFlowEvents;
+        if (calendarEnd.isAfter(monthEnd)) {
+            List<FinancialEvent> extraEvents = eventRepository
+                    .findAllByDeletedFalseAndDateBetween(monthEnd.plusDays(1), calendarEnd);
+            cashFlowEvents = new ArrayList<>(monthEvents);
+            cashFlowEvents.addAll(extraEvents);
+        } else {
+            cashFlowEvents = monthEvents;
+        }
 
         BigDecimal initialBalance = calcStartBalance(monthStart);
 
         return new AnalyticsReportDto(
-                buildCashFlow(events, monthStart, monthEnd, asOfDate, initialBalance),
-                buildPlanFact(events),
-                buildMandatoryBurnRate(events, monthStart, monthEnd),
-                buildIncomeGap(events));
+                buildCashFlow(cashFlowEvents, monthStart, calendarEnd, asOfDate, initialBalance),
+                buildPlanFact(monthEvents),
+                buildMandatoryBurnRate(monthEvents, monthStart, monthEnd),
+                buildIncomeGap(monthEvents));
     }
 
     /**
-     * Строит кассовый календарь — список дней месяца с нарастающим балансом.
+     * Строит кассовый календарь — список дней с нарастающим балансом.
      * <p>
      * Нарастающий баланс стартует от {@code initialBalance} — реального остатка на счёте
      * на начало месяца, рассчитанного через {@link #calcStartBalance(LocalDate)}.
-     * Это позволяет корректно отображать кассовый разрыв даже при наличии накоплений
-     * из предыдущих месяцев.
      * <p>
      * Для каждого дня вычисляется {@code dailyIncome} и {@code dailyExpense}:
      * прошлые дни используют {@code factAmount} (при отсутствии — {@code plannedAmount}),
      * будущие — только {@code plannedAmount}.
      * Дни без событий скрываются, за исключением сегодняшнего дня.
+     * <p>
+     * Диапазон дат может выходить за пределы текущего месяца —
+     * параметр {@code endDate} задаётся горизонтом кассового календаря
+     * ({@value #CASH_FLOW_HORIZON_DAYS} дней вперёд от текущей даты).
      *
-     * @param events         события месяца (без удалённых)
-     * @param monthStart     первый день месяца
-     * @param monthEnd       последний день месяца
+     * @param events         события за весь диапазон {@code [monthStart, endDate]} (без удалённых)
+     * @param monthStart     первый день месяца (начало нарастающего баланса)
+     * @param endDate        последний день календаря (может быть за пределами месяца)
      * @param today          сегодняшняя дата (граница прошлое / будущее)
      * @param initialBalance начальный баланс на начало месяца из чекпоинта
-     * @return упорядоченный список {@link CashFlowDay} на каждый день месяца
+     * @return упорядоченный список {@link CashFlowDay} от {@code monthStart} до {@code endDate}
      */
     private List<CashFlowDay> buildCashFlow(List<FinancialEvent> events,
-                                             LocalDate monthStart, LocalDate monthEnd,
+                                             LocalDate monthStart, LocalDate endDate,
                                              LocalDate today, BigDecimal initialBalance) {
         // Группируем события по дате
         Map<LocalDate, List<FinancialEvent>> byDate = events.stream()
@@ -98,7 +123,7 @@ public class AnalyticsService {
         List<CashFlowDay> days = new ArrayList<>();
         BigDecimal running = initialBalance;
 
-        for (LocalDate d = monthStart; !d.isAfter(monthEnd); d = d.plusDays(1)) {
+        for (LocalDate d = monthStart; !d.isAfter(endDate); d = d.plusDays(1)) {
             boolean isFuture = d.isAfter(today);
             List<FinancialEvent> dayEvents = byDate.getOrDefault(d, List.of());
 
