@@ -271,7 +271,7 @@ export default function Budget() {
                                                                                 ← {event.parentPlanDescription}
                                                                             </p>
                                                                         )}
-                                                                        {event.eventKind === 'PLAN' && event.status === 'PLANNED' && (
+                                                                        {event.eventKind === 'PLAN' && (
                                                                             <button
                                                                                 onClick={(e) => { e.stopPropagation(); setFactSheetPlanId(event.id); }}
                                                                                 className="text-xs mt-1"
