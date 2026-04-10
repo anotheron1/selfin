@@ -422,6 +422,7 @@ public class FinancialEventService {
                         Category.builder()
                                 .name(SystemCategory.WISHLIST_NAME)
                                 .type(CategoryType.EXPENSE)
+                                .system(true)
                                 .build()));
 
         FinancialEvent event = FinancialEvent.builder()
