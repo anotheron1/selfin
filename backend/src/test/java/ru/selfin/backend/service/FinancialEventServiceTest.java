@@ -13,6 +13,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
@@ -28,12 +29,13 @@ class FinancialEventServiceTest {
     private final FinancialEventRepository eventRepository = mock(FinancialEventRepository.class);
     private final CategoryRepository categoryRepository = mock(CategoryRepository.class);
     private final TargetFundRepository targetFundRepository = mock(TargetFundRepository.class);
+    private final CategoryService categoryService = mock(CategoryService.class);
     private final TargetFundService targetFundService = mock(TargetFundService.class);
 
     // Build service and inject the @Lazy TargetFundService via reflection
     private final FinancialEventService service;
     {
-        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository);
+        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository, categoryService, Clock.systemDefaultZone());
         try {
             var field = FinancialEventService.class.getDeclaredField("targetFundService");
             field.setAccessible(true);

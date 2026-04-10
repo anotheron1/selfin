@@ -1,16 +1,21 @@
 package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.CategoryCreateDto;
 import ru.selfin.backend.dto.CategoryDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.enums.Priority;
+import ru.selfin.backend.model.enums.SystemCategory;
 import ru.selfin.backend.repository.CategoryRepository;
+import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.text.Collator;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -29,6 +34,7 @@ import java.util.UUID;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final FinancialEventRepository eventRepository;
 
     /**
      * Возвращает все активные (не удалённые) категории.
@@ -37,8 +43,13 @@ public class CategoryService {
      */
     public List<CategoryDto> findAll() {
         Collator collator = Collator.getInstance(new Locale("ru", "RU"));
+        List<Integer> priorityOrder = List.of(
+                Priority.HIGH.ordinal(), Priority.MEDIUM.ordinal(), Priority.LOW.ordinal());
         return categoryRepository.findAllByDeletedFalse().stream()
-                .sorted((a, b) -> collator.compare(a.getName(), b.getName()))
+                .sorted(Comparator
+                        .comparing((Category c) -> c.getType().name())
+                        .thenComparingInt(c -> priorityOrder.indexOf(c.getPriority().ordinal()))
+                        .thenComparing(Category::getName, collator::compare))
                 .map(this::toDto)
                 .toList();
     }
@@ -51,10 +62,12 @@ public class CategoryService {
      */
     @Transactional
     public CategoryDto create(CategoryCreateDto dto) {
+        boolean isSystem = SystemCategory.WISHLIST_NAME.equals(dto.name());
         Category category = Category.builder()
                 .name(dto.name())
                 .type(dto.type())
                 .priority(dto.priority() != null ? dto.priority() : Priority.MEDIUM)
+                .system(isSystem)
                 .build();
         return toDto(categoryRepository.save(category));
     }
@@ -72,6 +85,17 @@ public class CategoryService {
         Category category = categoryRepository.findById(id)
                 .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Category", id));
+
+        if (category.isSystem() && !category.getName().equals(dto.name())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "System categories cannot be renamed");
+        }
+        if (!category.getType().equals(dto.type())
+                && eventRepository.existsByCategoryIdAndDeletedFalse(id)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Cannot change type: category has active events");
+        }
+
         category.setName(dto.name());
         category.setType(dto.type());
         category.setPriority(dto.priority() != null ? dto.priority() : Priority.MEDIUM);
@@ -110,7 +134,7 @@ public class CategoryService {
         return toDto(categoryRepository.save(category));
     }
 
-    private Priority nextPriority(Priority current) {
+    Priority nextPriority(Priority current) {
         return switch (current) {
             case HIGH -> Priority.MEDIUM;
             case MEDIUM -> Priority.LOW;
@@ -125,6 +149,6 @@ public class CategoryService {
      * @return DTO для передачи клиенту
      */
     public CategoryDto toDto(Category c) {
-        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority());
+        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority(), c.isSystem());
     }
 }

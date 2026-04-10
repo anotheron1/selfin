@@ -80,3 +80,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 /* ── Scrollbar utility ── */
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+
+/* ── Plan-Fact hover groups (Budget) ── */
+.pf-hovered {
+  background: rgba(108, 99, 255, 0.07) !important;
+}
+.pf-hovered.pf-is-plan {
+  border-left: 2px solid var(--color-accent) !important;
+  padding-left: 12px !important;
+}
+.pf-hovered.pf-is-fact {
+  border-left: 2px solid rgba(108, 99, 255, 0.35) !important;
+  padding-left: 12px !important;
+}

@@ -45,16 +45,16 @@ export default function PriorityButton({ priority, onCycle, disabled }: Priority
         );
     }
 
-    // MEDIUM: минимальный индикатор — точка, чтобы пользователь мог кликнуть
+    // MEDIUM: плановый элемент — читаемая метка в стиле значка
     return (
         <button
             onClick={handleClick}
-            title="Необязательный — нажмите для смены приоритета"
+            title="Плановый — нажмите для смены приоритета"
             disabled={disabled}
-            className="shrink-0 w-4 h-4 flex items-center justify-center rounded-full opacity-30 hover:opacity-60 transition-opacity"
-            style={{ color: 'var(--color-text-muted)' }}
+            className="shrink-0 text-xs px-1.5 py-0 rounded border leading-5 font-normal opacity-50 hover:opacity-80 transition-opacity"
+            style={{ color: 'var(--color-text-muted)', borderColor: 'var(--color-border)' }}
         >
-            ·
+            план
         </button>
     );
 }

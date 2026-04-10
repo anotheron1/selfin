@@ -138,8 +138,8 @@ export default function Settings() {
     };
 
     const grouped = {
-        EXPENSE: categories.filter(c => c.type === 'EXPENSE').sort((a, b) => a.name.localeCompare(b.name, 'ru')),
-        INCOME: categories.filter(c => c.type === 'INCOME').sort((a, b) => a.name.localeCompare(b.name, 'ru')),
+        EXPENSE: categories.filter(c => c.type === 'EXPENSE'),
+        INCOME: categories.filter(c => c.type === 'INCOME'),
     };
 
     const fmtDate = (d: string) =>
@@ -328,27 +328,38 @@ export default function Settings() {
                                     <div className="flex items-center justify-between py-2.5 px-1"
                                         style={{ borderBottom: '1px solid var(--color-border)' }}>
                                         <div className="flex items-center gap-2">
-                                            <span className="text-sm">{c.name}</span>
+                                            {c.isSystem ? (
+                                                <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                                                    {c.name}
+                                                    <span className="text-xs ml-1" style={{ color: 'var(--color-text-muted)' }}>· системная</span>
+                                                </span>
+                                            ) : (
+                                                <span className="text-sm">{c.name}</span>
+                                            )}
                                             <PriorityButton
                                                 priority={c.priority}
                                                 onCycle={() => handleCyclePriority(c.id)}
                                             />
                                         </div>
                                         <div className="flex gap-1">
-                                            <button
-                                                onClick={() => startEditCat(c)}
-                                                title="Редактировать"
-                                                className="p-1.5 rounded-lg"
-                                                style={{ color: 'var(--color-text-muted)' }}>
-                                                <Pencil size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteCategory(c.id)}
-                                                title="Удалить"
-                                                className="p-1.5 rounded-lg"
-                                                style={{ color: 'var(--color-danger)' }}>
-                                                <Trash2 size={14} />
-                                            </button>
+                                            {!c.isSystem && (
+                                                <button
+                                                    onClick={() => startEditCat(c)}
+                                                    title="Редактировать"
+                                                    className="p-1.5 rounded-lg"
+                                                    style={{ color: 'var(--color-text-muted)' }}>
+                                                    <Pencil size={14} />
+                                                </button>
+                                            )}
+                                            {!c.isSystem && (
+                                                <button
+                                                    onClick={() => handleDeleteCategory(c.id)}
+                                                    title="Удалить"
+                                                    className="p-1.5 rounded-lg"
+                                                    style={{ color: 'var(--color-danger)' }}>
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 )}
