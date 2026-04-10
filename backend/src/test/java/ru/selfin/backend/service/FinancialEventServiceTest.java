@@ -13,6 +13,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
@@ -34,7 +35,7 @@ class FinancialEventServiceTest {
     // Build service and inject the @Lazy TargetFundService via reflection
     private final FinancialEventService service;
     {
-        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository, categoryService);
+        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository, categoryService, Clock.systemDefaultZone());
         try {
             var field = FinancialEventService.class.getDeclaredField("targetFundService");
             field.setAccessible(true);

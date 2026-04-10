@@ -15,6 +15,7 @@ import ru.selfin.backend.model.enums.*;
 import ru.selfin.backend.repository.*;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -29,6 +30,7 @@ public class FinancialEventService {
     private final CategoryRepository categoryRepository;
     private final TargetFundRepository targetFundRepository;
     private final CategoryService categoryService;
+    private final Clock clock;
 
     @Autowired @Lazy
     private TargetFundService targetFundService;
@@ -304,7 +306,8 @@ public class FinancialEventService {
      * @return список DTO хотелок
      */
     public List<FinancialEventDto> findWishlist() {
-        return eventRepository.findWishlistItems(Priority.LOW, EventStatus.PLANNED, LocalDate.now())
+        LocalDate cutoff = LocalDate.now(clock).withDayOfMonth(1);
+        return eventRepository.findWishlistItems(Priority.LOW, EventStatus.PLANNED, cutoff)
                 .stream().map(e -> toDto(e, null, null)).toList();
     }
 
