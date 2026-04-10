@@ -128,7 +128,7 @@ public class CategoryService {
         return toDto(categoryRepository.save(category));
     }
 
-    private Priority nextPriority(Priority current) {
+    Priority nextPriority(Priority current) {
         return switch (current) {
             case HIGH -> Priority.MEDIUM;
             case MEDIUM -> Priority.LOW;

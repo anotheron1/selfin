@@ -28,6 +28,7 @@ public class FinancialEventService {
     private final FinancialEventRepository eventRepository;
     private final CategoryRepository categoryRepository;
     private final TargetFundRepository targetFundRepository;
+    private final CategoryService categoryService;
 
     @Autowired @Lazy
     private TargetFundService targetFundService;
@@ -293,17 +294,8 @@ public class FinancialEventService {
         FinancialEvent event = eventRepository.findById(id)
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
-        event.setPriority(nextPriority(event.getPriority()));
+        event.setPriority(categoryService.nextPriority(event.getPriority()));
         return toDto(eventRepository.save(event), null, null);
-    }
-
-    /** Возвращает следующий приоритет в цикле HIGH → MEDIUM → LOW → HIGH. */
-    private Priority nextPriority(Priority current) {
-        return switch (current) {
-            case HIGH -> Priority.MEDIUM;
-            case MEDIUM -> Priority.LOW;
-            case LOW -> Priority.HIGH;
-        };
     }
 
     /**
@@ -425,10 +417,10 @@ public class FinancialEventService {
      */
     @Transactional
     public FinancialEventDto createWishlistItem(WishlistCreateDto dto) {
-        Category category = categoryRepository.findByNameAndDeletedFalse("Хотелки")
+        Category category = categoryRepository.findByNameAndDeletedFalse(SystemCategory.WISHLIST_NAME)
                 .orElseGet(() -> categoryRepository.save(
                         Category.builder()
-                                .name("Хотелки")
+                                .name(SystemCategory.WISHLIST_NAME)
                                 .type(CategoryType.EXPENSE)
                                 .build()));
 
