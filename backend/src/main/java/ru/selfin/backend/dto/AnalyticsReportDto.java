@@ -18,7 +18,8 @@ public record AnalyticsReportDto(
         List<CashFlowDay> cashFlow,
         PlanFactReport planFact,
         MandatoryBurnRate mandatoryBurn,
-        IncomeGap incomeGap) {
+        IncomeGap incomeGap,
+        PriorityBreakdown priorityBreakdown) {
 
     /**
      * Один день кассового календаря.
@@ -114,5 +115,26 @@ public record AnalyticsReportDto(
             BigDecimal plannedIncome,
             BigDecimal factIncome,
             BigDecimal delta) {
+    }
+
+    /**
+     * Разбивка бюджета месяца по приоритетам категорий.
+     *
+     * @param highPlanned    суммарный план расходов HIGH-приоритета
+     * @param highFact       суммарный факт расходов HIGH-приоритета
+     * @param mediumPlanned  суммарный план расходов MEDIUM-приоритета
+     * @param mediumFact     суммарный факт расходов MEDIUM-приоритета
+     * @param lowPlanned     суммарный план расходов LOW-приоритета
+     * @param lowFact        суммарный факт расходов LOW-приоритета
+     * @param totalIncomeFact суммарный фактический доход за месяц
+     */
+    public record PriorityBreakdown(
+            BigDecimal highPlanned,
+            BigDecimal highFact,
+            BigDecimal mediumPlanned,
+            BigDecimal mediumFact,
+            BigDecimal lowPlanned,
+            BigDecimal lowFact,
+            BigDecimal totalIncomeFact) {
     }
 }

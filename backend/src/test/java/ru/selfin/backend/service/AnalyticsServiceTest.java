@@ -225,7 +225,54 @@ class AnalyticsServiceTest {
                 eq(checkpointDate), eq(LocalDate.of(2026, 3, 31)));
     }
 
+    // ─── buildPriorityBreakdown ───────────────────────────────────────────────
+
+    @Test
+    void buildPriorityBreakdown_aggregatesByPriorityAndKind() {
+        FinancialEvent highPlan = makeEvent(EventKind.PLAN, Priority.HIGH, CategoryType.EXPENSE,
+                BigDecimal.valueOf(10000), null);
+        FinancialEvent highFact = makeEvent(EventKind.FACT, Priority.HIGH, CategoryType.EXPENSE,
+                null, BigDecimal.valueOf(9000));
+        FinancialEvent medPlan = makeEvent(EventKind.PLAN, Priority.MEDIUM, CategoryType.EXPENSE,
+                BigDecimal.valueOf(5000), null);
+        FinancialEvent incFact = makeEvent(EventKind.FACT, Priority.MEDIUM, CategoryType.INCOME,
+                null, BigDecimal.valueOf(80000));
+
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(highPlan, highFact, medPlan, incFact));
+
+        AnalyticsReportDto report = service.getReport(LocalDate.of(2026, 4, 9));
+
+        AnalyticsReportDto.PriorityBreakdown b = report.priorityBreakdown();
+        assertThat(b.highPlanned()).isEqualByComparingTo(BigDecimal.valueOf(10000));
+        assertThat(b.highFact()).isEqualByComparingTo(BigDecimal.valueOf(9000));
+        assertThat(b.totalIncomeFact()).isEqualByComparingTo(BigDecimal.valueOf(80000));
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────────────
+
+    private FinancialEvent makeEvent(EventKind kind, Priority priority, CategoryType catType,
+            BigDecimal planned, BigDecimal fact) {
+        EventType evtType = catType == CategoryType.INCOME ? EventType.INCOME : EventType.EXPENSE;
+        Category cat = Category.builder()
+                .id(UUID.randomUUID())
+                .name("Test")
+                .type(catType)
+                .build();
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(LocalDate.of(2026, 4, 5))
+                .category(cat)
+                .type(evtType)
+                .eventKind(kind)
+                .plannedAmount(planned)
+                .factAmount(fact)
+                .status(fact != null ? EventStatus.EXECUTED : EventStatus.PLANNED)
+                .priority(priority)
+                .deleted(false)
+                .build();
+    }
 
     private FinancialEvent expenseOn(String categoryName, LocalDate date,
             BigDecimal planned, BigDecimal fact) {

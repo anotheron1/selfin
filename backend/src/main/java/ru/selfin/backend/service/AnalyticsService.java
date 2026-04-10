@@ -88,7 +88,8 @@ public class AnalyticsService {
                 buildCashFlow(cashFlowEvents, monthStart, calendarEnd, asOfDate, initialBalance),
                 buildPlanFact(monthEvents),
                 buildMandatoryBurnRate(monthEvents, monthStart, monthEnd),
-                buildIncomeGap(monthEvents));
+                buildIncomeGap(monthEvents),
+                buildPriorityBreakdown(monthEvents));
     }
 
     /**
@@ -349,6 +350,42 @@ public class AnalyticsService {
         // Для прошлых дней берём только факт: неисполненные события не влияют на реальный баланс.
         // Это согласует нарастающий баланс кассового календаря с currentBalance на дашборде.
         return event.getFactAmount();
+    }
+
+    /**
+     * Строит разбивку бюджета по приоритетам категорий.
+     * <p>
+     * Расходы группируются по приоритету (HIGH / MEDIUM / LOW).
+     * Доходы не разбиваются по приоритету — суммируется только суммарный фактический доход.
+     *
+     * @param events события месяца
+     * @return {@link AnalyticsReportDto.PriorityBreakdown}
+     */
+    private AnalyticsReportDto.PriorityBreakdown buildPriorityBreakdown(List<FinancialEvent> events) {
+        BigDecimal highPlanned = BigDecimal.ZERO, highFact = BigDecimal.ZERO;
+        BigDecimal mediumPlanned = BigDecimal.ZERO, mediumFact = BigDecimal.ZERO;
+        BigDecimal lowPlanned = BigDecimal.ZERO, lowFact = BigDecimal.ZERO;
+        BigDecimal totalIncomeFact = BigDecimal.ZERO;
+
+        for (FinancialEvent e : events) {
+            boolean isPlan = e.getEventKind() == EventKind.PLAN;
+            boolean isFact = e.getEventKind() == EventKind.FACT;
+
+            if (e.getType() == EventType.INCOME) {
+                if (isFact) totalIncomeFact = totalIncomeFact.add(orZero(e.getFactAmount()));
+                continue;
+            }
+            BigDecimal planned = isPlan ? orZero(e.getPlannedAmount()) : BigDecimal.ZERO;
+            BigDecimal fact    = isFact ? orZero(e.getFactAmount())    : BigDecimal.ZERO;
+            switch (e.getPriority()) {
+                case HIGH   -> { highPlanned = highPlanned.add(planned); highFact = highFact.add(fact); }
+                case MEDIUM -> { mediumPlanned = mediumPlanned.add(planned); mediumFact = mediumFact.add(fact); }
+                case LOW    -> { lowPlanned = lowPlanned.add(planned); lowFact = lowFact.add(fact); }
+            }
+        }
+        return new AnalyticsReportDto.PriorityBreakdown(
+                highPlanned, highFact, mediumPlanned, mediumFact,
+                lowPlanned, lowFact, totalIncomeFact);
     }
 
     /** Возвращает {@code BigDecimal.ZERO} если значение {@code null}. */
