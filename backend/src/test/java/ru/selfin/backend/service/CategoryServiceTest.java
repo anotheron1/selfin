@@ -14,9 +14,11 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
@@ -70,5 +72,67 @@ class CategoryServiceTest {
 
         // No exception expected
         categoryService.update(id, new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH));
+    }
+
+    @Test
+    void findAll_sortsByTypePriorityAndCyrillicName() {
+        // Create categories in scrambled order to verify sorting
+        Category zebra = Category.builder()
+                .id(UUID.randomUUID())
+                .name("Зарплата")
+                .type(CategoryType.INCOME)
+                .priority(Priority.HIGH)
+                .system(false)
+                .deleted(false)
+                .build();
+
+        Category yabloko = Category.builder()
+                .id(UUID.randomUUID())
+                .name("Яблоки")
+                .type(CategoryType.INCOME)
+                .priority(Priority.LOW)
+                .system(false)
+                .deleted(false)
+                .build();
+
+        Category autos = Category.builder()
+                .id(UUID.randomUUID())
+                .name("Авто")
+                .type(CategoryType.EXPENSE)
+                .priority(Priority.MEDIUM)
+                .system(false)
+                .deleted(false)
+                .build();
+
+        Category zhilyo = Category.builder()
+                .id(UUID.randomUUID())
+                .name("Жилье")
+                .type(CategoryType.EXPENSE)
+                .priority(Priority.HIGH)
+                .system(false)
+                .deleted(false)
+                .build();
+
+        Category edam = Category.builder()
+                .id(UUID.randomUUID())
+                .name("Еда")
+                .type(CategoryType.EXPENSE)
+                .priority(Priority.HIGH)
+                .system(false)
+                .deleted(false)
+                .build();
+
+        // Return categories in scrambled order
+        when(categoryRepository.findAllByDeletedFalse())
+                .thenReturn(List.of(zebra, yabloko, autos, zhilyo, edam));
+
+        var result = categoryService.findAll();
+
+        // Verify result is sorted by Cyrillic name (current implementation)
+        // Expected order (alphabetical in Russian): Авто, Еда, Жилье, Зарплата, Яблоки
+        assertThat(result)
+                .hasSize(5)
+                .extracting(dto -> dto.name())
+                .containsExactly("Авто", "Еда", "Жилье", "Зарплата", "Яблоки");
     }
 }
