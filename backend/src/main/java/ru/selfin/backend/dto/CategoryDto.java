@@ -9,5 +9,6 @@ public record CategoryDto(
         UUID id,
         String name,
         CategoryType type,
-        Priority priority) {
+        Priority priority,
+        boolean isSystem) {
 }

@@ -19,6 +19,8 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     List<FinancialEvent> findAllByDeletedFalseAndDateBetweenOrderByDateAsc(
             LocalDate start, LocalDate end);
 
+    boolean existsByCategoryIdAndDeletedFalse(UUID categoryId);
+
     List<FinancialEvent> findAllByDeletedFalseAndDateBetween(LocalDate start, LocalDate end);
 
     Optional<FinancialEvent> findByIdempotencyKey(UUID idempotencyKey);

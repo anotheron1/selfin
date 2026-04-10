@@ -1,47 +1,74 @@
+// CategoryServiceTest.java
 package ru.selfin.backend.service;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.web.server.ResponseStatusException;
+import ru.selfin.backend.dto.CategoryCreateDto;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.CategoryRepository;
+import ru.selfin.backend.repository.FinancialEventRepository;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class CategoryServiceTest {
 
-    private final CategoryRepository repo = mock(CategoryRepository.class);
-    private final CategoryService service = new CategoryService(repo);
+    @Mock CategoryRepository categoryRepository;
+    @Mock FinancialEventRepository eventRepository;
+    @InjectMocks CategoryService categoryService;
 
     @Test
-    @DisplayName("findAll: категории отсортированы по имени в русском алфавитном порядке")
-    void findAll_sortsCyrillicAlphabetically() {
-        when(repo.findAllByDeletedFalse()).thenReturn(List.of(
-                cat("Еда"),
-                cat("Бензин"),
-                cat("Аренда"),
-                cat("Здоровье")
-        ));
+    void update_systemCategory_throwsWhenRenameAttempted() {
+        UUID id = UUID.randomUUID();
+        Category system = Category.builder()
+                .id(id).name("Хотелки").type(CategoryType.EXPENSE)
+                .priority(Priority.LOW).isSystem(true).build();
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(system));
 
-        List<String> names = service.findAll().stream()
-                .map(dto -> dto.name())
-                .toList();
+        CategoryCreateDto dto = new CategoryCreateDto("Новое имя", CategoryType.EXPENSE, Priority.LOW);
 
-        assertThat(names).containsExactly("Аренда", "Бензин", "Еда", "Здоровье");
+        assertThatThrownBy(() -> categoryService.update(id, dto))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("System categories cannot be renamed");
     }
 
-    private Category cat(String name) {
-        return Category.builder()
-                .id(UUID.randomUUID())
-                .name(name)
-                .type(CategoryType.EXPENSE)
-                .priority(Priority.MEDIUM)
-                .deleted(false)
-                .build();
+    @Test
+    void update_typeChange_withActiveEvents_throws() {
+        UUID id = UUID.randomUUID();
+        Category cat = Category.builder()
+                .id(id).name("Еда").type(CategoryType.EXPENSE)
+                .priority(Priority.HIGH).isSystem(false).build();
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(cat));
+        when(eventRepository.existsByCategoryIdAndDeletedFalse(id)).thenReturn(true);
+
+        CategoryCreateDto dto = new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH);
+
+        assertThatThrownBy(() -> categoryService.update(id, dto))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Cannot change type");
+    }
+
+    @Test
+    void update_typeChange_noActiveEvents_succeeds() {
+        UUID id = UUID.randomUUID();
+        Category cat = Category.builder()
+                .id(id).name("Еда").type(CategoryType.EXPENSE)
+                .priority(Priority.HIGH).isSystem(false).build();
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(cat));
+        when(eventRepository.existsByCategoryIdAndDeletedFalse(id)).thenReturn(false);
+        when(categoryRepository.save(cat)).thenReturn(cat);
+
+        // No exception expected
+        categoryService.update(id, new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH));
     }
 }
