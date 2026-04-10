@@ -128,11 +128,15 @@ class CategoryServiceTest {
 
         var result = categoryService.findAll();
 
-        // Verify result is sorted by Cyrillic name (current implementation)
-        // Expected order (alphabetical in Russian): Авто, Еда, Жилье, Зарплата, Яблоки
+        // Verify result is sorted: EXPENSE before INCOME, then by priority (HIGH→MEDIUM→LOW),
+        // then by Cyrillic name within same type+priority.
+        // EXPENSE/HIGH: Еда, Жилье  (Е < Ж alphabetically)
+        // EXPENSE/MEDIUM: Авто
+        // INCOME/HIGH: Зарплата
+        // INCOME/LOW: Яблоки
         assertThat(result)
                 .hasSize(5)
                 .extracting(dto -> dto.name())
-                .containsExactly("Авто", "Еда", "Жилье", "Зарплата", "Яблоки");
+                .containsExactly("Еда", "Жилье", "Авто", "Зарплата", "Яблоки");
     }
 }

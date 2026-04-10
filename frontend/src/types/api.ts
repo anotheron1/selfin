@@ -11,6 +11,7 @@ export interface Category {
     name: string;
     type: CategoryType;
     priority: Priority;
+    isSystem: boolean;
 }
 
 export interface FinancialEvent {

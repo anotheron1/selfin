@@ -15,6 +15,7 @@ import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.text.Collator;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -42,8 +43,13 @@ public class CategoryService {
      */
     public List<CategoryDto> findAll() {
         Collator collator = Collator.getInstance(new Locale("ru", "RU"));
+        List<Integer> priorityOrder = List.of(
+                Priority.HIGH.ordinal(), Priority.MEDIUM.ordinal(), Priority.LOW.ordinal());
         return categoryRepository.findAllByDeletedFalse().stream()
-                .sorted((a, b) -> collator.compare(a.getName(), b.getName()))
+                .sorted(Comparator
+                        .comparing((Category c) -> c.getType().name())
+                        .thenComparingInt(c -> priorityOrder.indexOf(c.getPriority().ordinal()))
+                        .thenComparing(Category::getName, collator::compare))
                 .map(this::toDto)
                 .toList();
     }
