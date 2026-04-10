@@ -375,6 +375,7 @@ public class AnalyticsService {
                 if (isFact) totalIncomeFact = totalIncomeFact.add(orZero(e.getFactAmount()));
                 continue;
             }
+            if (e.getType() == EventType.FUND_TRANSFER) continue; // transfers are not expense priorities
             BigDecimal planned = isPlan ? orZero(e.getPlannedAmount()) : BigDecimal.ZERO;
             BigDecimal fact    = isFact ? orZero(e.getFactAmount())    : BigDecimal.ZERO;
             switch (e.getPriority()) {

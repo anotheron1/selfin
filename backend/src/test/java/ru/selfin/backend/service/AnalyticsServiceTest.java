@@ -247,6 +247,8 @@ class AnalyticsServiceTest {
         AnalyticsReportDto.PriorityBreakdown b = report.priorityBreakdown();
         assertThat(b.highPlanned()).isEqualByComparingTo(BigDecimal.valueOf(10000));
         assertThat(b.highFact()).isEqualByComparingTo(BigDecimal.valueOf(9000));
+        assertThat(b.mediumPlanned()).isEqualByComparingTo(BigDecimal.valueOf(5000));
+        assertThat(b.mediumFact()).isEqualByComparingTo(BigDecimal.ZERO); // income fact must not pollute expense buckets
         assertThat(b.totalIncomeFact()).isEqualByComparingTo(BigDecimal.valueOf(80000));
     }
 
