@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchMultiMonthReport, fetchAnalyticsReport } from '../api';
-import type { AnalyticsReport, MultiMonthReport, MultiMonthRow } from '../types/api';
+import { fetchMultiMonthReport, fetchAnalyticsReport, fetchEventsByPriority } from '../api';
+import type { AnalyticsReport, FinancialEvent, MultiMonthReport, MultiMonthRow } from '../types/api';
+import BudgetStructureSection from '../components/BudgetStructureSection';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Button } from '../components/ui/button';
 
@@ -15,9 +16,6 @@ const fmtTable = (n: number | null) =>
     n != null
         ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(n) + ' ₽'
         : '—';
-
-const fmtDay = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 
 function deltaColor(delta: number): string {
     return delta >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
@@ -41,14 +39,19 @@ export default function Analytics() {
     const [report, setReport] = useState<MultiMonthReport | null>(null);
     const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
     const [loading, setLoading] = useState(true);
+    const [lowEvents, setLowEvents] = useState<FinancialEvent[]>([]);
 
     useEffect(() => {
         setLoading(true);
         if (preset === '1m') {
-            fetchAnalyticsReport()
-                .then(setAnalytics)
+            Promise.all([fetchAnalyticsReport(), fetchEventsByPriority('LOW')])
+                .then(([report, low]) => {
+                    setAnalytics(report);
+                    setLowEvents(low);
+                })
                 .finally(() => setLoading(false));
         } else {
+            setLowEvents([]); // reset stale low-events when switching presets
             const { startDate, endDate } = getDateRange(preset);
             fetchMultiMonthReport(startDate, endDate)
                 .then(setReport)
@@ -88,7 +91,12 @@ export default function Analytics() {
                 <ScrollArea className="flex-1">
                     <div className="px-4 pb-6 space-y-5">
                         <PlanFactSection planFact={analytics.planFact} />
-                        <MandatoryBurnSection burn={analytics.mandatoryBurn} />
+                        {analytics.priorityBreakdown && (
+                            <BudgetStructureSection
+                                breakdown={analytics.priorityBreakdown}
+                                wishlistItems={lowEvents}
+                            />
+                        )}
                     </div>
                 </ScrollArea>
             )}
@@ -265,57 +273,4 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
     );
 }
 
-// ─── Секция: Burn rate обязательных трат ─────────────────────────────────────
-
-function MandatoryBurnSection({ burn }: { burn: AnalyticsReport['mandatoryBurn'] }) {
-    if (burn.totalPlanned === 0 && burn.totalFact === 0) return null;
-
-    const totalPct = burn.totalPlanned > 0
-        ? Math.min(Math.round((burn.totalFact / burn.totalPlanned) * 100), 100)
-        : 0;
-    const totalColor = totalPct < 70 ? 'var(--color-success)' : totalPct < 90 ? 'var(--color-warning)' : 'var(--color-danger)';
-
-    return (
-        <div className="rounded-2xl p-5"
-            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-            <h3 className="font-semibold text-sm mb-1" style={{ color: 'var(--color-text-muted)' }}>
-                ОБЯЗАТЕЛЬНЫЕ ТРАТЫ
-            </h3>
-            <p className="text-xs text-muted-foreground mb-3">
-                Расходы с высоким приоритетом (ипотека, коммуналка и др.) — план и факт по неделям месяца
-            </p>
-
-            <div className="mb-1 flex justify-between text-sm">
-                <span>Всего</span>
-                <span style={{ color: 'var(--color-text-muted)' }}>{fmt(burn.totalFact)} / {fmt(burn.totalPlanned)}</span>
-            </div>
-            <div className="h-3 rounded-full mb-4" style={{ background: 'var(--color-surface-2)' }}>
-                <div className="h-3 rounded-full transition-all"
-                    style={{ width: `${totalPct}%`, background: totalColor }} />
-            </div>
-
-            <div className="space-y-2">
-                {burn.byWeek.map(week => {
-                    const wPct = week.planned > 0
-                        ? Math.min(Math.round((week.fact / week.planned) * 100), 100)
-                        : 0;
-                    const wColor = wPct < 70 ? 'var(--color-success)' : wPct < 90 ? 'var(--color-warning)' : 'var(--color-danger)';
-                    return (
-                        <div key={week.weekNumber}>
-                            <div className="flex justify-between text-xs mb-1"
-                                style={{ color: 'var(--color-text-muted)' }}>
-                                <span>Неделя {week.weekNumber}: {fmtDay(week.weekStart)} – {fmtDay(week.weekEnd)}</span>
-                                <span>{fmt(week.fact)} / {fmt(week.planned)}</span>
-                            </div>
-                            <div className="h-1.5 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
-                                <div className="h-1.5 rounded-full transition-all"
-                                    style={{ width: `${wPct}%`, background: wColor }} />
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
 
