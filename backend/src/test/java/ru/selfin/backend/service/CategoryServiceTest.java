@@ -32,7 +32,7 @@ class CategoryServiceTest {
         UUID id = UUID.randomUUID();
         Category system = Category.builder()
                 .id(id).name("Хотелки").type(CategoryType.EXPENSE)
-                .priority(Priority.LOW).isSystem(true).build();
+                .priority(Priority.LOW).system(true).build();
         when(categoryRepository.findById(id)).thenReturn(Optional.of(system));
 
         CategoryCreateDto dto = new CategoryCreateDto("Новое имя", CategoryType.EXPENSE, Priority.LOW);
@@ -47,7 +47,7 @@ class CategoryServiceTest {
         UUID id = UUID.randomUUID();
         Category cat = Category.builder()
                 .id(id).name("Еда").type(CategoryType.EXPENSE)
-                .priority(Priority.HIGH).isSystem(false).build();
+                .priority(Priority.HIGH).system(false).build();
         when(categoryRepository.findById(id)).thenReturn(Optional.of(cat));
         when(eventRepository.existsByCategoryIdAndDeletedFalse(id)).thenReturn(true);
 
@@ -63,7 +63,7 @@ class CategoryServiceTest {
         UUID id = UUID.randomUUID();
         Category cat = Category.builder()
                 .id(id).name("Еда").type(CategoryType.EXPENSE)
-                .priority(Priority.HIGH).isSystem(false).build();
+                .priority(Priority.HIGH).system(false).build();
         when(categoryRepository.findById(id)).thenReturn(Optional.of(cat));
         when(eventRepository.existsByCategoryIdAndDeletedFalse(id)).thenReturn(false);
         when(categoryRepository.save(cat)).thenReturn(cat);

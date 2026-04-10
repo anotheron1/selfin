@@ -61,7 +61,7 @@ public class CategoryService {
                 .name(dto.name())
                 .type(dto.type())
                 .priority(dto.priority() != null ? dto.priority() : Priority.MEDIUM)
-                .isSystem(isSystem)
+                .system(isSystem)
                 .build();
         return toDto(categoryRepository.save(category));
     }

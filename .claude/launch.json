@@ -3,11 +3,17 @@
   "configurations": [
     {
       "name": "frontend-dev",
+<<<<<<< Updated upstream
       "runtimeExecutable": "C:/nvm4w/nodejs/node.exe",
       "runtimeArgs": ["./node_modules/vite/bin/vite.js", "--host"],
       "autoPort": true,
+=======
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "C:/nvm4w/nodejs/npm.cmd", "run", "dev"],
+>>>>>>> Stashed changes
       "cwd": "C:/Users/Kirill/IdeaProjects/selfin/frontend",
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }
