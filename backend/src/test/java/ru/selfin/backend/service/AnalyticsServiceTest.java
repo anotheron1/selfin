@@ -13,6 +13,7 @@ import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
+import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -155,6 +156,73 @@ class AnalyticsServiceTest {
         List<LocalDate> dates = report.cashFlow().stream()
                 .map(AnalyticsReportDto.CashFlowDay::date).toList();
         assertThat(dates).contains(TODAY, LocalDate.of(2026, 3, 20));
+    }
+
+    // ─── calcStartBalance (via getReport cashFlow[0].runningBalance) ─────────
+
+    @Test
+    void getReport_noCheckpoint_startBalanceIsZero() {
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        AnalyticsReportDto report = service.getReport(LocalDate.of(2026, 4, 9));
+
+        // No checkpoint → startBalance = 0, first cash flow day has runningBalance = 0
+        assertThat(report.cashFlow()).isNotNull();
+        assertThat(report.cashFlow().get(0).runningBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void getReport_checkpointInCurrentMonth_nobridge() {
+        LocalDate checkpointDate = LocalDate.of(2026, 4, 5);
+        BalanceCheckpoint cp = new BalanceCheckpoint();
+        cp.setDate(checkpointDate);
+        cp.setAmount(BigDecimal.valueOf(50000));
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+        // Stub the main-month query explicitly so the verify below is unambiguous
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(
+                eq(LocalDate.of(2026, 4, 1)), eq(LocalDate.of(2026, 4, 30)))).thenReturn(List.of());
+
+        AnalyticsReportDto report = service.getReport(LocalDate.of(2026, 4, 9));
+
+        // Checkpoint in same month → startBalance = checkpoint amount, no bridge call
+        assertThat(report.cashFlow()).isNotNull();
+        assertThat(report.cashFlow().get(0).runningBalance()).isEqualByComparingTo(BigDecimal.valueOf(50000));
+        // Verify bridge NOT called for previous month
+        verify(eventRepository, never()).findAllByDeletedFalseAndDateBetween(
+                eq(checkpointDate), eq(LocalDate.of(2026, 3, 31)));
+    }
+
+    @Test
+    void getReport_checkpointInPreviousMonth_bridgeEventsApplied() {
+        LocalDate checkpointDate = LocalDate.of(2026, 3, 20);
+        BalanceCheckpoint cp = new BalanceCheckpoint();
+        cp.setDate(checkpointDate);
+        cp.setAmount(BigDecimal.valueOf(30000));
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        service.getReport(LocalDate.of(2026, 4, 9));
+
+        // Bridge called for [checkpointDate, March 31]
+        verify(eventRepository).findAllByDeletedFalseAndDateBetween(
+                eq(checkpointDate), eq(LocalDate.of(2026, 3, 31)));
+    }
+
+    @Test
+    void getReport_checkpointTwoMonthsAgo_bridgeEventsApplied() {
+        LocalDate checkpointDate = LocalDate.of(2026, 2, 15);
+        BalanceCheckpoint cp = new BalanceCheckpoint();
+        cp.setDate(checkpointDate);
+        cp.setAmount(BigDecimal.valueOf(20000));
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        service.getReport(LocalDate.of(2026, 4, 9));
+
+        // Bridge called for [checkpointDate, March 31] (day before April 1)
+        verify(eventRepository).findAllByDeletedFalseAndDateBetween(
+                eq(checkpointDate), eq(LocalDate.of(2026, 3, 31)));
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────
