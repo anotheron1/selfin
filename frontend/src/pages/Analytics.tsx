@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchMultiMonthReport, fetchAnalyticsReport, fetchEventsByPriority } from '../api';
+import { fetchMultiMonthReport, fetchAnalyticsReport, fetchWishlist } from '../api';
 import type { AnalyticsReport, FinancialEvent, MultiMonthReport, MultiMonthRow } from '../types/api';
 import BudgetStructureSection from '../components/BudgetStructureSection';
 import { ScrollArea } from '../components/ui/scroll-area';
@@ -44,14 +44,16 @@ export default function Analytics() {
     useEffect(() => {
         setLoading(true);
         if (preset === '1m') {
-            Promise.all([fetchAnalyticsReport(), fetchEventsByPriority('LOW')])
-                .then(([report, low]) => {
-                    setAnalytics(report);
+            setReport(null);
+            Promise.all([fetchAnalyticsReport(), fetchWishlist()])
+                .then(([rep, low]) => {
+                    setAnalytics(rep);
                     setLowEvents(low);
                 })
                 .finally(() => setLoading(false));
         } else {
-            setLowEvents([]); // reset stale low-events when switching presets
+            setAnalytics(null);
+            setLowEvents([]);
             const { startDate, endDate } = getDateRange(preset);
             fetchMultiMonthReport(startDate, endDate)
                 .then(setReport)

@@ -87,9 +87,6 @@ export const createWishlistItem = (dto: WishlistCreateDto): Promise<FinancialEve
 /** Удаляет событие (soft delete — физически запись остаётся в БД). */
 export const deleteEvent = (id: string) => del(`/events/${id}`);
 
-/** Загружает все события с указанным приоритетом (без ограничения по дате). */
-export const fetchEventsByPriority = (priority: 'LOW' | 'MEDIUM' | 'HIGH') =>
-    get<FinancialEvent[]>(`/events?priority=${priority}`);
 
 /** Создаёт фактическое исполнение (FACT) для планового события (PLAN). */
 export const createLinkedFact = (planId: string, dto: FactCreateDto) =>
