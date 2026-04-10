@@ -95,7 +95,10 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         const end = formatDateYMD(new Date(year, month + 1, 0));
         if (!silent) setLoading(true);
         fetchEvents(start, end)
-            .then(setEvents)
+            .then(data => {
+                document.querySelectorAll('.pf-hovered').forEach(el => el.classList.remove('pf-hovered'));
+                setEvents(data);
+            })
             .finally(() => setLoading(false));
     }, [year, month]);
 
