@@ -128,6 +128,17 @@ public class FinancialEventService {
     }
 
     /**
+     * Возвращает все не-удалённые события с заданным приоритетом, отсортированные по createdAt.
+     *
+     * @param priority фильтр приоритета
+     * @return список DTO
+     */
+    public List<FinancialEventDto> findByPriority(Priority priority) {
+        return eventRepository.findAllByDeletedFalseAndPriorityOrderByCreatedAtAsc(priority)
+                .stream().map(e -> toDto(e, null, null)).toList();
+    }
+
+    /**
      * Создаёт standalone FACT-запись без родительского PLAN.
      * Используется для внеплановых трат, когда план не создавался.
      */

@@ -9,6 +9,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.FactCreateDto;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
@@ -36,11 +37,25 @@ public class FinancialEventController {
 
     private final FinancialEventService eventService;
 
-    @Operation(summary = "Получить события за период", description = "Возвращает все события между startDate и endDate включительно")
+    @Operation(summary = "Получить события за период или по приоритету",
+            description = "Если передан только priority — возвращает все события с этим приоритетом. "
+                    + "Если переданы startDate и endDate — возвращает события за период. "
+                    + "Если не передан ни priority, ни даты — 400.")
     @GetMapping
     public List<FinancialEventDto> getByPeriod(
-            @Parameter(description = "Начало периода, формат YYYY-MM-DD") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @Parameter(description = "Конец периода, формат YYYY-MM-DD") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+            @Parameter(description = "Начало периода, формат YYYY-MM-DD")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @Parameter(description = "Конец периода, формат YYYY-MM-DD")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @Parameter(description = "Фильтр по приоритету (HIGH, MEDIUM, LOW)")
+            @RequestParam(required = false) ru.selfin.backend.model.enums.Priority priority) {
+        if (priority != null && startDate == null && endDate == null) {
+            return eventService.findByPriority(priority);
+        }
+        if (startDate == null || endDate == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "startDate and endDate are required when priority is not specified");
+        }
         return eventService.findByPeriod(startDate, endDate);
     }
 

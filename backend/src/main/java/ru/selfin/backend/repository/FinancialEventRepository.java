@@ -25,6 +25,9 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
 
     Optional<FinancialEvent> findByIdempotencyKey(UUID idempotencyKey);
 
+    /** All non-deleted events with given priority, ordered by createdAt. */
+    List<FinancialEvent> findAllByDeletedFalseAndPriorityOrderByCreatedAtAsc(Priority priority);
+
     /** Хотелки: LOW-priority PLANNED события без даты ИЛИ с датой раньше начала текущего месяца. */
     @Query("SELECT e FROM FinancialEvent e WHERE e.deleted = false " +
            "AND e.priority = :priority AND e.status = :status " +
