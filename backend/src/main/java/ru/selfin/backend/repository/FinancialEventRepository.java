@@ -145,7 +145,8 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         @Param("endDate") LocalDate endDate);
 
     /**
-     * Просроченные обязательные (HIGH) расходы текущего месяца, которые ещё не исполнены.
+     * Просроченные обязательные (HIGH) расходы текущего месяца, которые ещё не исполнены
+     * и не имеют привязанного FACT-ребёнка (чтобы не резервировать дважды).
      * Используется для резервирования в балансе кармашка и прогнозах.
      */
     @Query("""
@@ -157,6 +158,11 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
           AND e.date >= :monthStart
           AND e.date < :today
           AND e.deleted = false
+          AND NOT EXISTS (
+              SELECT 1 FROM FinancialEvent f
+              WHERE f.parentEventId = e.id
+                AND f.deleted = false
+          )
         """)
     BigDecimal sumOverdueMandatoryExpenses(
         @Param("monthStart") LocalDate monthStart,
