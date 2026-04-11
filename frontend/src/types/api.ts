@@ -11,6 +11,7 @@ export interface Category {
     name: string;
     type: CategoryType;
     priority: Priority;
+    isSystem: boolean;
 }
 
 export interface FinancialEvent {
@@ -176,11 +177,22 @@ export interface IncomeGap {
     delta: number;
 }
 
+export interface PriorityBreakdown {
+    highPlanned: number;
+    highFact: number;
+    mediumPlanned: number;
+    mediumFact: number;
+    lowPlanned: number;
+    lowFact: number;
+    totalIncomeFact: number;
+}
+
 export interface AnalyticsReport {
     cashFlow: CashFlowDay[];
     planFact: PlanFactReport;
     mandatoryBurn: MandatoryBurnRate;
     incomeGap: IncomeGap;
+    priorityBreakdown: PriorityBreakdown;
 }
 
 // --- Multi-month Analytics ---

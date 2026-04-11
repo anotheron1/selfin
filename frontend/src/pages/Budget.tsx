@@ -12,6 +12,20 @@ const fmt = (n: number | null) =>
         ? new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 0 }).format(n) + ' ₽'
         : '—';
 
+function createPlanFactHandlers() {
+    const handleMouseEnter = (groupId: string) => {
+        document.querySelectorAll(`[data-group="${groupId}"]`)
+            .forEach(el => el.classList.add('pf-hovered'));
+    };
+    const handleMouseLeave = (groupId: string) => {
+        document.querySelectorAll(`[data-group="${groupId}"]`)
+            .forEach(el => el.classList.remove('pf-hovered'));
+    };
+    return { handleMouseEnter, handleMouseLeave };
+}
+
+const pfHandlers = createPlanFactHandlers();
+
 function startOfWeek(date: Date): Date {
     const d = new Date(date);
     const day = d.getDay();
@@ -81,7 +95,10 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         const end = formatDateYMD(new Date(year, month + 1, 0));
         if (!silent) setLoading(true);
         fetchEvents(start, end)
-            .then(setEvents)
+            .then(data => {
+                document.querySelectorAll('.pf-hovered').forEach(el => el.classList.remove('pf-hovered'));
+                setEvents(data);
+            })
             .finally(() => setLoading(false));
     }, [year, month]);
 
@@ -232,12 +249,15 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                 );
                                                             }
                                                             const event = item as FinancialEvent;
-                                                            const delta = event.factAmount != null && event.plannedAmount != null
-                                                                ? event.factAmount - event.plannedAmount : null;
                                                             const isIncome = event.type === 'INCOME';
                                                             const isFundTransfer = event.type === 'FUND_TRANSFER';
                                                             const isExecuted = event.status === 'EXECUTED';
                                                             const isLowPlanned = event.priority === 'LOW' && event.status === 'PLANNED';
+                                                            const isPlan = event.eventKind === 'PLAN';
+                                                            const isFact = event.eventKind === 'FACT';
+                                                            const groupId = isFact
+                                                                ? (event.parentEventId ?? event.id)
+                                                                : event.id;
                                                             const displayName = isFundTransfer
                                                                 ? `↪ ${event.targetFundName ?? 'Копилка'}`
                                                                 : event.description || event.categoryName || 'Без названия';
@@ -251,8 +271,11 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                     : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
                                                             return (
                                                                 <div key={event.id}
+                                                                    data-group={groupId}
                                                                     onClick={() => setSelectedEvent(event)}
-                                                                    className={`pr-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isLowPlanned ? ' opacity-60' : ''}`}>
+                                                                    onMouseEnter={() => pfHandlers.handleMouseEnter(groupId)}
+                                                                    onMouseLeave={() => pfHandlers.handleMouseLeave(groupId)}
+                                                                    className={`pr-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isPlan ? ' pf-is-plan' : ''}${isFact ? ' pf-is-fact' : ''}${isLowPlanned ? ' opacity-60' : ''}`}>
                                                                     <div className="flex-1 min-w-0">
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="font-medium text-sm truncate">{displayName}</span>
@@ -263,7 +286,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                             {isExecuted && (
                                                                                 <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
                                                                             )}
-                                                                            {event.eventKind === 'PLAN' && event.linkedFactsCount > 0 && (
+                                                                            {isPlan && event.linkedFactsCount > 0 && (
                                                                                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                                                                                     {event.linkedFactsCount} {event.linkedFactsCount === 1 ? 'факт' : 'факта'}
                                                                                 </span>
@@ -272,12 +295,12 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                         {displaySubtitle && (
                                                                             <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>{displaySubtitle}</p>
                                                                         )}
-                                                                        {event.eventKind === 'FACT' && event.parentPlanDescription && (
-                                                                            <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>
-                                                                                ← {event.parentPlanDescription}
-                                                                            </p>
+                                                                        {isFact && event.parentEventId && event.parentPlanDescription && (
+                                                                            <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                                                                → план «{event.parentPlanDescription}»
+                                                                            </div>
                                                                         )}
-                                                                        {event.eventKind === 'PLAN' && (
+                                                                        {isPlan && (
                                                                             <button
                                                                                 onClick={(e) => { e.stopPropagation(); setFactSheetPlanId(event.id); }}
                                                                                 className="text-xs mt-1"
@@ -288,17 +311,30 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                         )}
                                                                     </div>
                                                                     <div className="text-right shrink-0 space-y-0.5">
-                                                                        <div className="text-sm font-semibold" style={{ color: amountColor }}>
-                                                                            {isIncome ? '+' : '-'}{event.eventKind === 'FACT' ? fmt(event.factAmount) : fmt(event.plannedAmount)}
-                                                                        </div>
-                                                                        {event.eventKind === 'PLAN' && event.factAmount != null && (
-                                                                            <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                                                                факт: {fmt(event.factAmount)}
-                                                                                {delta != null && (
-                                                                                    <span style={{ color: delta > 0 ? 'var(--color-danger)' : 'var(--color-success)', marginLeft: 4 }}>
-                                                                                        {delta > 0 ? '+' : ''}{fmt(delta)}
+                                                                        {isPlan ? (
+                                                                            <div className="flex flex-col items-end gap-0.5">
+                                                                                <span style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}>
+                                                                                    {isIncome ? '+' : '-'}{fmt(event.plannedAmount)}
+                                                                                </span>
+                                                                                {event.linkedFactsAmount != null ? (
+                                                                                    <span style={{
+                                                                                        fontSize: '11px',
+                                                                                        fontWeight: 600,
+                                                                                        color: event.linkedFactsAmount <= (event.plannedAmount ?? Infinity)
+                                                                                            ? 'var(--color-success)'
+                                                                                            : 'var(--color-danger)',
+                                                                                    }}>
+                                                                                        факт {fmt(event.linkedFactsAmount)}
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                                                                                        нет факта
                                                                                     </span>
                                                                                 )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="text-sm font-semibold" style={{ color: amountColor }}>
+                                                                                {isIncome ? '+' : '-'}{fmt(event.factAmount)}
                                                                             </div>
                                                                         )}
                                                                     </div>

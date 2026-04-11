@@ -24,10 +24,10 @@ import type {
 export const fetchCategories = () => get<Category[]>('/categories');
 
 /** Создаёт новую категорию доходов или расходов. */
-export const createCategory = (body: Omit<Category, 'id'>) => post<Category>('/categories', body);
+export const createCategory = (body: Omit<Category, 'id' | 'isSystem'>) => post<Category>('/categories', body);
 
 /** Полностью обновляет категорию (имя, тип, обязательность). */
-export const updateCategory = (id: string, body: Omit<Category, 'id'>) => put<Category>(`/categories/${id}`, body);
+export const updateCategory = (id: string, body: Omit<Category, 'id' | 'isSystem'>) => put<Category>(`/categories/${id}`, body);
 
 /** Удаляет категорию (soft delete). */
 export const deleteCategory = (id: string) => del(`/categories/${id}`);
@@ -86,6 +86,7 @@ export const createWishlistItem = (dto: WishlistCreateDto): Promise<FinancialEve
 
 /** Удаляет событие (soft delete — физически запись остаётся в БД). */
 export const deleteEvent = (id: string) => del(`/events/${id}`);
+
 
 /** Создаёт фактическое исполнение (FACT) для планового события (PLAN). */
 export const createLinkedFact = (planId: string, dto: FactCreateDto) =>
