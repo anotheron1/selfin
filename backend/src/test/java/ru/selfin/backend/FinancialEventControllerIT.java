@@ -14,6 +14,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.selfin.backend.dto.FactCreateDto;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -151,7 +152,7 @@ class FinancialEventControllerIT {
         String planId = objectMapper.readTree(planBody).get("id").asText();
 
         // Создаём связанный FACT
-        FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(4850), "Фактический расход");
+        FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(4850), "Фактический расход", null);
 
         mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -166,6 +167,32 @@ class FinancialEventControllerIT {
         mockMvc.perform(get("/api/v1/events?startDate=" + today + "&endDate=" + today))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.id == '" + planId + "')].status").value("EXECUTED"));
+    }
+
+    @Test
+    void createLinkedFact_withPriority_persistsPriority() throws Exception {
+        String catId = getFirstCategoryId();
+        FinancialEventCreateDto planDto = new FinancialEventCreateDto(
+                LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
+                BigDecimal.valueOf(5000), null, "Тест приоритета", null, null);
+
+        String planBody = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(planDto)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String planId = objectMapper.readTree(planBody).get("id").asText();
+
+        FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(5000), null,
+                Priority.LOW);
+
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(factDto)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value("LOW"));
     }
 
     @Test
@@ -187,7 +214,7 @@ class FinancialEventControllerIT {
         String planId = objectMapper.readTree(planBody).get("id").asText();
 
         // Привязываем факт к плану
-        FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(2900), null);
+        FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(2900), null, null);
 
         mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -7,6 +7,7 @@ import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.*;
 import ru.selfin.backend.model.enums.*;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FactAggregateProjection;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -52,7 +53,7 @@ class FinancialEventServiceTest {
 
         assertThatThrownBy(() ->
                 service.createLinkedFact(UUID.randomUUID(),
-                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null)))
+                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -65,7 +66,7 @@ class FinancialEventServiceTest {
 
         assertThatThrownBy(() ->
                 service.createLinkedFact(factId,
-                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null)))
+                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -94,13 +95,61 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
 
         FinancialEventDto result = service.createLinkedFact(planId,
-                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, "оплатил"));
+                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, "оплатил", null));
 
         assertThat(result.eventKind()).isEqualTo(EventKind.FACT);
         assertThat(result.parentEventId()).isEqualTo(planId);
         assertThat(result.factAmount()).isEqualByComparingTo(BigDecimal.TEN);
         assertThat(plan.getStatus()).isEqualTo(EventStatus.EXECUTED);
         verify(eventRepository, times(2)).save(any());
+    }
+
+    @Test
+    @DisplayName("createLinkedFact: без priority в DTO — наследует от плана")
+    void createLinkedFact_noPriority_inheritsPlanPriority() {
+        UUID planId = UUID.randomUUID();
+        Category cat = category(); // returns Priority.HIGH
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.PLANNED);
+
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
+
+        FinancialEvent[] saved = new FinancialEvent[1];
+        when(eventRepository.save(any())).thenAnswer(inv -> {
+            FinancialEvent e = inv.getArgument(0);
+            if (e.getEventKind() == EventKind.FACT) saved[0] = e;
+            return e;
+        });
+        when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
+
+        service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null));
+
+        assertThat(saved[0].getPriority()).isEqualTo(Priority.HIGH);
+    }
+
+    @Test
+    @DisplayName("createLinkedFact: priority в DTO — использует его, не наследует")
+    void createLinkedFact_withPriority_usesDtoPriority() {
+        UUID planId = UUID.randomUUID();
+        Category cat = category(); // returns Priority.HIGH
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.PLANNED);
+
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
+
+        FinancialEvent[] saved = new FinancialEvent[1];
+        when(eventRepository.save(any())).thenAnswer(inv -> {
+            FinancialEvent e = inv.getArgument(0);
+            if (e.getEventKind() == EventKind.FACT) saved[0] = e;
+            return e;
+        });
+        when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
+
+        service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, Priority.LOW));
+
+        assertThat(saved[0].getPriority()).isEqualTo(Priority.LOW);
     }
 
     @Test

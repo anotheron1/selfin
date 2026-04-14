@@ -238,7 +238,7 @@ public class FinancialEventService {
                 .category(plan.getCategory())
                 .type(plan.getType())
                 .factAmount(dto.factAmount())
-                .priority(Priority.MEDIUM)
+                .priority(dto.priority() != null ? dto.priority() : plan.getPriority())
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .build();
