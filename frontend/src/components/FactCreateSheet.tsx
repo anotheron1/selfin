@@ -16,10 +16,10 @@ interface Props {
 }
 
 export default function FactCreateSheet({ planId, planDescription, planPriority, open, onClose, onCreated }: Props) {
-    const today = new Date().toISOString().slice(0, 10);
-    const [date, setDate] = useState(today);
+    const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
+    // Initial priority comes from planPriority, but correct re-open state is managed by handleOpenChange
     const [priority, setPriority] = useState<Priority>(planPriority);
     const [loading, setLoading] = useState(false);
 
