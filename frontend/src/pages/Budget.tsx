@@ -280,7 +280,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                     onClick={() => setSelectedEvent(event)}
                                                                     onMouseEnter={() => pfHandlers.handleMouseEnter(groupId)}
                                                                     onMouseLeave={() => pfHandlers.handleMouseLeave(groupId)}
-                                                                    className={`pr-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isPlan ? ' pf-is-plan' : ''}${isFact ? ' pf-is-fact' : ''}${isLowPlanned ? ' opacity-60' : ''}`}
+                                                                    className={`pl-3 pr-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isPlan ? ' pf-is-plan' : ''}${isFact ? ' pf-is-fact' : ''}${isLowPlanned ? ' opacity-60' : ''}`}
                                                                     style={{ borderLeft: isPlan ? '3px solid rgba(255,255,255,0.12)' : '3px solid hsl(var(--primary))' }}>
                                                                     <div className="flex-1 min-w-0">
                                                                         <div className="flex items-center gap-2">
