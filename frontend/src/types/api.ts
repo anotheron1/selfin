@@ -61,6 +61,7 @@ export interface FactCreateDto {
     date: string;
     factAmount: number;
     description?: string;
+    priority?: Priority;
 }
 
 export interface StandaloneFactCreateDto {
