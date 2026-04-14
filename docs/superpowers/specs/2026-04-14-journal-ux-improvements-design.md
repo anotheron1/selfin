@@ -80,7 +80,9 @@ Replace the three text-label priority badges with a single 8 px filled circle.
 
 **Behaviour (unchanged):** clicking the dot cycles HIGH → MEDIUM → LOW → HIGH via the existing `cycleEventPriority()` call.
 
-**Accessibility:** the dot element gets a `title` attribute with the human-readable label ("обязательно" / "по плану" / "хотелка") so it appears as a native browser tooltip on hover.
+**Accessibility:** the dot element gets a `title` attribute with the human-readable label: HIGH → "обязательно", MEDIUM → "по плану", LOW → "хотелка".
+
+**Clickability on fact rows:** Priority dots on FACT rows are rendered as non-interactive in this PR (no `onClick`, `cursor: default`). Changing fact priority post-creation is not in scope.
 
 **Rationale for blurring labels:** the same HIGH/MEDIUM/LOW scale is now reused on fact events to express necessity in hindsight (see 3b), not just forward-looking priority. Colour dots are neutral enough to carry both meanings.
 
@@ -90,16 +92,20 @@ Replace the three text-label priority badges with a single 8 px filled circle.
 
 When a user records a fact against a plan event, allow them to tag how necessary that expense actually turned out to be.
 
+**Scope:** `FactCreateSheet` is used exclusively for linked facts (opened via "+ записать факт" on a plan row). Unplanned facts created via the FAB already go through `FinancialEventCreateDto`, which has a `priority` field — that flow is not changed in this PR.
+
 **UI:** Add a priority selector row to `FactCreateSheet` above the comment field. The selector shows three colour dots (same as 3a); the active one is highlighted. Clicking a dot selects it.
 
-**Default value:** the parent plan's priority, passed as a prop from `Budget.tsx` when opening the sheet. This means zero extra effort for the common case where the necessity matches what was planned.
+**Props change (`FactCreateSheet`):** Add `planPriority: Priority` to the `Props` interface. `Budget.tsx` already has access to the parent plan event (via `events.find(e => e.id === factSheetPlanId)`) — pass `plan.priority` when rendering `<FactCreateSheet>`.
+
+**Default and reset behaviour:** Each time the sheet opens, the priority selector initialises to `planPriority`. It resets on every open (same as `date` and `amount`), so there is no stale state from a previous form submission.
 
 **Backend — `FactCreateDto`:**
 ```java
 @Nullable
 private Priority priority;
 ```
-The field is optional. If absent or null, `FinancialEventService` falls back to the parent plan's priority. If no parent plan exists (edge case: unplanned fact created through a different flow), the fallback is `Priority.MEDIUM`.
+The field is optional. In `FinancialEventService`, in the fact-creation branch (where the new fact entity is built from the DTO), replace the current hard-coded `Priority.MEDIUM` default with: use `dto.getPriority()` if non-null, otherwise `parentEvent.getPriority()`.
 
 **No new endpoint** — the existing `POST /events/{planId}/facts` accepts the extended DTO.
 
@@ -124,12 +130,13 @@ const factEvents = dayEvts
     });
 ```
 
+`getDisplayName` is an existing helper in `Budget.tsx` (line 78): returns `targetFundName` for transfers, otherwise `description ?? rawInput ?? categoryName`.
+
 **Rationale:** linked facts visually correspond to plan rows above the dashed divider. Putting them first makes the plan↔fact relationship easier to trace.
 
 ---
 
 ## Out of Scope
 
-- Tooltip text content (full strings TBD during implementation, following existing naming conventions).
 - Any analytics page changes — priority on facts feeds future analytics work but that is a separate PR.
 - Ctrl+N shortcut — separate backlog item.
