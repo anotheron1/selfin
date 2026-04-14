@@ -218,7 +218,12 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                 .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
                                             const factEvents = dayEvts
                                                 .filter(e => e.eventKind === 'FACT')
-                                                .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
+                                                .sort((a, b) => {
+                                                    const aLinked = a.parentEventId !== null ? 0 : 1;
+                                                    const bLinked = b.parentEventId !== null ? 0 : 1;
+                                                    if (aLinked !== bLinked) return aLinked - bLinked;
+                                                    return getDisplayName(a).localeCompare(getDisplayName(b), 'ru');
+                                                });
 
                                             return (
                                                 <div
@@ -275,13 +280,14 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                     onClick={() => setSelectedEvent(event)}
                                                                     onMouseEnter={() => pfHandlers.handleMouseEnter(groupId)}
                                                                     onMouseLeave={() => pfHandlers.handleMouseLeave(groupId)}
-                                                                    className={`pr-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isPlan ? ' pf-is-plan' : ''}${isFact ? ' pf-is-fact' : ''}${isLowPlanned ? ' opacity-60' : ''}`}>
+                                                                    className={`pr-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors${isPlan ? ' pf-is-plan' : ''}${isFact ? ' pf-is-fact' : ''}${isLowPlanned ? ' opacity-60' : ''}`}
+                                                                    style={{ borderLeft: isPlan ? '3px solid rgba(255,255,255,0.12)' : '3px solid hsl(var(--primary))' }}>
                                                                     <div className="flex-1 min-w-0">
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="font-medium text-sm truncate">{displayName}</span>
                                                                             <PriorityButton
                                                                                 priority={event.priority}
-                                                                                onCycle={() => cycleEventPriority(event.id).then(() => load(true))}
+                                                                                onCycle={isPlan ? () => cycleEventPriority(event.id).then(() => load(true)) : undefined}
                                                                             />
                                                                             {isExecuted && (
                                                                                 <Badge variant="outline" className="text-xs border-green-600/60 text-green-500 px-1.5 py-0">✓</Badge>
@@ -313,7 +319,10 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                     <div className="text-right shrink-0 space-y-0.5">
                                                                         {isPlan ? (
                                                                             <div className="flex flex-col items-end gap-0.5">
-                                                                                <span style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}>
+                                                                                <span style={{
+                                                                                    color: isIncome ? 'rgba(74,222,128,0.5)' : 'var(--color-text-muted)',
+                                                                                    fontSize: '12px'
+                                                                                }}>
                                                                                     {isIncome ? '+' : '-'}{fmt(event.plannedAmount)}
                                                                                 </span>
                                                                                 {event.linkedFactsAmount != null ? (
