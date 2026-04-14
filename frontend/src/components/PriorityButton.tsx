@@ -18,7 +18,10 @@ export default function PriorityButton({ priority, onCycle, disabled }: Priority
     return (
         <span
             title={title}
+            role={interactive ? 'button' : undefined}
+            tabIndex={interactive ? 0 : undefined}
             onClick={interactive ? (e) => { e.stopPropagation(); onCycle!(); } : undefined}
+            onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onCycle!(); } } : undefined}
             style={{
                 display: 'inline-block',
                 width: 8,
