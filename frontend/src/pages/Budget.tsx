@@ -369,15 +369,19 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                     onSuccess={() => { setSelectedEvent(null); load(true); }}
                 />
             )}
-            {factSheetPlanId && (
-                <FactCreateSheet
-                    planId={factSheetPlanId}
-                    planDescription={events.find(e => e.id === factSheetPlanId)?.description ?? events.find(e => e.id === factSheetPlanId)?.categoryName ?? 'План'}
-                    open={!!factSheetPlanId}
-                    onClose={() => setFactSheetPlanId(null)}
-                    onCreated={() => { load(true); setFactSheetPlanId(null); }}
-                />
-            )}
+            {factSheetPlanId && (() => {
+                const planEvent = events.find(e => e.id === factSheetPlanId);
+                return (
+                    <FactCreateSheet
+                        planId={factSheetPlanId}
+                        planDescription={planEvent?.description ?? planEvent?.categoryName ?? 'План'}
+                        planPriority={planEvent?.priority ?? 'MEDIUM'}
+                        open={!!factSheetPlanId}
+                        onClose={() => setFactSheetPlanId(null)}
+                        onCreated={() => { load(true); setFactSheetPlanId(null); }}
+                    />
+                );
+            })()}
         </>
     );
 }
