@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -19,9 +19,13 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
     const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
-    // Initial priority comes from planPriority, but correct re-open state is managed by handleOpenChange
     const [priority, setPriority] = useState<Priority>(planPriority);
     const [loading, setLoading] = useState(false);
+
+    // Synchronise priority with the selected plan whenever the sheet opens
+    useEffect(() => {
+        if (open) setPriority(planPriority);
+    }, [open, planPriority]);
 
     // Reset all fields to fresh state whenever the sheet opens (e.g. for a different plan)
     function handleOpenChange(isOpen: boolean) {

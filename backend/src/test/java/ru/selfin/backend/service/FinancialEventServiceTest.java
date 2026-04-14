@@ -7,7 +7,6 @@ import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.*;
 import ru.selfin.backend.model.enums.*;
-import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FactAggregateProjection;
 import ru.selfin.backend.repository.FinancialEventRepository;
