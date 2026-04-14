@@ -4,22 +4,35 @@
 
 ## 1. Категория (Category)
 Справочник статей бюджета (доходов и расходов).
-- `id` (UUID/Long) - PK
+- `id` (UUID) - PK
 - `name` (String) - Название (например, "Коммуналка", "Садик")
 - `type` (Enum: INCOME, EXPENSE)
-- `is_mandatory` (Boolean) - Пометка обязательности по умолчанию
+- `priority` (Enum: HIGH, MEDIUM, LOW) - Приоритет; определяет порядок отображения и группировку в аналитике
+- `is_system` (Boolean) - Системная категория (создаётся автоматически, нельзя переименовать или сменить тип; пример: "Хотелки")
+- `deleted` (Boolean) - Мягкое удаление
+
+Порядок в списке: type → priority (HIGH=0, MEDIUM=1, LOW=2) → имя по-русски.
 
 ## 2. Финансовое событие (FinancialEvent)
-Основная операционная единица.
-- `id` (UUID/Long) - PK
-- `date` (LocalDate) - Дата (плановая или фактическая)
+Основная операционная единица. Реализует модель план-факт: каждый реальный расход — это пара PLAN + FACT (или только FACT для внеплановых трат).
+
+- `id` (UUID) - PK
+- `date` (LocalDate) - Дата события (плановая или фактическая)
 - `category_id` (FK -> Category)
 - `type` (Enum: INCOME, EXPENSE, FUND_TRANSFER)
-- `planned_amount` (BigDecimal) - Плановая сумма
-- `fact_amount` (BigDecimal) - Фактическая сумма (может быть `null` для еще не наступивших событий)
-- `status` (Enum: PLANNED, EXECUTED, CANCELLED)
-- `is_mandatory` (Boolean) - Признак обязательности (копируется из Категории, но может быть переопределен)
-- `description` (String) - Комментарии и пояснения пользователя
+- `event_kind` (Enum: PLAN, FACT) - Является ли запись плановой или фактической
+- `planned_amount` (BigDecimal, nullable) - Плановая сумма; заполняется только у PLAN-записей
+- `fact_amount` (BigDecimal, nullable) - Фактическая сумма; заполняется только у FACT-записей
+- `status` (Enum: PLANNED, EXECUTED) - PLANNED пока нет факта, EXECUTED после проведения
+- `priority` (Enum: HIGH, MEDIUM, LOW) - Копируется из категории, можно переопределить на событии
+- `description` (String) - Комментарий пользователя
+- `url` (String, nullable) - Ссылка (используется в хотелках)
+- `raw_input` (String, nullable) - Исходная строка быстрого ввода (для Telegram-бота)
+- `parent_event_id` (FK -> FinancialEvent, nullable) - Для FACT-записей: ссылка на родительский PLAN
+- `target_fund_id` (FK -> TargetFund, nullable) - Если событие связано с фондом
+- `idempotency_key` (UUID, nullable) - Ключ идемпотентности для безопасного retry
+- `deleted` (Boolean) - Мягкое удаление
+- `created_at` (LocalDateTime)
 
 ## 3. Целевой фонд (TargetFund)
 Сущность для накопления средств.

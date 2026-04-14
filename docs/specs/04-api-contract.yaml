@@ -12,36 +12,49 @@ paths:
   # ==========================================
   /events:
     get:
-      summary: Получить список финансовых событий за период (для Weekly Ledger)
+      summary: Получить события за период или по приоритету
+      description: |
+        Режимы:
+        - `priority` без дат → все события с этим приоритетом (без ограничения по дате)
+        - `startDate` + `endDate` → события за период
+        - без параметров → 400
       parameters:
         - name: startDate
           in: query
-          required: true
+          required: false
           schema:
             type: string
             format: date
         - name: endDate
           in: query
-          required: true
+          required: false
           schema:
             type: string
             format: date
+        - name: priority
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [HIGH, MEDIUM, LOW]
       responses:
         '200':
-          description: Успешный ответ
+          description: Список событий
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/FinancialEvent'
+        '400':
+          description: Не переданы ни даты, ни приоритет
     post:
-      summary: Создать новое финансовое событие (Расход/Доход) с идемпотентностью
+      summary: Создать PLAN-событие (идемпотентно)
       parameters:
         - name: Idempotency-Key
           in: header
           required: true
-          description: Уникальный UUID от клиента (напр., через быстрый ввод)
+          description: Уникальный UUID от клиента
           schema:
             type: string
             format: uuid
@@ -53,7 +66,52 @@ paths:
               $ref: '#/components/schemas/FinancialEventInput'
       responses:
         '200':
-          description: Событие создано алгоритмом идемпотентности или уже существовало
+          description: Событие создано или уже существовало (идемпотентность)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialEvent'
+
+  /events/wishlist:
+    get:
+      summary: Хотелки (LOW-priority PLAN с датой раньше начала текущего месяца)
+      responses:
+        '200':
+          description: Список хотелок
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FinancialEvent'
+    post:
+      summary: Создать хотелку вручную
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WishlistInput'
+      responses:
+        '201':
+          description: Хотелка создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialEvent'
+
+  /events/facts:
+    post:
+      summary: Создать внеплановый факт (standalone FACT без родительского PLAN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StandaloneFactInput'
+      responses:
+        '201':
+          description: Факт создан
           content:
             application/json:
               schema:
@@ -61,7 +119,7 @@ paths:
 
   /events/{id}:
     put:
-      summary: Обновить событие (корректировка факта или плана)
+      summary: Обновить событие (план или факт целиком)
       parameters:
         - name: id
           in: path
@@ -83,7 +141,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FinancialEvent'
     delete:
-      summary: Мягкое удаление (Soft Delete) события
+      summary: Мягкое удаление события
       parameters:
         - name: id
           in: path
@@ -93,28 +151,103 @@ paths:
             format: uuid
       responses:
         '204':
-          description: Событие удалено (флаг is_deleted = true)
+          description: Событие помечено удалённым
+
+  /events/{id}/fact:
+    patch:
+      summary: Ввести фактическую сумму (частичное обновление)
+      description: Обновляет только factAmount и description. Статус меняется автоматически — EXECUTED если factAmount != null, иначе PLANNED.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [factAmount]
+              properties:
+                factAmount:
+                  type: number
+                  nullable: true
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Факт обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialEvent'
+
+  /events/{id}/priority:
+    patch:
+      summary: Циклически сменить приоритет события (HIGH → MEDIUM → LOW → HIGH)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Приоритет обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialEvent'
+
+  /events/{planId}/facts:
+    post:
+      summary: Создать связанный факт к плановому событию
+      description: Создаёт FACT-запись, привязанную к PLAN. Дата и сумма факта могут отличаться от плана.
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkedFactInput'
+      responses:
+        '200':
+          description: Связанный факт создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialEvent'
 
   # ==========================================
-  # АНАЛИТИКА / ДАШБОРД (Синхронная агрегация)
+  # АНАЛИТИКА
   # ==========================================
   /analytics/dashboard:
     get:
-      summary: Получить сводные данные для Главного экрана (Hero widget, Алерт, План-Факт)
+      summary: Аналитический отчёт за месяц (кассовый календарь, план-факт, структура бюджета)
       parameters:
         - name: date
           in: query
-          description: Дата расчета (по умолчанию - сегодня)
+          description: Любая дата внутри нужного месяца (по умолчанию — сегодня)
           schema:
             type: string
             format: date
       responses:
         '200':
-          description: Данные дашборда
+          description: Аналитический отчёт
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DashboardAnalytics'
+                $ref: '#/components/schemas/AnalyticsReport'
 
   # ==========================================
   # ЦЕЛЕВЫЕ ФОНДЫ (Копилки и Кармашек)
@@ -258,11 +391,11 @@ paths:
           description: Чекпоинт не найден
 
   # ==========================================
-  # НАСТРОЙКИ СПРАВОЧНИКОВ
+  # КАТЕГОРИИ
   # ==========================================
   /categories:
     get:
-      summary: Список категорий трат и доходов
+      summary: Список всех активных категорий (сортировка type → priority → имя)
       responses:
         '200':
           description: Массив категорий
@@ -272,6 +405,78 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Category'
+    post:
+      summary: Создать категорию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryInput'
+      responses:
+        '200':
+          description: Категория создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+
+  /categories/{id}:
+    put:
+      summary: Обновить категорию
+      description: Нельзя переименовать или сменить тип у системной категории (is_system=true). Нельзя сменить тип если есть связанные события.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryInput'
+      responses:
+        '200':
+          description: Категория обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          description: Попытка изменить системную категорию или сменить тип при наличии событий
+    delete:
+      summary: Мягкое удаление категории
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Категория помечена удалённой
+
+  /categories/{id}/priority:
+    patch:
+      summary: Циклически сменить приоритет категории (HIGH → MEDIUM → LOW → HIGH)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Приоритет обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
 
 components:
   schemas:
@@ -287,25 +492,67 @@ components:
         categoryId:
           type: string
           format: uuid
+        categoryName:
+          type: string
         type:
           type: string
           enum: [INCOME, EXPENSE, FUND_TRANSFER]
+        eventKind:
+          type: string
+          enum: [PLAN, FACT]
         plannedAmount:
           type: number
+          nullable: true
+          description: Заполнено только у PLAN-записей
         factAmount:
           type: number
+          nullable: true
+          description: Заполнено только у FACT-записей
         status:
           type: string
-          enum: [PLANNED, EXECUTED, CANCELLED]
-        isMandatory:
-          type: boolean
+          enum: [PLANNED, EXECUTED]
+        priority:
+          type: string
+          enum: [HIGH, MEDIUM, LOW]
         description:
           type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
         rawInput:
           type: string
-    
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        targetFundId:
+          type: string
+          format: uuid
+          nullable: true
+        targetFundName:
+          type: string
+          nullable: true
+        parentEventId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Для FACT — ссылка на родительский PLAN
+        linkedFactsCount:
+          type: integer
+          description: Для PLAN — количество связанных FACT-записей
+        linkedFactsAmount:
+          type: number
+          nullable: true
+          description: Для PLAN — суммарный факт по всем связанным FACT
+        parentPlanDescription:
+          type: string
+          nullable: true
+          description: Для FACT — описание родительского PLAN (денормализовано для UI)
+
     FinancialEventInput:
       type: object
+      required: [date, categoryId, type, plannedAmount]
       properties:
         date:
           type: string
@@ -318,55 +565,160 @@ components:
           enum: [INCOME, EXPENSE, FUND_TRANSFER]
         plannedAmount:
           type: number
-        factAmount:
-          type: number
-          nullable: true
-        isMandatory:
-          type: boolean
         description:
+          type: string
+        url:
           type: string
         rawInput:
           type: string
-      required:
-        - date
-        - categoryId
-        - type
 
-    DashboardAnalytics:
+    WishlistInput:
       type: object
+      required: [description]
       properties:
-        currentBalance:
+        description:
+          type: string
+        plannedAmount:
           type: number
-          description: Герой-метрика Дашборда
-        endOfMonthForecast:
-          type: number
-          description: Прогноз на конец месяца
-        cashGapAlert:
-          type: object
-          description: Nullable. Если есть разрыв, приходит этот объект.
-          properties:
-            hasGap:
-              type: boolean
-            gapDate:
-              type: string
-              format: date
-            gapAmount:
-              type: number
           nullable: true
-        progressBars:
+        url:
+          type: string
+          nullable: true
+
+    LinkedFactInput:
+      type: object
+      required: [date, factAmount]
+      properties:
+        date:
+          type: string
+          format: date
+        factAmount:
+          type: number
+        description:
+          type: string
+
+    StandaloneFactInput:
+      type: object
+      required: [date, categoryId, factAmount]
+      properties:
+        date:
+          type: string
+          format: date
+        categoryId:
+          type: string
+          format: uuid
+        factAmount:
+          type: number
+        description:
+          type: string
+
+    AnalyticsReport:
+      type: object
+      description: Аналитический отчёт за месяц
+      properties:
+        cashFlow:
           type: array
-          description: Линейные бары для План-Факта
+          description: Нарастающий баланс по дням месяца
           items:
             type: object
             properties:
-              categoryName:
+              date:
                 type: string
-              currentFact:
+                format: date
+              dailyIncome:
                 type: number
-              plannedLimit:
+              dailyExpense:
                 type: number
-              percentage:
-                type: integer
+              runningBalance:
+                type: number
+              isFuture:
+                type: boolean
+              isGap:
+                type: boolean
+                description: true если нарастающий баланс отрицательный
+        planFact:
+          type: object
+          description: Отчёт план-факт по категориям
+          properties:
+            categories:
+              type: array
+              items:
+                type: object
+                properties:
+                  categoryName:
+                    type: string
+                  type:
+                    type: string
+                    enum: [INCOME, EXPENSE]
+                  planned:
+                    type: number
+                  fact:
+                    type: number
+                  delta:
+                    type: number
+                    description: fact - planned; отрицательная = перерасход (EXPENSE) / недобор (INCOME)
+            totalPlannedIncome:
+              type: number
+            totalFactIncome:
+              type: number
+            totalPlannedExpense:
+              type: number
+            totalFactExpense:
+              type: number
+        mandatoryBurn:
+          type: object
+          description: Burn rate HIGH-приоритетных расходов по неделям месяца
+          properties:
+            totalPlanned:
+              type: number
+            totalFact:
+              type: number
+            byWeek:
+              type: array
+              items:
+                type: object
+                properties:
+                  weekNumber:
+                    type: integer
+                  weekStart:
+                    type: string
+                    format: date
+                  weekEnd:
+                    type: string
+                    format: date
+                  planned:
+                    type: number
+                  fact:
+                    type: number
+        incomeGap:
+          type: object
+          description: Анализ дефицита дохода
+          properties:
+            plannedIncome:
+              type: number
+            factIncome:
+              type: number
+            delta:
+              type: number
+        priorityBreakdown:
+          type: object
+          description: Разбивка расходов по приоритетам (для BudgetStructureSection)
+          properties:
+            highPlanned:
+              type: number
+            highFact:
+              type: number
+            mediumPlanned:
+              type: number
+            mediumFact:
+              type: number
+            lowPlanned:
+              type: number
+            lowFact:
+              type: number
+            totalIncomeFact:
+              type: number
+              description: Суммарный фактический доход (знаменатель для стекового бара)
 
     TargetFund:
       type: object
@@ -425,6 +777,7 @@ components:
         date:
           type: string
           format: date
+          description: Не может быть в будущем (@PastOrPresent)
         amount:
           type: number
           minimum: 0
@@ -440,5 +793,22 @@ components:
         type:
           type: string
           enum: [INCOME, EXPENSE]
-        isMandatory:
+        priority:
+          type: string
+          enum: [HIGH, MEDIUM, LOW]
+        isSystem:
           type: boolean
+          description: Системная категория — нельзя переименовать, сменить тип или удалить
+
+    CategoryInput:
+      type: object
+      required: [name, type, priority]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [INCOME, EXPENSE]
+        priority:
+          type: string
+          enum: [HIGH, MEDIUM, LOW]
