@@ -54,6 +54,9 @@ For each `forecast_enabled` category:
 if category has PLAN events in the month:
     projection = currentFact + sum(plannedAmount of PLAN events with date > today)  // Hybrid B
 
+else if daysElapsed == 0 OR currentFact == 0:
+    projection = 0                                                                   // No data yet
+
 else:
     dailyRate = currentFact / daysElapsed
     projection = currentFact + dailyRate × (daysInMonth − daysElapsed)             // Linear A
@@ -69,7 +72,14 @@ Reconstructed from existing `financial_events` data:
 for each day d from 1 to today:
     factOnDayD  = sum(factAmount) of FACT events with date ≤ d in this category
     plansAfterD = sum(plannedAmount) of PLAN events with date > d in this category
-    projOnDayD  = factOnDayD + plansAfterD   // linear if no plans
+
+    if plansAfterD > 0 OR category has any PLAN events in month:
+        projOnDayD = factOnDayD + plansAfterD                        // Hybrid B
+    else if d == 0 OR factOnDayD == 0:
+        projOnDayD = 0                                               // No data yet
+    else:
+        projOnDayD = factOnDayD + (factOnDayD / d) × (daysInMonth − d)  // Linear A
+
     → point (d, factOnDayD, projOnDayD)
 ```
 
@@ -107,7 +117,10 @@ record DailyForecastPoint(
 
 record MonthlyForecast(
     List<CategoryForecast> categories,
-    BigDecimal netPredictionDelta      // sum of (projection − plan) across all categories
+    BigDecimal netPredictionDelta      // sum of extrapolated future spending for forecast_enabled
+                                       // categories that have NO plan events (linear-only categories).
+                                       // For plan-based categories delta = 0: кармашек already
+                                       // accounts for them via pocketBalance + remaining plan events.
 )
 ```
 
@@ -128,13 +141,14 @@ Both services call `PredictionService` — this makes the кармашек ↔ p
 // (linear extrapolation adds spending that кармашек does not see).
 ```
 
-### New endpoint
+### Endpoint strategy
 
-```
-GET /api/v1/analytics/forecast?month=YYYY-MM
-```
+`GET /api/v1/analytics/forecast?month=YYYY-MM` returns `MonthlyForecast`.
 
-Returns `MonthlyForecast`. Dashboard and Funds pages call it independently on load.
+**Who calls it:**
+- `DashboardService` calls `PredictionService` internally — forecast data is bundled into the existing `GET /api/v1/analytics/dashboard` response via extended `CategoryProgressBar` fields. No extra frontend call for the Dashboard.
+- `TargetFundService` calls `PredictionService` internally — `predictionAdjustedPocket` is bundled into the existing `FundsOverview` response. No extra frontend call for Funds.
+- The standalone `GET /api/v1/analytics/forecast` endpoint exists for future use (e.g., Analytics page) but is not called by Dashboard or Funds directly.
 
 ---
 
@@ -198,7 +212,7 @@ BigDecimal predictionAdjustedPocket;     // null when equal to afterAllExpenses
 List<String> forecastContributors;       // ["Прочее (+4к)", "Транспорт (+3.5к)"]
 ```
 
-Backend returns `null` for `predictionAdjustedPocket` when delta = 0 (all categories have plans). Frontend renders nothing in that case.
+Backend returns `null` for `predictionAdjustedPocket` when `netPredictionDelta < 100` (less than 100 ₽ — rounding noise). Frontend renders nothing in that case.
 
 ### Popup UI
 
