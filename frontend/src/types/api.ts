@@ -78,11 +78,21 @@ export interface CashGapAlert {
     gapAmount: number;
 }
 
+export interface DailyForecastPoint {
+    day: number;           // day-of-month, 1-based
+    cumulativeFact: number;
+    projectedTotal: number;
+}
+
 export interface CategoryProgressBar {
     categoryName: string;
     currentFact: number;
     plannedLimit: number;
     percentage: number;
+    // forecast fields
+    projectionAmount: number | null;
+    forecastEnabled: boolean;
+    history: DailyForecastPoint[];
 }
 
 export interface DashboardData {
@@ -122,6 +132,8 @@ export interface TargetFund {
 export interface FundsOverview {
     pocketBalance: number;
     funds: TargetFund[];
+    predictionAdjustedPocket: number | null;
+    forecastContributors: string[];
 }
 
 export interface BudgetSnapshot {
