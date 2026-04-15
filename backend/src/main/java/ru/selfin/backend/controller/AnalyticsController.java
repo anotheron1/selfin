@@ -8,11 +8,14 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.DashboardDto;
+import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.MultiMonthReportDto;
 import ru.selfin.backend.service.AnalyticsService;
 import ru.selfin.backend.service.DashboardService;
+import ru.selfin.backend.service.PredictionService;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 
 /**
  * REST-контроллер аналитики.
@@ -26,6 +29,7 @@ public class AnalyticsController {
 
     private final DashboardService dashboardService;
     private final AnalyticsService analyticsService;
+    private final PredictionService predictionService;
 
     @Operation(summary = "Данные для главного дашборда", description = "Возвращает текущий баланс, прогноз конца месяца, первый день потенциального "
             +
@@ -53,5 +57,14 @@ public class AnalyticsController {
             @Parameter(description = "Начало периода, формат YYYY-MM-DD") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @Parameter(description = "Конец периода, формат YYYY-MM-DD") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         return analyticsService.getMultiMonthReport(startDate, endDate);
+    }
+
+    @Operation(summary = "Прогноз потока наличности", description = "Возвращает прогноз потока наличности для месяца опорной даты.")
+    @GetMapping("/forecast")
+    public MonthlyForecastDto getForecast(
+            @Parameter(description = "Опорная дата (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        LocalDate today = date != null ? date : LocalDate.now();
+        YearMonth month = YearMonth.from(today);
+        return predictionService.forecastMonth(month, today);
     }
 }
