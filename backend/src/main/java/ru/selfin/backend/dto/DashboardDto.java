@@ -3,6 +3,7 @@ package ru.selfin.backend.dto;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import ru.selfin.backend.dto.DailyForecastPointDto;
 
 /**
  * Агрегированный ответ для Дашборда.
@@ -69,15 +70,21 @@ public record DashboardDto(
     /**
      * Прогресс-бар исполнения бюджета по категории расходов.
      *
-     * @param categoryName  название категории
-     * @param currentFact   суммарный факт за текущий месяц
-     * @param plannedLimit  суммарный план за текущий месяц
-     * @param percentage    процент исполнения: {@code fact/plan * 100} (0..∞, >100 = перерасход)
+     * @param categoryName      название категории
+     * @param currentFact       суммарный факт за текущий месяц
+     * @param plannedLimit      суммарный план за текущий месяц
+     * @param percentage        процент исполнения: {@code fact/plan * 100} (0..∞, >100 = перерасход)
+     * @param projectionAmount  прогнозная сумма на конец месяца; {@code null} если {@code forecastEnabled = false}
+     * @param forecastEnabled   включен ли прогноз по категории
+     * @param history           история дневных точек прогноза; пусто если {@code forecastEnabled = false}
      */
     public record CategoryProgressBar(
             String categoryName,
             BigDecimal currentFact,
             BigDecimal plannedLimit,
-            int percentage) {
+            int percentage,
+            BigDecimal projectionAmount,
+            boolean forecastEnabled,
+            List<DailyForecastPointDto> history) {
     }
 }
