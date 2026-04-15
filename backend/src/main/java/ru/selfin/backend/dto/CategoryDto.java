@@ -10,5 +10,6 @@ public record CategoryDto(
         String name,
         CategoryType type,
         Priority priority,
-        boolean isSystem) {
+        boolean isSystem,
+        boolean forecastEnabled) {
 }

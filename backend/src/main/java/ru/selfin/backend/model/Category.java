@@ -39,4 +39,7 @@ public class Category {
     @Column(name = "is_system", nullable = false)
     @Builder.Default
     private boolean system = false;
+
+    @Column(name = "forecast_enabled", nullable = false)
+    private boolean forecastEnabled;
 }

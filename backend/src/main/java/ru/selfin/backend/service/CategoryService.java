@@ -69,6 +69,7 @@ public class CategoryService {
                 .priority(dto.priority() != null ? dto.priority() : Priority.MEDIUM)
                 .system(isSystem)
                 .build();
+        category.setForecastEnabled(dto.forecastEnabled() != null && dto.forecastEnabled());
         return toDto(categoryRepository.save(category));
     }
 
@@ -99,6 +100,9 @@ public class CategoryService {
         category.setName(dto.name());
         category.setType(dto.type());
         category.setPriority(dto.priority() != null ? dto.priority() : Priority.MEDIUM);
+        if (dto.forecastEnabled() != null) {
+            category.setForecastEnabled(dto.forecastEnabled());
+        }
         return toDto(categoryRepository.save(category));
     }
 
@@ -149,6 +153,6 @@ public class CategoryService {
      * @return DTO для передачи клиенту
      */
     public CategoryDto toDto(Category c) {
-        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority(), c.isSystem());
+        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority(), c.isSystem(), c.isForecastEnabled());
     }
 }

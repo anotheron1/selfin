@@ -37,7 +37,7 @@ class CategoryServiceTest {
                 .priority(Priority.LOW).system(true).build();
         when(categoryRepository.findById(id)).thenReturn(Optional.of(system));
 
-        CategoryCreateDto dto = new CategoryCreateDto("Новое имя", CategoryType.EXPENSE, Priority.LOW);
+        CategoryCreateDto dto = new CategoryCreateDto("Новое имя", CategoryType.EXPENSE, Priority.LOW, null);
 
         assertThatThrownBy(() -> categoryService.update(id, dto))
                 .isInstanceOf(ResponseStatusException.class)
@@ -53,7 +53,7 @@ class CategoryServiceTest {
         when(categoryRepository.findById(id)).thenReturn(Optional.of(cat));
         when(eventRepository.existsByCategoryIdAndDeletedFalse(id)).thenReturn(true);
 
-        CategoryCreateDto dto = new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH);
+        CategoryCreateDto dto = new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH, null);
 
         assertThatThrownBy(() -> categoryService.update(id, dto))
                 .isInstanceOf(ResponseStatusException.class)
@@ -71,7 +71,7 @@ class CategoryServiceTest {
         when(categoryRepository.save(cat)).thenReturn(cat);
 
         // No exception expected
-        categoryService.update(id, new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH));
+        categoryService.update(id, new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH, null));
     }
 
     @Test

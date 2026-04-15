@@ -9,5 +9,6 @@ import jakarta.validation.constraints.NotNull;
 public record CategoryCreateDto(
         @NotBlank String name,
         @NotNull CategoryType type,
-        Priority priority) {
+        Priority priority,
+        Boolean forecastEnabled) {   // nullable: null = don't change on update, false on create
 }
