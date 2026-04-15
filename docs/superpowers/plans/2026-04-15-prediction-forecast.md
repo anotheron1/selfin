@@ -491,7 +491,7 @@ import ru.selfin.backend.dto.CategoryForecastDto;
 import ru.selfin.backend.dto.DailyForecastPointDto;
 import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.model.FinancialEvent;
-import ru.selfin.backend.model.enums.EventKind;
+import ru.selfin.backend.model.EventKind;           // EventKind is in model package, NOT model.enums
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
