@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchDashboard, fetchAnalyticsReport, fetchEvents } from '../api';
-import type { AnalyticsReport, DashboardData, FinancialEvent } from '../types/api';
+import type { AnalyticsReport, DashboardData, DailyForecastPoint, FinancialEvent } from '../types/api';
 import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 
@@ -36,6 +36,82 @@ function getBarState(planned: number, fact: number): BarState {
     }
     // plan=0, fact=0 — show empty bar, no badge
     return { barColor: '#6b7280', barWidth: '0%', badge: '', badgeColor: '#6b7280' };
+}
+
+function getBarMax(plannedLimit: number, projection: number | null): number {
+    if (!projection || projection <= plannedLimit) return plannedLimit;
+    return Math.max(plannedLimit * 1.25, projection * 1.1);
+}
+
+interface SparklineProps {
+    history: DailyForecastPoint[];
+    plannedLimit: number;
+    projectionAmount: number;
+    daysInMonth: number;
+}
+
+function ForecastSparkline({ history, plannedLimit, projectionAmount, daysInMonth }: SparklineProps) {
+    if (history.length === 0) return null;
+
+    const W = 180, H = 65;
+    const PAD = 5;
+    const xRange = W - PAD * 2;
+    const yRange = H - PAD * 2;
+
+    const maxValue = Math.max(plannedLimit, projectionAmount, ...history.map(p => p.projectedTotal)) * 1.05;
+
+    const x = (day: number) => PAD + ((day - 1) / (daysInMonth - 1)) * xRange;
+    const y = (val: number) => H - PAD - (val / maxValue) * yRange;
+
+    const today = history[history.length - 1];
+    const todayX = x(today.day);
+
+    const factPoints = history.map(p => `${x(p.day)},${y(p.cumulativeFact)}`).join(' ');
+    const projPoints = history.map(p => `${x(p.day)},${y(p.projectedTotal)}`).join(' ');
+    const futureEndX = x(daysInMonth);
+    const futureEndY = y(projectionAmount);
+    const planY = y(plannedLimit);
+
+    return (
+        <div className="bg-[#0e0e1e] border border-[#2a2a3a] rounded-lg p-3 mt-2 w-[220px]">
+            <div className="text-[10px] text-muted-foreground mb-1">Динамика месяца</div>
+            <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
+                {/* Plan line */}
+                <line x1={0} y1={planY} x2={W} y2={planY}
+                    stroke="rgba(255,255,255,0.2)" strokeWidth={1} strokeDasharray="4 3" />
+                {/* Fact line */}
+                <polyline points={factPoints} fill="none" stroke="#6c63ff" strokeWidth={2} strokeLinejoin="round" />
+                {/* Projection history line */}
+                <polyline points={projPoints} fill="none" stroke="#ffaa44" strokeWidth={1.5}
+                    strokeDasharray="3 3" strokeLinejoin="round" />
+                {/* Future projection */}
+                <line x1={todayX} y1={y(today.cumulativeFact)} x2={futureEndX} y2={futureEndY}
+                    stroke="#ff5a5a" strokeWidth={1.5} strokeDasharray="4 4" opacity={0.8} />
+                {/* Today marker */}
+                <line x1={todayX} y1={0} x2={todayX} y2={H}
+                    stroke="rgba(108,99,255,0.4)" strokeWidth={1} strokeDasharray="2 2" />
+            </svg>
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                <span>1</span><span>{daysInMonth}</span>
+            </div>
+            <div className="flex gap-3 mt-1.5 flex-wrap">
+                {[
+                    { color: '#6c63ff', label: 'факт', dashed: false },
+                    { color: '#ffaa44', label: 'прогноз по дням', dashed: true },
+                    { color: '#ff5a5a', label: 'прогноз вперёд', dashed: true },
+                ].map(({ color, label, dashed }) => (
+                    <div key={label} className="flex items-center gap-1">
+                        <div className="w-3.5 h-0.5 rounded" style={{
+                            background: dashed
+                                ? `repeating-linear-gradient(90deg,${color} 0,${color} 3px,transparent 3px,transparent 6px)`
+                                : color
+                        }} />
+                        <span className="text-[10px] text-muted-foreground">{label}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
 }
 
 const fmtDay = (dateStr: string) =>
@@ -262,8 +338,15 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                     </h3>
                     {data.progressBars.map(bar => {
                         const state = getBarState(bar.plannedLimit, bar.currentFact);
+                        const barMax = getBarMax(bar.plannedLimit, bar.projectionAmount);
+                        const factPct = barMax > 0 ? (bar.currentFact / barMax) * 100 : 0;
+                        const planMarkerPct = barMax > 0 ? (bar.plannedLimit / barMax) * 100 : 100;
+                        const needlePct = bar.forecastEnabled && bar.projectionAmount && barMax > 0
+                            ? (bar.projectionAmount / barMax) * 100 : null;
+                        const isOverspend = bar.projectionAmount != null && bar.projectionAmount > bar.plannedLimit;
+                        const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
                         return (
-                            <div key={bar.categoryName}>
+                            <div key={bar.categoryName} className="group relative">
                                 <div className="flex justify-between gap-2 text-sm mb-1 min-w-0">
                                     <div className="flex items-center gap-1.5 min-w-0">
                                         <span className="truncate">{bar.categoryName}</span>
@@ -282,13 +365,37 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                                             </span>
                                         )}
                                     </div>
-                                    <span className="shrink-0" style={{ color: 'var(--color-text-muted)' }}>
-                                        {fmt(bar.plannedLimit)} / {fmt(bar.currentFact)}
+                                    <span className="shrink-0 text-xs text-muted-foreground">
+                                        {fmt(bar.currentFact)} / {fmt(bar.plannedLimit)}
+                                        {bar.forecastEnabled && bar.projectionAmount != null && (
+                                            <span className={`ml-1 font-semibold ${isOverspend ? 'text-destructive' : 'text-green-400'}`}>
+                                                / ~{fmt(bar.projectionAmount)}
+                                            </span>
+                                        )}
                                     </span>
                                 </div>
-                                <div className="h-2 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
+                                <div className="relative h-2 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
+                                    {/* Fact fill — uses dynamic barMax */}
                                     <div className="h-2 rounded-full transition-all"
-                                        style={{ width: state.barWidth, background: state.barColor }} />
+                                        style={{ width: `${Math.min(factPct, 100)}%`, background: state.barColor }} />
+                                    {/* Plan marker — thin white vertical line */}
+                                    <div
+                                        className="absolute top-[-3px] h-[calc(100%+6px)] w-0.5 bg-white/20 rounded-sm z-10"
+                                        style={{ left: `${planMarkerPct}%` }}
+                                    />
+                                    {/* Needle — projection end-of-month marker */}
+                                    {needlePct != null && (
+                                        <>
+                                            <div
+                                                className={`absolute top-[-5px] h-[calc(100%+10px)] w-0.5 rounded-sm z-20 ${isOverspend ? 'bg-destructive' : 'bg-green-400'}`}
+                                                style={{ left: `${Math.min(needlePct, 98)}%` }}
+                                            />
+                                            <div
+                                                className={`absolute top-[-3px] w-2 h-2 rounded-full border-2 border-background z-30 ${isOverspend ? 'bg-destructive' : 'bg-green-400'}`}
+                                                style={{ left: `calc(${Math.min(needlePct, 98)}% - 4px)` }}
+                                            />
+                                        </>
+                                    )}
                                 </div>
                                 {/* Transaction names under this category */}
                                 {(() => {
@@ -305,6 +412,17 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                                         </p>
                                     );
                                 })()}
+                                {/* Hover sparkline tooltip */}
+                                {bar.forecastEnabled && bar.history.length > 0 && (
+                                    <div className="absolute right-0 top-6 hidden group-hover:block z-50">
+                                        <ForecastSparkline
+                                            history={bar.history}
+                                            plannedLimit={bar.plannedLimit}
+                                            projectionAmount={bar.projectionAmount ?? bar.plannedLimit}
+                                            daysInMonth={daysInMonth}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
