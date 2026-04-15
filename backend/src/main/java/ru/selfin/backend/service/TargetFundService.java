@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FundsOverviewDto;
+import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
@@ -28,6 +29,7 @@ import ru.selfin.backend.repository.TargetFundRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -73,6 +75,7 @@ public class TargetFundService {
     private final FinancialEventRepository eventRepository;
     private final BalanceCheckpointRepository checkpointRepository;
     private final CategoryRepository categoryRepository;
+    private final PredictionService predictionService;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -97,7 +100,73 @@ public class TargetFundService {
                 .filter(f -> !POCKET_NAME.equals(f.getName()))
                 .map(this::toDto)
                 .toList();
-        return new FundsOverviewDto(pocketBalance, fundDtos);
+
+        LocalDate today = LocalDate.now();
+        YearMonth currentMonth = YearMonth.from(today);
+        LocalDate monthStart = currentMonth.atDay(1);
+        LocalDate monthEnd = currentMonth.atEndOfMonth();
+
+        // eventRepository is the existing field — confirmed as FinancialEventRepository
+        List<FinancialEvent> monthEvents = eventRepository
+                .findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
+
+        // Compute afterAllExpenses: pocket + future planned income - future planned expenses
+        // This is the end-of-month projection (not current pocketBalance — includes uncommitted future plans)
+        BigDecimal futureIncome = monthEvents.stream()
+                .filter(e -> e.getEventKind() == EventKind.PLAN
+                        && e.getType() == EventType.INCOME
+                        && e.getDate() != null && !e.getDate().isBefore(today))
+                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal futureExpenses = monthEvents.stream()
+                .filter(e -> e.getEventKind() == EventKind.PLAN
+                        && e.getType() == EventType.EXPENSE
+                        && e.getDate() != null && !e.getDate().isBefore(today))
+                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // afterAllExpenses = end-of-month projection of the pocket:
+        // current pocketBalance + remaining planned income - remaining planned expenses.
+        BigDecimal afterAllExpenses = pocketBalance.add(futureIncome).subtract(futureExpenses);
+
+        // Prediction delta — only linear (unplanned) categories contribute
+        MonthlyForecastDto forecast = predictionService.forecastFromEvents(monthEvents, today);
+        BigDecimal delta = forecast.netPredictionDelta();
+
+        BigDecimal adjustedPocket = null;
+        List<String> contributors = List.of();
+
+        if (delta.compareTo(new BigDecimal("100")) >= 0) {
+            adjustedPocket = afterAllExpenses.subtract(delta);
+            contributors = buildContributors(forecast);
+        }
+
+        return new FundsOverviewDto(pocketBalance, fundDtos, adjustedPocket, contributors);
+    }
+
+    private List<String> buildContributors(MonthlyForecastDto forecast) {
+        return forecast.categories().stream()
+                .filter(c -> {
+                    // Only linear categories contribute to delta
+                    boolean hasPlans = c.plannedLimit().compareTo(BigDecimal.ZERO) > 0;
+                    return !hasPlans && c.projectionAmount().compareTo(c.currentFact()) > 0;
+                })
+                .map(c -> {
+                    BigDecimal extra = c.projectionAmount().subtract(c.currentFact());
+                    String formatted = formatK(extra);
+                    return c.categoryName() + " (+" + formatted + ")";
+                })
+                .toList();
+    }
+
+    private String formatK(BigDecimal amount) {
+        long rubles = amount.longValue();
+        if (rubles >= 1000) {
+            long thousands = Math.round(rubles / 1000.0);
+            return thousands + "к";
+        }
+        return rubles + "₽";
     }
 
     /**

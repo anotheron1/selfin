@@ -3,7 +3,9 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import ru.selfin.backend.dto.CategoryForecastDto;
 import ru.selfin.backend.dto.FundsOverviewDto;
+import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.EventType;
@@ -31,6 +33,7 @@ class TargetFundServiceTest {
     private FinancialEventRepository eventRepository;
     private BalanceCheckpointRepository checkpointRepository;
     private CategoryRepository categoryRepository;
+    private PredictionService predictionService;
     private TargetFundService service;
 
     @BeforeEach
@@ -40,14 +43,19 @@ class TargetFundServiceTest {
         eventRepository = mock(FinancialEventRepository.class);
         checkpointRepository = mock(BalanceCheckpointRepository.class);
         categoryRepository = mock(CategoryRepository.class);
+        predictionService = mock(PredictionService.class);
         service = new TargetFundService(
                 fundRepository, transactionRepository,
-                eventRepository, checkpointRepository, categoryRepository);
+                eventRepository, checkpointRepository, categoryRepository,
+                predictionService);
         // По умолчанию просроченных обязательных планов нет
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
         // По умолчанию переводов в копилки нет (Variant B: FUND_TRANSFER = расход)
         when(eventRepository.sumAllFactByType(EventType.FUND_TRANSFER)).thenReturn(BigDecimal.ZERO);
         when(eventRepository.sumAllFactByTypeFromDate(any(), any())).thenReturn(BigDecimal.ZERO);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+        when(predictionService.forecastFromEvents(any(), any()))
+                .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
     }
 
     @Test
@@ -129,6 +137,52 @@ class TargetFundServiceTest {
 
         // 100_000 - 30_000 - 0 (transfers) - 5_000 (overdue) = 65_000
         assertThat(overview.pocketBalance()).isEqualByComparingTo(bd(65_000));
+    }
+
+    @Test
+    @DisplayName("Кармашек: linear category extrapolation adds predictionAdjustedPocket when delta >= 100")
+    void getOverview_withLinearCategory_includesPredictionAdjustedPocket() {
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
+        when(fundRepository.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of());
+        when(eventRepository.sumFactExecutedByType(EventType.INCOME)).thenReturn(bd(100_000));
+        when(eventRepository.sumFactExecutedByType(EventType.EXPENSE)).thenReturn(bd(30_000));
+        when(eventRepository.sumAllFactByType(EventType.FUND_TRANSFER)).thenReturn(BigDecimal.ZERO);
+
+        // Month events: empty list → afterAllExpenses = pocketBalance + 0 - 0 = 70_000
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        // Linear category contributes delta = 10_000
+        CategoryForecastDto linearCat = new CategoryForecastDto(
+                "Прочее", new BigDecimal("5000"), BigDecimal.ZERO,
+                new BigDecimal("15000"), List.of());
+        when(predictionService.forecastFromEvents(any(), any()))
+                .thenReturn(new MonthlyForecastDto(List.of(linearCat), new BigDecimal("10000")));
+
+        FundsOverviewDto overview = service.getOverview();
+
+        // pocketBalance = 70_000; afterAllExpenses = 70_000 (no future planned events)
+        // adjustedPocket = 70_000 - 10_000 = 60_000
+        assertThat(overview.predictionAdjustedPocket()).isNotNull();
+        assertThat(overview.predictionAdjustedPocket()).isEqualByComparingTo(new BigDecimal("60000"));
+        assertThat(overview.forecastContributors()).contains("Прочее (+10к)");
+    }
+
+    @Test
+    @DisplayName("Кармашек: delta < 100 → predictionAdjustedPocket is null")
+    void getOverview_allPlanBased_predictionAdjustedPocketIsNull() {
+        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
+        when(fundRepository.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of());
+        when(eventRepository.sumFactExecutedByType(any())).thenReturn(BigDecimal.ZERO);
+        when(eventRepository.sumAllFactByType(any())).thenReturn(BigDecimal.ZERO);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        when(predictionService.forecastFromEvents(any(), any()))
+                .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
+
+        FundsOverviewDto overview = service.getOverview();
+
+        assertThat(overview.predictionAdjustedPocket()).isNull();
+        assertThat(overview.forecastContributors()).isEmpty();
     }
 
     private static BigDecimal bd(long value) {
