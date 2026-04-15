@@ -3,7 +3,9 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import ru.selfin.backend.dto.CategoryForecastDto;
 import ru.selfin.backend.dto.DashboardDto;
+import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
@@ -23,6 +25,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -42,6 +45,7 @@ class DashboardServiceTest {
 
     private FinancialEventRepository eventRepository;
     private BalanceCheckpointRepository checkpointRepository;
+    private PredictionService predictionService;
     private DashboardService dashboardService;
 
     /** Тестовая «сегодня» — 15 марта 2026, середина месяца. */
@@ -51,11 +55,15 @@ class DashboardServiceTest {
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
         checkpointRepository = mock(BalanceCheckpointRepository.class);
+        predictionService = mock(PredictionService.class);
         // По умолчанию чекпоинтов нет — баланс от нуля
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
         // По умолчанию просроченных обязательных планов нет
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
-        dashboardService = new DashboardService(eventRepository, checkpointRepository);
+        // По умолчанию прогноз пустой
+        when(predictionService.forecastFromEvents(any(), any()))
+                .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
+        dashboardService = new DashboardService(eventRepository, checkpointRepository, predictionService);
     }
 
     // ─── Вспомогательный билдер событий ───────────────────────────────────────
@@ -524,6 +532,66 @@ class DashboardServiceTest {
         assertThat(bar.plannedLimit()).isEqualByComparingTo(bd(20_000));
         assertThat(bar.currentFact()).isEqualByComparingTo(bd(15_000));
         assertThat(bar.percentage()).isEqualTo(75);
+    }
+
+    // ─── forecast integration ──────────────────────────────────────────────────
+
+    @Test
+    void buildProgressBars_forecastEnabledCategory_includesProjection() {
+        LocalDate today = LocalDate.of(2026, 4, 8);
+
+        Category food = Category.builder()
+                .id(UUID.randomUUID()).name("Еда").type(CategoryType.EXPENSE)
+                .priority(Priority.MEDIUM).forecastEnabled(true).deleted(false).build();
+
+        FinancialEvent plan = FinancialEvent.builder()
+                .id(UUID.randomUUID()).category(food).date(LocalDate.of(2026, 4, 15))
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN).plannedAmount(new BigDecimal("20000")).deleted(false).build();
+        FinancialEvent fact = FinancialEvent.builder()
+                .id(UUID.randomUUID()).category(food).date(LocalDate.of(2026, 4, 5))
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.FACT).factAmount(new BigDecimal("15000")).deleted(false).build();
+
+        CategoryForecastDto catForecast = new CategoryForecastDto(
+                "Еда", new BigDecimal("15000"), new BigDecimal("20000"),
+                new BigDecimal("35000"), List.of());
+        when(predictionService.forecastFromEvents(any(), eq(today)))
+                .thenReturn(new MonthlyForecastDto(List.of(catForecast), BigDecimal.ZERO));
+
+        List<DashboardDto.CategoryProgressBar> bars = dashboardService.buildProgressBars(
+                List.of(plan, fact), today);
+
+        assertThat(bars).hasSize(1);
+        DashboardDto.CategoryProgressBar bar = bars.get(0);
+        assertThat(bar.forecastEnabled()).isTrue();
+        assertThat(bar.projectionAmount()).isEqualByComparingTo(new BigDecimal("35000"));
+    }
+
+    @Test
+    void buildProgressBars_forecastDisabledCategory_noProjection() {
+        LocalDate today = LocalDate.of(2026, 4, 8);
+
+        Category rent = Category.builder()
+                .id(UUID.randomUUID()).name("Аренда").type(CategoryType.EXPENSE)
+                .priority(Priority.HIGH).forecastEnabled(false).deleted(false).build();
+
+        FinancialEvent plan = FinancialEvent.builder()
+                .id(UUID.randomUUID()).category(rent).date(LocalDate.of(2026, 4, 1))
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN).plannedAmount(new BigDecimal("30000")).deleted(false).build();
+
+        when(predictionService.forecastFromEvents(any(), eq(today)))
+                .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
+
+        List<DashboardDto.CategoryProgressBar> bars = dashboardService.buildProgressBars(
+                List.of(plan), today);
+
+        assertThat(bars).hasSize(1);
+        DashboardDto.CategoryProgressBar bar = bars.get(0);
+        assertThat(bar.forecastEnabled()).isFalse();
+        assertThat(bar.projectionAmount()).isNull();
+        assertThat(bar.history()).isEmpty();
     }
 
     // ─── helpers ───────────────────────────────────────────────────────────────

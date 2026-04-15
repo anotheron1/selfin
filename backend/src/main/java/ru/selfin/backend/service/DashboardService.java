@@ -3,7 +3,10 @@ package ru.selfin.backend.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.selfin.backend.dto.CategoryForecastDto;
+import ru.selfin.backend.dto.DailyForecastPointDto;
 import ru.selfin.backend.dto.DashboardDto;
+import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
@@ -16,7 +19,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.Collator;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -59,6 +61,7 @@ public class DashboardService {
 
     private final FinancialEventRepository eventRepository;
     private final BalanceCheckpointRepository checkpointRepository;
+    private final PredictionService predictionService;
 
     /**
      * Собирает данные главного дашборда для даты {@code asOfDate}.
@@ -179,7 +182,7 @@ public class DashboardService {
         DashboardDto.CashGapAlert cashGapAlert = detectCashGap(horizonEvents, currentBalance, asOfDate, gapHorizon);
 
         // --- 7. Прогресс-бары по категориям (всегда за весь месяц) ---
-        List<DashboardDto.CategoryProgressBar> progressBars = buildProgressBars(monthEvents);
+        List<DashboardDto.CategoryProgressBar> progressBars = buildProgressBars(monthEvents, asOfDate);
 
         return new DashboardDto(
                 currentBalance,
@@ -339,31 +342,47 @@ public class DashboardService {
      * <p>Для каждой категории суммируются все плановые и фактические суммы событий
      * типа {@link EventType#EXPENSE} за месяц. Процент = {@code fact / plan * 100},
      * может превышать 100 (перерасход). Список сортируется по имени категории
-     * в русском алфавитном порядке.
+     * в русском алфавитном порядке. Для категорий с включённым прогнозом
+     * ({@code forecastEnabled}) добавляются данные из {@link PredictionService}.
      *
-     * @param events события текущего месяца (могут включать INCOME — они фильтруются)
+     * @param events  события текущего месяца (могут включать INCOME — они фильтруются)
+     * @param today   дата расчёта (обычно «сегодня»), передаётся в PredictionService
      * @return список прогресс-баров, отсортированных по имени категории
      */
-    private List<DashboardDto.CategoryProgressBar> buildProgressBars(List<FinancialEvent> events) {
+    List<DashboardDto.CategoryProgressBar> buildProgressBars(List<FinancialEvent> events, LocalDate today) {
+        MonthlyForecastDto forecast = predictionService.forecastFromEvents(events, today);
+        Map<String, CategoryForecastDto> forecastByCategory = forecast.categories().stream()
+                .collect(Collectors.toMap(CategoryForecastDto::categoryName, f -> f));
+
         Map<String, List<FinancialEvent>> byCategory = events.stream()
                 .filter(e -> e.getType() == EventType.EXPENSE)
                 .collect(Collectors.groupingBy(e -> e.getCategory().getName()));
 
-        List<DashboardDto.CategoryProgressBar> bars = new ArrayList<>();
-        for (Map.Entry<String, List<FinancialEvent>> entry : byCategory.entrySet()) {
-            BigDecimal planned = entry.getValue().stream()
-                    .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal fact = entry.getValue().stream()
-                    .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            int pct = planned.compareTo(BigDecimal.ZERO) == 0 ? 0
-                    : fact.multiply(BigDecimal.valueOf(100))
-                            .divide(planned, 0, RoundingMode.HALF_UP).intValue();
-            bars.add(new DashboardDto.CategoryProgressBar(entry.getKey(), fact, planned, pct));
-        }
         Collator collator = Collator.getInstance(new Locale("ru", "RU"));
-        bars.sort((a, b) -> collator.compare(a.categoryName(), b.categoryName()));
-        return bars;
+        return byCategory.entrySet().stream()
+                .sorted((a, b) -> collator.compare(a.getKey(), b.getKey()))
+                .map(entry -> {
+                    List<FinancialEvent> catEvents = entry.getValue();
+                    BigDecimal planned = catEvents.stream()
+                            .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal fact = catEvents.stream()
+                            .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    int pct = planned.compareTo(BigDecimal.ZERO) == 0 ? 0
+                            : fact.multiply(BigDecimal.valueOf(100))
+                                  .divide(planned, 0, RoundingMode.HALF_UP).intValue();
+
+                    CategoryForecastDto catForecast = forecastByCategory.get(entry.getKey());
+                    boolean forecastEnabled = catForecast != null;
+                    BigDecimal projection = forecastEnabled ? catForecast.projectionAmount() : null;
+                    List<DailyForecastPointDto> history = forecastEnabled
+                            ? catForecast.history() : List.of();
+
+                    return new DashboardDto.CategoryProgressBar(
+                            entry.getKey(), fact, planned, pct,
+                            projection, forecastEnabled, history);
+                })
+                .toList();
     }
 }
