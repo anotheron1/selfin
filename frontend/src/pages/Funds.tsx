@@ -539,6 +539,25 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                                     <>
                                         {row('После обязательных расходов', projections.mandatory)}
                                         {row('После всех расходов', projections.full)}
+                                        {data.predictionAdjustedPocket != null && (
+                                            <div className="mt-2 p-2.5 bg-secondary/30 border border-primary/20 rounded-lg">
+                                                <div className="flex justify-between items-start">
+                                                    <span className="text-sm text-primary">По текущему темпу</span>
+                                                    <span className={`text-sm font-semibold ml-3 ${
+                                                        data.predictionAdjustedPocket < data.pocketBalance
+                                                            ? 'text-destructive'
+                                                            : 'text-green-400'
+                                                    }`}>
+                                                        {fmt(data.predictionAdjustedPocket)}
+                                                    </span>
+                                                </div>
+                                                {data.forecastContributors.length > 0 && (
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        {data.forecastContributors.join(', ')}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                     </>
                                 );
                             })()}
