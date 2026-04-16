@@ -24,6 +24,8 @@ export default function Settings() {
     const [editCatId, setEditCatId] = useState<string | null>(null);
     const [editCatName, setEditCatName] = useState('');
     const [editCatType, setEditCatType] = useState<CategoryType>('EXPENSE');
+    const [editCatForecast, setEditCatForecast] = useState(false);
+    const [createForecast, setCreateForecast] = useState(false);
 
     // --- Snapshots ---
     const [snapshots, setSnapshots] = useState<BudgetSnapshot[]>([]);
@@ -68,8 +70,14 @@ export default function Settings() {
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim()) return;
-        await createCategory({ name: name.trim(), type, priority: 'MEDIUM' });
+        await createCategory({
+            name: name.trim(),
+            type,
+            priority: 'MEDIUM',
+            forecastEnabled: type === 'EXPENSE' ? createForecast : false,
+        });
         setName('');
+        setCreateForecast(false);
         load();
         showToast('Категория добавлена');
     };
@@ -83,13 +91,19 @@ export default function Settings() {
         setEditCatId(cat.id);
         setEditCatName(cat.name);
         setEditCatType(cat.type);
+        setEditCatForecast(cat.forecastEnabled);
     };
 
     const cancelEditCat = () => setEditCatId(null);
 
     const handleUpdateCategory = async (cat: Category) => {
         if (!editCatName.trim()) return;
-        await updateCategory(cat.id, { name: editCatName.trim(), type: editCatType, priority: cat.priority });
+        await updateCategory(cat.id, {
+            name: editCatName.trim(),
+            type: editCatType,
+            priority: cat.priority,
+            forecastEnabled: editCatType === 'EXPENSE' ? editCatForecast : false,
+        });
         setEditCatId(null);
         load();
         showToast('Категория обновлена');
@@ -261,27 +275,41 @@ export default function Settings() {
                 <div className="rounded-2xl p-5 space-y-4"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                     <h2 className="font-semibold text-sm" style={{ color: 'var(--color-text-muted)' }}>ДОБАВИТЬ КАТЕГОРИЮ</h2>
-                    <form onSubmit={handleCreate} className="flex gap-2">
-                        <input
-                            value={name}
-                            onChange={e => setName(e.target.value)}
-                            placeholder="Название категории"
-                            className="flex-1 rounded-lg px-3 py-2 text-sm"
-                            style={inputStyle}
-                        />
-                        <select
-                            value={type}
-                            onChange={e => setType(e.target.value as CategoryType)}
-                            className="rounded-lg px-3 py-2 text-sm"
-                            style={inputStyle}>
-                            <option value="EXPENSE">Расход</option>
-                            <option value="INCOME">Доход</option>
-                        </select>
-                        <button type="submit"
-                            className="rounded-lg px-3 py-2"
-                            style={{ background: 'var(--color-accent)', color: '#fff' }}>
-                            <Plus size={18} />
-                        </button>
+                    <form onSubmit={handleCreate} className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                            <input
+                                value={name}
+                                onChange={e => setName(e.target.value)}
+                                placeholder="Название категории"
+                                className="flex-1 rounded-lg px-3 py-2 text-sm"
+                                style={inputStyle}
+                            />
+                            <select
+                                value={type}
+                                onChange={e => setType(e.target.value as CategoryType)}
+                                className="rounded-lg px-3 py-2 text-sm"
+                                style={inputStyle}>
+                                <option value="EXPENSE">Расход</option>
+                                <option value="INCOME">Доход</option>
+                            </select>
+                            <button type="submit"
+                                className="rounded-lg px-3 py-2"
+                                style={{ background: 'var(--color-accent)', color: '#fff' }}>
+                                <Plus size={18} />
+                            </button>
+                        </div>
+                        {type === 'EXPENSE' && (
+                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
+                                style={{ color: 'var(--color-text-muted)' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={createForecast}
+                                    onChange={e => setCreateForecast(e.target.checked)}
+                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
+                                />
+                                <span className="text-xs">Отслеживать прогноз</span>
+                            </label>
+                        )}
                     </form>
                 </div>
 
@@ -297,32 +325,46 @@ export default function Settings() {
                         ) : grouped[t].map(c => (
                             <div key={c.id}>
                                 {editCatId === c.id ? (
-                                    <div className="flex gap-2 py-1.5">
-                                        <input
-                                            autoFocus
-                                            value={editCatName}
-                                            onChange={e => setEditCatName(e.target.value)}
-                                            className="flex-1 rounded-lg px-3 py-1.5 text-sm"
-                                            style={inputStyle}
-                                        />
-                                        <select
-                                            value={editCatType}
-                                            onChange={e => setEditCatType(e.target.value as CategoryType)}
-                                            className="rounded-lg px-3 py-1.5 text-sm"
-                                            style={inputStyle}>
-                                            <option value="EXPENSE">Расход</option>
-                                            <option value="INCOME">Доход</option>
-                                        </select>
-                                        <button onClick={() => handleUpdateCategory(c)}
-                                            className="p-1.5 rounded-lg"
-                                            style={{ background: 'var(--color-accent)', color: '#fff' }}>
-                                            <Check size={16} />
-                                        </button>
-                                        <button onClick={cancelEditCat}
-                                            className="p-1.5 rounded-lg"
-                                            style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
-                                            <X size={16} />
-                                        </button>
+                                    <div className="flex flex-col gap-2 py-1.5">
+                                        <div className="flex gap-2">
+                                            <input
+                                                autoFocus
+                                                value={editCatName}
+                                                onChange={e => setEditCatName(e.target.value)}
+                                                className="flex-1 rounded-lg px-3 py-1.5 text-sm"
+                                                style={inputStyle}
+                                            />
+                                            <select
+                                                value={editCatType}
+                                                onChange={e => setEditCatType(e.target.value as CategoryType)}
+                                                className="rounded-lg px-3 py-1.5 text-sm"
+                                                style={inputStyle}>
+                                                <option value="EXPENSE">Расход</option>
+                                                <option value="INCOME">Доход</option>
+                                            </select>
+                                            <button onClick={() => handleUpdateCategory(c)}
+                                                className="p-1.5 rounded-lg"
+                                                style={{ background: 'var(--color-accent)', color: '#fff' }}>
+                                                <Check size={16} />
+                                            </button>
+                                            <button onClick={cancelEditCat}
+                                                className="p-1.5 rounded-lg"
+                                                style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
+                                                <X size={16} />
+                                            </button>
+                                        </div>
+                                        {editCatType === 'EXPENSE' && (
+                                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
+                                                style={{ color: 'var(--color-text-muted)' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editCatForecast}
+                                                    onChange={e => setEditCatForecast(e.target.checked)}
+                                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
+                                                />
+                                                <span className="text-xs">Отслеживать прогноз</span>
+                                            </label>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-between py-2.5 px-1"
@@ -334,7 +376,12 @@ export default function Settings() {
                                                     <span className="text-xs ml-1" style={{ color: 'var(--color-text-muted)' }}>· системная</span>
                                                 </span>
                                             ) : (
-                                                <span className="text-sm">{c.name}</span>
+                                                <span className="text-sm">
+                                                    {c.name}
+                                                    {c.forecastEnabled && (
+                                                        <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>· прогноз</span>
+                                                    )}
+                                                </span>
                                             )}
                                             <PriorityButton
                                                 priority={c.priority}

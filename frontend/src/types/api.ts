@@ -12,6 +12,7 @@ export interface Category {
     type: CategoryType;
     priority: Priority;
     isSystem: boolean;
+    forecastEnabled: boolean;
 }
 
 export interface FinancialEvent {
