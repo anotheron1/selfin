@@ -127,7 +127,9 @@ public class TargetFundService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // afterAllExpenses = end-of-month projection of the pocket:
-        // current pocketBalance + remaining planned income - remaining planned expenses.
+        // current pocketBalance + today-and-future planned income − today-and-future planned expenses.
+        // Filter is !isBefore(today), so today's unexecuted planned events are included.
+        // This is NOT the same as pocketBalance — pocketBalance reflects only executed facts so far.
         BigDecimal afterAllExpenses = pocketBalance.add(futureIncome).subtract(futureExpenses);
 
         // Prediction delta — only linear (unplanned) categories contribute
@@ -148,9 +150,14 @@ public class TargetFundService {
     private List<String> buildContributors(MonthlyForecastDto forecast) {
         return forecast.categories().stream()
                 .filter(c -> {
-                    // Only linear categories contribute to delta
-                    boolean hasPlans = c.plannedLimit().compareTo(BigDecimal.ZERO) > 0;
-                    return !hasPlans && c.projectionAmount().compareTo(c.currentFact()) > 0;
+                    // Only linear categories contribute to delta.
+                    // A category is linear when it has no PLAN events; we detect this the same way
+                    // forecastFromEvents does: plannedLimit == 0 (sum of zero PLAN events).
+                    // Edge case: a PLAN event with plannedAmount=0 would make plannedLimit=0 but
+                    // forecastFromEvents treats it as plan-based (hasPlans=true). Such zero-amount
+                    // plans are not valid data in this app, so the two checks are equivalent.
+                    boolean isLinear = c.plannedLimit().signum() == 0;
+                    return isLinear && c.projectionAmount().compareTo(c.currentFact()) > 0;
                 })
                 .map(c -> {
                     BigDecimal extra = c.projectionAmount().subtract(c.currentFact());

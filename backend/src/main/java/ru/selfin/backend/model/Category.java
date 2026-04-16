@@ -41,5 +41,6 @@ public class Category {
     private boolean system = false;
 
     @Column(name = "forecast_enabled", nullable = false)
-    private boolean forecastEnabled;
+    @Builder.Default
+    private boolean forecastEnabled = false;
 }
