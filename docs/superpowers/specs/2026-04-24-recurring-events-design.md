@@ -69,16 +69,47 @@ CREATE INDEX idx_events_recurring_rule
     WHERE recurring_rule_id IS NOT NULL;
 ```
 
-### Инварианты
+### JPA-маппинг (следуем существующей конвенции)
+
+В кодбазе `FinancialEvent` уже связан с `Category` через ассоциацию, а не UUID-поле:
+
+```java
+@ManyToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "category_id", nullable = false)
+private Category category;
+```
+
+Следуем тому же паттерну для `recurring_rule_id`:
+
+```java
+// FinancialEvent.java
+@ManyToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "recurring_rule_id")   // nullable = true по умолчанию
+private RecurringRule recurringRule;
+
+// RecurringRule.java
+@ManyToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "category_id", nullable = false)
+private Category category;
+```
+
+Код вида `event.getRecurringRuleId()` в псевдокоде этого spec'а = `event.getRecurringRule() != null ? event.getRecurringRule().getId() : null`. Никаких raw UUID-полей в сущностях — держим единый стиль.
+
+### Инварианты (канонический список)
 
 | # | Правило | Уровень |
 |---|---------|---------|
-| I1 | `frequency=MONTHLY` ⇒ `month_of_year IS NULL` | CHECK |
-| I2 | `frequency=YEARLY` ⇒ `month_of_year IS NOT NULL` | CHECK |
-| I3 | `end_date IS NULL OR end_date >= start_date` | CHECK |
-| I4 | При создании: `start_date >= today` | сервис (today не статичен, в БД не загоняем) |
-| I5 | `recurring_rule_id` на событии → событие порождено правилом | сервис |
-| I6 | EXECUTED-события (`status=EXECUTED`) никогда не модифицируются и не удаляются правилом | сервис |
+| I1 | `frequency=MONTHLY` ⇒ `month_of_year IS NULL`; `frequency=YEARLY` ⇒ `month_of_year IS NOT NULL` | CHECK |
+| I2 | `end_date IS NULL OR end_date >= start_date` | CHECK |
+| I3 | При создании: `start_date >= today` (today не статичен, в БД не загоняем) | сервис |
+| I4 | EXECUTED-события (`status=EXECUTED`) никогда не модифицируются и не удаляются правилом | сервис |
+| I5 | Правило — источник истины только для PLAN-событий в будущем; EXECUTED-прошлое независимо | сервис |
+| I6 | `scope=FOLLOWING\|ALL` валиден только для recurring-событий (на одиночных → 400) | сервис |
+| I7 | Clamp `day_of_month` к `lengthOfMonth` целевого месяца — стандарт для всех вычислений дат (31 → 28/29/30) | генератор |
+| I8 | `start_date` нельзя редактировать через edit-эндпоинт. Хочешь другой старт — удали правило и создай заново. Упрощает контракт, избегает сложной логики «что делать с событиями между старым и новым start». | сервис |
+| I9 | `recurring_rule_id` на событии ≠ null ⇔ событие порождено этим правилом | сервис |
+
+Этот список — источник истины. Финальная таблица «Ключевые инварианты» в конце документа дублирует его только для удобства чтения; при расхождении ориентируемся на этот раздел.
 
 ### Миграция
 
@@ -107,12 +138,39 @@ List<FinancialEvent> generate(RecurringRule rule, LocalDate from, LocalDate thro
 ### Алгоритм генерации дат
 
 ```
-cursor = первая дата >= from, подходящая по частоте и (dayOfMonth, monthOfYear)
+cursor = firstDateOnOrAfter(from, rule)
 dates = []
 while cursor <= through:
     dates.add(cursor)
-    cursor = nextDate(cursor)
+    cursor = nextDate(cursor, rule)
 ```
+
+### Вычисление первой даты `>= from`
+
+**MONTHLY:**
+```java
+LocalDate firstMonthlyOnOrAfter(LocalDate from, int dayOfMonth) {
+    YearMonth ym = YearMonth.from(from);
+    int candidateDay = Math.min(dayOfMonth, ym.lengthOfMonth());
+    LocalDate candidate = ym.atDay(candidateDay);
+    return candidate.isBefore(from) ? nextMonthly(candidate, dayOfMonth) : candidate;
+}
+```
+
+**YEARLY:**
+```java
+LocalDate firstYearlyOnOrAfter(LocalDate from, int monthOfYear, int dayOfMonth) {
+    int year = from.getYear();
+    YearMonth ym = YearMonth.of(year, monthOfYear);
+    int candidateDay = Math.min(dayOfMonth, ym.lengthOfMonth());
+    LocalDate candidate = ym.atDay(candidateDay);
+    return candidate.isBefore(from)
+        ? nextYearly(candidate, monthOfYear, dayOfMonth)
+        : candidate;
+}
+```
+
+**Edge:** если `rule.start_date > through` → возвращаем пустой список (guard в начале `generate`).
 
 ### Вычисление даты с clamp'ом
 
@@ -145,6 +203,7 @@ LocalDate horizonEnd = rule.getEndDate() != null
 Отдельный метод в `RecurringRuleService`:
 
 ```java
+@Transactional(propagation = Propagation.REQUIRES_NEW)
 void extendIndefiniteRules(LocalDate requiredThrough) {
     for (RecurringRule rule : ruleRepo.findIndefiniteActive()) {
         LocalDate maxExisting = eventRepo.findMaxDateByRule(rule.getId());
@@ -158,7 +217,9 @@ void extendIndefiniteRules(LocalDate requiredThrough) {
 }
 ```
 
-Вызывается в `FundPlannerService.getPlanner()` первым шагом с `requiredThrough = today.plusMonths(36)`. Идемпотентно — при повторе ничего не делает.
+**`REQUIRES_NEW` обязательно.** Вызывающий `FundPlannerService.getPlanner()` помечен `@Transactional(readOnly = true)` — без отдельной транзакции запись (`saveAll`) упадёт или молча ничего не сделает. `REQUIRES_NEW` даёт нам write-транзакцию внутри read-only вызывающего. Если расширение упало — не заваливаем весь запрос планировщика, логируем и читаем то, что есть.
+
+Вызывается в `FundPlannerService.getPlanner()` первым шагом с `requiredThrough = LocalDate.now().plusMonths(36)`. Идемпотентно — при повторе ничего не делает (все даты уже материализованы, `from.isAfter(requiredThrough)` → continue).
 
 ---
 
@@ -193,6 +254,12 @@ Idempotency-Key: <uuid>
 - `start_date` правила = `date` из тела.
 - Возврат — DTO созданного события (первого экземпляра).
 
+**Idempotency-Key — семантика при создании recurring:**
+
+- Ключ покрывает всю операцию атомарно: правило + все сгенерированные события. Либо создалось и правило, и N событий, либо ничего (транзакция).
+- При ретрае с тем же ключом: повторной генерации не происходит, возвращаем DTO первого события из оригинального создания (как и для одиночного POST /events сегодня).
+- Таблица `idempotency_keys` хранит ответ, не промежуточное состояние. Это покрывается существующим механизмом — отдельных полей для правила не нужно.
+
 ### Редактирование: добавляем query-параметр `scope`
 
 ```http
@@ -220,9 +287,11 @@ DELETE /api/v1/events/{id}?scope=THIS|FOLLOWING|ALL
 ```java
 UUID recurringRuleId;                    // null если не recurring
 RecurringFrequency recurringFrequency;   // MONTHLY | YEARLY, null иначе
+Integer recurringDayOfMonth;             // 1..31, null иначе — нужен для tooltip'а
+Integer recurringMonthOfYear;            // 1..12, только для YEARLY, null иначе
 ```
 
-Этого достаточно для UI (иконка ↻, scope-picker, текст tooltip'а).
+Поля `recurringDayOfMonth` / `recurringMonthOfYear` нужны фронту, чтобы нарисовать tooltip («Повторяется ежемесячно 15-го числа» / «Повторяется 15 августа каждого года») без отдельного запроса правила. `frequency` одного мало — в tooltip'е зашит день, а он живёт в правиле.
 
 ### Что НЕ добавляем
 
@@ -244,9 +313,12 @@ RecurringFrequency recurringFrequency;   // MONTHLY | YEARLY, null иначе
 ```java
 if (dto.recurring != null) {
     RecurringRule rule = ruleService.createFromDto(dto);
+    LocalDate horizonEnd = rule.getEndDate() != null
+        ? rule.getEndDate()
+        : LocalDate.now().plusMonths(36);
     List<FinancialEvent> events = generator.generate(rule,
         rule.getStartDate(),
-        rule.getEndDate() != null ? rule.getEndDate() : today.plusMonths(36));
+        horizonEnd);
     eventRepo.saveAll(events);
     return toDto(events.get(0));
 }
@@ -259,15 +331,19 @@ if (dto.recurring != null) {
 void update(UUID eventId, ScopeEnum scope, EventUpdateDto dto) {
     FinancialEvent event = eventRepo.findById(eventId).orElseThrow();
 
-    if (scope == THIS || event.getRecurringRuleId() == null) {
+    // 1. Reject FOLLOWING/ALL на не-recurring сразу — иначе THIS-ветка
+    //    проглотила бы невалидный scope незаметно.
+    if (scope != THIS && event.getRecurringRuleId() == null) {
+        throw new BadRequestException("Scope requires recurring event");
+    }
+
+    // 2. THIS — правило не трогаем, модифицируем только этот экземпляр.
+    if (scope == THIS) {
         applyDto(event, dto);
         return;
     }
 
-    if (event.getRecurringRuleId() == null) {
-        throw new BadRequestException("Scope requires recurring event");
-    }
-
+    // 3. FOLLOWING / ALL — правило существует (проверка выше), обновляем его и regenerate.
     RecurringRule rule = ruleRepo.findById(event.getRecurringRuleId()).orElseThrow();
     applyDtoToRule(rule, dto);
     ruleRepo.save(rule);
@@ -333,7 +409,7 @@ void delete(UUID eventId, ScopeEnum scope) {
 
 ### Lazy-расширение бессрочных
 
-`extendIndefiniteRules(today.plusMonths(36))` вызывается в `FundPlannerService.getPlanner()` в самом начале. Отдельная логическая операция, но находится в той же транзакции метода-читателя.
+`extendIndefiniteRules(LocalDate.now().plusMonths(36))` вызывается в `FundPlannerService.getPlanner()` в самом начале. За счёт `Propagation.REQUIRES_NEW` работает в отдельной write-транзакции поверх read-only вызывающего.
 
 ### Транзакции и ошибки
 
@@ -402,7 +478,11 @@ FACT-события, унаследовавшие parent_plan от recurring PLA
 - Default = FOLLOWING (из Q4).
 - При save scope передаётся в `?scope=` query-параметр.
 
-Обоснование inline (а не модалки перед edit'ом): пользователь сразу видит контекст изменения, нет лишнего клика.
+### UX-принцип: edit inline, delete modal
+
+Edit — обратимая операция (снова открыл форму, поправил). Scope выбирается inline, без лишнего клика. Контекст всегда виден — форма уже открыта, поля на глазах.
+
+Delete — необратимая (soft-delete, но на уровне UX откат не предусмотрен). Scope=ALL удаляет всё правило разом — это тот класс действия, где нужна отдельная пауза «ты точно?». Модалка даёт эту паузу и отделяет destructive-действие от обычного редактирования.
 
 ### 5.4 Удаление: модалка scope
 
@@ -458,7 +538,7 @@ FACT-события, унаследовавшие parent_plan от recurring PLA
 3. Create + FACT одного события + scope=ALL edit amount → FACT не изменён, остальные PLAN новой суммы.
 4. Create + scope=ALL delete → rule.is_deleted=true, PLAN soft-deleted, FACT живы.
 5. Create бессрочное + `extendIndefiniteRules` на следующий месяц → добавлено 1 событие.
-6. Create с `start_date` в прошлом → 400 Bad Request.
+6. Retroactive-создание отклоняется валидацией: POST /events с `recurring.start_date < LocalDate.now()` → 400 Bad Request. Правило не создано, ни одного события в БД не появилось. (Это проверка самого факта валидации инварианта I3, а не поддержка фичи — см. «Out of scope».)
 7. Create YEARLY 29 февраля → первый экземпляр 29 фев (если старт в високосный) или 28 фев (если нет).
 
 ### Контроллер-тесты (`@WebMvcTest`)
@@ -497,17 +577,21 @@ FACT-события, унаследовавшие parent_plan от recurring PLA
 7. **Scheduled job для lazy-extend** — сейчас on-demand. Cron станет нужен если планировщик вызывается редко (длинные простои).
 8. **Preservation per-instance override при scope=FOLLOWING** — сейчас FOLLOWING перезаписывает индивидуальные отклонения в будущих событиях. Можно усложнить позже.
 
-## Ключевые инварианты
+## Ключевые инварианты (сводка)
+
+Канонический список с уровнями enforcement — в разделе «Секция 1 → Инварианты». Ниже — краткая сводка для быстрого чтения.
 
 | # | Инвариант |
 |---|-----------|
-| I1 | MONTHLY не имеет month_of_year; YEARLY обязан иметь |
-| I2 | end_date >= start_date или NULL |
-| I3 | start_date >= today при создании |
+| I1 | MONTHLY не имеет `month_of_year`; YEARLY обязан иметь |
+| I2 | `end_date >= start_date` или NULL |
+| I3 | `start_date >= today` при создании |
 | I4 | EXECUTED-события не изменяются и не удаляются правилом — никогда |
 | I5 | Правило — источник истины только для PLAN-событий в будущем; прошлое независимо |
-| I6 | scope=FOLLOWING/ALL валиден только для recurring-событий |
-| I7 | Clamp дня к lengthOfMonth — стандарт для всех дат (31 → 28/29/30) |
+| I6 | `scope=FOLLOWING/ALL` валиден только для recurring-событий |
+| I7 | Clamp дня к `lengthOfMonth` — стандарт для всех дат (31 → 28/29/30) |
+| I8 | `start_date` неизменяем после создания правила (см. Секцию 1) |
+| I9 | `recurring_rule_id != null` ⇔ событие порождено этим правилом |
 
 ## Архитектурная схема
 
@@ -533,4 +617,4 @@ FACT-события, унаследовавшие parent_plan от recurring PLA
                              └─ clamp к lengthOfMonth
 ```
 
-`FundPlannerService.getPlanner()` → `ruleService.extendIndefiniteRules(today.plusMonths(36))` → дальше обычная агрегация.
+`FundPlannerService.getPlanner()` → `ruleService.extendIndefiniteRules(LocalDate.now().plusMonths(36))` → дальше обычная агрегация.
