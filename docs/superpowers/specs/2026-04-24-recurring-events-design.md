@@ -67,7 +67,14 @@ ALTER TABLE financial_events
 CREATE INDEX idx_events_recurring_rule
     ON financial_events (recurring_rule_id)
     WHERE recurring_rule_id IS NOT NULL;
+
+-- Защита от дублирования при lazy-extend (см. Секцию 2 → «Конкурентность»)
+CREATE UNIQUE INDEX uq_events_rule_date_active
+    ON financial_events (recurring_rule_id, date)
+    WHERE recurring_rule_id IS NOT NULL AND is_deleted = FALSE;
 ```
+
+Партишн-уник `(recurring_rule_id, date) WHERE recurring_rule_id IS NOT NULL AND is_deleted = FALSE` гарантирует: для одного правила в одну и ту же дату не может быть двух активных событий. Soft-deleted события не учитываются — `regenerate` сначала помечает старые `deleted=true`, потом вставляет новые.
 
 ### JPA-маппинг (следуем существующей конвенции)
 
@@ -91,9 +98,14 @@ private RecurringRule recurringRule;
 @ManyToOne(fetch = FetchType.LAZY)
 @JoinColumn(name = "category_id", nullable = false)
 private Category category;
+
+@Column(name = "is_deleted", nullable = false)
+private boolean deleted = false;
 ```
 
-Код вида `event.getRecurringRuleId()` в псевдокоде этого spec'а = `event.getRecurringRule() != null ? event.getRecurringRule().getId() : null`. Никаких raw UUID-полей в сущностях — держим единый стиль.
+**Кодинг-конвенция soft-delete:** В существующих сущностях SQL-колонка зовётся `is_deleted`, а Java-поле — `deleted` через `@Column(name = "is_deleted")`. `RecurringRule` следует этой же схеме. В псевдокоде ниже встречается `rule.setDeleted(true)` / `event.setDeleted(true)` — это про Java-поле; на уровне БД пишется в `is_deleted`.
+
+**Null-safe доступ к правилу:** Псевдокод этого spec'а часто использует короткий `event.getRecurringRuleId()` для читаемости. На самом деле это означает `event.getRecurringRule() != null ? event.getRecurringRule().getId() : null` — никаких raw UUID-полей в сущностях, держим единый стиль с `Category`. При имплементации заведите хелпер `boolean event.isRecurring()` или `Optional<UUID> event.recurringRuleId()` — чтобы не дублировать null-чек в трёх местах.
 
 ### Инварианты (канонический список)
 
@@ -108,6 +120,7 @@ private Category category;
 | I7 | Clamp `day_of_month` к `lengthOfMonth` целевого месяца — стандарт для всех вычислений дат (31 → 28/29/30) | генератор |
 | I8 | `start_date` нельзя редактировать через edit-эндпоинт. Хочешь другой старт — удали правило и создай заново. Упрощает контракт, избегает сложной логики «что делать с событиями между старым и новым start». | сервис |
 | I9 | `recurring_rule_id` на событии ≠ null ⇔ событие порождено этим правилом | сервис |
+| I10 | `scope=FOLLOWING\|ALL` на edit/delete теряет ранее сделанные `scope=THIS` правки в перезатрагиваемом интервале PLAN-событий. Это сознательный trade-off: per-instance override (preservation отклонений) — out of scope (см. Future work #8). | сервис |
 
 Этот список — источник истины. Финальная таблица «Ключевые инварианты» в конце документа дублирует его только для удобства чтения; при расхождении ориентируемся на этот раздел.
 
@@ -205,8 +218,10 @@ LocalDate horizonEnd = rule.getEndDate() != null
 ```java
 @Transactional(propagation = Propagation.REQUIRES_NEW)
 void extendIndefiniteRules(LocalDate requiredThrough) {
-    for (RecurringRule rule : ruleRepo.findIndefiniteActive()) {
-        LocalDate maxExisting = eventRepo.findMaxDateByRule(rule.getId());
+    for (UUID ruleId : ruleRepo.findIndefiniteActiveIds()) {
+        // Pessimistic lock — параллельный getPlanner() ждёт коммита.
+        RecurringRule rule = ruleRepo.findForUpdate(ruleId).orElseThrow();
+        LocalDate maxExisting = eventRepo.findMaxActiveDateByRule(ruleId);
         LocalDate from = maxExisting != null
             ? maxExisting.plusDays(1)
             : rule.getStartDate();
@@ -220,6 +235,92 @@ void extendIndefiniteRules(LocalDate requiredThrough) {
 **`REQUIRES_NEW` обязательно.** Вызывающий `FundPlannerService.getPlanner()` помечен `@Transactional(readOnly = true)` — без отдельной транзакции запись (`saveAll`) упадёт или молча ничего не сделает. `REQUIRES_NEW` даёт нам write-транзакцию внутри read-only вызывающего. Если расширение упало — не заваливаем весь запрос планировщика, логируем и читаем то, что есть.
 
 Вызывается в `FundPlannerService.getPlanner()` первым шагом с `requiredThrough = LocalDate.now().plusMonths(36)`. Идемпотентно — при повторе ничего не делает (все даты уже материализованы, `from.isAfter(requiredThrough)` → continue).
+
+### Конкурентность
+
+Два параллельных запроса `GET /api/v1/funds/planner` могут оба попасть в `extendIndefiniteRules` до того, как первый зафиксирует транзакцию. Без защиты они оба прочитают `maxExisting` для одного и того же правила и оба вставят одинаковый набор событий → дубликаты.
+
+Защита двухуровневая:
+
+1. **Pessimistic lock на правиле.** Внутри цикла берём `SELECT ... FOR UPDATE` через JPA:
+   ```java
+   @Lock(LockModeType.PESSIMISTIC_WRITE)
+   @Query("SELECT r FROM RecurringRule r WHERE r.id = :id")
+   Optional<RecurringRule> findForUpdate(@Param("id") UUID id);
+   ```
+   Реализация в цикле:
+   ```java
+   for (UUID ruleId : ruleRepo.findIndefiniteActiveIds()) {
+       RecurringRule rule = ruleRepo.findForUpdate(ruleId).orElseThrow();
+       // ... генерация и сохранение
+   }
+   ```
+   Параллельный запрос на этом правиле блокируется до коммита. После коммита читает уже материализованные события и `maxExisting + 1 > requiredThrough` → continue.
+
+2. **Уник-индекс `uq_events_rule_date_active`** (см. Секцию 1) — last line of defense. Если первый уровень дал сбой (например, сервис изменил уровень изоляции), уник-индекс выдаст `DataIntegrityViolationException` вместо тихих дубликатов.
+
+Метод `findIndefiniteActiveIds()` возвращает только `id` (не сами правила) — чтобы не блокировать ничего лишнего на первом запросе.
+
+### Репозиторные методы (новые)
+
+Все predicate'ы фиксируем явно — это контракт, на который опирается псевдокод выше.
+
+**`RecurringRuleRepository`:**
+
+```java
+// «Активное» = не soft-deleted И без end_date.
+// Используется в extendIndefiniteRules.
+@Query("SELECT r.id FROM RecurringRule r " +
+       "WHERE r.deleted = false AND r.endDate IS NULL")
+List<UUID> findIndefiniteActiveIds();
+
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT r FROM RecurringRule r WHERE r.id = :id")
+Optional<RecurringRule> findForUpdate(@Param("id") UUID id);
+```
+
+**`FinancialEventRepository` (новые):**
+
+```java
+// Максимальная дата активного PLAN-события правила.
+// EXECUTED-события игнорируются — мы продлеваем PLAN-будущее,
+// а EXECUTED уже за горизонтом lazy-extend по определению.
+@Query("SELECT MAX(e.date) FROM FinancialEvent e " +
+       "WHERE e.recurringRule.id = :ruleId " +
+       "  AND e.deleted = false " +
+       "  AND e.status = 'PLANNED'")
+Optional<LocalDate> findMaxActiveDateByRule(@Param("ruleId") UUID ruleId);
+
+@Modifying
+@Query("UPDATE FinancialEvent e SET e.deleted = true, e.updatedAt = CURRENT_TIMESTAMP " +
+       "WHERE e.recurringRule.id = :ruleId " +
+       "  AND e.deleted = false " +
+       "  AND e.status = 'PLANNED' " +
+       "  AND e.date >= :fromDate")
+int softDeletePlanEventsByRuleFromDate(@Param("ruleId") UUID ruleId,
+                                       @Param("fromDate") LocalDate fromDate);
+
+@Query("SELECT e.date FROM FinancialEvent e " +
+       "WHERE e.recurringRule.id = :ruleId " +
+       "  AND e.deleted = false " +
+       "  AND e.status = 'EXECUTED'")
+Set<LocalDate> findExecutedDatesByRule(@Param("ruleId") UUID ruleId);
+
+@Query("SELECT MAX(e.date) FROM FinancialEvent e " +
+       "WHERE e.recurringRule.id = :ruleId " +
+       "  AND e.deleted = false " +
+       "  AND e.status = 'EXECUTED'")
+Optional<LocalDate> findMaxExecutedDateByRule(@Param("ruleId") UUID ruleId);
+
+@Query("SELECT e FROM FinancialEvent e " +
+       "WHERE e.recurringRule.id = :ruleId " +
+       "  AND e.date = :date " +
+       "  AND e.deleted = false")
+Optional<FinancialEvent> findActiveByRuleAndDate(@Param("ruleId") UUID ruleId,
+                                                 @Param("date") LocalDate date);
+```
+
+Все методы фильтруют `deleted = false`. EXECUTED-методы дополнительно фильтруют статус — для I4. PLAN-методы тоже фильтруют статус — чтобы случайно не задеть FACT-snapshot'ы.
 
 ---
 
@@ -256,9 +357,14 @@ Idempotency-Key: <uuid>
 
 **Idempotency-Key — семантика при создании recurring:**
 
-- Ключ покрывает всю операцию атомарно: правило + все сгенерированные события. Либо создалось и правило, и N событий, либо ничего (транзакция).
-- При ретрае с тем же ключом: повторной генерации не происходит, возвращаем DTO первого события из оригинального создания (как и для одиночного POST /events сегодня).
-- Таблица `idempotency_keys` хранит ответ, не промежуточное состояние. Это покрывается существующим механизмом — отдельных полей для правила не нужно.
+В кодбазе нет отдельной таблицы `idempotency_keys` — ключ хранится на самом `financial_events.idempotency_key`. Это значит:
+
+- Ключ ставится только на «головное» событие (первое сгенерированное правилом — то, чья дата = `dto.date`). Остальные сгенерированные события идут с `idempotency_key = NULL` — их клиент не запрашивал индивидуально.
+- Создание правила + всех событий обёрнуто в один `@Transactional` метод. Откат любого `INSERT` откатывает всё (правило, все события, idempotency_key головы).
+- При ретрае: `findByIdempotencyKey(key)` находит головное событие → возвращаем его DTO без новой генерации. Уже существующее правило и хвост событий не трогаем.
+- Если первый запрос упал ДО коммита — никакой записи нет, ретрай пройдёт как первый запуск. Это и есть текущая семантика для одиночного POST /events.
+
+Никаких изменений в существующий идемпотентный механизм не вносим — головное событие закрывает контракт, остальные — детерминированный side-effect его создания.
 
 ### Редактирование: добавляем query-параметр `scope`
 
@@ -292,6 +398,17 @@ Integer recurringMonthOfYear;            // 1..12, только для YEARLY, n
 ```
 
 Поля `recurringDayOfMonth` / `recurringMonthOfYear` нужны фронту, чтобы нарисовать tooltip («Повторяется ежемесячно 15-го числа» / «Повторяется 15 августа каждого года») без отдельного запроса правила. `frequency` одного мало — в tooltip'е зашит день, а он живёт в правиле.
+
+### FACT-события: наследование `recurring_rule_id`
+
+Когда пользователь вносит факт по PLAN-событию, в текущем коде создаётся (или обновляется) FACT с `parent_event_id = plan.id`. Чтобы UI-иконка ↻ (раздел 5.2) показывалась и на FACT-строках, FACT должен наследовать `recurring_rule_id` от родительского PLAN'а **в момент создания** — это статический snapshot, не runtime-резолв.
+
+Контракт:
+
+- `FinancialEventService.createFact(planId, factDto)`: при `INSERT` нового FACT-события копируем `recurring_rule_id` из `plan` в FACT.
+- В DTO-маппере `toDto(event)`: `recurringRuleId = event.getRecurringRule() != null ? event.getRecurringRule().getId() : null` — обращаемся к собственному полю, не к parent'у. Это значит: если PLAN был recurring, FACT-snapshot тоже считается recurring и получает иконку.
+- При `regenerate` правила EXECUTED-события (т.е. PLAN'ы со статусом EXECUTED, у которых FACT уже привязан) не удаляются (I4) — соответственно ни один FACT не остаётся «осиротевшим» с битой ссылкой.
+- При `scope=ALL delete`: rule.deleted=true, PLAN'ы soft-deleted, но FACT-события остаются живыми и продолжают показывать ↻ (это исторический факт — он действительно был частью повторяющегося правила).
 
 ### Что НЕ добавляем
 
@@ -328,23 +445,26 @@ if (dto.recurring != null) {
 ### Редактирование
 
 ```java
-void update(UUID eventId, ScopeEnum scope, EventUpdateDto dto) {
+FinancialEventDto update(UUID eventId, ScopeEnum scope, EventUpdateDto dto) {
     FinancialEvent event = eventRepo.findById(eventId).orElseThrow();
+    RecurringRule rule = event.getRecurringRule();   // null если не recurring
 
     // 1. Reject FOLLOWING/ALL на не-recurring сразу — иначе THIS-ветка
     //    проглотила бы невалидный scope незаметно.
-    if (scope != THIS && event.getRecurringRuleId() == null) {
+    if (scope != THIS && rule == null) {
         throw new BadRequestException("Scope requires recurring event");
     }
 
     // 2. THIS — правило не трогаем, модифицируем только этот экземпляр.
+    //    Возвращаем DTO самого изменённого события.
     if (scope == THIS) {
         applyDto(event, dto);
-        return;
+        return toDto(event);
     }
 
     // 3. FOLLOWING / ALL — правило существует (проверка выше), обновляем его и regenerate.
-    RecurringRule rule = ruleRepo.findById(event.getRecurringRuleId()).orElseThrow();
+    //    I8: dto.startDate (если присутствует) игнорируется или валидируется как ошибка.
+    rejectStartDateInDto(dto);
     applyDtoToRule(rule, dto);
     ruleRepo.save(rule);
 
@@ -352,6 +472,12 @@ void update(UUID eventId, ScopeEnum scope, EventUpdateDto dto) {
         ? event.getDate()
         : rule.getStartDate();
     regenerate(rule, regenerateFrom);
+
+    // I4 гарантирует: если `event` был EXECUTED, его дата осталась в наборе.
+    //                Если был PLAN, то после regenerate он soft-deleted, но новый
+    //                экземпляр с той же датой создан — возвращаем именно его.
+    return toDto(eventRepo.findActiveByRuleAndDate(rule.getId(), event.getDate())
+        .orElseThrow(() -> new IllegalStateException("Regenerate dropped the triggering date")));
 }
 ```
 
@@ -378,22 +504,25 @@ void regenerate(RecurringRule rule, LocalDate from) {
 }
 ```
 
-Ключевая инвариант (I6): EXECUTED-события не удаляются в (1) — репозиторный метод `softDeletePlanEventsByRuleFromDate` фильтрует `status = PLANNED`. В (3) они пропускаются при генерации.
+Ключевая инвариант (I4): EXECUTED-события не удаляются в (1) — репозиторный метод `softDeletePlanEventsByRuleFromDate` фильтрует `status = PLANNED`. В (3) они пропускаются при генерации.
 
 ### Удаление
 
 ```java
 void delete(UUID eventId, ScopeEnum scope) {
     FinancialEvent event = eventRepo.findById(eventId).orElseThrow();
+    RecurringRule rule = event.getRecurringRule();
 
-    if (scope == THIS || event.getRecurringRuleId() == null) {
+    // THIS на одиночном или recurring → soft-delete только этого экземпляра.
+    if (scope == THIS || rule == null) {
+        if (scope != THIS && rule == null) {
+            throw new BadRequestException("Scope requires recurring event");
+        }
         event.setDeleted(true);
         return;
     }
 
-    RecurringRule rule = ruleRepo.findById(event.getRecurringRuleId()).orElseThrow();
     LocalDate cutoff = (scope == FOLLOWING) ? event.getDate() : rule.getStartDate();
-
     eventRepo.softDeletePlanEventsByRuleFromDate(rule.getId(), cutoff);
 
     if (scope == FOLLOWING) {
@@ -540,6 +669,7 @@ Delete — необратимая (soft-delete, но на уровне UX отк
 5. Create бессрочное + `extendIndefiniteRules` на следующий месяц → добавлено 1 событие.
 6. Retroactive-создание отклоняется валидацией: POST /events с `recurring.start_date < LocalDate.now()` → 400 Bad Request. Правило не создано, ни одного события в БД не появилось. (Это проверка самого факта валидации инварианта I3, а не поддержка фичи — см. «Out of scope».)
 7. Create YEARLY 29 февраля → первый экземпляр 29 фев (если старт в високосный) или 28 фев (если нет).
+8. PUT /events/{id}?scope=ALL с попыткой изменить `recurring.startDate` правила → 400 Bad Request, ничего не изменилось (I8 — start_date неизменяем после создания).
 
 ### Контроллер-тесты (`@WebMvcTest`)
 
@@ -592,6 +722,7 @@ Delete — необратимая (soft-delete, но на уровне UX отк
 | I7 | Clamp дня к `lengthOfMonth` — стандарт для всех дат (31 → 28/29/30) |
 | I8 | `start_date` неизменяем после создания правила (см. Секцию 1) |
 | I9 | `recurring_rule_id != null` ⇔ событие порождено этим правилом |
+| I10 | `scope=FOLLOWING/ALL` затирает ранее сделанные `scope=THIS` правки в перезатрагиваемом интервале (см. Секцию 1) |
 
 ## Архитектурная схема
 
