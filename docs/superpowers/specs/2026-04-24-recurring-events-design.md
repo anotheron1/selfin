@@ -221,7 +221,7 @@ void extendIndefiniteRules(LocalDate requiredThrough) {
     for (UUID ruleId : ruleRepo.findIndefiniteActiveIds()) {
         // Pessimistic lock — параллельный getPlanner() ждёт коммита.
         RecurringRule rule = ruleRepo.findForUpdate(ruleId).orElseThrow();
-        LocalDate maxExisting = eventRepo.findMaxActiveDateByRule(ruleId);
+        LocalDate maxExisting = eventRepo.findMaxActiveDateByRule(ruleId).orElse(null);
         LocalDate from = maxExisting != null
             ? maxExisting.plusDays(1)
             : rule.getStartDate();
@@ -463,8 +463,8 @@ FinancialEventDto update(UUID eventId, ScopeEnum scope, EventUpdateDto dto) {
     }
 
     // 3. FOLLOWING / ALL — правило существует (проверка выше), обновляем его и regenerate.
-    //    I8: dto.startDate (если присутствует) игнорируется или валидируется как ошибка.
-    rejectStartDateInDto(dto);
+    //    I8: dto.startDate (если присутствует) валидируется как ошибка.
+    rejectStartDateInDto(dto);   // см. helper-контракты ниже
     applyDtoToRule(rule, dto);
     ruleRepo.save(rule);
 
@@ -478,6 +478,40 @@ FinancialEventDto update(UUID eventId, ScopeEnum scope, EventUpdateDto dto) {
     //                экземпляр с той же датой создан — возвращаем именно его.
     return toDto(eventRepo.findActiveByRuleAndDate(rule.getId(), event.getDate())
         .orElseThrow(() -> new IllegalStateException("Regenerate dropped the triggering date")));
+}
+```
+
+**Helper-контракты (приватные методы сервиса):**
+
+```java
+// I8 enforcement: попытка изменить start_date через edit-эндпоинт → 400.
+// Вызывается ТОЛЬКО для scope=FOLLOWING/ALL — на scope=THIS правило не трогаем.
+void rejectStartDateInDto(EventUpdateDto dto) {
+    if (dto.recurring() != null && dto.recurring().startDate() != null) {
+        throw new BadRequestException(
+            "start_date is immutable; delete the rule and create a new one");
+    }
+}
+
+// Копирует обновляемые поля из DTO в правило. Поля правила, которые можно менять:
+//   plannedAmount, priority, description, frequency, dayOfMonth, monthOfYear, endDate.
+// Не меняются: id, category_id, event_type, start_date, created_at, deleted.
+// Категорию и тип не пускаем — это требует пересоздания правила (out of scope).
+void applyDtoToRule(RecurringRule rule, EventUpdateDto dto) {
+    if (dto.plannedAmount()  != null) rule.setPlannedAmount(dto.plannedAmount());
+    if (dto.priority()       != null) rule.setPriority(dto.priority());
+    if (dto.description()    != null) rule.setDescription(dto.description());
+    if (dto.recurring() != null) {
+        var r = dto.recurring();
+        if (r.frequency()    != null) rule.setFrequency(r.frequency());
+        if (r.dayOfMonth()   != null) rule.setDayOfMonth(r.dayOfMonth());
+        if (r.monthOfYear()  != null) rule.setMonthOfYear(r.monthOfYear());
+        // endDate — null допустим (значит «сделать бессрочным»).
+        rule.setEndDate(r.endDate());
+    }
+    // Перепроверяем CHECK-инварианты I1, I2 на уровне сервиса перед save —
+    // CHECK constraint всё равно сработает, но 400 человекочитаемее, чем 500.
+    validateRuleInvariants(rule);
 }
 ```
 
@@ -513,11 +547,13 @@ void delete(UUID eventId, ScopeEnum scope) {
     FinancialEvent event = eventRepo.findById(eventId).orElseThrow();
     RecurringRule rule = event.getRecurringRule();
 
-    // THIS на одиночном или recurring → soft-delete только этого экземпляра.
+    // 1. Reject FOLLOWING/ALL на не-recurring сразу.
+    if (scope != THIS && rule == null) {
+        throw new BadRequestException("Scope requires recurring event");
+    }
+
+    // 2. THIS на одиночном или recurring → soft-delete только этого экземпляра.
     if (scope == THIS || rule == null) {
-        if (scope != THIS && rule == null) {
-            throw new BadRequestException("Scope requires recurring event");
-        }
         event.setDeleted(true);
         return;
     }
@@ -670,6 +706,7 @@ Delete — необратимая (soft-delete, но на уровне UX отк
 6. Retroactive-создание отклоняется валидацией: POST /events с `recurring.start_date < LocalDate.now()` → 400 Bad Request. Правило не создано, ни одного события в БД не появилось. (Это проверка самого факта валидации инварианта I3, а не поддержка фичи — см. «Out of scope».)
 7. Create YEARLY 29 февраля → первый экземпляр 29 фев (если старт в високосный) или 28 фев (если нет).
 8. PUT /events/{id}?scope=ALL с попыткой изменить `recurring.startDate` правила → 400 Bad Request, ничего не изменилось (I8 — start_date неизменяем после создания).
+9. PATCH /events/{planId}/fact на recurring PLAN → созданный FACT-event имеет тот же `recurring_rule_id`, что и parent PLAN. DTO FACT-события возвращает `recurringRuleId != null`, на UI рисуется ↻.
 
 ### Контроллер-тесты (`@WebMvcTest`)
 
