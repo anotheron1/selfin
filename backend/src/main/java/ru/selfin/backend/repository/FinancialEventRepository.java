@@ -1,6 +1,7 @@
 package ru.selfin.backend.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import ru.selfin.backend.model.FinancialEvent;
@@ -12,6 +13,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface FinancialEventRepository extends JpaRepository<FinancialEvent, UUID> {
@@ -172,4 +174,40 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     BigDecimal sumOverdueMandatoryExpenses(
         @Param("monthStart") LocalDate monthStart,
         @Param("today") LocalDate today);
+
+    // --- Recurring ---
+
+    @Query("SELECT MAX(e.date) FROM FinancialEvent e " +
+           "WHERE e.recurringRule.id = :ruleId " +
+           "  AND e.deleted = false " +
+           "  AND e.status = 'PLANNED'")
+    Optional<LocalDate> findMaxActiveDateByRule(@Param("ruleId") UUID ruleId);
+
+    @Modifying
+    @Query("UPDATE FinancialEvent e SET e.deleted = true, e.updatedAt = CURRENT_TIMESTAMP " +
+           "WHERE e.recurringRule.id = :ruleId " +
+           "  AND e.deleted = false " +
+           "  AND e.status = 'PLANNED' " +
+           "  AND e.date >= :fromDate")
+    int softDeletePlanEventsByRuleFromDate(@Param("ruleId") UUID ruleId,
+                                           @Param("fromDate") LocalDate fromDate);
+
+    @Query("SELECT e.date FROM FinancialEvent e " +
+           "WHERE e.recurringRule.id = :ruleId " +
+           "  AND e.deleted = false " +
+           "  AND e.status = 'EXECUTED'")
+    Set<LocalDate> findExecutedDatesByRule(@Param("ruleId") UUID ruleId);
+
+    @Query("SELECT MAX(e.date) FROM FinancialEvent e " +
+           "WHERE e.recurringRule.id = :ruleId " +
+           "  AND e.deleted = false " +
+           "  AND e.status = 'EXECUTED'")
+    Optional<LocalDate> findMaxExecutedDateByRule(@Param("ruleId") UUID ruleId);
+
+    @Query("SELECT e FROM FinancialEvent e " +
+           "WHERE e.recurringRule.id = :ruleId " +
+           "  AND e.date = :date " +
+           "  AND e.deleted = false")
+    Optional<FinancialEvent> findActiveByRuleAndDate(@Param("ruleId") UUID ruleId,
+                                                     @Param("date") LocalDate date);
 }
