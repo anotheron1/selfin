@@ -128,4 +128,55 @@ class RecurringRuleServiceTest {
         // И первая дата = startDate.
         assertThat(cap.getValue().get(0).getDate()).isEqualTo(start);
     }
+
+    @Test
+    void extendIndefiniteRules_appends_only_missing_dates() {
+        UUID ruleId = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(null)               // бессрочно
+                .build();
+
+        when(ruleRepo.findIndefiniteActiveIds()).thenReturn(List.of(ruleId));
+        when(ruleRepo.findForUpdate(ruleId)).thenReturn(java.util.Optional.of(rule));
+        when(eventRepo.findMaxActiveDateByRule(ruleId))
+                .thenReturn(java.util.Optional.of(LocalDate.of(2026, 6, 15)));
+
+        service.extendIndefiniteRules(LocalDate.of(2026, 8, 15));
+
+        ArgumentCaptor<List<FinancialEvent>> cap = ArgumentCaptor.forClass(List.class);
+        verify(eventRepo).saveAll(cap.capture());
+        assertThat(cap.getValue()).extracting("date").containsExactly(
+                LocalDate.of(2026, 7, 15),
+                LocalDate.of(2026, 8, 15));
+    }
+
+    @Test
+    void extendIndefiniteRules_noop_when_already_covered() {
+        UUID ruleId = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(null)
+                .build();
+        when(ruleRepo.findIndefiniteActiveIds()).thenReturn(List.of(ruleId));
+        when(ruleRepo.findForUpdate(ruleId)).thenReturn(java.util.Optional.of(rule));
+        when(eventRepo.findMaxActiveDateByRule(ruleId))
+                .thenReturn(java.util.Optional.of(LocalDate.of(2027, 1, 15)));   // уже за горизонтом
+
+        service.extendIndefiniteRules(LocalDate.of(2026, 12, 31));
+
+        verify(eventRepo, never()).saveAll(any());
+    }
 }

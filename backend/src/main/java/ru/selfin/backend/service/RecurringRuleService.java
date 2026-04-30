@@ -70,6 +70,28 @@ public class RecurringRuleService {
         eventRepo.saveAll(fresh);
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void extendIndefiniteRules(LocalDate requiredThrough) {
+        for (java.util.UUID ruleId : ruleRepo.findIndefiniteActiveIds()) {
+            // Per spec section 2 "Lazy-расширение бессрочных" — error handling:
+            // "Если расширение упало — не заваливаем весь запрос планировщика,
+            // логируем и читаем то, что есть." So wrap each rule independently.
+            try {
+                RecurringRule rule = ruleRepo.findForUpdate(ruleId)
+                        .orElseThrow(() -> new IllegalStateException("rule disappeared: " + ruleId));
+                LocalDate maxExisting = eventRepo.findMaxActiveDateByRule(ruleId).orElse(null);
+                LocalDate from = (maxExisting != null) ? maxExisting.plusDays(1) : rule.getStartDate();
+                if (from.isAfter(requiredThrough)) continue;
+                List<FinancialEvent> extra = generator.generate(rule, from, requiredThrough);
+                if (!extra.isEmpty()) {
+                    eventRepo.saveAll(extra);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to extend indefinite rule {}: {}", ruleId, e.getMessage());
+            }
+        }
+    }
+
     private void validateConfig(RecurringConfigDto cfg) {
         if (cfg.startDate() == null) {
             throw new IllegalArgumentException("startDate is required");
