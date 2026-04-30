@@ -90,6 +90,14 @@ public class FinancialEvent implements FinancialRecord {
     @Column(name = "target_fund_id")
     private UUID targetFundId;
 
+    /**
+     * Если событие порождено повторяющимся правилом — ссылка на правило.
+     * NULL для одиночных событий. См. spec, инварианты I5, I9.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "recurring_rule_id")
+    private RecurringRule recurringRule;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "event_kind", nullable = false)
     @Builder.Default
