@@ -66,4 +66,66 @@ class RecurringRuleServiceTest {
         assertThat(cap.getValue()).extracting("date").containsExactly(
                 start, start.plusMonths(1), start.plusMonths(2));
     }
+
+    @Test
+    void regenerate_softDeletes_planEvents_from_cutoff_and_skips_executed_dates() {
+        UUID ruleId = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(LocalDate.of(2026, 8, 15))
+                .build();
+
+        // 2026-06-15 уже EXECUTED — генерация должна его пропустить
+        when(eventRepo.findExecutedDatesByRule(ruleId))
+                .thenReturn(java.util.Set.of(LocalDate.of(2026, 6, 15)));
+
+        service.regenerate(rule, LocalDate.of(2026, 6, 15));
+
+        verify(eventRepo).softDeletePlanEventsByRuleFromDate(ruleId, LocalDate.of(2026, 6, 15));
+
+        ArgumentCaptor<List<FinancialEvent>> cap = ArgumentCaptor.forClass(List.class);
+        verify(eventRepo).saveAll(cap.capture());
+        assertThat(cap.getValue()).extracting("date").containsExactly(
+                // 2026-06-15 пропущен (EXECUTED)
+                LocalDate.of(2026, 7, 15),
+                LocalDate.of(2026, 8, 15));
+    }
+
+    @Test
+    void regenerate_indefinite_uses_now_plus_36_months_horizon() {
+        // endDate==null path: horizon = LocalDate.now().plusMonths(36)
+        // Use a startDate in the future and expect the generator stops before now+36mo.
+        UUID ruleId = UUID.randomUUID();
+        LocalDate start = LocalDate.now().plusMonths(1).withDayOfMonth(15);
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(start)
+                .endDate(null)               // бессрочно
+                .build();
+
+        when(eventRepo.findExecutedDatesByRule(ruleId)).thenReturn(java.util.Set.of());
+
+        service.regenerate(rule, start);
+
+        ArgumentCaptor<List<FinancialEvent>> cap = ArgumentCaptor.forClass(List.class);
+        verify(eventRepo).saveAll(cap.capture());
+        // Все сгенерированные даты должны быть <= now+36mo.
+        LocalDate horizonCap = LocalDate.now().plusMonths(36);
+        assertThat(cap.getValue())
+                .isNotEmpty()
+                .allSatisfy(e -> assertThat(e.getDate()).isBeforeOrEqualTo(horizonCap));
+        // И первая дата = startDate.
+        assertThat(cap.getValue().get(0).getDate()).isEqualTo(start);
+    }
 }

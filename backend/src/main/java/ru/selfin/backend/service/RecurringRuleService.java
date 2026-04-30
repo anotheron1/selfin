@@ -55,6 +55,21 @@ public class RecurringRuleService {
         return new CreateResult(rule, events);
     }
 
+    @Transactional
+    public void regenerate(RecurringRule rule, LocalDate from) {
+        LocalDate horizonEnd = rule.getEndDate() != null
+                ? rule.getEndDate()
+                : LocalDate.now().plusMonths(36);
+
+        eventRepo.softDeletePlanEventsByRuleFromDate(rule.getId(), from);
+        java.util.Set<LocalDate> executed = eventRepo.findExecutedDatesByRule(rule.getId());
+
+        List<FinancialEvent> fresh = generator.generate(rule, from, horizonEnd).stream()
+                .filter(e -> !executed.contains(e.getDate()))
+                .toList();
+        eventRepo.saveAll(fresh);
+    }
+
     private void validateConfig(RecurringConfigDto cfg) {
         if (cfg.startDate() == null) {
             throw new IllegalArgumentException("startDate is required");
