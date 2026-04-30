@@ -92,6 +92,27 @@ public class RecurringRuleService {
         }
     }
 
+    @Transactional
+    public void deleteScope(FinancialEvent triggerEvent, ru.selfin.backend.model.enums.ScopeEnum scope) {
+        RecurringRule rule = triggerEvent.getRecurringRule();
+        if (rule == null) {
+            throw new IllegalArgumentException("Scope requires recurring event");
+        }
+        LocalDate cutoff = (scope == ru.selfin.backend.model.enums.ScopeEnum.FOLLOWING)
+                ? triggerEvent.getDate()
+                : rule.getStartDate();
+        eventRepo.softDeletePlanEventsByRuleFromDate(rule.getId(), cutoff);
+
+        if (scope == ru.selfin.backend.model.enums.ScopeEnum.FOLLOWING) {
+            rule.setEndDate(triggerEvent.getDate().minusDays(1));
+        } else {
+            rule.setDeleted(true);
+            LocalDate lastExec = eventRepo.findMaxExecutedDateByRule(rule.getId()).orElse(null);
+            rule.setEndDate(lastExec != null ? lastExec : rule.getStartDate().minusDays(1));
+        }
+        ruleRepo.save(rule);
+    }
+
     private void validateConfig(RecurringConfigDto cfg) {
         if (cfg.startDate() == null) {
             throw new IllegalArgumentException("startDate is required");

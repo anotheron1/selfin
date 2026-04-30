@@ -179,4 +179,89 @@ class RecurringRuleServiceTest {
 
         verify(eventRepo, never()).saveAll(any());
     }
+
+    @Test
+    void deleteScope_FOLLOWING_setsEndDate_and_softDeletesPlan() {
+        UUID ruleId = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(LocalDate.of(2027, 5, 15))
+                .build();
+
+        FinancialEvent triggerEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(LocalDate.of(2026, 7, 15))
+                .recurringRule(rule)
+                .build();
+
+        service.deleteScope(triggerEvent, ru.selfin.backend.model.enums.ScopeEnum.FOLLOWING);
+
+        verify(eventRepo).softDeletePlanEventsByRuleFromDate(ruleId, LocalDate.of(2026, 7, 15));
+        assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2026, 7, 14));
+        assertThat(rule.isDeleted()).isFalse();
+    }
+
+    @Test
+    void deleteScope_ALL_marksRuleDeleted_and_endsOnLastExecuted() {
+        UUID ruleId = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(LocalDate.of(2027, 5, 15))
+                .build();
+
+        FinancialEvent triggerEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(LocalDate.of(2026, 7, 15))
+                .recurringRule(rule)
+                .build();
+
+        when(eventRepo.findMaxExecutedDateByRule(ruleId))
+                .thenReturn(java.util.Optional.of(LocalDate.of(2026, 6, 15)));
+
+        service.deleteScope(triggerEvent, ru.selfin.backend.model.enums.ScopeEnum.ALL);
+
+        verify(eventRepo).softDeletePlanEventsByRuleFromDate(ruleId, rule.getStartDate());
+        assertThat(rule.isDeleted()).isTrue();
+        assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2026, 6, 15));
+    }
+
+    @Test
+    void deleteScope_ALL_with_no_executed_events_endsBeforeStart() {
+        UUID ruleId = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(LocalDate.of(2027, 5, 15))
+                .build();
+
+        FinancialEvent triggerEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(LocalDate.of(2026, 7, 15))
+                .recurringRule(rule)
+                .build();
+
+        when(eventRepo.findMaxExecutedDateByRule(ruleId)).thenReturn(java.util.Optional.empty());
+
+        service.deleteScope(triggerEvent, ru.selfin.backend.model.enums.ScopeEnum.ALL);
+
+        assertThat(rule.isDeleted()).isTrue();
+        assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2026, 5, 14)); // startDate - 1
+    }
 }
