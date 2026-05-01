@@ -183,7 +183,7 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
            "  AND e.status = 'PLANNED'")
     Optional<LocalDate> findMaxActiveDateByRule(@Param("ruleId") UUID ruleId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE FinancialEvent e SET e.deleted = true, e.updatedAt = CURRENT_TIMESTAMP " +
            "WHERE e.recurringRule.id = :ruleId " +
            "  AND e.deleted = false " +
