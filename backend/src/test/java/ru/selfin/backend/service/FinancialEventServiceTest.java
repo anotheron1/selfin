@@ -387,6 +387,50 @@ class FinancialEventServiceTest {
     }
 
     @Test
+    @DisplayName("update FOLLOWING with changed startDate throws 400 (I8)")
+    void update_FOLLOWING_with_changed_startDate_throws_400() {
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        LocalDate ruleStart = LocalDate.now().plusMonths(1).withDayOfMonth(15);
+        RecurringRule rule = RecurringRule.builder()
+                .id(UUID.randomUUID())
+                .startDate(ruleStart)
+                .build();
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(ruleStart).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(rule).deleted(false).build();
+
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+        when(eventRepository.findActiveByRuleAndDate(rule.getId(), ruleStart))
+                .thenReturn(Optional.of(event));
+
+        // Attempt to change startDate to ruleStart + 1 day
+        RecurringConfigDto cfgWithChangedStart = new RecurringConfigDto(
+                RecurringFrequency.MONTHLY, 15, null,
+                ruleStart.plusDays(1),   // <-- different from rule.startDate
+                null);
+        var dto = new FinancialEventCreateDto(ruleStart, cat.getId(), EventType.EXPENSE,
+                new BigDecimal("5000"), Priority.HIGH, null, null, null, cfgWithChangedStart);
+
+        // applyDtoToRule on the real ruleService would throw; wire it up here
+        doThrow(new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST,
+                "start_date is immutable; delete the rule and create a new one (I8)"))
+                .when(ruleService).applyDtoToRule(rule, dto);
+
+        assertThatThrownBy(() -> service.update(id, ScopeEnum.FOLLOWING, dto))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> {
+                    var rse = (org.springframework.web.server.ResponseStatusException) ex;
+                    assertThat(rse.getStatusCode())
+                            .isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+                    assertThat(rse.getReason()).contains("start_date is immutable");
+                });
+    }
+
+    @Test
     @DisplayName("update ALL calls regenerate from rule startDate")
     void update_ALL_calls_regenerate_from_rule_startDate() {
         UUID id = UUID.randomUUID();

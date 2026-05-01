@@ -3,6 +3,8 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.RecurringConfigDto;
 import ru.selfin.backend.model.Category;
@@ -320,7 +322,11 @@ class RecurringRuleServiceTest {
                         null));
 
         assertThatThrownBy(() -> service.applyDtoToRule(rule, dto))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("start_date is immutable");
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> {
+                    ResponseStatusException rse = (ResponseStatusException) ex;
+                    assertThat(rse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(rse.getReason()).contains("start_date is immutable");
+                });
     }
 }

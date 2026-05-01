@@ -2,9 +2,11 @@ package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.RecurringConfigDto;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
@@ -141,7 +143,7 @@ public class RecurringRuleService {
     public void applyDtoToRule(RecurringRule rule, ru.selfin.backend.dto.FinancialEventCreateDto dto) {
         if (dto.recurring() != null && dto.recurring().startDate() != null
                 && !dto.recurring().startDate().equals(rule.getStartDate())) {
-            throw new IllegalArgumentException(
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "start_date is immutable; delete the rule and create a new one (I8)");
         }
         // Editable per-rule fields:
