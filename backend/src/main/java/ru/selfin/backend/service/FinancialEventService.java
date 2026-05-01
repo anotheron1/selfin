@@ -364,6 +364,32 @@ public class FinancialEventService {
     }
 
     /**
+     * Удаляет событие с учётом scope. THIS — мягкое удаление только этого события.
+     * FOLLOWING/ALL — делегирует в ruleService.deleteScope.
+     *
+     * @param id    идентификатор события
+     * @param scope область применения удаления
+     */
+    @Transactional
+    public void delete(UUID id, ScopeEnum scope) {
+        FinancialEvent event = eventRepository.findById(id)
+                .filter(e -> !e.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+
+        if (scope != ScopeEnum.THIS && event.getRecurringRule() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Scope FOLLOWING/ALL requires a recurring event");
+        }
+
+        if (scope == ScopeEnum.THIS) {
+            event.setDeleted(true);
+            eventRepository.save(event);
+            return;
+        }
+        ruleService.deleteScope(event, scope);
+    }
+
+    /**
      * Мягко удаляет событие. Для PLAN с привязанными FACT-записями выбрасывает 409 CONFLICT.
      * При удалении FACT-записи проверяет, остались ли у родительского PLAN другие факты;
      * если нет — возвращает PLAN в статус PLANNED.

@@ -380,6 +380,74 @@ class FinancialEventServiceTest {
         verify(ruleService).regenerate(rule, ruleStart);
     }
 
+    // --- Task 3.4c tests ---
+
+    @Test
+    @DisplayName("delete THIS: soft-deletes only the event")
+    void delete_THIS_softDeletes_only_event() {
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).date(LocalDate.now())
+                .status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .deleted(false).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+        when(eventRepository.save(any())).thenReturn(event);
+
+        service.delete(id, ScopeEnum.THIS);
+
+        assertThat(event.isDeleted()).isTrue();
+        verify(eventRepository).save(event);
+        verifyNoInteractions(ruleService);
+    }
+
+    @Test
+    @DisplayName("delete FOLLOWING on non-recurring event throws 400")
+    void delete_FOLLOWING_on_non_recurring_throws_400() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(category())
+                .type(EventType.EXPENSE).date(LocalDate.now())
+                .recurringRule(null).deleted(false).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+
+        assertThatThrownBy(() -> service.delete(id, ScopeEnum.FOLLOWING))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    @DisplayName("delete FOLLOWING delegates to ruleService.deleteScope")
+    void delete_FOLLOWING_delegates_to_ruleService_deleteScope() {
+        UUID id = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(category())
+                .type(EventType.EXPENSE).date(LocalDate.now())
+                .recurringRule(rule).deleted(false).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+
+        service.delete(id, ScopeEnum.FOLLOWING);
+
+        verify(ruleService).deleteScope(event, ScopeEnum.FOLLOWING);
+    }
+
+    @Test
+    @DisplayName("delete ALL delegates to ruleService.deleteScope")
+    void delete_ALL_delegates_to_ruleService_deleteScope() {
+        UUID id = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(category())
+                .type(EventType.EXPENSE).date(LocalDate.now())
+                .recurringRule(rule).deleted(false).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+
+        service.delete(id, ScopeEnum.ALL);
+
+        verify(ruleService).deleteScope(event, ScopeEnum.ALL);
+    }
+
     // --- helpers ---
 
     private Category category() {
