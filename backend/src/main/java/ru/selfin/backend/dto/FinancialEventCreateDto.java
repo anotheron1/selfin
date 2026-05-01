@@ -1,5 +1,6 @@
 package ru.selfin.backend.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import ru.selfin.backend.model.enums.EventType;
@@ -17,5 +18,6 @@ public record FinancialEventCreateDto(
                 Priority priority,
                 String description,
                 String rawInput,
-                UUID targetFundId) {
+                UUID targetFundId,
+                @Valid RecurringConfigDto recurring) {
 }
