@@ -1,6 +1,7 @@
 package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FundPlannerDto;
@@ -18,12 +19,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class FundPlannerService {
 
     private final FinancialEventRepository eventRepository;
+    private final RecurringRuleService recurringRuleService;
 
     /**
      * Возвращает агрегацию плановых событий по месяцам на 36 месяцев вперёд
@@ -32,6 +35,15 @@ public class FundPlannerService {
      * @return DTO с помесячной разбивкой плановых доходов и расходов
      */
     public FundPlannerDto getPlanner() {
+        // Ленивое расширение бессрочных правил (REQUIRES_NEW; см. spec Секция 2).
+        // Errors must NOT fail the read — log and continue with whatever events exist.
+        try {
+            recurringRuleService.extendIndefiniteRules(LocalDate.now().plusMonths(36));
+        } catch (Exception e) {
+            log.warn("Lazy-extend of indefinite rules failed; continuing with current events: {}",
+                    e.getMessage());
+        }
+
         // PLANы (для плановых агрегатов)
         List<FinancialEvent> plans =
                 eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED);

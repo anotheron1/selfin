@@ -23,12 +23,14 @@ import static org.mockito.Mockito.when;
 class FundPlannerServiceTest {
 
     private FinancialEventRepository eventRepository;
+    private RecurringRuleService recurringRuleService;
     private FundPlannerService service;
 
     @BeforeEach
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
-        service = new FundPlannerService(eventRepository);
+        recurringRuleService = mock(RecurringRuleService.class);
+        service = new FundPlannerService(eventRepository, recurringRuleService);
         // По умолчанию просроченных обязательных планов нет
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
         // По умолчанию FACT-записей текущего месяца нет
