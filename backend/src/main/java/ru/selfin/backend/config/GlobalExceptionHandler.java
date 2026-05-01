@@ -92,6 +92,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Обрабатывает нарушения бизнес-правил (например, retroactive startDate, I3).
+     * Возвращает HTTP 400.
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex) {
+        log.warn("Illegal argument: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of(400, ex.getMessage()));
+    }
+
+    /**
      * Fallback-обработчик для всех непредвиденных исключений.
      * Логирует полный стек, возвращает HTTP 500 без деталей реализации клиенту.
      */
