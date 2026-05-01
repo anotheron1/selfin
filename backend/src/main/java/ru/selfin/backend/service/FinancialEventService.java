@@ -280,6 +280,7 @@ public class FinancialEventService {
                 .type(plan.getType())
                 .factAmount(dto.factAmount())
                 .priority(dto.priority() != null ? dto.priority() : plan.getPriority())
+                .recurringRule(plan.getRecurringRule())   // inherit (null if parent is non-recurring)
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .build();

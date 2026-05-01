@@ -199,6 +199,41 @@ class FinancialEventServiceTest {
         verify(eventRepository, times(2)).save(any()); // deleted fact + reverted plan
     }
 
+    // --- Task 3.7 test ---
+
+    @Test
+    @DisplayName("createLinkedFact: FACT inherits recurringRule from parent PLAN")
+    void createLinkedFact_inherits_recurringRule_from_parent_plan() {
+        UUID planId = UUID.randomUUID();
+        Category cat = Category.builder().id(UUID.randomUUID()).build();
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+        FinancialEvent plan = FinancialEvent.builder()
+                .id(planId)
+                .eventKind(EventKind.PLAN)
+                .category(cat)
+                .type(EventType.EXPENSE)
+                .recurringRule(rule)
+                .priority(Priority.HIGH)
+                .status(EventStatus.PLANNED)
+                .build();
+
+        when(eventRepository.findById(planId)).thenReturn(java.util.Optional.of(plan));
+        when(eventRepository.save(any(FinancialEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(targetFundRepository.findById(any())).thenReturn(java.util.Optional.empty());
+
+        var factDto = new ru.selfin.backend.dto.FactCreateDto(
+                LocalDate.now(), new BigDecimal("90000"), "Оплачено", null);
+
+        service.createLinkedFact(planId, factDto);
+
+        ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
+        verify(eventRepository, atLeastOnce()).save(cap.capture());
+        // First saved entity is the new FACT row.
+        FinancialEvent fact = cap.getAllValues().get(0);
+        assertThat(fact.getEventKind()).isEqualTo(EventKind.FACT);
+        assertThat(fact.getRecurringRule()).isSameAs(rule);
+    }
+
     // --- Task 3.3 tests ---
 
     @Test
