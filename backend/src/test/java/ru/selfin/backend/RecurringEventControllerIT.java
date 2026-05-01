@@ -302,6 +302,10 @@ class RecurringEventControllerIT {
 
         assertThat(executedEvent.get("status")).isEqualTo("EXECUTED");
         assertThat(((Number) executedEvent.get("factAmount")).doubleValue()).isEqualTo(4900.0);
+        // I4: EXECUTED rows must never be modified by the rule — plannedAmount stays at original value
+        assertThat(((Number) executedEvent.get("plannedAmount")).doubleValue())
+                .as("EXECUTED event plannedAmount must remain at original value (5000), not updated to 9999")
+                .isEqualTo(5000.0);
 
         // All PLANNED events (non-executed) should have new amount 9999
         events.stream()
@@ -388,7 +392,13 @@ class RecurringEventControllerIT {
     void indefiniteRule_lazyExtend_through_planner() throws Exception {
         // Per spec: createFromDto generates up to now+36mo horizon.
         // extendIndefiniteRules is called by FundPlannerService.getPlanner().
-        // Test verifies: after GET /api/v1/funds/planner, event count is >= initial count.
+        //
+        // Simulating gap in coverage by soft-deleting the tail; planner must lazily
+        // regenerate them via extendIndefiniteRules.
+        //
+        // The partial unique index uq_events_rule_date_active only covers active rows
+        // (is_deleted=false), so soft-deleted events do not block re-insertion of new
+        // active rows for the same (rule_id, date) pairs — this is the intended design.
         String catId = getFirstCategoryId();
         LocalDate startDate = LocalDate.now().plusDays(1);
         int dayOfMonth = startDate.getDayOfMonth();
@@ -420,32 +430,58 @@ class RecurringEventControllerIT {
         String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
         UUID ruleUuid = UUID.fromString(ruleId);
 
-        // Count events before planner call
+        // Fetch all active events for this rule, sorted by date
+        List<ru.selfin.backend.model.FinancialEvent> allForRule = eventRepository.findAll().stream()
+                .filter(e -> !e.isDeleted()
+                        && e.getRecurringRule() != null
+                        && e.getRecurringRule().getId().equals(ruleUuid))
+                .sorted(java.util.Comparator.comparing(ru.selfin.backend.model.FinancialEvent::getDate))
+                .collect(java.util.stream.Collectors.toList());
+
+        // createFromDto generates 36mo worth of events — expect ~36 occurrences
+        assertThat(allForRule.size())
+                .as("Should have generated ~36 monthly events at creation")
+                .isGreaterThanOrEqualTo(35);
+
+        // Soft-delete the last 3 events to simulate a gap in coverage
+        int totalBeforeDeletion = allForRule.size();
+        List<ru.selfin.backend.model.FinancialEvent> tailToDelete =
+                allForRule.subList(totalBeforeDeletion - 3, totalBeforeDeletion);
+        for (ru.selfin.backend.model.FinancialEvent event : tailToDelete) {
+            event.setDeleted(true);
+            eventRepository.save(event);
+        }
+
+        // countBefore reflects the gap (~33 active events)
         long countBefore = eventRepository.findAll().stream()
                 .filter(e -> !e.isDeleted()
                         && e.getRecurringRule() != null
                         && e.getRecurringRule().getId().equals(ruleUuid))
                 .count();
-
-        // createFromDto generates 36mo worth of events — expect ~36 occurrences
         assertThat(countBefore)
-                .as("Should have generated ~36 monthly events at creation")
-                .isGreaterThanOrEqualTo(35);
+                .as("After soft-deleting 3 tail events, active count should be ~33")
+                .isEqualTo(totalBeforeDeletion - 3);
 
-        // GET planner triggers extendIndefiniteRules
+        // GET planner triggers extendIndefiniteRules — must regenerate the missing tail
         mockMvc.perform(get("/api/v1/funds/planner"))
                 .andExpect(status().isOk());
 
-        // Count events after planner call — should be >= original count (no shrinkage)
+        // Count events after planner call
         long countAfter = eventRepository.findAll().stream()
                 .filter(e -> !e.isDeleted()
                         && e.getRecurringRule() != null
                         && e.getRecurringRule().getId().equals(ruleUuid))
                 .count();
 
+        // extendIndefiniteRules must have regenerated the 3 deleted tail events
         assertThat(countAfter)
-                .as("Lazy-extend should not reduce event count for indefinite rule")
-                .isGreaterThanOrEqualTo(countBefore);
+                .as("Lazy-extend must regenerate missing tail events: countAfter > countBefore")
+                .isGreaterThan(countBefore);
+
+        // Coverage must be restored to at least now+36mo horizon
+        assertThat(countAfter)
+                .as("Lazy-extend must restore coverage to spec horizon (~36 events)")
+                .isGreaterThanOrEqualTo(36);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
