@@ -2,8 +2,8 @@ package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import ru.selfin.backend.dto.FactCreateDto;
-import ru.selfin.backend.dto.FinancialEventDto;
+import org.mockito.ArgumentCaptor;
+import ru.selfin.backend.dto.*;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.*;
 import ru.selfin.backend.model.enums.*;
@@ -21,7 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class FinancialEventServiceTest {
@@ -31,11 +31,12 @@ class FinancialEventServiceTest {
     private final TargetFundRepository targetFundRepository = mock(TargetFundRepository.class);
     private final CategoryService categoryService = mock(CategoryService.class);
     private final TargetFundService targetFundService = mock(TargetFundService.class);
+    private final RecurringRuleService ruleService = mock(RecurringRuleService.class);
 
-    // Build service and inject the @Lazy TargetFundService via reflection
+    // Build service and inject the @Lazy TargetFundService + RecurringRuleService via reflection
     private final FinancialEventService service;
     {
-        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository, categoryService, Clock.systemDefaultZone());
+        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository, categoryService, Clock.systemDefaultZone(), ruleService);
         try {
             var field = FinancialEventService.class.getDeclaredField("targetFundService");
             field.setAccessible(true);
@@ -196,6 +197,69 @@ class FinancialEventServiceTest {
 
         assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
         verify(eventRepository, times(2)).save(any()); // deleted fact + reverted plan
+    }
+
+    // --- Task 3.3 tests ---
+
+    @Test
+    @DisplayName("createIdempotent: recurring != null delegates to ruleService and returns head event")
+    void createIdempotent_withRecurring_delegatesToRuleService() {
+        UUID idempKey = UUID.randomUUID();
+        Category cat = category();
+        when(eventRepository.findByIdempotencyKey(idempKey)).thenReturn(Optional.empty());
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+        LocalDate start = LocalDate.now().plusMonths(1).withDayOfMonth(15);
+        FinancialEvent headEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID()).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(start).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(rule)
+                .build();
+        FinancialEvent tailEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID()).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(start.plusMonths(1)).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(rule)
+                .build();
+
+        RecurringConfigDto cfg = new RecurringConfigDto(RecurringFrequency.MONTHLY, 15, null, start, null);
+        when(ruleService.createFromDto(eq(cat), eq(EventType.EXPENSE), any(), eq(Priority.HIGH),
+                any(), any(), any(), eq(cfg)))
+                .thenReturn(new RecurringRuleService.CreateResult(rule, List.of(headEvent, tailEvent)));
+        when(eventRepository.save(any(FinancialEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
+
+        var dto = new FinancialEventCreateDto(start, cat.getId(), EventType.EXPENSE,
+                new BigDecimal("5000"), Priority.HIGH, "Ипотека", null, null, cfg);
+
+        FinancialEventDto result = service.createIdempotent(idempKey, dto);
+
+        verify(ruleService).createFromDto(eq(cat), eq(EventType.EXPENSE), any(), eq(Priority.HIGH),
+                eq("Ипотека"), isNull(), isNull(), eq(cfg));
+        ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
+        verify(eventRepository).save(cap.capture());
+        assertThat(cap.getValue().getIdempotencyKey()).isEqualTo(idempKey);
+        assertThat(result.eventKind()).isEqualTo(EventKind.PLAN);
+    }
+
+    @Test
+    @DisplayName("createIdempotent: recurring == null does NOT call ruleService")
+    void createIdempotent_withoutRecurring_doesNotCallRuleService() {
+        UUID idempKey = UUID.randomUUID();
+        Category cat = category();
+        when(eventRepository.findByIdempotencyKey(idempKey)).thenReturn(Optional.empty());
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any(FinancialEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
+
+        var dto = new FinancialEventCreateDto(LocalDate.now(), cat.getId(), EventType.EXPENSE,
+                new BigDecimal("5000"), Priority.HIGH, null, null, null, null);
+
+        service.createIdempotent(idempKey, dto);
+
+        verifyNoInteractions(ruleService);
     }
 
     // --- helpers ---

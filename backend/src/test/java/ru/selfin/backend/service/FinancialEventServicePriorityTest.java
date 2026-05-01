@@ -19,12 +19,13 @@ class FinancialEventServicePriorityTest {
     private final CategoryRepository categoryRepository = mock(CategoryRepository.class);
     private final TargetFundRepository targetFundRepository = mock(TargetFundRepository.class);
     private final CategoryService categoryService = mock(CategoryService.class);
+    private final RecurringRuleService ruleService = mock(RecurringRuleService.class);
 
     private final FinancialEventService service;
     {
         service = new FinancialEventService(
                 eventRepository, categoryRepository, targetFundRepository,
-                categoryService, Clock.systemDefaultZone());
+                categoryService, Clock.systemDefaultZone(), ruleService);
     }
 
     @Test

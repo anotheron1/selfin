@@ -27,11 +27,18 @@ public class RecurringRuleService {
     private final FinancialEventRepository eventRepo;
     private final RecurringEventGenerator generator;
 
+    /**
+     * @param rule   created and persisted rule (id assigned)
+     * @param events generated PLAN events in ascending date order;
+     *               {@code events.get(0)} is the earliest occurrence (head event).
+     */
     public record CreateResult(RecurringRule rule, List<FinancialEvent> events) {}
 
     @Transactional
     public CreateResult createFromDto(Category category, EventType type, BigDecimal plannedAmount,
-                                      Priority priority, String description, RecurringConfigDto cfg) {
+                                      Priority priority, String description,
+                                      java.util.UUID targetFundId, String headRawInput,
+                                      RecurringConfigDto cfg) {
         validateConfig(cfg);
         RecurringRule rule = RecurringRule.builder()
                 .category(category)
@@ -51,8 +58,21 @@ public class RecurringRuleService {
                 ? cfg.endDate()
                 : LocalDate.now().plusMonths(36);
         List<FinancialEvent> events = generator.generate(rule, cfg.startDate(), horizonEnd);
+        // Propagate targetFundId to ALL events (FUND_TRANSFER recurring needs it on every row).
+        events.forEach(e -> e.setTargetFundId(targetFundId));
+        // rawInput only on head event — represents user's original NL input at creation.
+        if (!events.isEmpty() && headRawInput != null) {
+            events.get(0).setRawInput(headRawInput);
+        }
         eventRepo.saveAll(events);
         return new CreateResult(rule, events);
+    }
+
+    // Keep the 6-arg form delegating to the new 8-arg form for back-compat with Chunk-2 tests.
+    @Transactional
+    public CreateResult createFromDto(Category category, EventType type, BigDecimal plannedAmount,
+                                      Priority priority, String description, RecurringConfigDto cfg) {
+        return createFromDto(category, type, plannedAmount, priority, description, null, null, cfg);
     }
 
     @Transactional

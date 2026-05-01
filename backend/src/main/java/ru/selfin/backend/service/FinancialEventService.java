@@ -31,6 +31,7 @@ public class FinancialEventService {
     private final TargetFundRepository targetFundRepository;
     private final CategoryService categoryService;
     private final Clock clock;
+    private final RecurringRuleService ruleService;
 
     @Autowired @Lazy
     private TargetFundService targetFundService;
@@ -111,6 +112,23 @@ public class FinancialEventService {
                                 .orElseThrow(() -> new ResourceNotFoundException(
                                         "Category", dto.categoryId()));
                     }
+
+                    if (dto.recurring() != null) {
+                        Priority effectivePriority = dto.priority() != null
+                                ? dto.priority() : category.getPriority();
+                        var result = ruleService.createFromDto(
+                                category, dto.type(), dto.plannedAmount(),
+                                effectivePriority, dto.description(),
+                                dto.targetFundId(), dto.rawInput(),
+                                dto.recurring());
+                        // Head event = events[0] per CreateResult contract (earliest date, ascending order).
+                        FinancialEvent head = result.events().get(0);
+                        head.setIdempotencyKey(idempotencyKey);
+                        eventRepository.save(head);
+                        // Tail events have null idempotency_key per spec §3.
+                        return toDto(head, null, null);
+                    }
+
                     FinancialEvent event = FinancialEvent.builder()
                             .idempotencyKey(idempotencyKey)
                             .eventKind(EventKind.PLAN)

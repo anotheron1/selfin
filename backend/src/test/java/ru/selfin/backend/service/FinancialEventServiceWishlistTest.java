@@ -26,6 +26,7 @@ class FinancialEventServiceWishlistTest {
     @Mock CategoryRepository categoryRepository;
     @Mock TargetFundRepository targetFundRepository;
     @Mock CategoryService categoryService;
+    @Mock RecurringRuleService ruleService;
 
     // Clock fixed to 2026-04-09
     Clock clock = Clock.fixed(Instant.parse("2026-04-09T12:00:00Z"), ZoneOffset.UTC);
@@ -34,7 +35,7 @@ class FinancialEventServiceWishlistTest {
     void findWishlist_usesFirstDayOfMonth_notToday() {
         // Inject clock via constructor (after implementation step)
         FinancialEventService service = new FinancialEventService(
-                eventRepository, categoryRepository, targetFundRepository, categoryService, clock);
+                eventRepository, categoryRepository, targetFundRepository, categoryService, clock, ruleService);
 
         when(eventRepository.findWishlistItems(
                 Priority.LOW, EventStatus.PLANNED,
