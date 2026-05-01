@@ -139,12 +139,18 @@ public class RecurringRuleService {
      * Применяет редактируемые поля из FinancialEventCreateDto к правилу.
      * Запрещено: смена startDate, type, frequency (см. spec, I8). Эти поля игнорируются
      * для frequency/type, но изменение startDate вызывает 400.
+     * Также проверяет, что endDate не раньше startDate правила.
      */
     public void applyDtoToRule(RecurringRule rule, ru.selfin.backend.dto.FinancialEventCreateDto dto) {
         if (dto.recurring() != null && dto.recurring().startDate() != null
                 && !dto.recurring().startDate().equals(rule.getStartDate())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "start_date is immutable; delete the rule and create a new one (I8)");
+        }
+        if (dto.recurring() != null && dto.recurring().endDate() != null
+                && dto.recurring().endDate().isBefore(rule.getStartDate())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "endDate must be >= startDate (I2)");
         }
         // Editable per-rule fields:
         rule.setPlannedAmount(dto.plannedAmount());

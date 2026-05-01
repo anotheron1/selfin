@@ -153,8 +153,8 @@ class FinancialEventServiceTest {
     }
 
     @Test
-    @DisplayName("softDelete: бросает 409 при попытке удалить PLAN с привязанными FACTs")
-    void softDelete_planWithFacts_throws409() {
+    @DisplayName("delete THIS: бросает 409 при попытке удалить PLAN с привязанными FACTs")
+    void delete_THIS_planWithFacts_throws409() {
         UUID planId = UUID.randomUUID();
         FinancialEvent plan = aPlan(planId, category(), EventStatus.EXECUTED);
         when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
@@ -163,13 +163,13 @@ class FinancialEventServiceTest {
         when(agg.getCount()).thenReturn(1L);
         when(eventRepository.findFactAggregatesByPlanIds(List.of(planId))).thenReturn(List.of(agg));
 
-        assertThatThrownBy(() -> service.softDelete(planId))
+        assertThatThrownBy(() -> service.delete(planId, ScopeEnum.THIS))
                 .hasMessageContaining("Cannot delete PLAN");
     }
 
     @Test
-    @DisplayName("softDelete: удаление FACT переводит родительский PLAN обратно в PLANNED")
-    void softDelete_lastFact_revertsPlanToPlanned() {
+    @DisplayName("delete THIS: удаление FACT переводит родительский PLAN обратно в PLANNED")
+    void delete_THIS_lastFact_revertsPlanToPlanned() {
         UUID planId = UUID.randomUUID();
         UUID factId = UUID.randomUUID();
         Category cat = category();
@@ -193,7 +193,7 @@ class FinancialEventServiceTest {
         when(eventRepository.save(any())).thenReturn(fact);
         doNothing().when(eventRepository).flush();
 
-        service.softDelete(factId);
+        service.delete(factId, ScopeEnum.THIS);
 
         assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
         verify(eventRepository, times(2)).save(any()); // deleted fact + reverted plan
@@ -525,6 +525,44 @@ class FinancialEventServiceTest {
         service.delete(id, ScopeEnum.ALL);
 
         verify(ruleService).deleteScope(event, ScopeEnum.ALL);
+    }
+
+    @Test
+    @DisplayName("update FOLLOWING: endDate before trigger event date throws 400")
+    void update_FOLLOWING_with_endDate_before_triggerDate_throws_400() {
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        LocalDate ruleStart = LocalDate.now().minusMonths(3).withDayOfMonth(1);
+        RecurringRule rule = RecurringRule.builder()
+                .id(UUID.randomUUID())
+                .startDate(ruleStart)
+                .build();
+        LocalDate eventDate = LocalDate.now().plusMonths(1);
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(eventDate).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(rule).deleted(false).build();
+
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+
+        // endDate is one day before the trigger event date — must be rejected with 400
+        LocalDate endDateBeforeTrigger = eventDate.minusDays(1);
+        RecurringConfigDto cfg = new RecurringConfigDto(
+                RecurringFrequency.MONTHLY, 1, null, null, endDateBeforeTrigger);
+        var dto = new FinancialEventCreateDto(eventDate, cat.getId(), EventType.EXPENSE,
+                new BigDecimal("5000"), Priority.HIGH, null, null, null, cfg);
+
+        assertThatThrownBy(() -> service.update(id, ScopeEnum.FOLLOWING, dto))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> {
+                    var rse = (org.springframework.web.server.ResponseStatusException) ex;
+                    assertThat(rse.getStatusCode())
+                            .isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+                    assertThat(rse.getReason())
+                            .contains("endDate must be on or after the trigger event date");
+                });
+        verifyNoInteractions(ruleService);
     }
 
     // --- helpers ---

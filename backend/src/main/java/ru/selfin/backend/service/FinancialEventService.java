@@ -217,6 +217,11 @@ public class FinancialEventService {
         }
 
         // FOLLOWING / ALL
+        if (dto.recurring() != null && dto.recurring().endDate() != null
+                && dto.recurring().endDate().isBefore(event.getDate())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "endDate must be on or after the trigger event date for scope FOLLOWING/ALL");
+        }
         ruleService.applyDtoToRule(rule, dto);   // throws 400 if startDate change attempted
         LocalDate regenerateFrom = (scope == ScopeEnum.FOLLOWING) ? event.getDate() : rule.getStartDate();
         ruleService.regenerate(rule, regenerateFrom);
@@ -365,11 +370,18 @@ public class FinancialEventService {
     }
 
     /**
-     * Удаляет событие с учётом scope. THIS — мягкое удаление только этого события.
+     * Удаляет событие с учётом scope. THIS — мягкое удаление только этого события
+     * с сохранением контрактов плана-факта:
+     * <ul>
+     *   <li>PLAN с привязанными активными FACT-записями → 409 CONFLICT;</li>
+     *   <li>удаление последнего FACT → PLAN возвращается в статус PLANNED.</li>
+     * </ul>
      * FOLLOWING/ALL — делегирует в ruleService.deleteScope.
      *
      * @param id    идентификатор события
      * @param scope область применения удаления
+     * @throws ResourceNotFoundException если событие не найдено
+     * @throws ResponseStatusException   400 при FOLLOWING/ALL для non-recurring; 409 при PLAN с FACTs
      */
     @Transactional
     public void delete(UUID id, ScopeEnum scope) {
@@ -383,51 +395,34 @@ public class FinancialEventService {
         }
 
         if (scope == ScopeEnum.THIS) {
+            // 409 guard: cannot delete a PLAN that still has linked active FACTs
+            if (event.getEventKind() == EventKind.PLAN) {
+                List<FactAggregateProjection> aggs =
+                        eventRepository.findFactAggregatesByPlanIds(List.of(id));
+                if (!aggs.isEmpty() && aggs.get(0).getCount() > 0) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "Cannot delete PLAN with linked FACTs — delete FACTs first");
+                }
+            }
+
             event.setDeleted(true);
             eventRepository.save(event);
+            eventRepository.flush();
+
+            // If deleting a FACT, revert parent PLAN to PLANNED if it has no other FACTs
+            if (event.getEventKind() == EventKind.FACT && event.getParentEventId() != null) {
+                eventRepository.findById(event.getParentEventId()).ifPresent(plan -> {
+                    List<FactAggregateProjection> aggs =
+                            eventRepository.findFactAggregatesByPlanIds(List.of(plan.getId()));
+                    if (aggs.isEmpty() || aggs.get(0).getCount() == 0) {
+                        plan.setStatus(EventStatus.PLANNED);
+                        eventRepository.save(plan);
+                    }
+                });
+            }
             return;
         }
         ruleService.deleteScope(event, scope);
-    }
-
-    /**
-     * Мягко удаляет событие. Для PLAN с привязанными FACT-записями выбрасывает 409 CONFLICT.
-     * При удалении FACT-записи проверяет, остались ли у родительского PLAN другие факты;
-     * если нет — возвращает PLAN в статус PLANNED.
-     *
-     * @param id идентификатор события
-     * @throws ResourceNotFoundException если событие не найдено
-     * @throws ResponseStatusException   409 при наличии привязанных FACT-записей у PLAN
-     */
-    @Transactional
-    public void softDelete(UUID id) {
-        FinancialEvent event = eventRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
-
-        if (event.getEventKind() == EventKind.PLAN) {
-            List<FactAggregateProjection> aggs =
-                    eventRepository.findFactAggregatesByPlanIds(List.of(id));
-            if (!aggs.isEmpty() && aggs.get(0).getCount() > 0) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Cannot delete PLAN with linked FACTs — delete FACTs first");
-            }
-        }
-
-        event.setDeleted(true);
-        eventRepository.save(event);
-        eventRepository.flush();
-
-        // If deleting a FACT, revert parent PLAN to PLANNED if it has no other FACTs
-        if (event.getEventKind() == EventKind.FACT && event.getParentEventId() != null) {
-            eventRepository.findById(event.getParentEventId()).ifPresent(plan -> {
-                List<FactAggregateProjection> aggs =
-                        eventRepository.findFactAggregatesByPlanIds(List.of(plan.getId()));
-                if (aggs.isEmpty() || aggs.get(0).getCount() == 0) {
-                    plan.setStatus(EventStatus.PLANNED);
-                    eventRepository.save(plan);
-                }
-            });
-        }
     }
 
     /** Convenience overload used by callers that don't need enrichment. */
