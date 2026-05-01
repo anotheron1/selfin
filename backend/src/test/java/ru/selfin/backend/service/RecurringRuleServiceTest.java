@@ -3,6 +3,7 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.RecurringConfigDto;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -263,5 +265,62 @@ class RecurringRuleServiceTest {
 
         assertThat(rule.isDeleted()).isTrue();
         assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2026, 5, 14)); // startDate - 1
+    }
+
+    @Test
+    void applyDtoToRule_updatesAmountAndDescription_butNeverStartDateOrType() {
+        RecurringRule rule = RecurringRule.builder()
+                .id(UUID.randomUUID())
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .priority(Priority.MEDIUM)
+                .description("Старое описание")
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(LocalDate.of(2027, 5, 15))
+                .build();
+
+        var dto = new FinancialEventCreateDto(
+                LocalDate.of(2026, 7, 15),  // ignored — date is per-event, not per-rule
+                category.getId(),
+                EventType.EXPENSE,           // type cannot change (I8); same value is fine
+                new BigDecimal("90000"),
+                Priority.HIGH,
+                "Новое описание",
+                null, null,
+                new RecurringConfigDto(RecurringFrequency.MONTHLY, 15, null,
+                        null,                 // startDate must be null at edit-time
+                        LocalDate.of(2027, 12, 31)));
+
+        service.applyDtoToRule(rule, dto);
+
+        assertThat(rule.getPlannedAmount()).isEqualByComparingTo("90000");
+        assertThat(rule.getPriority()).isEqualTo(Priority.HIGH);
+        assertThat(rule.getDescription()).isEqualTo("Новое описание");
+        assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2027, 12, 31));
+        // Immutable per I8:
+        assertThat(rule.getStartDate()).isEqualTo(LocalDate.of(2026, 5, 15));
+        assertThat(rule.getEventType()).isEqualTo(EventType.EXPENSE);
+    }
+
+    @Test
+    void applyDtoToRule_rejectsStartDateChange() {
+        RecurringRule rule = RecurringRule.builder()
+                .id(UUID.randomUUID())
+                .startDate(LocalDate.of(2026, 5, 15))
+                .frequency(RecurringFrequency.MONTHLY).dayOfMonth(15)
+                .build();
+        var dto = new FinancialEventCreateDto(
+                LocalDate.of(2026, 6, 15), null, EventType.EXPENSE, BigDecimal.ONE,
+                null, null, null, null,
+                new RecurringConfigDto(RecurringFrequency.MONTHLY, 15, null,
+                        LocalDate.of(2026, 6, 1),  // ← non-null = attempt to change start
+                        null));
+
+        assertThatThrownBy(() -> service.applyDtoToRule(rule, dto))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("start_date is immutable");
     }
 }

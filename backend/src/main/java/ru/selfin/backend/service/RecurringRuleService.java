@@ -133,6 +133,31 @@ public class RecurringRuleService {
         ruleRepo.save(rule);
     }
 
+    /**
+     * Применяет редактируемые поля из FinancialEventCreateDto к правилу.
+     * Запрещено: смена startDate, type, frequency (см. spec, I8). Эти поля игнорируются
+     * для frequency/type, но изменение startDate вызывает 400.
+     */
+    public void applyDtoToRule(RecurringRule rule, ru.selfin.backend.dto.FinancialEventCreateDto dto) {
+        if (dto.recurring() != null && dto.recurring().startDate() != null
+                && !dto.recurring().startDate().equals(rule.getStartDate())) {
+            throw new IllegalArgumentException(
+                    "start_date is immutable; delete the rule and create a new one (I8)");
+        }
+        // Editable per-rule fields:
+        rule.setPlannedAmount(dto.plannedAmount());
+        rule.setPriority(dto.priority() != null ? dto.priority() : rule.getPriority());
+        rule.setDescription(dto.description());
+        if (dto.recurring() != null) {
+            // dayOfMonth / monthOfYear are conceptually editable; spec §3 leaves this as a
+            // contract decision. We allow updating these — they only affect future regenerated
+            // dates; existing EXECUTED dates are preserved by regenerate().
+            rule.setDayOfMonth(dto.recurring().dayOfMonth());
+            rule.setMonthOfYear(dto.recurring().monthOfYear());
+            rule.setEndDate(dto.recurring().endDate());
+        }
+    }
+
     private void validateConfig(RecurringConfigDto cfg) {
         if (cfg.startDate() == null) {
             throw new IllegalArgumentException("startDate is required");
