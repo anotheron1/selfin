@@ -411,6 +411,12 @@ public class FinancialEventService {
                     : parentPlan.getCategory().getName();
         }
 
+        UUID recurringRuleId = e.getRecurringRule() != null ? e.getRecurringRule().getId() : null;
+        ru.selfin.backend.model.enums.RecurringFrequency recurringFrequency =
+                e.getRecurringRule() != null ? e.getRecurringRule().getFrequency() : null;
+        Integer recurringDayOfMonth = e.getRecurringRule() != null ? e.getRecurringRule().getDayOfMonth() : null;
+        Integer recurringMonthOfYear = e.getRecurringRule() != null ? e.getRecurringRule().getMonthOfYear() : null;
+
         return new FinancialEventDto(
                 e.getId(), e.getDate(),
                 e.getCategory().getId(), e.getCategory().getName(),
@@ -419,7 +425,8 @@ public class FinancialEventService {
                 e.getRawInput(), e.getCreatedAt(),
                 e.getTargetFundId(), fundName, e.getUrl(),
                 e.getEventKind(), e.getParentEventId(),
-                linkedFactsCount, linkedFactsAmount, parentPlanDescription);
+                linkedFactsCount, linkedFactsAmount, parentPlanDescription,
+                recurringRuleId, recurringFrequency, recurringDayOfMonth, recurringMonthOfYear);
     }
 
     /**

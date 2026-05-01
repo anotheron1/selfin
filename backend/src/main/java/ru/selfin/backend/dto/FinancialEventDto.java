@@ -4,6 +4,7 @@ import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
+import ru.selfin.backend.model.enums.RecurringFrequency;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -31,5 +32,10 @@ public record FinancialEventDto(
         UUID parentEventId,
         int linkedFactsCount,
         BigDecimal linkedFactsAmount,
-        String parentPlanDescription) {
+        String parentPlanDescription,
+        // Recurring fields (null for non-recurring events)
+        UUID recurringRuleId,
+        RecurringFrequency recurringFrequency,
+        Integer recurringDayOfMonth,
+        Integer recurringMonthOfYear) {
 }
