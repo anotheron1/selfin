@@ -16,6 +16,7 @@ import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
 import ru.selfin.backend.dto.StandaloneFactCreateDto;
 import ru.selfin.backend.dto.WishlistCreateDto;
+import ru.selfin.backend.model.enums.ScopeEnum;
 import ru.selfin.backend.service.FinancialEventService;
 
 import java.time.LocalDate;
@@ -73,7 +74,7 @@ public class FinancialEventController {
     @PutMapping("/{id}")
     public FinancialEventDto update(
             @Parameter(description = "ID события") @PathVariable UUID id,
-            @RequestParam(required = false, defaultValue = "THIS") ru.selfin.backend.model.enums.ScopeEnum scope,
+            @RequestParam(required = false, defaultValue = "THIS") ScopeEnum scope,
             @Valid @RequestBody FinancialEventCreateDto dto) {
         return eventService.update(id, scope, dto);
     }
@@ -131,8 +132,9 @@ public class FinancialEventController {
     @Operation(summary = "Удалить событие (soft delete)")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
-            @Parameter(description = "ID события") @PathVariable UUID id) {
-        eventService.softDelete(id);
+            @Parameter(description = "ID события") @PathVariable UUID id,
+            @RequestParam(required = false, defaultValue = "THIS") ScopeEnum scope) {
+        eventService.delete(id, scope);
         return ResponseEntity.noContent().build();
     }
 }
