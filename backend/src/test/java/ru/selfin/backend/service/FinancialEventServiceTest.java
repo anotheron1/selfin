@@ -262,6 +262,124 @@ class FinancialEventServiceTest {
         verifyNoInteractions(ruleService);
     }
 
+    // --- Task 3.4b tests ---
+
+    @Test
+    @DisplayName("update THIS on recurring event: updates only that event, no ruleService interaction")
+    void update_THIS_on_recurring_event_updates_only_that_event() {
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(LocalDate.now()).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(rule).deleted(false).build();
+
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any(FinancialEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
+
+        var dto = new FinancialEventCreateDto(LocalDate.now(), cat.getId(), EventType.EXPENSE,
+                new BigDecimal("6000"), Priority.HIGH, null, null, null, null);
+
+        service.update(id, ScopeEnum.THIS, dto);
+
+        verifyNoInteractions(ruleService);
+        assertThat(event.getPlannedAmount()).isEqualByComparingTo("6000");
+    }
+
+    @Test
+    @DisplayName("update THIS on FACT throws 400")
+    void update_THIS_on_FACT_throws_400() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent fact = aFact(id);
+        when(eventRepository.findById(id)).thenReturn(Optional.of(fact));
+
+        var dto = new FinancialEventCreateDto(LocalDate.now(), null, EventType.EXPENSE,
+                BigDecimal.ONE, null, null, null, null, null);
+
+        assertThatThrownBy(() -> service.update(id, ScopeEnum.THIS, dto))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    @DisplayName("update FOLLOWING on non-recurring event throws 400")
+    void update_FOLLOWING_on_non_recurring_event_throws_400() {
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(LocalDate.now()).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(null).deleted(false).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+
+        var dto = new FinancialEventCreateDto(LocalDate.now(), cat.getId(), EventType.EXPENSE,
+                BigDecimal.ONE, null, null, null, null, null);
+
+        assertThatThrownBy(() -> service.update(id, ScopeEnum.FOLLOWING, dto))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    @DisplayName("update FOLLOWING calls applyDtoToRule then regenerate from event date")
+    void update_FOLLOWING_calls_applyDtoToRule_then_regenerate_from_event_date() {
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID())
+                .startDate(LocalDate.now().minusMonths(2)).build();
+        LocalDate eventDate = LocalDate.now().plusMonths(1);
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(eventDate).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(rule).deleted(false).build();
+
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+        when(eventRepository.findActiveByRuleAndDate(rule.getId(), eventDate))
+                .thenReturn(Optional.of(event));
+        when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
+
+        var dto = new FinancialEventCreateDto(eventDate, cat.getId(), EventType.EXPENSE,
+                new BigDecimal("7000"), null, null, null, null, null);
+
+        service.update(id, ScopeEnum.FOLLOWING, dto);
+
+        verify(ruleService).applyDtoToRule(rule, dto);
+        verify(ruleService).regenerate(rule, eventDate);
+    }
+
+    @Test
+    @DisplayName("update ALL calls regenerate from rule startDate")
+    void update_ALL_calls_regenerate_from_rule_startDate() {
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        LocalDate ruleStart = LocalDate.now().minusMonths(3).withDayOfMonth(1);
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID())
+                .startDate(ruleStart).build();
+        LocalDate eventDate = LocalDate.now().plusMonths(1);
+        FinancialEvent event = FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("5000"))
+                .date(eventDate).status(EventStatus.PLANNED).priority(Priority.HIGH)
+                .recurringRule(rule).deleted(false).build();
+
+        when(eventRepository.findById(id)).thenReturn(Optional.of(event));
+        when(eventRepository.findActiveByRuleAndDate(rule.getId(), eventDate))
+                .thenReturn(Optional.of(event));
+        when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
+
+        var dto = new FinancialEventCreateDto(eventDate, cat.getId(), EventType.EXPENSE,
+                new BigDecimal("7000"), null, null, null, null, null);
+
+        service.update(id, ScopeEnum.ALL, dto);
+
+        verify(ruleService).applyDtoToRule(rule, dto);
+        verify(ruleService).regenerate(rule, ruleStart);
+    }
+
     // --- helpers ---
 
     private Category category() {

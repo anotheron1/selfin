@@ -73,8 +73,9 @@ public class FinancialEventController {
     @PutMapping("/{id}")
     public FinancialEventDto update(
             @Parameter(description = "ID события") @PathVariable UUID id,
+            @RequestParam(required = false, defaultValue = "THIS") ru.selfin.backend.model.enums.ScopeEnum scope,
             @Valid @RequestBody FinancialEventCreateDto dto) {
-        return eventService.update(id, dto);
+        return eventService.update(id, scope, dto);
     }
 
     @Operation(summary = "Ввести фактическую сумму (частичное обновление)",

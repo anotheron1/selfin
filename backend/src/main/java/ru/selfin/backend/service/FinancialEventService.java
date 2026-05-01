@@ -183,38 +183,64 @@ public class FinancialEventService {
 
     /**
      * Обновляет существующий PLAN-событие. FACT-записи обновлять через этот метод нельзя
-     * (выбросит 400). При наличии старого factAmount пишет в лог предупреждение
-     * (обратная совместимость с событиями до V12).
+     * (выбросит 400). Для recurring-событий принимает scope: THIS/FOLLOWING/ALL.
      *
-     * @param id  идентификатор события
-     * @param dto новые данные
+     * @param id    идентификатор события
+     * @param scope область применения изменений
+     * @param dto   новые данные
      * @return обновлённый DTO
      * @throws ResourceNotFoundException если событие не найдено
-     * @throws ResponseStatusException   400 при попытке обновить FACT-запись
+     * @throws ResponseStatusException   400 при попытке обновить FACT-запись или при неверном scope
      */
     @Transactional
-    public FinancialEventDto update(UUID id, FinancialEventCreateDto dto) {
+    public FinancialEventDto update(UUID id, ScopeEnum scope, FinancialEventCreateDto dto) {
         FinancialEvent event = eventRepository.findById(id)
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
 
+        // Existing guard: FACT records are not editable via PUT (preserved from old method).
         if (event.getEventKind() == EventKind.FACT) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Cannot update a FACT record via PUT — use the fact-specific endpoint");
         }
 
-        Category category;
-        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
-            category = targetFundService.getOrCreateFundTransferCategory();
-        } else {
-            category = categoryRepository.findById(dto.categoryId())
-                    .filter(c -> !c.isDeleted())
-                    .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+        RecurringRule rule = event.getRecurringRule();
+        if (scope != ScopeEnum.THIS && rule == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Scope FOLLOWING/ALL requires a recurring event");
         }
 
-        // Capture old fact for audit log (kept for backward compat on old executed events)
-        BigDecimal oldFact = event.getFactAmount();
+        if (scope == ScopeEnum.THIS) {
+            Category category = resolveCategoryForUpdate(dto);
+            applyDto(event, dto, category);
+            return toDto(eventRepository.save(event), null, null);
+        }
 
+        // FOLLOWING / ALL
+        ruleService.applyDtoToRule(rule, dto);   // throws 400 if startDate change attempted
+        LocalDate regenerateFrom = (scope == ScopeEnum.FOLLOWING) ? event.getDate() : rule.getStartDate();
+        ruleService.regenerate(rule, regenerateFrom);
+
+        // Re-fetch the event at the same date — regenerate may have replaced the row identity.
+        return eventRepository.findActiveByRuleAndDate(rule.getId(), event.getDate())
+                .map(e -> toDto(e, null, null))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Regenerate dropped the trigger date " + event.getDate() + " for rule " + rule.getId()));
+    }
+
+    /** Extracted from old update() — verbatim category resolution. */
+    private Category resolveCategoryForUpdate(FinancialEventCreateDto dto) {
+        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
+            return targetFundService.getOrCreateFundTransferCategory();
+        }
+        return categoryRepository.findById(dto.categoryId())
+                .filter(c -> !c.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+    }
+
+    /** Extracted from old update() — verbatim setter sequence. */
+    private void applyDto(FinancialEvent event, FinancialEventCreateDto dto, Category category) {
+        BigDecimal oldFact = event.getFactAmount();
         event.setDate(dto.date());
         event.setCategory(category);
         event.setType(dto.type());
@@ -223,13 +249,10 @@ public class FinancialEventService {
         event.setDescription(dto.description());
         event.setRawInput(dto.rawInput());
         event.setTargetFundId(dto.targetFundId());
-
         if (oldFact != null) {
             log.info("plan_update event_id={} category={} planned={} (fact retained on FACT record)",
-                    id, category.getName(), dto.plannedAmount());
+                    event.getId(), category.getName(), dto.plannedAmount());
         }
-
-        return toDto(eventRepository.save(event), null, null);
     }
 
     /**
