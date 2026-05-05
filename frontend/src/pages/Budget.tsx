@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Repeat } from 'lucide-react';
 import { fetchEvents, cycleEventPriority } from '../api';
 import type { FinancialEvent } from '../types/api';
 import EditEventSheet from '../components/EditEventSheet';
@@ -25,6 +26,17 @@ function createPlanFactHandlers() {
 }
 
 const pfHandlers = createPlanFactHandlers();
+
+function recurringTooltip(e: FinancialEvent): string {
+    if (e.recurringFrequency === 'MONTHLY' && e.recurringDayOfMonth != null) {
+        return `Повторяется ежемесячно ${e.recurringDayOfMonth}-го числа`;
+    }
+    if (e.recurringFrequency === 'YEARLY' && e.recurringDayOfMonth != null && e.recurringMonthOfYear != null) {
+        const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+        return `Повторяется ${e.recurringDayOfMonth} ${months[e.recurringMonthOfYear - 1]} каждого года`;
+    }
+    return 'Повторяющееся событие';
+}
 
 function startOfWeek(date: Date): Date {
     const d = new Date(date);
@@ -295,6 +307,11 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                             {isPlan && event.linkedFactsCount > 0 && (
                                                                                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                                                                                     {event.linkedFactsCount} {event.linkedFactsCount === 1 ? 'факт' : 'факта'}
+                                                                                </span>
+                                                                            )}
+                                                                            {event.recurringRuleId && (
+                                                                                <span title={recurringTooltip(event)}>
+                                                                                    <Repeat size={12} style={{ color: 'var(--color-text-muted)' }} />
                                                                                 </span>
                                                                             )}
                                                                         </div>
