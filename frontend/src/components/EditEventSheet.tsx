@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { updateEvent, fetchCategories, patchEventFact } from '../api';
-import type { Category, FinancialEvent, FinancialEventCreateDto, EventType, Priority } from '../types/api';
+import type { Category, FinancialEvent, FinancialEventCreateDto, EventType, Priority, ScopeEnum } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import EditEventScopePicker from './EditEventScopePicker';
 
 interface EditEventSheetProps {
     event: FinancialEvent;
@@ -26,6 +27,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
     const [priority, setPriority] = useState<Priority>(event.priority ?? 'MEDIUM');
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(false);
+    const [scope, setScope] = useState<ScopeEnum>('FOLLOWING');
 
     useEffect(() => {
         fetchCategories().then(setCategories).catch(console.error);
@@ -49,7 +51,8 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                     description: description || undefined,
                     rawInput: event.rawInput ?? undefined,
                 };
-                await updateEvent(event.id, dto);
+                const effectiveScope = event.recurringRuleId && event.eventKind === 'PLAN' ? scope : 'THIS';
+                await updateEvent(event.id, dto, effectiveScope);
             }
             onSuccess();
             onClose();
@@ -180,6 +183,9 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                                 </SelectContent>
                             </Select>
                         </div>
+                    )}
+                    {event.recurringRuleId && event.eventKind === 'PLAN' && (
+                        <EditEventScopePicker value={scope} onChange={setScope} />
                     )}
                     <div className="flex gap-2 pt-1">
                         <Button
