@@ -6,6 +6,17 @@ export type EventStatus = 'PLANNED' | 'EXECUTED' | 'CANCELLED';
 export type FundStatus = 'FUNDING' | 'REACHED';
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW';
 
+export type RecurringFrequency = 'MONTHLY' | 'YEARLY';
+export type ScopeEnum = 'THIS' | 'FOLLOWING' | 'ALL';
+
+export interface RecurringConfig {
+    frequency: RecurringFrequency;
+    dayOfMonth: number;
+    monthOfYear?: number | null;
+    startDate?: string;       // YYYY-MM-DD; на edit игнорируется
+    endDate?: string | null;  // null = бессрочно
+}
+
 export interface Category {
     id: string;
     name: string;
@@ -38,6 +49,11 @@ export interface FinancialEvent {
     linkedFactsCount: number;
     linkedFactsAmount: number | null;
     parentPlanDescription: string | null;
+    // Recurring fields
+    recurringRuleId?: string | null;
+    recurringFrequency?: RecurringFrequency | null;
+    recurringDayOfMonth?: number | null;
+    recurringMonthOfYear?: number | null;
 }
 
 export interface WishlistCreateDto {
@@ -56,6 +72,7 @@ export interface FinancialEventCreateDto {
     description?: string;
     rawInput?: string;
     targetFundId?: string;
+    recurring?: RecurringConfig | null;
 }
 
 export interface FactCreateDto {
