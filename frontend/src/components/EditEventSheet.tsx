@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { updateEvent, fetchCategories, patchEventFact } from '../api';
-import type { Category, FinancialEvent, FinancialEventCreateDto, EventType, Priority } from '../types/api';
+import { updateEvent, deleteEvent, fetchCategories, patchEventFact } from '../api';
+import type { Category, FinancialEvent, FinancialEventCreateDto, EventType, Priority, ScopeEnum } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import EditEventScopePicker from './EditEventScopePicker';
+import DeleteRecurringDialog from './DeleteRecurringDialog';
 
 interface EditEventSheetProps {
     event: FinancialEvent;
@@ -26,6 +28,8 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
     const [priority, setPriority] = useState<Priority>(event.priority ?? 'MEDIUM');
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(false);
+    const [scope, setScope] = useState<ScopeEnum>('FOLLOWING');
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
     useEffect(() => {
         fetchCategories().then(setCategories).catch(console.error);
@@ -49,7 +53,8 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                     description: description || undefined,
                     rawInput: event.rawInput ?? undefined,
                 };
-                await updateEvent(event.id, dto);
+                const effectiveScope = event.recurringRuleId && event.eventKind === 'PLAN' ? scope : 'THIS';
+                await updateEvent(event.id, dto, effectiveScope);
             }
             onSuccess();
             onClose();
@@ -61,19 +66,23 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
     };
 
     const handleDelete = async () => {
-        if (!confirm('Удалить запись?')) return;
-        const { deleteEvent } = await import('../api');
-        setLoading(true);
-        try {
-            await deleteEvent(event.id);
-            onSuccess();
-            onClose();
-        } finally {
-            setLoading(false);
+        if (event.recurringRuleId) {
+            setDeleteDialogOpen(true);
+        } else {
+            if (!confirm('Удалить запись?')) return;
+            setLoading(true);
+            try {
+                await deleteEvent(event.id);
+                onSuccess();
+                onClose();
+            } finally {
+                setLoading(false);
+            }
         }
     };
 
     return (
+        <>
         <Sheet open onOpenChange={(open) => !open && onClose()}>
             <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
                 <SheetHeader>
@@ -181,6 +190,9 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             </Select>
                         </div>
                     )}
+                    {event.recurringRuleId && event.eventKind === 'PLAN' && (
+                        <EditEventScopePicker value={scope} onChange={setScope} />
+                    )}
                     <div className="flex gap-2 pt-1">
                         <Button
                             type="button"
@@ -202,5 +214,16 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                 </form>
             </SheetContent>
         </Sheet>
+        <DeleteRecurringDialog
+            open={deleteDialogOpen}
+            onClose={() => setDeleteDialogOpen(false)}
+            onConfirm={async (deleteScope) => {
+                await deleteEvent(event.id, deleteScope);
+                setDeleteDialogOpen(false);
+                onSuccess();
+                onClose();
+            }}
+        />
+        </>
     );
 }

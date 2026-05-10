@@ -61,7 +61,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto dto = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(1000), null, "Тестовый расход", null, null);
+                BigDecimal.valueOf(1000), null, "Тестовый расход", null, null, null);
 
         // Создаём событие
         mockMvc.perform(post("/api/v1/events")
@@ -80,7 +80,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto dto = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(500), null, null, null, null);
+                BigDecimal.valueOf(500), null, null, null, null, null);
 
         // Первый запрос
         String first = mockMvc.perform(post("/api/v1/events")
@@ -109,7 +109,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto create = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(2000), null, null, null, null);
+                BigDecimal.valueOf(2000), null, null, null, null, null);
 
         String created = mockMvc.perform(post("/api/v1/events")
                 .header("Idempotency-Key", UUID.randomUUID().toString())
@@ -122,7 +122,7 @@ class FinancialEventControllerIT {
 
         FinancialEventCreateDto update = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(1800), null, null, null, null);
+                BigDecimal.valueOf(1800), null, null, null, null, null);
 
         mockMvc.perform(put("/api/v1/events/" + eventId)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -139,7 +139,7 @@ class FinancialEventControllerIT {
         // Создаём PLAN-событие
         FinancialEventCreateDto planDto = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(5000), null, "Плановый расход", null, null);
+                BigDecimal.valueOf(5000), null, "Плановый расход", null, null, null);
 
         String planBody = mockMvc.perform(post("/api/v1/events")
                 .header("Idempotency-Key", UUID.randomUUID().toString())
@@ -174,7 +174,7 @@ class FinancialEventControllerIT {
         String catId = getFirstCategoryId();
         FinancialEventCreateDto planDto = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(5000), null, "Тест приоритета", null, null);
+                BigDecimal.valueOf(5000), null, "Тест приоритета", null, null, null);
 
         String planBody = mockMvc.perform(post("/api/v1/events")
                         .header("Idempotency-Key", UUID.randomUUID().toString())
@@ -202,7 +202,7 @@ class FinancialEventControllerIT {
         // Создаём PLAN-событие
         FinancialEventCreateDto planDto = new FinancialEventCreateDto(
                 LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                BigDecimal.valueOf(3000), null, "Удаляемый план", null, null);
+                BigDecimal.valueOf(3000), null, "Удаляемый план", null, null, null);
 
         String planBody = mockMvc.perform(post("/api/v1/events")
                 .header("Idempotency-Key", UUID.randomUUID().toString())
@@ -235,7 +235,7 @@ class FinancialEventControllerIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(new FinancialEventCreateDto(
                         LocalDate.now(), UUID.fromString(catId), EventType.EXPENSE,
-                        BigDecimal.valueOf(300), null, "Удал.", null, null))))
+                        BigDecimal.valueOf(300), null, "Удал.", null, null, null))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 

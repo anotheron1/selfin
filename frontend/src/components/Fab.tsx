@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { createEvent, createLinkedFact, createStandaloneFact, fetchCategories, fetchFunds } from '../api';
-import type { Category, FinancialEventCreateDto, TargetFund } from '../types/api';
+import type { Category, FinancialEventCreateDto, RecurringConfig, TargetFund } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import RecurringFields from './RecurringFields';
 
 /**
  * Модальная форма быстрого добавления транзакции (bottom sheet).
@@ -25,6 +26,13 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     const [catLoading, setCatLoading] = useState(true);
     const [funds, setFunds] = useState<TargetFund[]>([]);
     const [fundsLoading, setFundsLoading] = useState(false);
+    const [recurringEnabled, setRecurringEnabled] = useState(false);
+    const [recurring, setRecurring] = useState<RecurringConfig>({
+        frequency: 'MONTHLY',
+        dayOfMonth: 1,
+        monthOfYear: null,
+        endDate: null,
+    });
 
     useEffect(() => {
         setCatLoading(true);
@@ -79,7 +87,11 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                 });
             } else {
                 // Плановая транзакция (с планом или FUND_TRANSFER)
-                const plan = await createEvent({ ...form as FinancialEventCreateDto, priority: effectivePriority });
+                const plan = await createEvent({
+                    ...form as FinancialEventCreateDto,
+                    priority: effectivePriority,
+                    recurring: recurringEnabled ? { ...recurring, startDate: form.date } : null,
+                });
                 if (hasFactAmount && !isFundTransfer) {
                     await createLinkedFact(plan.id, { date: form.date!, factAmount: factAmount!, description: form.description || undefined });
                 }
@@ -202,6 +214,17 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         value={form.description ?? ''}
                         onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
                     />
+
+                    {/* Повтор — только для плановых транзакций (не FUND_TRANSFER) */}
+                    {!isFundTransfer && (
+                        <RecurringFields
+                            enabled={recurringEnabled}
+                            value={recurring}
+                            eventDate={form.date ?? ''}
+                            onToggle={setRecurringEnabled}
+                            onChange={setRecurring}
+                        />
+                    )}
 
                     {/* Приоритет — только если не FUND_TRANSFER и не HIGH-категория */}
                     {showPrioritySelector && (

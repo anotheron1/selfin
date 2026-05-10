@@ -13,6 +13,7 @@ import type {
     FundsOverview,
     MultiMonthReport,
     PurchaseType,
+    ScopeEnum,
     StandaloneFactCreateDto,
     TargetFund,
     WishlistCreateDto,
@@ -60,8 +61,8 @@ export const createEvent = (dto: FinancialEventCreateDto) =>
  * Полностью обновляет финансовое событие (все поля).
  * Для ввода только фактической суммы предпочтительнее использовать `patchEventFact`.
  */
-export const updateEvent = (id: string, dto: FinancialEventCreateDto) =>
-    put<FinancialEvent>(`/events/${id}`, dto);
+export const updateEvent = (id: string, dto: FinancialEventCreateDto, scope: ScopeEnum = 'THIS') =>
+    put<FinancialEvent>(`/events/${id}?scope=${scope}`, dto);
 
 /**
  * Частичное обновление события: только фактическая сумма и комментарий.
@@ -85,7 +86,7 @@ export const createWishlistItem = (dto: WishlistCreateDto): Promise<FinancialEve
     post<FinancialEvent>('/events/wishlist', dto);
 
 /** Удаляет событие (soft delete — физически запись остаётся в БД). */
-export const deleteEvent = (id: string) => del(`/events/${id}`);
+export const deleteEvent = (id: string, scope: ScopeEnum = 'THIS') => del(`/events/${id}?scope=${scope}`);
 
 
 /** Создаёт фактическое исполнение (FACT) для планового события (PLAN). */

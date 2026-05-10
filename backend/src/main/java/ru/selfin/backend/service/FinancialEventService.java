@@ -31,6 +31,7 @@ public class FinancialEventService {
     private final TargetFundRepository targetFundRepository;
     private final CategoryService categoryService;
     private final Clock clock;
+    private final RecurringRuleService ruleService;
 
     @Autowired @Lazy
     private TargetFundService targetFundService;
@@ -111,6 +112,23 @@ public class FinancialEventService {
                                 .orElseThrow(() -> new ResourceNotFoundException(
                                         "Category", dto.categoryId()));
                     }
+
+                    if (dto.recurring() != null) {
+                        Priority effectivePriority = dto.priority() != null
+                                ? dto.priority() : category.getPriority();
+                        var result = ruleService.createFromDto(
+                                category, dto.type(), dto.plannedAmount(),
+                                effectivePriority, dto.description(),
+                                dto.targetFundId(), dto.rawInput(),
+                                dto.recurring());
+                        // Head event = events[0] per CreateResult contract (earliest date, ascending order).
+                        FinancialEvent head = result.events().get(0);
+                        head.setIdempotencyKey(idempotencyKey);
+                        eventRepository.save(head);
+                        // Tail events have null idempotency_key per spec §3.
+                        return toDto(head, null, null);
+                    }
+
                     FinancialEvent event = FinancialEvent.builder()
                             .idempotencyKey(idempotencyKey)
                             .eventKind(EventKind.PLAN)
@@ -165,38 +183,69 @@ public class FinancialEventService {
 
     /**
      * Обновляет существующий PLAN-событие. FACT-записи обновлять через этот метод нельзя
-     * (выбросит 400). При наличии старого factAmount пишет в лог предупреждение
-     * (обратная совместимость с событиями до V12).
+     * (выбросит 400). Для recurring-событий принимает scope: THIS/FOLLOWING/ALL.
      *
-     * @param id  идентификатор события
-     * @param dto новые данные
+     * @param id    идентификатор события
+     * @param scope область применения изменений
+     * @param dto   новые данные
      * @return обновлённый DTO
      * @throws ResourceNotFoundException если событие не найдено
-     * @throws ResponseStatusException   400 при попытке обновить FACT-запись
+     * @throws ResponseStatusException   400 при попытке обновить FACT-запись или при неверном scope
      */
     @Transactional
-    public FinancialEventDto update(UUID id, FinancialEventCreateDto dto) {
+    public FinancialEventDto update(UUID id, ScopeEnum scope, FinancialEventCreateDto dto) {
         FinancialEvent event = eventRepository.findById(id)
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
 
+        // Existing guard: FACT records are not editable via PUT (preserved from old method).
         if (event.getEventKind() == EventKind.FACT) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Cannot update a FACT record via PUT — use the fact-specific endpoint");
         }
 
-        Category category;
-        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
-            category = targetFundService.getOrCreateFundTransferCategory();
-        } else {
-            category = categoryRepository.findById(dto.categoryId())
-                    .filter(c -> !c.isDeleted())
-                    .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+        RecurringRule rule = event.getRecurringRule();
+        if (scope != ScopeEnum.THIS && rule == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Scope FOLLOWING/ALL requires a recurring event");
         }
 
-        // Capture old fact for audit log (kept for backward compat on old executed events)
-        BigDecimal oldFact = event.getFactAmount();
+        if (scope == ScopeEnum.THIS) {
+            Category category = resolveCategoryForUpdate(dto);
+            applyDto(event, dto, category);
+            return toDto(eventRepository.save(event), null, null);
+        }
 
+        // FOLLOWING / ALL
+        if (dto.recurring() != null && dto.recurring().endDate() != null
+                && dto.recurring().endDate().isBefore(event.getDate())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "endDate must be on or after the trigger event date for scope FOLLOWING/ALL");
+        }
+        ruleService.applyDtoToRule(rule, dto);   // throws 400 if startDate change attempted
+        LocalDate regenerateFrom = (scope == ScopeEnum.FOLLOWING) ? event.getDate() : rule.getStartDate();
+        ruleService.regenerate(rule, regenerateFrom);
+
+        // Re-fetch the event at the same date — regenerate may have replaced the row identity.
+        return eventRepository.findActiveByRuleAndDate(rule.getId(), event.getDate())
+                .map(e -> toDto(e, null, null))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Regenerate dropped the trigger date " + event.getDate() + " for rule " + rule.getId()));
+    }
+
+    /** Extracted from old update() — verbatim category resolution. */
+    private Category resolveCategoryForUpdate(FinancialEventCreateDto dto) {
+        if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
+            return targetFundService.getOrCreateFundTransferCategory();
+        }
+        return categoryRepository.findById(dto.categoryId())
+                .filter(c -> !c.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+    }
+
+    /** Extracted from old update() — verbatim setter sequence. */
+    private void applyDto(FinancialEvent event, FinancialEventCreateDto dto, Category category) {
+        BigDecimal oldFact = event.getFactAmount();
         event.setDate(dto.date());
         event.setCategory(category);
         event.setType(dto.type());
@@ -205,13 +254,10 @@ public class FinancialEventService {
         event.setDescription(dto.description());
         event.setRawInput(dto.rawInput());
         event.setTargetFundId(dto.targetFundId());
-
         if (oldFact != null) {
             log.info("plan_update event_id={} category={} planned={} (fact retained on FACT record)",
-                    id, category.getName(), dto.plannedAmount());
+                    event.getId(), category.getName(), dto.plannedAmount());
         }
-
-        return toDto(eventRepository.save(event), null, null);
     }
 
     /**
@@ -239,6 +285,7 @@ public class FinancialEventService {
                 .type(plan.getType())
                 .factAmount(dto.factAmount())
                 .priority(dto.priority() != null ? dto.priority() : plan.getPriority())
+                .recurringRule(plan.getRecurringRule())   // inherit (null if parent is non-recurring)
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .build();
@@ -323,43 +370,59 @@ public class FinancialEventService {
     }
 
     /**
-     * Мягко удаляет событие. Для PLAN с привязанными FACT-записями выбрасывает 409 CONFLICT.
-     * При удалении FACT-записи проверяет, остались ли у родительского PLAN другие факты;
-     * если нет — возвращает PLAN в статус PLANNED.
+     * Удаляет событие с учётом scope. THIS — мягкое удаление только этого события
+     * с сохранением контрактов плана-факта:
+     * <ul>
+     *   <li>PLAN с привязанными активными FACT-записями → 409 CONFLICT;</li>
+     *   <li>удаление последнего FACT → PLAN возвращается в статус PLANNED.</li>
+     * </ul>
+     * FOLLOWING/ALL — делегирует в ruleService.deleteScope.
      *
-     * @param id идентификатор события
+     * @param id    идентификатор события
+     * @param scope область применения удаления
      * @throws ResourceNotFoundException если событие не найдено
-     * @throws ResponseStatusException   409 при наличии привязанных FACT-записей у PLAN
+     * @throws ResponseStatusException   400 при FOLLOWING/ALL для non-recurring; 409 при PLAN с FACTs
      */
     @Transactional
-    public void softDelete(UUID id) {
+    public void delete(UUID id, ScopeEnum scope) {
         FinancialEvent event = eventRepository.findById(id)
+                .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
 
-        if (event.getEventKind() == EventKind.PLAN) {
-            List<FactAggregateProjection> aggs =
-                    eventRepository.findFactAggregatesByPlanIds(List.of(id));
-            if (!aggs.isEmpty() && aggs.get(0).getCount() > 0) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Cannot delete PLAN with linked FACTs — delete FACTs first");
-            }
+        if (scope != ScopeEnum.THIS && event.getRecurringRule() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Scope FOLLOWING/ALL requires a recurring event");
         }
 
-        event.setDeleted(true);
-        eventRepository.save(event);
-        eventRepository.flush();
-
-        // If deleting a FACT, revert parent PLAN to PLANNED if it has no other FACTs
-        if (event.getEventKind() == EventKind.FACT && event.getParentEventId() != null) {
-            eventRepository.findById(event.getParentEventId()).ifPresent(plan -> {
+        if (scope == ScopeEnum.THIS) {
+            // 409 guard: cannot delete a PLAN that still has linked active FACTs
+            if (event.getEventKind() == EventKind.PLAN) {
                 List<FactAggregateProjection> aggs =
-                        eventRepository.findFactAggregatesByPlanIds(List.of(plan.getId()));
-                if (aggs.isEmpty() || aggs.get(0).getCount() == 0) {
-                    plan.setStatus(EventStatus.PLANNED);
-                    eventRepository.save(plan);
+                        eventRepository.findFactAggregatesByPlanIds(List.of(id));
+                if (!aggs.isEmpty() && aggs.get(0).getCount() > 0) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "Cannot delete PLAN with linked FACTs — delete FACTs first");
                 }
-            });
+            }
+
+            event.setDeleted(true);
+            eventRepository.save(event);
+            eventRepository.flush();
+
+            // If deleting a FACT, revert parent PLAN to PLANNED if it has no other FACTs
+            if (event.getEventKind() == EventKind.FACT && event.getParentEventId() != null) {
+                eventRepository.findById(event.getParentEventId()).ifPresent(plan -> {
+                    List<FactAggregateProjection> aggs =
+                            eventRepository.findFactAggregatesByPlanIds(List.of(plan.getId()));
+                    if (aggs.isEmpty() || aggs.get(0).getCount() == 0) {
+                        plan.setStatus(EventStatus.PLANNED);
+                        eventRepository.save(plan);
+                    }
+                });
+            }
+            return;
         }
+        ruleService.deleteScope(event, scope);
     }
 
     /** Convenience overload used by callers that don't need enrichment. */
@@ -411,6 +474,12 @@ public class FinancialEventService {
                     : parentPlan.getCategory().getName();
         }
 
+        UUID recurringRuleId = e.getRecurringRule() != null ? e.getRecurringRule().getId() : null;
+        ru.selfin.backend.model.enums.RecurringFrequency recurringFrequency =
+                e.getRecurringRule() != null ? e.getRecurringRule().getFrequency() : null;
+        Integer recurringDayOfMonth = e.getRecurringRule() != null ? e.getRecurringRule().getDayOfMonth() : null;
+        Integer recurringMonthOfYear = e.getRecurringRule() != null ? e.getRecurringRule().getMonthOfYear() : null;
+
         return new FinancialEventDto(
                 e.getId(), e.getDate(),
                 e.getCategory().getId(), e.getCategory().getName(),
@@ -419,7 +488,8 @@ public class FinancialEventService {
                 e.getRawInput(), e.getCreatedAt(),
                 e.getTargetFundId(), fundName, e.getUrl(),
                 e.getEventKind(), e.getParentEventId(),
-                linkedFactsCount, linkedFactsAmount, parentPlanDescription);
+                linkedFactsCount, linkedFactsAmount, parentPlanDescription,
+                recurringRuleId, recurringFrequency, recurringDayOfMonth, recurringMonthOfYear);
     }
 
     /**
