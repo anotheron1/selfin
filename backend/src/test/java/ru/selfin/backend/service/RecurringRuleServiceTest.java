@@ -86,6 +86,7 @@ class RecurringRuleServiceTest {
                 .build();
 
         // 2026-06-15 уже EXECUTED — генерация должна его пропустить
+        when(ruleRepo.findForUpdate(ruleId)).thenReturn(java.util.Optional.of(rule));
         when(eventRepo.findExecutedDatesByRule(ruleId))
                 .thenReturn(java.util.Set.of(LocalDate.of(2026, 6, 15)));
 
@@ -118,6 +119,7 @@ class RecurringRuleServiceTest {
                 .endDate(null)               // бессрочно
                 .build();
 
+        when(ruleRepo.findForUpdate(ruleId)).thenReturn(java.util.Optional.of(rule));
         when(eventRepo.findExecutedDatesByRule(ruleId)).thenReturn(java.util.Set.of());
 
         service.regenerate(rule, start);

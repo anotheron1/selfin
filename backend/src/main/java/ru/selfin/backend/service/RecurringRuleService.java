@@ -79,14 +79,21 @@ public class RecurringRuleService {
 
     @Transactional
     public void regenerate(RecurringRule rule, LocalDate from) {
-        LocalDate horizonEnd = rule.getEndDate() != null
-                ? rule.getEndDate()
+        // Pessimistic lock on the rule prevents two parallel scope=ALL/FOLLOWING edits
+        // (or one edit racing with extendIndefiniteRules) from producing
+        // DataIntegrityViolationException on the partial unique index uq_events_rule_date_active.
+        // Re-fetched rule supersedes the caller's reference for downstream operations.
+        RecurringRule locked = ruleRepo.findForUpdate(rule.getId())
+                .orElseThrow(() -> new IllegalStateException("rule disappeared: " + rule.getId()));
+
+        LocalDate horizonEnd = locked.getEndDate() != null
+                ? locked.getEndDate()
                 : LocalDate.now().plusMonths(36);
 
-        eventRepo.softDeletePlanEventsByRuleFromDate(rule.getId(), from);
-        java.util.Set<LocalDate> executed = eventRepo.findExecutedDatesByRule(rule.getId());
+        eventRepo.softDeletePlanEventsByRuleFromDate(locked.getId(), from);
+        java.util.Set<LocalDate> executed = eventRepo.findExecutedDatesByRule(locked.getId());
 
-        List<FinancialEvent> fresh = generator.generate(rule, from, horizonEnd).stream()
+        List<FinancialEvent> fresh = generator.generate(locked, from, horizonEnd).stream()
                 .filter(e -> !executed.contains(e.getDate()))
                 .toList();
         eventRepo.saveAll(fresh);
