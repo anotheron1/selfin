@@ -356,11 +356,9 @@ git commit -m "feat(capital): CapitalSnapshotProjection interface"
 - Метод `findHistoryByItemId` — лента переоценок одного item'а для UI Sheet.
 - Метод `snapshotAt(asOfDate)` — нативный SQL для расчёта траектории; одна query, без N+1.
 
-- [ ] **Step 1: Написать тест на `snapshotAt` ДО реализации**
+**Замечание по TDD-порядку:** интерфейс репозитория пишем первым (Step 1), тесты на нативный запрос — в Task 8 после интерфейса. Это формально нарушает «test-first», но без интерфейса тест не компилируется. В тестах Task 8 жёстко проверяем семантику `snapshotAt` — это и есть TDD-страховка.
 
-Сначала создаём тестовый файл (см. Task 8).
-
-- [ ] **Step 2: Создать репозиторий**
+- [ ] **Step 1: Создать репозиторий**
 
 ```java
 package ru.selfin.backend.repository;
@@ -419,7 +417,7 @@ public interface CapitalRevaluationRepository extends JpaRepository<CapitalReval
 
 **Замечание про `DISTINCT ON`:** это специфика PostgreSQL — для каждого `item_id` берём первую строку после `ORDER BY r.item_id, r.valued_at DESC, r.created_at DESC`. Эквивалент: `ROW_NUMBER() OVER (PARTITION BY ...) = 1`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
 git add backend/src/main/java/ru/selfin/backend/repository/CapitalRevaluationRepository.java
@@ -437,6 +435,7 @@ git commit -m "feat(capital): CapitalRevaluationRepository with snapshotAt query
 ```java
 package ru.selfin.backend.repository;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -468,6 +467,15 @@ class CapitalRevaluationRepositoryIT {
 
     @Autowired CapitalItemRepository itemRepo;
     @Autowired CapitalRevaluationRepository revRepo;
+
+    // @SpringBootTest reuses the DB across tests in this class. Tests like
+    // findEarliestValuedAt_emptyDb_returnsEmpty assume an empty table — clean
+    // explicitly between methods.
+    @AfterEach
+    void cleanDb() {
+        revRepo.deleteAll();
+        itemRepo.deleteAll();
+    }
 
     @Test
     void snapshotAt_returnsLatestRevaluationForEachActiveItem() {
@@ -1157,17 +1165,38 @@ git commit -m "feat(capital): CapitalService CRUD with TDD"
 
 Реализуем в TDD. Сложность — корректно вычислить `liquidAt(t)` и сложить с активами/обязательствами на каждой точке. `summary` — частный случай `trajectory` для одной точки `today` плюс дельты.
 
-`liquidAt(t)`:
-1. Найти последний `BalanceCheckpoint` с `date ≤ t` (или 0 если нет).
-2. Сложить с факт-доходами и вычесть факт-расходы за `(checkpoint.date .. t]` (без `FUND_TRANSFER`, см. спеку — он сокращается с `FundTransaction`).
+**Формула `liquidAt(t)` — безопасная (без зависимости от 1:1 пары FUND_TRANSFER↔FundTransaction):**
 
-Проверяю: в `FinancialEventRepository` есть метод `sumFactExecutedByTypeFromDate(EventType, LocalDate)` — но он суммирует от даты включительно до конца. Нам нужен «до даты включительно», то есть верхняя граница тоже. Если такого метода нет — добавить.
+```
+liquidAt(t) = AccountBalance(t) + Σ FundBalance(t)
 
-- [ ] **Step 1: Проверить существующие методы в `FinancialEventRepository`. Если нет метода «сумма по типу за период», добавить.**
+AccountBalance(t) = checkpoint(≤ t).amount
+                  + Σ INCOME факт events       где (checkpoint.date, t]
+                  − Σ EXPENSE факт events      где (checkpoint.date, t]
+                  − Σ FUND_TRANSFER факт events где (checkpoint.date, t]
 
-Команда: `grep -n "sumFactExecuted\|sumAllFact" backend/src/main/java/ru/selfin/backend/repository/FinancialEventRepository.java`
+Σ FundBalance(t) = Σ FundTransaction.amount где transaction_date ≤ t, deleted=false
+```
 
-Ожидаемое: видим существующие методы. Если нет метода «за период включительно `[from .. to]` для INCOME/EXPENSE факт» — добавляем:
+Это прямая транскрипция формулы из spec §«Жидкая часть». Алгебраически она равна короткому варианту `checkpoint + INCOME − EXPENSE` **только если** для каждого FUND_TRANSFER event существует ровно один FundTransaction; чтобы не зависеть от этого инварианта продакшен-кода, вычисляем оба слагаемых явно.
+
+**Если checkpoint'а нет** — стартовый баланс = 0, нижняя граница событий = `LocalDate.of(1970, 1, 1)` (sentinel, безопасный для JPA date binding; `LocalDate.MIN` нельзя — даёт год -999999999).
+
+**Новые репозиторные методы (которые нужно будет добавить):**
+- `BalanceCheckpointRepository.findTopByDateLessThanEqualOrderByDateDesc(date)` — кастомный @Query с `LIMIT 1`.
+- `FinancialEventRepository.sumFactByTypeBetween(type, from, to)` — сумма факт-сумм по типу за `[from..to]` включительно.
+- `FundTransactionRepository.sumByTransactionDateLessThanEqual(date)` — сумма pocket-балансов на дату.
+
+- [ ] **Step 1: Добавить отсутствующие repo-методы**
+
+В `BalanceCheckpointRepository`:
+
+```java
+@Query("SELECT cp FROM BalanceCheckpoint cp WHERE cp.date <= :date ORDER BY cp.date DESC LIMIT 1")
+Optional<BalanceCheckpoint> findTopByDateLessThanEqualOrderByDateDesc(@Param("date") LocalDate date);
+```
+
+В `FinancialEventRepository`:
 
 ```java
 @Query("""
@@ -1184,9 +1213,27 @@ BigDecimal sumFactByTypeBetween(@Param("type") EventType type,
                                 @Param("to") LocalDate to);
 ```
 
-(Если эквивалент уже есть под другим именем — переиспользовать.)
+В `FundTransactionRepository`:
 
-- [ ] **Step 2: Написать тесты для `liquidAt` через тесты `summary` (косвенно)**
+```java
+@Query("""
+        SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
+        WHERE t.deleted = false
+          AND t.transactionDate <= :date
+        """)
+BigDecimal sumByTransactionDateLessThanEqual(@Param("date") LocalDate date);
+```
+
+Commit отдельным коммитом:
+
+```bash
+git add backend/src/main/java/ru/selfin/backend/repository/BalanceCheckpointRepository.java \
+        backend/src/main/java/ru/selfin/backend/repository/FinancialEventRepository.java \
+        backend/src/main/java/ru/selfin/backend/repository/FundTransactionRepository.java
+git commit -m "feat(capital): add 'as of date' query helpers to existing repositories"
+```
+
+- [ ] **Step 2: Написать тесты для `summary` (через них покрываем `liquidAt` косвенно)**
 
 Добавить в `CapitalServiceTest`:
 
@@ -1194,8 +1241,10 @@ BigDecimal sumFactByTypeBetween(@Param("type") EventType type,
 @Test
 void summary_emptyDb_returnsZero() {
     when(itemRepo.findAllActive(null)).thenReturn(List.of());
-    when(checkpointRepo.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
-    // ... mock zero sums
+    when(checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(any())).thenReturn(Optional.empty());
+    when(eventRepo.sumFactByTypeBetween(any(), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+    when(revRepo.snapshotAt(any())).thenReturn(List.of());
 
     CapitalSummaryDto s = service.summary();
 
@@ -1207,11 +1256,90 @@ void summary_emptyDb_returnsZero() {
 }
 
 @Test
-void summary_withAssetsAndLiabilitiesAndCheckpoint_computesTotal() {
-    // checkpoint 100k, no events, asset 8.5M, liability 4.8M
-    // expected: liquid=100k, assets=8.5M, liabilities=4.8M, total=3.8M
-    // (точные моки — в зависимости от методов repos; отрабатывать через snapshotAt)
-    // ...
+void summary_withCheckpointAndItems_computesTotal() {
+    // checkpoint 100к на сегодня, без событий, без копилок, актив 8.5М, обязательство 4.8М
+    // ожидаемое: liquid = 100к, assets = 8.5М, liabilities = 4.8М, total = 3.8М
+    BalanceCheckpoint cp = BalanceCheckpoint.builder()
+            .date(LocalDate.now()).amount(new BigDecimal("100000")).build();
+    when(checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(any())).thenReturn(Optional.of(cp));
+    when(eventRepo.sumFactByTypeBetween(any(), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+
+    UUID assetId = UUID.randomUUID();
+    UUID liabilityId = UUID.randomUUID();
+    when(revRepo.snapshotAt(any())).thenReturn(List.of(
+            mockProj(assetId, CapitalItemKind.ASSET, new BigDecimal("8500000")),
+            mockProj(liabilityId, CapitalItemKind.LIABILITY, new BigDecimal("4800000"))));
+    when(itemRepo.findAllActive(null)).thenReturn(List.of(
+            itemBuilder(assetId, "Квартира"),
+            itemBuilderKind(liabilityId, "Ипотека", CapitalItemKind.LIABILITY)));
+    when(revRepo.findHistoryByItemId(any())).thenReturn(List.of(
+            CapitalRevaluation.builder().value(new BigDecimal("8500000")).valuedAt(LocalDate.now()).build()));
+
+    CapitalSummaryDto s = service.summary();
+
+    assertThat(s.liquid()).isEqualByComparingTo("100000");
+    assertThat(s.assetsTotal()).isEqualByComparingTo("8500000");
+    assertThat(s.liabilitiesTotal()).isEqualByComparingTo("4800000");
+    assertThat(s.total()).isEqualByComparingTo("3800000");
+}
+
+@Test
+void liquidAt_includesPocketBalances_andSubtractsFundTransfersFromAccount() {
+    // Проверяем: AccountBalance вычитает FUND_TRANSFER, а pocketBalance их обратно добавляет.
+    // checkpoint=200к, income=50к, expense=10к, fund_transfer=30к, pockets=30к
+    // expected liquid: 200 + 50 − 10 − 30 + 30 = 240к
+    BalanceCheckpoint cp = BalanceCheckpoint.builder()
+            .date(LocalDate.now().minusDays(30)).amount(new BigDecimal("200000")).build();
+    when(checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(any())).thenReturn(Optional.of(cp));
+    when(eventRepo.sumFactByTypeBetween(eq(EventType.INCOME), any(), any())).thenReturn(new BigDecimal("50000"));
+    when(eventRepo.sumFactByTypeBetween(eq(EventType.EXPENSE), any(), any())).thenReturn(new BigDecimal("10000"));
+    when(eventRepo.sumFactByTypeBetween(eq(EventType.FUND_TRANSFER), any(), any())).thenReturn(new BigDecimal("30000"));
+    when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("30000"));
+    when(revRepo.snapshotAt(any())).thenReturn(List.of());
+    when(itemRepo.findAllActive(null)).thenReturn(List.of());
+
+    CapitalSummaryDto s = service.summary();
+
+    assertThat(s.liquid()).isEqualByComparingTo("240000");
+}
+
+@Test
+void liquidAt_noCheckpoint_usesSentinelDate() {
+    when(checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(any())).thenReturn(Optional.empty());
+    // Если код корректно использует sentinel LocalDate.of(1970,1,1), то sumFactByTypeBetween не падает:
+    when(eventRepo.sumFactByTypeBetween(any(),
+            eq(LocalDate.of(1970, 1, 1)), any())).thenReturn(new BigDecimal("12345"));
+    when(eventRepo.sumFactByTypeBetween(eq(EventType.EXPENSE), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(eventRepo.sumFactByTypeBetween(eq(EventType.FUND_TRANSFER), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+    when(revRepo.snapshotAt(any())).thenReturn(List.of());
+    when(itemRepo.findAllActive(null)).thenReturn(List.of());
+
+    CapitalSummaryDto s = service.summary();
+
+    // 12345 пришло только потому, что мы попали в sentinel-вызов.
+    assertThat(s.liquid()).isEqualByComparingTo("12345");
+}
+
+@Test
+void trajectory_rejectsFromGreaterThanTo() {
+    assertThatThrownBy(() -> service.trajectory(LocalDate.of(2026, 5, 1), LocalDate.of(2026, 1, 1)))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+}
+
+private CapitalSnapshotProjection mockProj(UUID id, CapitalItemKind kind, BigDecimal value) {
+    CapitalSnapshotProjection p = org.mockito.Mockito.mock(CapitalSnapshotProjection.class);
+    when(p.getItemId()).thenReturn(id);
+    when(p.getKind()).thenReturn(kind);
+    when(p.getValue()).thenReturn(value);
+    return p;
+}
+
+private CapitalItem itemBuilderKind(UUID id, String name, CapitalItemKind kind) {
+    CapitalItem i = CapitalItem.builder().kind(kind).name(name).build();
+    i.setId(id);
+    return i;
 }
 ```
 
@@ -1252,6 +1380,9 @@ public CapitalTrajectoryDto trajectory(LocalDate from, LocalDate to) {
                 .orElseGet(() -> checkpointRepo.findTopByOrderByDateAsc()
                     .map(cp -> cp.getDate())
                     .orElse(today));
+    if (effectiveFrom.isAfter(effectiveTo)) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "from must be <= to");
+    }
 
     List<LocalDate> points = buildMonthEndPoints(effectiveFrom, effectiveTo);
     if (points.isEmpty() || !points.get(points.size() - 1).equals(today)) {
@@ -1285,14 +1416,22 @@ private Map<CapitalItemKind, BigDecimal> sumByKindAt(LocalDate t) {
                             CapitalSnapshotProjection::getValue, BigDecimal::add)));
 }
 
-private BigDecimal liquidAt(LocalDate t) {
-    Optional<BalanceCheckpoint> latest = checkpointRepo.findTopByOrderByDateDescBeforeOrEqual(t);
-    BigDecimal start = latest.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO);
-    LocalDate fromDate = latest.map(BalanceCheckpoint::getDate).orElse(LocalDate.MIN);
+/** Sentinel: безопасная нижняя граница для JPA date binding, когда checkpoint'а нет. */
+private static final LocalDate EPOCH_SENTINEL = LocalDate.of(1970, 1, 1);
 
-    BigDecimal income  = eventRepo.sumFactByTypeBetween(EventType.INCOME, fromDate.plusDays(1), t);
-    BigDecimal expense = eventRepo.sumFactByTypeBetween(EventType.EXPENSE, fromDate.plusDays(1), t);
-    return start.add(income).subtract(expense);
+private BigDecimal liquidAt(LocalDate t) {
+    Optional<BalanceCheckpoint> latest = checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(t);
+    BigDecimal start = latest.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO);
+    LocalDate fromDate = latest.map(cp -> cp.getDate().plusDays(1)).orElse(EPOCH_SENTINEL);
+
+    BigDecimal income       = eventRepo.sumFactByTypeBetween(EventType.INCOME,        fromDate, t);
+    BigDecimal expense      = eventRepo.sumFactByTypeBetween(EventType.EXPENSE,       fromDate, t);
+    BigDecimal fundTransfer = eventRepo.sumFactByTypeBetween(EventType.FUND_TRANSFER, fromDate, t);
+    BigDecimal accountBalance = start.add(income).subtract(expense).subtract(fundTransfer);
+
+    BigDecimal pocketBalance = fundTxRepo.sumByTransactionDateLessThanEqual(t);
+
+    return accountBalance.add(pocketBalance);
 }
 
 private List<LocalDate> buildMonthEndPoints(LocalDate from, LocalDate to) {
@@ -1308,17 +1447,11 @@ private List<LocalDate> buildMonthEndPoints(LocalDate from, LocalDate to) {
 }
 ```
 
-**Замечание:** `findTopByOrderByDateDescBeforeOrEqual(t)` и `findTopByOrderByDateAsc()` могут не существовать в `BalanceCheckpointRepository`. Если так — добавить:
+**Дополнительно для trajectory:** `BalanceCheckpointRepository.findTopByOrderByDateAsc()` — Spring Data сгенерирует метод по имени (используется для определения нижней границы графика). Добавить в репозиторий:
 
 ```java
-Optional<BalanceCheckpoint> findTopByOrderByDateDesc();
 Optional<BalanceCheckpoint> findTopByOrderByDateAsc();
-
-@Query("SELECT cp FROM BalanceCheckpoint cp WHERE cp.date <= :date ORDER BY cp.date DESC LIMIT 1")
-Optional<BalanceCheckpoint> findTopByDateLessThanEqualOrderByDateDesc(@Param("date") LocalDate date);
 ```
-
-(Spring Data сам генерирует первый и второй по имени; третий — кастомный.)
 
 - [ ] **Step 4: Запустить все тесты сервиса**
 
@@ -1328,9 +1461,10 @@ Optional<BalanceCheckpoint> findTopByDateLessThanEqualOrderByDateDesc(@Param("da
 
 - [ ] **Step 5: Commit**
 
+(Репозиторные методы уже закоммичены в Step 1. Здесь — только сервис + тесты.)
+
 ```bash
 git add backend/src/main/java/ru/selfin/backend/service/CapitalService.java \
-        backend/src/main/java/ru/selfin/backend/repository/FinancialEventRepository.java \
         backend/src/main/java/ru/selfin/backend/repository/BalanceCheckpointRepository.java \
         backend/src/test/java/ru/selfin/backend/service/CapitalServiceTest.java
 git commit -m "feat(capital): summary and trajectory aggregates with liquidAt helper"
@@ -1619,6 +1753,87 @@ class CapitalControllerIT {
     }
 
     @Test
+    void getItem_unknownId_returns404() throws Exception {
+        mockMvc.perform(get("/api/v1/capital/items/" + UUID.randomUUID()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void addRevaluation_onSoftDeletedItem_returns404() throws Exception {
+        // I4: после hard-delete нельзя добавлять переоценки
+        String created = mockMvc.perform(post("/api/v1/capital/items")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"kind":"ASSET","name":"X","initialValue":100}
+                        """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String id = om.readTree(created).get("id").asText();
+
+        mockMvc.perform(delete("/api/v1/capital/items/" + id)).andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/v1/capital/items/" + id + "/revaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"value":200}
+                        """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void addRevaluation_futureDate_returns400() throws Exception {
+        String created = mockMvc.perform(post("/api/v1/capital/items")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"kind":"ASSET","name":"X","initialValue":100}
+                        """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String id = om.readTree(created).get("id").asText();
+
+        mockMvc.perform(post("/api/v1/capital/items/" + id + "/revaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"value":200,"valuedAt":"2099-01-01"}
+                        """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void deleteRevaluation_softDeletes_excludesFromHistory() throws Exception {
+        String created = mockMvc.perform(post("/api/v1/capital/items")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"kind":"ASSET","name":"X","initialValue":100}
+                        """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String itemId = om.readTree(created).get("id").asText();
+
+        String revBody = mockMvc.perform(post("/api/v1/capital/items/" + itemId + "/revaluations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"value":200}
+                        """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String revId = om.readTree(revBody).get("id").asText();
+
+        mockMvc.perform(delete("/api/v1/capital/revaluations/" + revId)).andExpect(status().isNoContent());
+
+        // история должна содержать только первую (initial) запись
+        mockMvc.perform(get("/api/v1/capital/items/" + itemId + "/revaluations"))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].value").value(100));
+    }
+
+    @Test
+    void trajectory_fromGreaterThanTo_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/capital/trajectory?from=2026-05-01&to=2026-01-01"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void trajectory_withRetroactiveRevaluation_buildsHistory() throws Exception {
         // создаём актив с переоценкой год назад
         String pastDate = java.time.LocalDate.now().minusMonths(6).withDayOfMonth(1).toString();
@@ -1763,16 +1978,23 @@ git commit -m "feat(capital): TypeScript types for capital DTOs"
 
 **Файл:** `frontend/src/api/index.ts`
 
-- [ ] **Step 1: Добавить функции в конец `index.ts`**
+- [ ] **Step 1: Добавить функции (импорты сверху файла, экспорты в конец)**
+
+В блок `import` в начале файла добавить новые типы (рядом с существующими `import type { ... }`):
 
 ```typescript
-// --- Capital ---
-
 import type {
+    // ... существующие импорты ...
     CapitalItem, CapitalItemCreateDto, CapitalItemUpdateDto,
     CapitalRevaluation, CapitalRevaluationCreateDto, CapitalRevaluationUpdateDto,
     CapitalSummary, CapitalTrajectory, CapitalItemKind,
 } from '../types/api';
+```
+
+В конец файла добавить экспорты:
+
+```typescript
+// --- Capital ---
 
 export const fetchCapitalItems = (kind?: CapitalItemKind, includeArchived = false) => {
     const params = new URLSearchParams();
@@ -2057,13 +2279,18 @@ export default function Capital({ refreshSignal }: Props) {
     useEffect(() => { reload(); }, [reload, refreshSignal]);
 
     const handleItemClick = (item: CapitalItem) => {
-        // TODO Chunk 4: open Sheet
-        console.log('TODO open sheet for', item.id);
+        // Подключим в Task 24 (Chunk 4) — сейчас заглушка, чтобы страница рендерилась.
+        console.log('open sheet for', item.id);
     };
 
-    const handleCreate = (_kind: CapitalItemKind) => {
-        // TODO Chunk 4: open Sheet for creation
-        console.log('TODO open create sheet for', _kind);
+    const handleCreate = (kind: CapitalItemKind) => {
+        // Подключим в Task 24 (Chunk 4).
+        console.log('open create sheet for', kind);
+    };
+
+    const handleTheory = () => {
+        // Подключим в Task 24 (Chunk 4).
+        console.log('open theory dialog');
     };
 
     if (error) {
@@ -2085,7 +2312,7 @@ export default function Capital({ refreshSignal }: Props) {
             </header>
 
             {isEmpty ? (
-                <EmptyState onCreate={handleCreate} />
+                <EmptyState onCreate={handleCreate} onTheory={handleTheory} />
             ) : (
                 <>
                     <CapitalSummaryCard summary={summary} />
@@ -2101,14 +2328,14 @@ export default function Capital({ refreshSignal }: Props) {
                             onItemClick={handleItemClick}
                             onCreate={() => handleCreate('LIABILITY')} />
                     </div>
-                    {/* TODO Chunk 4: <CapitalTrajectoryChart /> */}
+                    {/* CapitalTrajectoryChart подключается в Task 24 (Chunk 4) */}
                 </>
             )}
         </div>
     );
 }
 
-function EmptyState({ onCreate }: { onCreate: (k: CapitalItemKind) => void }) {
+function EmptyState({ onCreate, onTheory }: { onCreate: (k: CapitalItemKind) => void; onTheory: () => void }) {
     return (
         <div className="text-center py-16 px-4">
             <h2 className="text-lg font-semibold mb-2">Здесь будет ваш капитал</h2>
@@ -2119,6 +2346,7 @@ function EmptyState({ onCreate }: { onCreate: (k: CapitalItemKind) => void }) {
             <div className="flex gap-2 justify-center flex-wrap">
                 <Button onClick={() => onCreate('ASSET')}>+ Добавить актив</Button>
                 <Button variant="outline" onClick={() => onCreate('LIABILITY')}>+ Добавить обязательство</Button>
+                <Button variant="ghost" onClick={onTheory}>Что такое капитал? →</Button>
             </div>
         </div>
     );
@@ -2148,7 +2376,9 @@ git commit -m "feat(capital): Capital page skeleton with summary fetch"
 
 - [ ] **Step 2: Добавить пункт в `BottomNav.tsx`**
 
-В существующий массив `navItems` добавить элемент перед Settings (или там, где логично — порядок: Dashboard, Budget, Funds, Analytics, Capital, Settings):
+**Замечание о spec'е:** spec упоминает порядок `Dashboard | Budget | Analytics | Капитал`, но реальное приложение содержит ещё `Funds` («Цели») и `Settings` (5 пунктов). Spec не предписывает удаление существующих пунктов — он описывает только относительное расположение «Капитала». Финальный порядок (6 пунктов): `Dashboard | Budget | Funds | Analytics | Capital | Settings`.
+
+В существующий массив `navItems` добавить элемент Capital:
 
 ```tsx
 import { LayoutDashboard, CalendarDays, PiggyBank, BarChart2, Landmark, Settings } from 'lucide-react';
@@ -2163,18 +2393,24 @@ const navItems = [
 ];
 ```
 
-- [ ] **Step 3: Smoke-test в браузере (preview tools)**
+**Проблема ширины на мобильных:** при 6 пунктах на узком экране (<360px) подписи могут не помещаться. Текущая разметка использует `flex-1` на каждом пункте — 6 равных колонок будут по ~60px на типичном телефоне. Подпись «Аналитика» (9 символов) при font-size 12px примерно укладывается, но впритык.
 
-Запустить dev server и проверить:
+Если в smoke-test ниже визуально видно перетекание/обрезание подписей — применить адаптацию: на экранах ≤375px скрывать подписи (только иконки) через Tailwind responsive-класс. Добавить `className="... hidden sm:inline-block"` к `<label>`. Заодно прибавить чуть больше высоты, чтобы иконка не «прилипала» к границам.
+
+- [ ] **Step 3: Smoke-test в браузере с проверкой адаптации**
+
+Запустить dev server:
 
 ```bash
 cd frontend && npm run dev
 ```
 
-Команды preview-tools (использует Claude Code preview):
-- Открыть http://localhost:5173/capital
-- Убедиться что страница рендерится с empty-state «Здесь будет ваш капитал».
-- Создать актив через бэкенд (curl или встроенным UI после Chunk 4); пока проверяем только что страница не падает.
+Сценарии (через preview-tools):
+
+1. Открыть `http://localhost:5173/capital` на десктопе — empty-state «Здесь будет ваш капитал» должен рендериться. Никаких consol-ошибок.
+2. Кликнуть на пункт «Капитал» в нижней навигации с другой страницы (например, с `/` Дашборда) — переход должен сработать, активный пункт подсветиться.
+3. **Преимущественно — проверить на ширине 360-414px** (через preview_resize): убедиться что 6 пунктов навигации помещаются без переноса/обрезания. Если подписи обрезаются — применить адаптацию из Step 2.
+4. Проверить что на пути `/capital` активный пункт — именно «Капитал», а не другие (NavLink `end` semantic).
 
 - [ ] **Step 4: Commit**
 
@@ -2303,7 +2539,20 @@ git commit -m "feat(capital): CapitalRevaluationHistory component"
 
 Большой компонент: режимы create/view-edit, форма переоценки, история, опасные операции (выбытие/hard-delete).
 
-- [ ] **Step 1: Создать компонент**
+**Зависимости из shadcn:** `Sheet`, `Input`, `Button`, `Badge` (уже есть), `AlertDialog` (для подтверждения hard-delete; нужно проверить наличие).
+
+- [ ] **Step 1: Проверить наличие `AlertDialog`. Если нет — установить.**
+
+Команда: `ls frontend/src/components/ui/ | grep -i alert-dialog`
+
+Если файла нет: `cd frontend && npx shadcn@latest add alert-dialog`. Закоммитить добавленный файл `ui/alert-dialog.tsx` отдельным коммитом перед основным:
+
+```bash
+git add frontend/src/components/ui/alert-dialog.tsx
+git commit -m "chore(capital): add shadcn AlertDialog for destructive confirmations"
+```
+
+- [ ] **Step 2: Создать компонент**
 
 ```tsx
 import { useState, useEffect } from 'react';
@@ -2311,6 +2560,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from './ui/alert-dialog';
 import {
     createCapitalItem, updateCapitalItem, deleteCapitalItem,
     addCapitalRevaluation, fetchCapitalItem,
@@ -2337,6 +2590,9 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
     const [revNote, setRevNote] = useState('');
     const [historyTick, setHistoryTick] = useState(0);
     const [loading, setLoading] = useState(false);
+    const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
+    const [disposalOpen, setDisposalOpen] = useState(false);
+    const [disposalDate, setDisposalDate] = useState(() => new Date().toISOString().slice(0, 10));
 
     // load item when viewing
     useEffect(() => {
@@ -2406,24 +2662,23 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
         } finally { setLoading(false); }
     };
 
-    const handleDispose = async () => {
-        if (!item) return;
-        const dateStr = prompt('Дата выбытия (YYYY-MM-DD)?', new Date().toISOString().slice(0, 10));
-        if (!dateStr) return;
+    const handleDisposeConfirm = async () => {
+        if (!item || !disposalDate) return;
         setLoading(true);
         try {
-            await addCapitalRevaluation(item.id, { value: 0, valuedAt: dateStr });
+            await addCapitalRevaluation(item.id, { value: 0, valuedAt: disposalDate });
+            setDisposalOpen(false);
             onChanged();
             onClose();
         } finally { setLoading(false); }
     };
 
-    const handleHardDelete = async () => {
+    const handleHardDeleteConfirm = async () => {
         if (!item) return;
-        if (!confirm(`Удалить «${item.name}» безвозвратно? История переоценок и вклад в траекторию исчезнут.`)) return;
         setLoading(true);
         try {
             await deleteCapitalItem(item.id);
+            setHardDeleteOpen(false);
             onChanged();
             onClose();
         } finally { setLoading(false); }
@@ -2522,15 +2777,54 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
                             <h3 className="text-sm font-medium" style={{ color: 'var(--color-text-muted)' }}>
                                 Опасные операции
                             </h3>
-                            <Button variant="outline" size="sm" onClick={handleDispose} disabled={loading} className="w-full">
-                                {kind === 'ASSET' ? 'Отметить выбытие (продан / утерян)' : 'Отметить закрытие (кредит погашен)'}
-                            </Button>
-                            <Button variant="destructive" size="sm" onClick={handleHardDelete} disabled={loading} className="w-full">
+                            {disposalOpen ? (
+                                <div className="rounded p-3 space-y-2" style={{ background: 'var(--color-bg)' }}>
+                                    <div className="text-xs">Дата выбытия:</div>
+                                    <Input
+                                        type="date"
+                                        value={disposalDate}
+                                        max={new Date().toISOString().slice(0, 10)}
+                                        onChange={e => setDisposalDate(e.target.value)} />
+                                    <div className="flex gap-2">
+                                        <Button size="sm" onClick={handleDisposeConfirm} disabled={loading}>
+                                            Подтвердить
+                                        </Button>
+                                        <Button size="sm" variant="ghost" onClick={() => setDisposalOpen(false)}>
+                                            Отмена
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <Button variant="outline" size="sm" onClick={() => setDisposalOpen(true)} disabled={loading} className="w-full">
+                                    {kind === 'ASSET' ? 'Отметить выбытие (продан / утерян)' : 'Отметить закрытие (кредит погашен)'}
+                                </Button>
+                            )}
+                            <Button variant="destructive" size="sm" onClick={() => setHardDeleteOpen(true)} disabled={loading} className="w-full">
                                 Удалить безвозвратно
                             </Button>
                         </div>
                     )}
                 </div>
+
+                <AlertDialog open={hardDeleteOpen} onOpenChange={setHardDeleteOpen}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить «{item?.name}» безвозвратно?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                История переоценок и весь вклад в траекторию капитала исчезнут. Это нельзя отменить.
+                                Используйте это, если запись создана по ошибке. Если же актив продан или кредит закрыт —
+                                лучше «Отметить выбытие», тогда история останется.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleHardDeleteConfirm}
+                                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                Удалить
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </SheetContent>
         </Sheet>
     );
@@ -2597,7 +2891,12 @@ export default function CapitalTrajectoryChart({ refreshSignal }: Props) {
     }, [range, refreshSignal]);
 
     if (!trajectory) return null;
-    const data = trajectory.points.map(p => ({ ...p, dateLabel: shortDate(p.date) }));
+    // Считаем дельту от предыдущей точки — нужно в tooltip.
+    const data = trajectory.points.map((p, idx, arr) => ({
+        ...p,
+        dateLabel: shortDate(p.date),
+        deltaFromPrev: idx === 0 ? null : p.capital - arr[idx - 1].capital,
+    }));
 
     return (
         <div className="rounded-lg p-4"
@@ -2614,8 +2913,13 @@ export default function CapitalTrajectoryChart({ refreshSignal }: Props) {
             </div>
 
             {data.length <= 1 ? (
-                <div className="text-sm py-8 text-center" style={{ color: 'var(--color-text-muted)' }}>
-                    История появится по мере переоценок. Хочешь увидеть прошлое — добавь оценку задним числом из карточки любого актива.
+                <div className="py-8 text-center space-y-3">
+                    <svg width="80" height="40" className="inline-block" viewBox="0 0 80 40">
+                        <circle cx="70" cy="20" r="4" fill="var(--color-accent, #6c63ff)" />
+                    </svg>
+                    <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                        История появится по мере переоценок. Хочешь увидеть прошлое — добавь оценку задним числом из Sheet любого актива.
+                    </div>
                 </div>
             ) : (
                 <ResponsiveContainer width="100%" height={220}>
@@ -2634,11 +2938,17 @@ export default function CapitalTrajectoryChart({ refreshSignal }: Props) {
 function CustomTooltip({ active, payload }: any) {
     if (!active || !payload?.length) return null;
     const p = payload[0].payload;
+    const deltaSign = p.deltaFromPrev != null && p.deltaFromPrev >= 0 ? '+' : '';
     return (
         <div className="rounded p-2 text-xs" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
             <div className="font-medium">{shortDate(p.date)}</div>
             <div>{fmt(p.capital)}</div>
             <div className="opacity-70 mt-1">cash {fmtCompact(p.liquid)} + активы {fmtCompact(p.assets)} − долги {fmtCompact(p.liabilities)}</div>
+            {p.deltaFromPrev != null && (
+                <div className="mt-1" style={{ color: p.deltaFromPrev >= 0 ? 'var(--color-success, #7ec699)' : 'var(--color-danger, #e88a8a)' }}>
+                    {deltaSign}{fmtCompact(p.deltaFromPrev)} от прошлой точки
+                </div>
+            )}
         </div>
     );
 }
@@ -2676,7 +2986,7 @@ shadcn `Dialog` с текстом ~250 слов на русском.
 - [ ] **Step 2: Создать компонент**
 
 ```tsx
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 interface Props {
     open: boolean;
@@ -2690,33 +3000,34 @@ export default function CapitalTheoryDialog({ open, onClose }: Props) {
                 <DialogHeader>
                     <DialogTitle>Что такое капитал</DialogTitle>
                 </DialogHeader>
-                <DialogDescription asChild>
-                    <div className="space-y-3 text-sm leading-relaxed">
-                        <p>
-                            <strong>Капитал</strong> — это всё, чем вы владеете, минус всё, что вы должны.
-                            Формула: <code>активы − обязательства + деньги в наличии</code>.
-                        </p>
-                        <p>
-                            Учёт капитала — отдельная медитация раз в 1-3 месяца, не чаще. Зашли, обновили
-                            стоимость активов и остатки долгов, посмотрели динамику, ушли. Это не ежедневный
-                            журнал — для него у вас есть Дашборд и Журнал.
-                        </p>
-                        <p>
-                            <strong>Что считать активом:</strong> квартира и другая недвижимость, автомобиль,
-                            ценное имущество (техника, ювелирка), наличная валюта по текущему курсу.
-                            Деньги на банковских счетах и копилки уже считаются — отдельно их вводить не нужно.
-                        </p>
-                        <p>
-                            <strong>Что считать обязательством:</strong> остаток тела долга по ипотеке, потребительскому
-                            кредиту, кредитной карте. Не сам ежемесячный платёж, а именно сколько ещё нужно вернуть.
-                        </p>
-                        <p>
-                            Зачем это нужно? Покупка автомобиля влияет и на ежемесячные расходы (видно в бюджете),
-                            и на капитал (минус 1.5М в момент покупки, плюс −5М за машину компенсируется только
-                            постепенным погашением кредита). График капитала покажет, движетесь ли вы туда, куда хотите.
-                        </p>
-                    </div>
-                </DialogDescription>
+                {/* Не оборачиваем в DialogDescription — он рендерится как <p>, а внутри нужны несколько абзацев. */}
+                <div className="space-y-3 text-sm leading-relaxed">
+                    <p>
+                        <strong>Капитал</strong> — это всё, чем вы владеете, минус всё, что вы должны.
+                        Формула: <code>активы − обязательства + деньги в наличии</code>.
+                    </p>
+                    <p>
+                        Учёт капитала — отдельная медитация раз в 1-3 месяца, не чаще. Зашли, обновили
+                        стоимость активов и остатки долгов, посмотрели динамику, ушли. Это не ежедневный
+                        журнал — для него у вас есть Дашборд и Журнал.
+                    </p>
+                    <p>
+                        <strong>Что считать активом:</strong> квартира и другая недвижимость, автомобиль,
+                        ценное имущество (техника, ювелирка), наличная валюта по текущему курсу.
+                        Деньги на банковских счетах и копилки уже считаются — отдельно их вводить не нужно.
+                    </p>
+                    <p>
+                        <strong>Что считать обязательством:</strong> остаток тела долга по ипотеке, потребительскому
+                        кредиту, кредитной карте. Не сам ежемесячный платёж, а именно сколько ещё нужно вернуть.
+                    </p>
+                    <p>
+                        <strong>Связь со стратегическим планированием:</strong> покупка автомобиля
+                        влияет и на ежемесячные расходы (видно в Бюджете), и на капитал (минус 1.5М в
+                        момент покупки, плюс долг по кредиту). График капитала покажет, движетесь ли
+                        вы туда, куда хотите — растёт ли ваше состояние во времени и как крупные
+                        решения отражаются на нём.
+                    </p>
+                </div>
             </DialogContent>
         </Dialog>
     );
