@@ -62,7 +62,11 @@ export default function RecurringFields({ enabled, value, eventDate, onToggle, o
                             type="number"
                             min={1} max={31}
                             value={value.dayOfMonth}
-                            onChange={e => onChange({ ...value, dayOfMonth: Number(e.target.value) })}
+                            onChange={e => {
+                                const raw = Number(e.target.value);
+                                const clamped = Number.isNaN(raw) ? 1 : Math.min(31, Math.max(1, raw));
+                                onChange({ ...value, dayOfMonth: clamped });
+                            }}
                             className="h-8 w-20 text-xs"
                         />
                     </div>
