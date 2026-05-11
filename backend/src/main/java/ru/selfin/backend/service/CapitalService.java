@@ -38,11 +38,18 @@ import java.util.UUID;
  * <pre>
  *   liquid(t) = AccountBalance(t) + Σ FundBalance(t)
  *   AccountBalance(t) = checkpoint(≤t).amount
- *                     + Σ INCOME факт events ∈ (checkpoint.date, t]
- *                     − Σ EXPENSE факт events ∈ (checkpoint.date, t]
- *                     − Σ FUND_TRANSFER факт events ∈ (checkpoint.date, t]
+ *                     + Σ INCOME факт events ∈ [checkpoint.date, t]
+ *                     − Σ EXPENSE факт events ∈ [checkpoint.date, t]
+ *                     − Σ FUND_TRANSFER факт events ∈ [checkpoint.date, t]
  *   Σ FundBalance(t) = Σ FundTransaction.amount, transaction_date ≤ t, не deleted
  * </pre>
+ *
+ * <p>Диапазон событий начинается от {@code checkpoint.date} включительно — это
+ * соответствует конвенции {@link TargetFundService#calcPocketBalance()} и гарантирует,
+ * что Capital и Dashboard показывают одно и то же значение жидкой части.
+ * Если когда-нибудь окажется, что чекпоинт хранит баланс на конец дня (то есть события
+ * этой даты в нём уже учтены) — нужно будет одновременно сдвинуть и эту, и
+ * {@link TargetFundService#calcPocketBalance()} формулы на {@code +1 day}.
  */
 @Service
 @RequiredArgsConstructor
@@ -226,7 +233,9 @@ public class CapitalService {
     private BigDecimal liquidAt(LocalDate t) {
         Optional<BalanceCheckpoint> latest = checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(t);
         BigDecimal start = latest.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO);
-        LocalDate fromDate = latest.map(cp -> cp.getDate().plusDays(1)).orElse(EPOCH_SENTINEL);
+        // Конвенция: события включаются начиная с даты чекпоинта (см. Javadoc класса
+        // и TargetFundService.calcPocketBalance — обе формулы должны двигаться вместе).
+        LocalDate fromDate = latest.map(BalanceCheckpoint::getDate).orElse(EPOCH_SENTINEL);
 
         BigDecimal income       = eventRepo.sumFactByTypeBetween(EventType.INCOME,        fromDate, t);
         BigDecimal expense      = eventRepo.sumFactByTypeBetween(EventType.EXPENSE,       fromDate, t);
