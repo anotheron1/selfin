@@ -138,6 +138,22 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     BigDecimal sumAllFactByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
 
     /**
+     * Сумма фактически случившихся (любых записей с factAmount, включая PLAN-FUND_TRANSFER)
+     * по типу в диапазоне дат {@code [from..to]} включительно. Используется в расчёте капитала.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
+        WHERE e.type = :type
+          AND e.factAmount IS NOT NULL
+          AND e.deleted = false
+          AND e.date >= :from
+          AND e.date <= :to
+        """)
+    BigDecimal sumFactByTypeBetween(@Param("type") EventType type,
+                                    @Param("from") LocalDate from,
+                                    @Param("to") LocalDate to);
+
+    /**
      * FACT-записи в диапазоне дат (для FundPlannerService).
      * Возвращает только eventKind=FACT записи с factAmount != null.
      */
