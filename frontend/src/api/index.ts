@@ -4,6 +4,15 @@ import type {
     BalanceCheckpoint,
     BalanceCheckpointCreateDto,
     BudgetSnapshot,
+    CapitalItem,
+    CapitalItemCreateDto,
+    CapitalItemKind,
+    CapitalItemUpdateDto,
+    CapitalRevaluation,
+    CapitalRevaluationCreateDto,
+    CapitalRevaluationUpdateDto,
+    CapitalSummary,
+    CapitalTrajectory,
     Category,
     DashboardData,
     FactCreateDto,
@@ -179,3 +188,48 @@ export const updateCheckpoint = (id: string, dto: BalanceCheckpointCreateDto) =>
 
 /** Удаляет чекпоинт. */
 export const deleteCheckpoint = (id: string) => del(`/balance-checkpoints/${id}`);
+
+// --- Capital ---
+
+export const fetchCapitalItems = (kind?: CapitalItemKind, includeArchived = false) => {
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    if (includeArchived) params.set('includeArchived', 'true');
+    const qs = params.toString();
+    return get<CapitalItem[]>(`/capital/items${qs ? '?' + qs : ''}`);
+};
+
+export const fetchCapitalItem = (id: string) =>
+    get<CapitalItem>(`/capital/items/${id}`);
+
+export const createCapitalItem = (dto: CapitalItemCreateDto) =>
+    post<CapitalItem>('/capital/items', dto);
+
+export const updateCapitalItem = (id: string, dto: CapitalItemUpdateDto) =>
+    put<CapitalItem>(`/capital/items/${id}`, dto);
+
+export const deleteCapitalItem = (id: string) =>
+    del(`/capital/items/${id}`);
+
+export const fetchCapitalHistory = (itemId: string) =>
+    get<CapitalRevaluation[]>(`/capital/items/${itemId}/revaluations`);
+
+export const addCapitalRevaluation = (itemId: string, dto: CapitalRevaluationCreateDto) =>
+    post<CapitalRevaluation>(`/capital/items/${itemId}/revaluations`, dto);
+
+export const updateCapitalRevaluation = (id: string, dto: CapitalRevaluationUpdateDto) =>
+    put<CapitalRevaluation>(`/capital/revaluations/${id}`, dto);
+
+export const deleteCapitalRevaluation = (id: string) =>
+    del(`/capital/revaluations/${id}`);
+
+export const fetchCapitalSummary = () =>
+    get<CapitalSummary>('/capital/summary');
+
+export const fetchCapitalTrajectory = (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return get<CapitalTrajectory>(`/capital/trajectory${qs ? '?' + qs : ''}`);
+};

@@ -281,3 +281,75 @@ export interface FundPlannerMonth {
 export interface FundPlannerData {
     months: FundPlannerMonth[];
 }
+
+// --- Capital ---
+
+export type CapitalItemKind = 'ASSET' | 'LIABILITY';
+
+export interface CapitalItem {
+    id: string;
+    kind: CapitalItemKind;
+    name: string;
+    description: string | null;
+    createdAt: string;       // ISO instant
+    currentValue: number;
+    lastValuedAt: string | null;  // ISO date
+    isArchived: boolean;
+}
+
+export interface CapitalItemCreateDto {
+    kind: CapitalItemKind;
+    name: string;
+    description?: string;
+    initialValue: number;
+    initialValuedAt?: string;
+}
+
+export interface CapitalItemUpdateDto {
+    name?: string;
+    description?: string;
+}
+
+export interface CapitalRevaluation {
+    id: string;
+    itemId: string;
+    value: number;
+    valuedAt: string;
+    note: string | null;
+    createdAt: string;
+}
+
+export interface CapitalRevaluationCreateDto {
+    value: number;
+    valuedAt?: string;
+    note?: string;
+}
+
+export interface CapitalRevaluationUpdateDto {
+    value?: number;
+    valuedAt?: string;
+    note?: string;
+}
+
+export interface CapitalSummary {
+    total: number;
+    liquid: number;
+    assetsTotal: number;
+    liabilitiesTotal: number;
+    items: CapitalItem[];
+    deltas: {
+        month: number;
+        quarter: number;
+        year: number;
+    };
+}
+
+export interface CapitalTrajectory {
+    points: Array<{
+        date: string;          // ISO date
+        capital: number;
+        liquid: number;
+        assets: number;
+        liabilities: number;
+    }>;
+}
