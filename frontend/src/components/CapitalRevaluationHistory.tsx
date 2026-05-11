@@ -4,6 +4,7 @@ import { fetchCapitalHistory, updateCapitalRevaluation, deleteCapitalRevaluation
 import type { CapitalRevaluation } from '../types/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
@@ -22,6 +23,7 @@ export default function CapitalRevaluationHistory({ itemId, refreshSignal, onCha
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editValue, setEditValue] = useState('');
     const [editDate, setEditDate] = useState('');
+    const [deletingId, setDeletingId] = useState<string | null>(null);
 
     useEffect(() => {
         fetchCapitalHistory(itemId).then(setHistory).catch(console.error);
@@ -43,9 +45,10 @@ export default function CapitalRevaluationHistory({ itemId, refreshSignal, onCha
         onChanged();
     };
 
-    const remove = async (id: string) => {
-        if (!confirm('Удалить эту запись из истории?')) return;
-        await deleteCapitalRevaluation(id);
+    const confirmRemove = async () => {
+        if (!deletingId) return;
+        await deleteCapitalRevaluation(deletingId);
+        setDeletingId(null);
         onChanged();
     };
 
@@ -54,6 +57,7 @@ export default function CapitalRevaluationHistory({ itemId, refreshSignal, onCha
     }
 
     return (
+        <>
         <ul className="space-y-1">
             {history.map(r => (
                 <li key={r.id} className="text-sm py-2 px-2 rounded hover:bg-white/5">
@@ -72,12 +76,28 @@ export default function CapitalRevaluationHistory({ itemId, refreshSignal, onCha
                             </div>
                             <div className="flex gap-1">
                                 <Button size="sm" variant="ghost" onClick={() => startEdit(r)}><Pencil size={14} /></Button>
-                                <Button size="sm" variant="ghost" onClick={() => remove(r.id)}><Trash2 size={14} /></Button>
+                                <Button size="sm" variant="ghost" onClick={() => setDeletingId(r.id)}><Trash2 size={14} /></Button>
                             </div>
                         </div>
                     )}
                 </li>
             ))}
         </ul>
+
+        <Dialog open={deletingId !== null} onOpenChange={o => !o && setDeletingId(null)}>
+            <DialogContent className="max-w-sm">
+                <DialogHeader>
+                    <DialogTitle>Удалить запись из истории?</DialogTitle>
+                </DialogHeader>
+                <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                    Запись будет помечена как удалённая. Это повлияет на текущую стоимость, если удалена последняя переоценка.
+                </div>
+                <DialogFooter className="flex gap-2">
+                    <Button variant="ghost" onClick={() => setDeletingId(null)}>Отмена</Button>
+                    <Button variant="destructive" onClick={confirmRemove}>Удалить</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>
     );
 }
