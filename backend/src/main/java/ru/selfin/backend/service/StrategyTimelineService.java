@@ -49,6 +49,16 @@ public class StrategyTimelineService {
      * <p>Используется для определения левой границы шкалы и {@code predictionWindowMonths}.
      */
     YearMonth firstActivityMonth() {
-        throw new UnsupportedOperationException("Not yet implemented");
+        Optional<LocalDate> earliestFact = eventRepository.findEarliestFactDate();
+        Optional<LocalDate> earliestCheckpoint = checkpointRepository.findEarliestCheckpointDate();
+        Optional<LocalDate> earliestRevaluation = capitalService.findEarliestRevaluationDate();
+
+        Optional<LocalDate> earliest = Stream.of(earliestFact, earliestCheckpoint, earliestRevaluation)
+                .flatMap(Optional::stream)
+                .min(LocalDate::compareTo);
+
+        return earliest
+                .map(YearMonth::from)
+                .orElseGet(() -> YearMonth.now().minusMonths(1));
     }
 }

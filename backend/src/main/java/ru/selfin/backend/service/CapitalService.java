@@ -212,6 +212,14 @@ public class CapitalService {
         return new CapitalTrajectoryDto(result);
     }
 
+    /**
+     * Самая ранняя дата переоценки капитала. Null если переоценок нет.
+     * Используется StrategyTimelineService.firstActivityMonth().
+     */
+    public Optional<LocalDate> findEarliestRevaluationDate() {
+        return revRepo.findEarliestValuedAt();
+    }
+
     // === helpers ===
 
     private BigDecimal capitalAt(LocalDate t) {

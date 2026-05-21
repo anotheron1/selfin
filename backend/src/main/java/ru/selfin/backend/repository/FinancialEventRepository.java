@@ -191,6 +191,13 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         @Param("monthStart") LocalDate monthStart,
         @Param("today") LocalDate today);
 
+    // --- Strategy ---
+
+    @Query("SELECT MIN(e.date) FROM FinancialEvent e " +
+           "WHERE e.eventKind = ru.selfin.backend.model.EventKind.FACT " +
+           "  AND e.deleted = false")
+    Optional<LocalDate> findEarliestFactDate();
+
     // --- Recurring ---
 
     @Query("SELECT MAX(e.date) FROM FinancialEvent e " +
