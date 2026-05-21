@@ -104,10 +104,10 @@
 
 Выполнить:
 ```
-rtk JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest='CapitalServiceTest'
+rtk JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest='CapitalServiceLiquidTest'
 ```
 
-Ожидание: PASS. `liquidAt` логика не изменилась, только модификатор — существующие тесты не должны сломаться.
+Ожидание: PASS. `liquidAt` логика не изменилась (формула: `checkpoint + Σ INCOME факт − Σ EXPENSE факт − Σ FUND_TRANSFER + Σ FundTransaction balances`), только модификатор — существующие тесты не должны сломаться.
 
 - [ ] **Step 4: Commit**
 
@@ -371,6 +371,39 @@ git commit -m "feat(dto): add strategy timeline point and root DTOs"
 
 ---
 
+### Task 1.5: Jackson — корректная сериализация `YearMonth` как строки
+
+**Files:**
+- Modify: `backend/src/main/resources/application.properties`
+
+**Контекст:** новые DTO используют `YearMonth` (`firstActivityMonth`, `currentMonth`, `horizonEnd`, `yearMonth`). По умолчанию Jackson сериализует `YearMonth` как JSON-массив `[2026, 5]`. Frontend ожидает строку `"2026-05"`. Без этого исправления контракт API ломается.
+
+- [ ] **Step 1: Открыть `application.properties` и добавить строку**
+
+В конец файла добавить (если ещё не присутствует — текущий файл не содержит):
+
+```
+# Jackson: serialise dates/YearMonth as ISO strings, not numeric arrays
+spring.jackson.serialization.write-dates-as-timestamps=false
+```
+
+- [ ] **Step 2: Compile + smoke test**
+
+```
+rtk JAVA_HOME=... ./mvnw test -Dtest='!*IT'
+```
+
+Ожидание: PASS. Это пропертя влияет на runtime, не на компиляцию — но прогон unit-тестов убеждает что Spring context поднимается.
+
+- [ ] **Step 3: Commit**
+
+```
+git add backend/src/main/resources/application.properties
+git commit -m "config(json): write dates as ISO strings (YearMonth as YYYY-MM)"
+```
+
+---
+
 ## Chunk 2: PredictionService extension + StrategyTimelineService skeleton (TDD)
 
 В этом чанке добавляем единственный новый метод в PredictionService (с тестами), создаём скелет StrategyTimelineService и реализуем `firstActivityMonth()` (тоже с тестами). Без построения точек — это следующий чанк.
@@ -415,9 +448,8 @@ class PredictionServiceStatsTest {
     @BeforeEach
     void setUp() {
         eventRepo = mock(FinancialEventRepository.class);
-        // ВНИМАНИЕ: PredictionService может иметь другие зависимости — посмотрите фактическую сигнатуру конструктора
-        // и замокайте всё нужное. На дату 2026-05 у PredictionService три зависимости — FinancialEventRepository, CategoryRepository, BalanceCheckpointRepository. Замокать все три.
-        service = new PredictionService(eventRepo, mock(ru.selfin.backend.repository.CategoryRepository.class), mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class));
+        // PredictionService имеет одну зависимость: FinancialEventRepository (проверено в коде).
+        service = new PredictionService(eventRepo);
         cat = Category.builder().id(UUID.randomUUID()).name("Продукты").build();
     }
 
@@ -683,7 +715,9 @@ public class StrategyTimelineService {
     private final CategoryRepository categoryRepository;
     private final PredictionService predictionService;
     private final CapitalService capitalService;
-    // CapitalRevaluationRepository нужен для firstActivityMonth — подтянуть существующий репозиторий
+    // ВАЖНО: НЕ добавлять CapitalRevaluationRepository здесь.
+    // Доступ к "earliest revaluation" идёт через capitalService.findEarliestRevaluationDate() —
+    // CapitalService уже инжектит revRepo и предоставляет публичный метод (см. Task 2.4).
 
     /**
      * Главная точка входа: собирает timeline для страницы /strategy.
@@ -703,7 +737,7 @@ public class StrategyTimelineService {
 }
 ```
 
-> **Примечание:** имя `CapitalRevaluationRepository` уточнить, прочитав папку `backend/src/main/java/ru/selfin/backend/repository/`. Если такого репозитория не существует — возможно, переоценки доступны через `CapitalService` или метод существует в `CapitalItemRepository`. Если нет ни того ни другого — добавить минимальный репозиторий с методом `findFirstByDeletedFalseOrderByValuedAtAsc()` отдельным маленьким коммитом.
+> **Подтверждено:** `CapitalRevaluationRepository` существует в `backend/src/main/java/ru/selfin/backend/repository/` и уже имеет метод `findEarliestValuedAt()`. CapitalService инжектит его как поле `revRepo`. Никаких новых репозиториев / методов добавлять не нужно — только публичный wrapper-метод `findEarliestRevaluationDate()` на CapitalService (см. Task 2.4 Step 3).
 
 - [ ] **Step 2: Создать тестовый класс с 5 тестами на firstActivityMonth**
 
@@ -840,9 +874,11 @@ git commit -m "test(strategy): failing tests for firstActivityMonth + service sk
     /**
      * Самая ранняя дата чекпоинта. Null если чекпоинтов нет.
      */
-    @Query("SELECT MIN(b.date) FROM BalanceCheckpoint b WHERE b.deleted = false")
+    @Query("SELECT MIN(b.date) FROM BalanceCheckpoint b")
     Optional<LocalDate> findEarliestCheckpointDate();
 ```
+
+**Внимание:** `BalanceCheckpoint` сущность НЕ имеет soft-delete (нет поля `deleted`) — checkpoint не удаляется. Поэтому фильтр `WHERE b.deleted = false` НЕ нужен.
 
 (Добавить импорт `@Query` если ещё не импортирован.)
 
@@ -854,12 +890,11 @@ git commit -m "test(strategy): failing tests for firstActivityMonth + service sk
      * Используется StrategyTimelineService.firstActivityMonth().
      */
     public Optional<LocalDate> findEarliestRevaluationDate() {
-        // Использовать существующий CapitalRevaluationRepository (или добавить query method если нет)
-        return revaluationRepository.findEarliestValuedAt();
+        return revRepo.findEarliestValuedAt();
     }
 ```
 
-> **Уточнить:** имя репозитория переоценок и его query method. Если query method `findEarliestValuedAt` ещё не существует — добавить аналогично пунктам 1-2 (`@Query("SELECT MIN(r.valuedAt) FROM CapitalRevaluation r WHERE r.deleted = false")`).
+> **Подтверждено:** `revRepo` — фактическое имя поля в `CapitalService`. Метод `findEarliestValuedAt()` уже существует в `CapitalRevaluationRepository` — добавлять не нужно.
 
 - [ ] **Step 4: Реализовать firstActivityMonth в StrategyTimelineService**
 
@@ -909,6 +944,46 @@ git commit -m "feat(strategy): firstActivityMonth + supporting earliest-date que
 ## Chunk 3: StrategyTimelineService body — buildPastPoints, buildFuturePoints, enrichCapital, enrichBreakdown (TDD)
 
 Это самый большой чанк по объёму кода. Каждый шаг — TDD: тест с моками, реализация, прогон.
+
+### Task 3.0: Добавить `findPlannedEventsByDateRange` в FinancialEventRepository
+
+**Files:**
+- Modify: `backend/src/main/java/ru/selfin/backend/repository/FinancialEventRepository.java`
+
+Этот метод нужен для будущих точек (recurring + manual planned events на месяц). Без него Task 3.3 не скомпилируется.
+
+- [ ] **Step 1: Добавить query method**
+
+```java
+    /**
+     * Все PLAN-события в диапазоне дат (включая recurring-материализованные).
+     * Используется StrategyTimelineService для построения {@code balanceConfirmed} и breakdown будущих точек.
+     */
+    @Query("SELECT e FROM FinancialEvent e " +
+           "WHERE e.deleted = false " +
+           "  AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN " +
+           "  AND e.date >= :startDate AND e.date <= :endDate")
+    List<FinancialEvent> findPlannedEventsByDateRange(
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate);
+```
+
+- [ ] **Step 2: Compile**
+
+```
+rtk JAVA_HOME=... ./mvnw compile
+```
+
+Ожидание: BUILD SUCCESS.
+
+- [ ] **Step 3: Commit**
+
+```
+git add backend/src/main/java/ru/selfin/backend/repository/FinancialEventRepository.java
+git commit -m "feat(repo): add findPlannedEventsByDateRange for strategy timeline"
+```
+
+---
 
 ### Task 3.1: buildPastPoints — failing test
 
@@ -1347,6 +1422,14 @@ rtk JAVA_HOME=... ./mvnw test -Dtest=StrategyTimelineServiceTest#enrichWithCapit
 В `StrategyTimelineService.java`:
 
 ```java
+    /**
+     * Обогащает точки timeline данными капитала (capital, assets, liabilities).
+     *
+     * <p><b>Контракт:</b> {@code points} ДОЛЖЕН быть полным списком (past + current + future)
+     * — диапазон вызова `trajectory(first, last)` определяется крайними точками. При передаче
+     * частичного списка trajectory будет вычислена на меньшем интервале, и future-точки могут
+     * получить некорректные значения капитала.
+     */
     List<StrategyTimelinePointDto> enrichWithCapital(List<StrategyTimelinePointDto> points) {
         if (points.isEmpty()) return points;
 
@@ -1879,12 +1962,10 @@ package ru.selfin.backend;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;   // Spring Boot 4.x
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -1895,14 +1976,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @Testcontainers
 class StrategyTimelineControllerIT {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15");
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -1941,10 +2022,12 @@ rtk JAVA_HOME=... ./mvnw test -Dtest=StrategyTimelineControllerIT
 
         var dto = objectMapper.readValue(body, java.util.Map.class);
         java.util.List<?> points = (java.util.List<?>) dto.get("points");
-        // currentMonth + 12 future + N past — но 12 future должно быть точно
         long futureCount = points.stream()
                 .filter(p -> "FUTURE".equals(((java.util.Map<?, ?>) p).get("phase")))
                 .count();
+        // FUTURE count = horizonMonths (создаём ровно horizonMonths точек в будущем).
+        // Этот тест НЕ зависит от состояния контейнера, потому что horizonMonths определяет
+        // количество future-точек напрямую (за минусом возможной коллизии в логике current+1..current+12).
         org.assertj.core.api.Assertions.assertThat(futureCount).isEqualTo(12);
     }
 
@@ -1963,12 +2046,15 @@ rtk JAVA_HOME=... ./mvnw test -Dtest=StrategyTimelineControllerIT
     }
 
     @Test
-    void getTimeline_with_empty_db_returns_200_with_fanDisabled() throws Exception {
-        // Если БД относительно пуста (новый Testcontainers поднялся) — endpoint должен корректно работать
-        // Может требовать @Sql cleanup или ожидания того, что миграции не оставляют facts
+    void getTimeline_returns_200_even_when_no_forecast_history() throws Exception {
+        // Тест проверяет что endpoint не падает при дефиците истории.
+        // НЕ утверждаем fanEnabled==false, потому что контейнер shared между тестами:
+        // если Test 5/6 уже создали факты в forecast-категориях, fanEnabled может быть true.
+        // Цель: проверить отзывчивость endpoint'а на любом состоянии БД.
         mockMvc.perform(get("/api/v1/strategy/timeline"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fanEnabled").value(false));
+                .andExpect(jsonPath("$.fanEnabled").exists())
+                .andExpect(jsonPath("$.points").isArray());
     }
 
     @Test
@@ -2036,10 +2122,10 @@ rtk JAVA_HOME=... ./mvnw test -Dtest=StrategyTimelineControllerIT
 
         String eventId = (String) objectMapper.readValue(created, java.util.Map.class).get("id");
 
-        // 2. PATCH-fact
+        // 2. PATCH-fact (FinancialEventUpdateFactDto имеет только factAmount + опц. description)
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/v1/events/" + eventId + "/fact")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"factAmount\": 4900, \"date\": \"" + today + "\" }"))
+                        .content("{ \"factAmount\": 4900, \"description\": \"Оплачено\" }"))
                 .andExpect(status().is2xxSuccessful());
 
         // 3. Получить timeline, проверить что breakdown CURRENT содержит этот факт
@@ -2058,6 +2144,7 @@ rtk JAVA_HOME=... ./mvnw test -Dtest=StrategyTimelineControllerIT
     private String getFirstCategoryId() throws Exception {
         // Хелпер: берёт любую существующую категорию из БД (миграция должна создавать default-категории)
         String body = mockMvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         java.util.List<?> cats = objectMapper.readValue(body, java.util.List.class);
         return (String) ((java.util.Map<?, ?>) cats.get(0)).get("id");
@@ -2192,10 +2279,15 @@ git commit -m "feat(frontend-api): fetchStrategyTimeline"
 - [ ] **Step 1: Создать hook**
 
 ```typescript
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { fetchStrategyTimeline } from '../../api';
 import type { StrategyTimelineDto } from '../../types/api';
 
+/**
+ * Простой fetch-хук. React сам не вызывает повторный fetch на re-render,
+ * пока deps не меняются — отдельный кэш не нужен. Refetch триггерится явно через
+ * возвращаемый колбэк (например, после редактирования события в Budget).
+ */
 export function useStrategyTimeline(params?: {
     horizonMonths?: number;
     withBreakdown?: boolean;
@@ -2208,7 +2300,6 @@ export function useStrategyTimeline(params?: {
     const [data, setData] = useState<StrategyTimelineDto | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const cacheRef = useRef<StrategyTimelineDto | null>(null);
     const [tick, setTick] = useState(0);
 
     const refetch = useCallback(() => setTick(t => t + 1), []);
@@ -2220,7 +2311,6 @@ export function useStrategyTimeline(params?: {
         fetchStrategyTimeline(params)
             .then(d => {
                 if (cancelled) return;
-                cacheRef.current = d;
                 setData(d);
             })
             .catch(e => {
@@ -2512,7 +2602,7 @@ import {
     ComposedChart, Line, Bar, Area, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts';
 import type { StrategyTimelinePointDto } from '../../types/api';
-import { toChartPoints, fmtCompact } from './strategyChartUtils';
+import { toChartPoints, fmtCompact, fmtYearMonthLabel } from './strategyChartUtils';
 import MonthTooltip from './MonthTooltip';
 
 interface Props {
@@ -2525,6 +2615,7 @@ interface Props {
 
 export default function CashflowChart({ points, currentMonth, showFan, showNettoBars, showConfirmed }: Props) {
     const data = toChartPoints(points);
+    const currentLabel = fmtYearMonthLabel(currentMonth);   // должен совпадать с dataKey="label"
 
     return (
         <ResponsiveContainer width="100%" height={240}>
@@ -2542,8 +2633,9 @@ export default function CashflowChart({ points, currentMonth, showFan, showNetto
                     axisLine={false}
                     width={40}
                 />
-                <Tooltip content={<MonthTooltip currentMonth={currentMonth} />} />
-                <ReferenceLine x={currentMonth.slice(2).replace('-', ' ')} stroke="#fbbf24" strokeDasharray="3 3" />
+                {/* Render-prop форма: Recharts передаёт active/payload/label, мы добавляем currentMonth */}
+                <Tooltip content={(props: any) => <MonthTooltip {...props} currentMonth={currentMonth} />} />
+                <ReferenceLine x={currentLabel} stroke="#fbbf24" strokeDasharray="3 3" />
 
                 {showFan && (
                     <Area
@@ -2589,7 +2681,9 @@ export default function CashflowChart({ points, currentMonth, showFan, showNetto
 }
 ```
 
-> **Внимание про ReferenceLine `x` prop:** `<ReferenceLine x={...}>` хочет значение, которое совпадает с `dataKey="label"` (т.е. уже отформатированное "май 26"). Преобразование выше — пример. Проверить в браузере что вертикальная линия попадает в нужное место; если нет — перейти на использование `x={currentLabel}` где `currentLabel` собирается заранее через `fmtYearMonthLabel(currentMonth)`.
+> **Note:** `ReferenceLine x` принимает значение совпадающее с `dataKey="label"` (формат "май 26"). Используем `currentLabel` пред-вычисленный через `fmtYearMonthLabel(currentMonth)`.
+>
+> **Note про render-prop tooltip:** `<Tooltip content={(props) => <MonthTooltip ... />}>` использует функциональную форму чтобы передать `currentMonth` параллельно с recharts-инжектируемыми `active`, `payload`, `label`. Прямая форма `<Tooltip content={<MonthTooltip currentMonth={...} />}>` тоже работает (recharts мерджит свои props), но render-prop явнее.
 
 - [ ] **Step 2: Typecheck + commit**
 
@@ -2630,7 +2724,7 @@ export default function StrategyCapitalChart({ points, currentMonth, showAssets,
             <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }} syncId="strategyTimeline">
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
-                <Tooltip content={<MonthTooltip currentMonth={currentMonth} />} />
+                <Tooltip content={(props: any) => <MonthTooltip {...props} currentMonth={currentMonth} />} />
                 <ReferenceLine x={currentLabel} stroke="#fbbf24" strokeDasharray="3 3" />
 
                 <Line type="monotone" dataKey="capital" stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
