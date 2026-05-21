@@ -1340,7 +1340,7 @@ git commit -m "test(strategy): failing test for buildFuturePoints with fan chart
 
 Добавить импорт `RoundingMode`.
 
-> **Note:** метод `findPlannedEventsByDateRange` может не существовать. Проверить, если нет — добавить отдельным маленьким коммитом перед этим Task'ом. JPQL: `SELECT e FROM FinancialEvent e WHERE e.date BETWEEN :from AND :to AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN`.
+> **Note:** метод `findPlannedEventsByDateRange` добавлен в Task 3.0 (Chunk 3). Здесь уже доступен.
 
 - [ ] **Step 2: Run — должно PASS**
 
