@@ -230,7 +230,12 @@ public class CapitalService {
         return result;
     }
 
-    private BigDecimal liquidAt(LocalDate t) {
+    /**
+     * Жидкий баланс на дату {@code t} = баланс расчётного счёта (по чекпоинтам и фактам)
+     * + сумма балансов всех копилок. Публичный API для согласования с другими сервисами
+     * (например, StrategyTimelineService использует этот метод для seed {@code balanceConfirmed}).
+     */
+    public BigDecimal liquidAt(LocalDate t) {
         Optional<BalanceCheckpoint> latest = checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(t);
         BigDecimal start = latest.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO);
         // Конвенция: события включаются начиная с даты чекпоинта (см. Javadoc класса
