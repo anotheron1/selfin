@@ -14,4 +14,10 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     List<Category> findAllByDeletedFalseAndType(CategoryType type);
 
     Optional<Category> findByNameAndDeletedFalse(String name);
+
+    /**
+     * Категории, для которых разрешён прогноз PredictionService (поле {@code forecast_enabled = true}).
+     * Используется StrategyTimelineService для построения fan chart.
+     */
+    List<Category> findAllByForecastEnabledTrueAndDeletedFalse();
 }
