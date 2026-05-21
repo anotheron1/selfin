@@ -32,8 +32,8 @@ import java.util.UUID;
  * <p>Все мутации (CRUD по items и revaluations) — {@code @Transactional}.
  * Чтения (summary, trajectory, list, history) — readOnly на классе.
  *
- * <p>{@code liquidAt(date)} вычисляется здесь же как приватный метод: переиспользует
- * существующие репозитории. Формула «безопасная», без зависимости от инварианта
+ * <p>{@code liquidAt(date)} — публичный метод (используется также StrategyTimelineService):
+ * переиспользует существующие репозитории. Формула «безопасная», без зависимости от инварианта
  * FUND_TRANSFER ↔ FundTransaction 1:1:
  * <pre>
  *   liquid(t) = AccountBalance(t) + Σ FundBalance(t)
