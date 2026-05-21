@@ -283,7 +283,7 @@ public record CategoryMonthStats(
 **Шаг 1 (один раз в начале `buildFuturePoints`):**
 
 ```
-forecastEnabledCategories = categoryRepo.findByForecastEnabledTrueAndDeletedFalse()
+forecastEnabledCategories = categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()
 allStats = forecastEnabledCategories.map(cat ->
     predictionService.getStatsForCategory(cat, 6))
 
@@ -302,6 +302,9 @@ fanEnabled = eligibleStats.size() >= 3
 **Шаг 2 (для каждой будущей точки k, где k=1 = next month, k=horizonMonths = последний):**
 
 ```
+// Начальное значение (seed):
+balanceConfirmed[0] = liquidAt(today)   // тот же баланс что у CURRENT точки
+
 confirmedExpense[k] = Σ (recurring + manual planned events of EXPENSE type for month yearMonth(now+k))
 confirmedIncome[k]  = Σ (recurring + manual planned events of INCOME type for month yearMonth(now+k))
 
