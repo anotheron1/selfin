@@ -63,19 +63,27 @@
             │  • buildFuturePoints(current, to)        │
             │  • enrichWithCapital(points)             │
             │  • enrichWithBreakdown(points)           │
-            └─┬──────────┬─────────┬────────────┬─────┘
-              │          │         │            │
-        ┌─────▼───┐  ┌──▼────┐  ┌─▼────────┐  ┌▼──────────┐
-        │ Fund    │  │Predict│  │Capital   │  │Balance     │
-        │ Planner │  │Service│  │Service   │  │Checkpoint  │
-        │ Service │  │       │  │          │  │Service     │
-        └─────────┘  └───────┘  └──────────┘  └────────────┘
+            └─┬──────────┬─────────┬───────────────┬──┘
+              │          │         │               │
+        ┌─────▼─────┐ ┌─▼────┐ ┌──▼─────────┐ ┌──▼────────────────┐
+        │Prediction │ │Capit.│ │ Financial  │ │ BalanceCheckpoint │
+        │Service    │ │Servic│ │ Event Repo │ │ Repository         │
+        │ +new      │ │ +pub │ │            │ │                   │
+        │ method    │ │liquid│ │            │ │                   │
+        └───────────┘ └──────┘ └────────────┘ └───────────────────┘
+                     ▲           ▲                ▲
+                     │           │                │
+                     └─CategoryRepo (+new derived query)
 ```
 
 **Границы ответственности:**
 - `StrategyTimelineService` — только чтение и агрегация; никакого CRUD.
-- `PredictionService` — расширение аддитивное (новый метод), существующие методы для Dashboard не трогаем.
-- `CapitalService.getTrajectory()` — переиспользуем как есть. Если не умеет отдавать прошлое+будущее одним вызовом — добавим метод `getTrajectoryRange(from, to)` (отдельный коммит в чанке миграций).
+- `PredictionService` — расширение аддитивное (новый метод `getStatsForCategory`), существующие методы для Dashboard не трогаем.
+- `CapitalService.trajectory(from, to)` — переиспользуем напрямую. Метод `liquidAt(LocalDate)` сделать публичным (сейчас private).
+- `FinancialEventRepository` — переиспользуем существующие методы для построения breakdown.
+- `BalanceCheckpointRepository` — переиспользуем напрямую (по аналогии с `CapitalService`).
+- `CategoryRepository` — добавляем `findAllByForecastEnabledTrueAndDeletedFalse()`.
+- `FundPlannerService` НЕ используется (`StrategyTimelineService` строит данные с нуля, не дублирует helper).
 - Frontend только рисует. Никакой агрегации, никакого пересчёта.
 
 ## Раздел 1. Что включается в скоуп — что переезжает, что нового
@@ -122,6 +130,8 @@ GET /api/v1/strategy/timeline?horizonMonths=36&withBreakdown=true
 
 - `horizonMonths` (default 36, max 60) — горизонт вперёд от текущего месяца включительно.
 - `withBreakdown` (default true) — включать ли разбивку по категориям. На медленных клиентах можно установить false для уменьшения размера ответа.
+
+**Размер response с breakdown:** при 36 мес прошлого + 36 мес будущего = 72 точки, каждая со средним 8-15 breakdown items = ~30-50 KB JSON в типичном случае. Для пользователя с обширной историей (5 лет, 25 категорий) — до 200 KB. Это укладывается в нормальный bundle/payload bracket для современного веб-приложения. Если потребуется оптимизация — `withBreakdown=false` для первичной загрузки + ленивая подгрузка breakdown по hover отдельным endpoint'ом (не делаем в этом PR).
 
 ### Response — `StrategyTimelineDto`
 
@@ -178,7 +188,7 @@ GET /api/v1/strategy/timeline?horizonMonths=36&withBreakdown=true
 ### `StrategyPointPhase` enum
 
 - `PAST` — yearMonth < currentMonth. `balance` восстановлен из фактов, fan-поля null.
-- `CURRENT` — yearMonth == currentMonth. Часть фактов есть, остальное прогноз. Заполнены все поля.
+- `CURRENT` — yearMonth == currentMonth. Часть фактов есть, остальное прогноз. Заполнены все поля. **`balance` для CURRENT — это `liquidAt(today)` (живой баланс счёта + копилок прямо сейчас), а НЕ end-of-month проекция.** Это обеспечивает согласованность с Dashboard и инвариантом I8.
 - `FUTURE` — yearMonth > currentMonth. `balance` = `balanceMedian`. Заполнены все поля.
 
 ### `StrategyTimelineService` — публичный контракт
@@ -192,18 +202,18 @@ public StrategyTimelineDto getTimeline(int horizonMonths, boolean withBreakdown)
 1. **`firstActivityMonth()`** — `min(first FACT event date, first BalanceCheckpoint at, first CapitalRevaluation valuedAt)`, округление до первого числа месяца. Если ничего нет — `LocalDate.now().minusMonths(1).withDayOfMonth(1)`.
 
 2. **`buildPastPoints(from, currentMonth)`** — для каждого прошлого месяца:
-   - Берёт fact-события (INCOME + EXPENSE) с агрегированием по категориям.
-   - Баланс восстанавливает: стартовый баланс из ближайшего предыдущего `BalanceCheckpoint` (если есть) или из 0, плюс интегрирование nettoFlow за все предыдущие месяцы.
+   - Берёт fact-события (INCOME + EXPENSE + FUND_TRANSFER) с агрегированием по категориям. FUND_TRANSFER важен — переводы в копилки уменьшают расчётный счёт, но НЕ меняют общий liquid (`AccountBalance + Σ FundBalance`), как описано в спеке капитала.
+   - **Баланс восстанавливается через делегирование:** для каждого прошлого месяца вызывается `liquidAt(endOfMonth)` — нужно сделать метод `liquidAt(LocalDate)` публичным на `CapitalService` (сейчас private), либо вынести в общий `LiquidityService`. Это переиспользует уже корректную формулу `checkpoint + Σ INCOME факт − Σ EXPENSE факт` и автоматически согласуется с Dashboard и `/capital` (инвариант I8).
    - Поля `balanceConfirmed`, `balanceLow`, `balanceHigh` оставляет null.
 
 3. **`buildFuturePoints(currentMonth, to)`** — для каждого будущего месяца:
    - `confirmedExpense` = Σ recurring + manual planned expense события на этот месяц.
    - `confirmedIncome` = Σ recurring + manual planned income события на этот месяц.
    - `balanceConfirmed[k]` = `balanceConfirmed[k-1]` + `confirmedIncome[k]` − `confirmedExpense[k]`.
-   - `balanceMedian[k]` = `balanceConfirmed[k]` − `Σ sumMedian × i for i in [1..k]`, где `sumMedian` = сумма медианных прогнозов по всем `forecast_enabled` категориям.
+   - `balanceMedian[k]` = `balanceConfirmed[k]` − `sumMedian × k`, где `sumMedian` = сумма медианных прогнозов по всем `forecast_enabled` категориям. Эта формула — кумулятивное вычитание типичного «непланового» расхода за k прошедших с сегодня месяцев.
    - `balanceLow[k]` / `balanceHigh[k]` — формула в разделе 3.
 
-4. **`enrichWithCapital(points)`** — вызывает `CapitalService.getTrajectory()` для прошлого, для будущего использует last known value (плоская линия).
+4. **`enrichWithCapital(points)`** — вызывает `capitalService.trajectory(firstActivityMonth.atDay(1), LocalDate.now())` (метод существует) для прошлых точек. Для будущих точек берёт последние известные `capital`, `assets`, `liabilities` значения из возврата и устанавливает плоскую линию вперёд. `CapitalTrajectoryDto.Point` содержит `LocalDate date` — нужно мапить на `YearMonth` для согласования с `yearMonth` ключом точки timeline. Если `valued_at` ретроактивных revaluation попадает в будущее (пользователь сказал «у меня будет квартира через год») — этот factor подхватывается автоматически тем же `trajectory` вызовом расширенного диапазона; обновляем семантику: вызов делается на `(firstActivityMonth.atDay(1), horizonEnd.atEndOfMonth())` чтобы покрыть и будущие revaluations.
 
 5. **`enrichWithBreakdown(points)`** — если `withBreakdown=true`:
    - Для PAST: агрегированные фактические события по категориям.
@@ -225,9 +235,17 @@ backend/src/main/java/ru/selfin/backend/
     └── BreakdownItemDto.java                         — новый
 ```
 
-### Capital service — что проверить
+### Зависимости от существующих сервисов
 
-`CapitalService.getTrajectory()` должен уметь отдать траекторию за заданный диапазон `[from, to]`. Если текущий метод возвращает только за прошлое — добавляем `getTrajectoryRange(LocalDate from, LocalDate to)` отдельным коммитом в первом чанке плана. Для будущего возвращается last-known-value линия.
+**`CapitalService.trajectory(LocalDate from, LocalDate to)`** — метод существует, возвращает `CapitalTrajectoryDto` с точками `(date, capital, assets, liabilities)`. Принимает диапазон, что нам и нужно. Вызывается ОДИН раз на построение timeline.
+
+**`CapitalService.liquidAt(LocalDate t)`** — сейчас private. Нужно сделать публичным (или вынести в отдельный `LiquidityService` если хочется чище разделить ответственности). Это самый компактный фикс: один-два символа в сигнатуре + переисполнить тесты CapitalService.
+
+**`BalanceCheckpointRepository`** инжектится напрямую в `StrategyTimelineService` (по аналогии с `CapitalService`). Существующий `BalanceCheckpointService` не имеет нужных методов поиска чекпоинта на дату — добавлять их специально для StrategyTimeline не нужно, прямой доступ к репозиторию через JPQL запрос «найти ближайший чекпоинт ≤ дата» проще. Метод репозитория `findTopByDateLessThanEqualOrderByDateDesc(LocalDate)` — добавляется при необходимости (если `liquidAt` уже его использует — переиспользуем).
+
+**`CategoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()`** — НОВЫЙ Spring Data derived-query метод, добавляется в этом PR. Нет миграции БД, только Java-метод.
+
+**`FundPlannerService`** — не используется напрямую (`StrategyTimelineService` строит данные с нуля, не через готовый planner DTO). При желании можно переиспользовать `FundPlannerService.getPlanner()` для получения месячных агрегатов, но это даст double-counting с собственным агрегатором. **Решение:** не зависим от `FundPlannerService`. Архитектурная схема выше — устаревшая в этой части.
 
 ## Раздел 3. Алгоритм прогноза и fan chart
 
@@ -252,7 +270,7 @@ public record CategoryMonthStats(
 ```
 
 **Логика:**
-1. Берём fact-расходы (`status = EXECUTED`, `eventKind = FACT`, `is_deleted = false`) по категории за последние `historyWindowMonths` полных месяцев. Агрегируем по месяцу.
+1. Берём fact-расходы по категории за последние `historyWindowMonths` полных месяцев. Фильтр: `eventKind = FACT`, `deleted = false` — тот же критерий что в существующем `PredictionService.sumFacts()`. `EventStatus` не используется — все FACT-события считаются учётной транзакцией. Агрегируем по месяцу.
 2. `monthsOfHistory` = количество месяцев с хотя бы одним фактом.
 3. Если `monthsOfHistory == 0` — возвращаем все нули.
 4. Если `monthsOfHistory < 3` — возвращаем `median`/p25/p75 на тех данных что есть; caller знает что эту категорию не учитывать в fan.
@@ -303,6 +321,12 @@ balance[k] = balanceMedian[k]   // основное значение для ли
 - `balanceLow[k]` = `balanceMedian[k]`
 - `balanceHigh[k]` = `balanceMedian[k]`
 - Frontend этого не рисует (нулевая площадь).
+
+**Cap на ширину конуса:** чтобы патологические случаи (одна категория с гигантским IQR на ранней истории) не делали конус визуально абсурдным, ограничиваем:
+```
+accumulatedHalfIqr[k] = min(sumHalfIqr × sqrt(k), 2 × |balanceMedian[k]|)
+```
+Конус никогда не шире чем 4× от медианного баланса в точке. Граница условная, может быть отрегулирована по фидбеку — главное чтобы был сам факт ограничения.
 
 ### Граничные случаи
 
@@ -448,8 +472,7 @@ export const fetchStrategyTimeline = (params?: {
 ### Recharts детали
 
 **`CashflowChart`** — `ComposedChart` (умеет смешивать Line/Bar/Area):
-- `<Area dataKey="balanceHigh" stroke="none" fill={...} />` — верхняя граница fan
-- `<Area dataKey="balanceLow" stroke="none" fill="var(--color-bg)" />` — «вычитаем» нижнюю часть (трюк для рисования полосы между двумя линиями)
+- **Fan chart реализация:** предпочтительный подход — добавить в данные дополнительное поле `balanceRange = [balanceLow, balanceHigh]` (массив двух чисел), и использовать `<Area dataKey="balanceRange" stroke="none" fill={...} />` — recharts корректно интерпретирует массив как нижнюю+верхнюю границу полосы. Это избегает известного трюка с «вычитанием» нижней Area через `fill="var(--color-bg)"`, который ломается при полупрозрачных карточках. Поле `balanceRange` собирается в `strategyChartUtils.ts` при маппинге DTO в chart data.
 - `<Bar dataKey="nettoFlow">` + `<Cell fill={...}/>` с условным цветом
 - `<Line dataKey="balance" stroke="#6c63ff" strokeWidth={2}/>`
 - `<Line dataKey="balanceConfirmed" stroke="#9da9b8" strokeDasharray="4 3"/>`
@@ -470,12 +493,12 @@ export const fetchStrategyTimeline = (params?: {
 ```typescript
 interface MonthTooltipProps {
     active?: boolean;
-    payload?: any[];
+    payload?: Array<{ payload: StrategyTimelinePointDto }>;
     label?: string;
 }
 ```
 
-Получает `payload[0].payload` — это `StrategyTimelinePointDto`. Извлекает breakdown и рендерит:
+Получает `payload[0].payload` — это `StrategyTimelinePointDto` (типизированно, не `any`). Извлекает breakdown и рендерит:
 - Шапка с `yearMonth` (формат «Сентябрь 2026 (через N мес)» если future)
 - Баланс на конец + диапазон если future
 - Блок дохода: `incomeItems`, recurring с иконкой ↻ перед текстом, прогнозные с пометкой «(прогноз)»
@@ -542,7 +565,7 @@ interface MonthTooltipProps {
 | 2 | `?horizonMonths=12` ограничивает горизонт — `points` нужной длины |
 | 3 | `?withBreakdown=false` исключает breakdown |
 | 4 | Пустая база — endpoint возвращает 200, `firstActivityMonth = today.minusMonths(1)`, `fanEnabled=false`, points есть для каждого месяца |
-| 5 | После создания recurring-правила — платежи в `balanceConfirmed` будущих точек |
+| 5 | После создания recurring-правила (через POST /api/v1/events с `recurringConfig`, что приводит к материализации событий через RecurringRuleService) — платежи в `balanceConfirmed` будущих точек. Тест НЕ должен напрямую инсертить события в БД — нужно идти через реальный flow создания, чтобы валидировать интеграцию с recurring infrastructure. |
 | 6 | После PATCH-факта в текущем месяце — этот факт в breakdown CURRENT точки |
 
 ### Frontend тесты
