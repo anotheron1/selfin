@@ -166,15 +166,32 @@ class StrategyTimelineControllerIT {
                 .findFirst().orElseThrow();
         var breakdown = (java.util.Map<?, ?>) ((java.util.Map<?, ?>) currentPoint).get("breakdown");
         java.util.List<?> expenseItems = (java.util.List<?>) breakdown.get("expenseItems");
-        org.assertj.core.api.Assertions.assertThat(expenseItems).isNotEmpty();
+        // Тест должен подтвердить, что именно созданный + патченный факт попал в breakdown —
+        // не просто "что-то есть". Пинимся к amount=4900 этого факта.
+        boolean foundPatchedFact = expenseItems.stream().anyMatch(item -> {
+            Object amount = ((java.util.Map<?, ?>) item).get("amount");
+            return amount != null && Double.parseDouble(amount.toString()) == 4900.0;
+        });
+        org.assertj.core.api.Assertions.assertThat(foundPatchedFact)
+                .as("expected expenseItems to contain the patched fact with amount=4900")
+                .isTrue();
     }
 
     private String getFirstCategoryId() throws Exception {
-        // Хелпер: берёт любую существующую категорию из БД (миграция должна создавать default-категории)
+        // Хелпер: берёт первую EXPENSE-категорию из БД (миграция должна создавать default-категории).
+        // EXPENSE-фильтр важен — наши тесты создают EXPENSE-события; INCOME-категория сломала бы валидацию.
         String body = mockMvc.perform(get("/api/v1/categories"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         java.util.List<?> cats = objectMapper.readValue(body, java.util.List.class);
-        return (String) ((java.util.Map<?, ?>) cats.get(0)).get("id");
+        return cats.stream()
+                .map(c -> (java.util.Map<?, ?>) c)
+                .filter(c -> {
+                    Object type = c.get("type");
+                    return type == null || "EXPENSE".equals(type);
+                })
+                .map(c -> (String) c.get("id"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No EXPENSE category found in DB"));
     }
 }
