@@ -4,9 +4,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.selfin.backend.dto.capital.CapitalTrajectoryDto;
+import ru.selfin.backend.dto.strategy.BreakdownDto;
+import ru.selfin.backend.dto.strategy.BreakdownItemDto;
+import ru.selfin.backend.dto.strategy.CategoryMonthStats;
+import ru.selfin.backend.dto.strategy.StrategyPointPhase;
 import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
 import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
-import ru.selfin.backend.dto.strategy.StrategyPointPhase;
+import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventType;
@@ -15,6 +20,7 @@ import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -97,6 +103,100 @@ public class StrategyTimelineService {
         return facts.stream()
                 .filter(e -> e.getType() == type)
                 .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static final int PREDICTION_WINDOW_MONTHS = 6;
+    private static final int MIN_HISTORY_FOR_FAN = 3;
+    private static final int MIN_CATEGORIES_FOR_FAN = 3;
+
+    /**
+     * @param current        текущий месяц
+     * @param horizonMonths  сколько будущих месяцев построить (включая current+1 … current+horizonMonths)
+     */
+    List<StrategyTimelinePointDto> buildFuturePoints(YearMonth current, int horizonMonths) {
+        List<StrategyTimelinePointDto> points = new ArrayList<>();
+        if (horizonMonths <= 0) return points;
+
+        // Шаг 1: forecast-категории и их статы
+        List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
+        List<CategoryMonthStats> allStats = forecastCats.stream()
+                .map(c -> predictionService.getStatsForCategory(c, PREDICTION_WINDOW_MONTHS))
+                .toList();
+        List<CategoryMonthStats> eligibleStats = allStats.stream()
+                .filter(s -> s.monthsOfHistory() >= MIN_HISTORY_FOR_FAN)
+                .toList();
+
+        BigDecimal sumMedian = eligibleStats.stream()
+                .map(CategoryMonthStats::median)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        double sumHalfIqr = Math.sqrt(eligibleStats.stream()
+                .mapToDouble(s -> {
+                    double halfIqr = s.p75().subtract(s.p25()).doubleValue() / 2.0;
+                    return halfIqr * halfIqr;
+                })
+                .sum());
+
+        boolean fanEnabled = eligibleStats.size() >= MIN_CATEGORIES_FOR_FAN;
+
+        // Шаг 2: планы (recurring + manual) на будущее
+        LocalDate futureStart = current.plusMonths(1).atDay(1);
+        LocalDate futureEnd = current.plusMonths(horizonMonths).atEndOfMonth();
+        Map<YearMonth, List<FinancialEvent>> plannedByMonth = eventRepository
+                .findPlannedEventsByDateRange(futureStart, futureEnd).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
+
+        // Шаг 3: построение точек
+        BigDecimal balanceConfirmed = capitalService.liquidAt(LocalDate.now());
+
+        for (int k = 1; k <= horizonMonths; k++) {
+            YearMonth ym = current.plusMonths(k);
+            List<FinancialEvent> planned = plannedByMonth.getOrDefault(ym, List.of());
+
+            BigDecimal confirmedIncome = sumPlannedByType(planned, EventType.INCOME);
+            BigDecimal confirmedExpense = sumPlannedByType(planned, EventType.EXPENSE);
+            balanceConfirmed = balanceConfirmed.add(confirmedIncome).subtract(confirmedExpense);
+
+            BigDecimal balanceMedian = balanceConfirmed.subtract(sumMedian.multiply(BigDecimal.valueOf(k)));
+
+            BigDecimal balanceLow, balanceHigh;
+            if (fanEnabled) {
+                double rawHalfIqr = sumHalfIqr * Math.sqrt(k);
+                double capCeiling = 2.0 * Math.abs(balanceMedian.doubleValue());
+                double accumulatedHalfIqr = Math.min(rawHalfIqr, capCeiling);
+                BigDecimal halfIqrBd = BigDecimal.valueOf(accumulatedHalfIqr)
+                        .setScale(2, RoundingMode.HALF_UP);
+                balanceLow = balanceMedian.subtract(halfIqrBd);
+                balanceHigh = balanceMedian.add(halfIqrBd);
+            } else {
+                balanceLow = balanceMedian;
+                balanceHigh = balanceMedian;
+            }
+
+            points.add(new StrategyTimelinePointDto(
+                    ym,
+                    StrategyPointPhase.FUTURE,
+                    balanceMedian,
+                    confirmedIncome,
+                    confirmedExpense.add(sumMedian),    // expense = confirmed + prediction
+                    confirmedIncome.subtract(confirmedExpense.add(sumMedian)),  // nettoFlow
+                    balanceConfirmed,
+                    balanceLow,
+                    balanceHigh,
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    null
+            ));
+        }
+        return points;
+    }
+
+    private BigDecimal sumPlannedByType(List<FinancialEvent> events, EventType type) {
+        return events.stream()
+                .filter(e -> e.getType() == type)
+                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
