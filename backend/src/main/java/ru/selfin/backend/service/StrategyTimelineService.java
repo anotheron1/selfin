@@ -24,6 +24,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,8 +34,10 @@ import java.util.stream.Stream;
 /**
  * Сервис стратегической временной шкалы.
  *
- * <p>Точка входа — {@link #getTimeline(int, boolean)}.
- * Вспомогательные методы (firstActivityMonth и др.) реализуются по TDD в Chunk 2.
+ * <p>Точка входа — {@link #getTimeline(int, boolean)}: собирает прошлые, текущую и будущие точки,
+ * обогащает их данными капитала (через {@link CapitalService}) и, при необходимости,
+ * разбивкой по категориям (breakdown). Статистика forecast-категорий вычисляется однократно
+ * через {@link #computeStatsMap()} и передаётся вниз по цепочке вызовов.
  */
 @Service
 @RequiredArgsConstructor
@@ -51,6 +54,10 @@ public class StrategyTimelineService {
     // CapitalService уже инжектит revRepo и предоставляет публичный метод.
     private final CapitalService capitalService;
 
+    private static final int PREDICTION_WINDOW_MONTHS = 6;
+    private static final int MIN_HISTORY_FOR_FAN = 3;
+    private static final int MIN_CATEGORIES_FOR_FAN = 3;
+
     /**
      * Точка входа для GET /api/v1/strategy/timeline.
      *
@@ -62,13 +69,18 @@ public class StrategyTimelineService {
         YearMonth currentMonth = YearMonth.now();
         YearMonth horizonEnd = currentMonth.plusMonths(horizonMonths);
 
+        // Загружаем статистику по forecast-категориям ОДИН РАЗ; ключ — Category, чтобы имя было доступно
+        Map<Category, CategoryMonthStats> statsMap = computeStatsMap();
+
+        boolean fanEnabled = statsMap.values().stream()
+                .filter(s -> s.monthsOfHistory() >= MIN_HISTORY_FOR_FAN)
+                .count() >= MIN_CATEGORIES_FOR_FAN;
+
         List<StrategyTimelinePointDto> past = buildPastPoints(firstMonth, currentMonth);
 
         StrategyTimelinePointDto current = buildCurrentPoint(currentMonth);
 
-        List<StrategyTimelinePointDto> future = buildFuturePoints(currentMonth, horizonMonths);
-
-        boolean fanEnabled = isFanEnabled();
+        List<StrategyTimelinePointDto> future = buildFuturePoints(currentMonth, horizonMonths, statsMap);
 
         List<StrategyTimelinePointDto> all = new ArrayList<>();
         all.addAll(past);
@@ -77,7 +89,7 @@ public class StrategyTimelineService {
 
         all = enrichWithCapital(all);
         if (withBreakdown) {
-            all = enrichWithBreakdown(all);
+            all = enrichWithBreakdown(all, statsMap);
         }
 
         return new StrategyTimelineDto(
@@ -88,6 +100,21 @@ public class StrategyTimelineService {
                 fanEnabled,
                 all
         );
+    }
+
+    /**
+     * Загружает все forecast-enabled категории и вычисляет статистику для каждой ОДИН РАЗ.
+     *
+     * <p>Ключ — {@link Category} (а не UUID), чтобы имя категории было доступно в breakdown-методах
+     * без дополнительных обращений к репозиторию. LinkedHashMap сохраняет порядок из репозитория.
+     */
+    private Map<Category, CategoryMonthStats> computeStatsMap() {
+        List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
+        Map<Category, CategoryMonthStats> result = new LinkedHashMap<>();
+        for (Category cat : forecastCats) {
+            result.put(cat, predictionService.getStatsForCategory(cat, PREDICTION_WINDOW_MONTHS));
+        }
+        return result;
     }
 
     StrategyTimelinePointDto buildCurrentPoint(YearMonth current) {
@@ -120,15 +147,6 @@ public class StrategyTimelineService {
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 null
         );
-    }
-
-    private boolean isFanEnabled() {
-        List<Category> cats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
-        long eligibleCount = cats.stream()
-                .map(c -> predictionService.getStatsForCategory(c, PREDICTION_WINDOW_MONTHS))
-                .filter(s -> s.monthsOfHistory() >= MIN_HISTORY_FOR_FAN)
-                .count();
-        return eligibleCount >= MIN_CATEGORIES_FOR_FAN;
     }
 
     List<StrategyTimelinePointDto> buildPastPoints(YearMonth from, YearMonth currentMonth) {
@@ -178,24 +196,18 @@ public class StrategyTimelineService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    private static final int PREDICTION_WINDOW_MONTHS = 6;
-    private static final int MIN_HISTORY_FOR_FAN = 3;
-    private static final int MIN_CATEGORIES_FOR_FAN = 3;
-
     /**
      * @param current        текущий месяц
      * @param horizonMonths  сколько будущих месяцев построить (включая current+1 … current+horizonMonths)
+     * @param statsMap       предвычисленная статистика forecast-категорий (category → stats)
      */
-    List<StrategyTimelinePointDto> buildFuturePoints(YearMonth current, int horizonMonths) {
+    List<StrategyTimelinePointDto> buildFuturePoints(YearMonth current, int horizonMonths,
+                                                     Map<Category, CategoryMonthStats> statsMap) {
         List<StrategyTimelinePointDto> points = new ArrayList<>();
         if (horizonMonths <= 0) return points;
 
-        // Шаг 1: forecast-категории и их статы
-        List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
-        List<CategoryMonthStats> allStats = forecastCats.stream()
-                .map(c -> predictionService.getStatsForCategory(c, PREDICTION_WINDOW_MONTHS))
-                .toList();
-        List<CategoryMonthStats> eligibleStats = allStats.stream()
+        // Шаг 1: вычисляем агрегаты из предвычисленного statsMap
+        List<CategoryMonthStats> eligibleStats = statsMap.values().stream()
                 .filter(s -> s.monthsOfHistory() >= MIN_HISTORY_FOR_FAN)
                 .toList();
 
@@ -212,7 +224,7 @@ public class StrategyTimelineService {
 
         boolean fanEnabled = eligibleStats.size() >= MIN_CATEGORIES_FOR_FAN;
 
-        // Шаг 2: планы (recurring + manual) на будущее
+        // Шаг 2: планы (recurring + manual) на будущее — один запрос на весь горизонт
         LocalDate futureStart = current.plusMonths(1).atDay(1);
         LocalDate futureEnd = current.plusMonths(horizonMonths).atEndOfMonth();
         Map<YearMonth, List<FinancialEvent>> plannedByMonth = eventRepository
@@ -320,83 +332,81 @@ public class StrategyTimelineService {
         return enriched;
     }
 
-    List<StrategyTimelinePointDto> enrichWithBreakdown(List<StrategyTimelinePointDto> points) {
+    /**
+     * Обогащает точки timeline разбивкой по категориям.
+     *
+     * <p>Факты и планы загружаются ОДНИМ запросом на весь диапазон точек, затем группируются
+     * по YearMonth и раздаются в соответствующие breakdown-методы. Статистика forecast-категорий
+     * берётся из предвычисленного {@code statsMap} — ни репозитории, ни PredictionService
+     * не вызываются повторно.
+     *
+     * @param points   список точек timeline (может быть любым подмножеством)
+     * @param statsMap предвычисленная статистика forecast-категорий (category → stats)
+     */
+    List<StrategyTimelinePointDto> enrichWithBreakdown(List<StrategyTimelinePointDto> points,
+                                                       Map<Category, CategoryMonthStats> statsMap) {
+        if (points.isEmpty()) return points;
+
+        // Диапазон для запросов — от первой до последней точки
+        YearMonth minYm = points.stream().map(StrategyTimelinePointDto::yearMonth)
+                .min(YearMonth::compareTo).orElseThrow();
+        YearMonth maxYm = points.stream().map(StrategyTimelinePointDto::yearMonth)
+                .max(YearMonth::compareTo).orElseThrow();
+
+        // Один запрос фактов на весь диапазон
+        Map<YearMonth, List<FinancialEvent>> factsByMonth = eventRepository
+                .findFactsByDateRange(minYm.atDay(1), maxYm.atEndOfMonth()).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.FACT)
+                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
+
+        // Один запрос планов на весь диапазон
+        Map<YearMonth, List<FinancialEvent>> plansByMonth = eventRepository
+                .findPlannedEventsByDateRange(minYm.atDay(1), maxYm.atEndOfMonth()).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
+
         List<StrategyTimelinePointDto> enriched = new ArrayList<>(points.size());
         for (StrategyTimelinePointDto p : points) {
             BreakdownDto br = switch (p.phase()) {
-                case PAST -> breakdownForPast(p.yearMonth());
-                case CURRENT -> breakdownForCurrent(p.yearMonth());
-                case FUTURE -> breakdownForFuture(p.yearMonth());
+                case PAST -> breakdownForPast(p.yearMonth(), factsByMonth);
+                case CURRENT -> breakdownForCurrent(p.yearMonth(), factsByMonth, statsMap);
+                case FUTURE -> breakdownForFuture(p.yearMonth(), plansByMonth, statsMap);
             };
             enriched.add(withBreakdown(p, br));
         }
         return enriched;
     }
 
-    private BreakdownDto breakdownForPast(YearMonth ym) {
-        List<FinancialEvent> facts = eventRepository.findFactsByDateRange(ym.atDay(1), ym.atEndOfMonth()).stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.FACT)
-                .toList();
+    private BreakdownDto breakdownForPast(YearMonth ym, Map<YearMonth, List<FinancialEvent>> factsByMonth) {
+        List<FinancialEvent> facts = factsByMonth.getOrDefault(ym, List.of());
         return new BreakdownDto(
                 aggregateByCategory(facts, EventType.INCOME, FinancialEvent::getFactAmount, false, false),
                 aggregateByCategory(facts, EventType.EXPENSE, FinancialEvent::getFactAmount, false, false)
         );
     }
 
-    private BreakdownDto breakdownForFuture(YearMonth ym) {
-        // Recurring + manual planned (recurring distinguished by recurringRule != null)
-        List<FinancialEvent> planned = eventRepository.findPlannedEventsByDateRange(ym.atDay(1), ym.atEndOfMonth()).stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.PLAN)
-                .toList();
+    private BreakdownDto breakdownForFuture(YearMonth ym, Map<YearMonth, List<FinancialEvent>> plansByMonth,
+                                            Map<Category, CategoryMonthStats> statsMap) {
+        List<FinancialEvent> planned = plansByMonth.getOrDefault(ym, List.of());
 
-        List<BreakdownItemDto> incomeItems = new ArrayList<>(
-                planned.stream()
-                        .filter(e -> e.getType() == EventType.INCOME)
-                        .collect(Collectors.groupingBy(
-                                e -> e.getCategory().getName(),
-                                Collectors.collectingAndThen(Collectors.toList(),
-                                        list -> new BreakdownItemDto(
-                                                list.get(0).getCategory().getName(),
-                                                list.stream().map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
-                                                        .reduce(BigDecimal.ZERO, BigDecimal::add),
-                                                list.stream().anyMatch(e -> e.getRecurringRule() != null),
-                                                false
-                                        ))))
-                        .values()
-        );
+        List<BreakdownItemDto> incomeItems = aggregatePlannedByCategory(planned, EventType.INCOME);
+        List<BreakdownItemDto> expenseItems = aggregatePlannedByCategory(planned, EventType.EXPENSE);
 
-        List<BreakdownItemDto> expenseItems = new ArrayList<>(
-                planned.stream()
-                        .filter(e -> e.getType() == EventType.EXPENSE)
-                        .collect(Collectors.groupingBy(
-                                e -> e.getCategory().getName(),
-                                Collectors.collectingAndThen(Collectors.toList(),
-                                        list -> new BreakdownItemDto(
-                                                list.get(0).getCategory().getName(),
-                                                list.stream().map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
-                                                        .reduce(BigDecimal.ZERO, BigDecimal::add),
-                                                list.stream().anyMatch(e -> e.getRecurringRule() != null),
-                                                false
-                                        ))))
-                        .values()
-        );
-
-        // Добавляем predicted items для forecast-категорий
-        List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
-        for (Category cat : forecastCats) {
-            CategoryMonthStats stats = predictionService.getStatsForCategory(cat, PREDICTION_WINDOW_MONTHS);
-            if (stats.median().compareTo(BigDecimal.ZERO) > 0) {
-                expenseItems.add(new BreakdownItemDto(cat.getName(), stats.median(), false, true));
+        // Добавляем predicted items для forecast-категорий из предвычисленного statsMap
+        for (Map.Entry<Category, CategoryMonthStats> entry : statsMap.entrySet()) {
+            if (entry.getValue().median().compareTo(BigDecimal.ZERO) > 0) {
+                expenseItems.add(new BreakdownItemDto(entry.getKey().getName(), entry.getValue().median(), false, true));
             }
         }
         return new BreakdownDto(incomeItems, expenseItems);
     }
 
-    private BreakdownDto breakdownForCurrent(YearMonth ym) {
+    private BreakdownDto breakdownForCurrent(YearMonth ym, Map<YearMonth, List<FinancialEvent>> factsByMonth,
+                                             Map<Category, CategoryMonthStats> statsMap) {
         // Текущий месяц: факты до сегодня + прогноз остатка
-        BreakdownDto past = breakdownForPast(ym);
+        BreakdownDto past = breakdownForPast(ym, factsByMonth);
 
         List<BreakdownItemDto> expense = new ArrayList<>(past.expenseItems());
 
@@ -407,17 +417,40 @@ public class StrategyTimelineService {
         double fraction = (double) daysRemaining / daysInMonth;
 
         if (fraction > 0) {
-            List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
-            for (Category cat : forecastCats) {
-                CategoryMonthStats stats = predictionService.getStatsForCategory(cat, PREDICTION_WINDOW_MONTHS);
-                BigDecimal proRated = stats.median().multiply(BigDecimal.valueOf(fraction))
+            for (Map.Entry<Category, CategoryMonthStats> entry : statsMap.entrySet()) {
+                BigDecimal proRated = entry.getValue().median().multiply(BigDecimal.valueOf(fraction))
                         .setScale(2, RoundingMode.HALF_UP);
                 if (proRated.compareTo(BigDecimal.ZERO) > 0) {
-                    expense.add(new BreakdownItemDto(cat.getName() + " (прогноз остатка)", proRated, false, true));
+                    expense.add(new BreakdownItemDto(entry.getKey().getName(), proRated, false, true));
                 }
             }
         }
         return new BreakdownDto(past.incomeItems(), expense);
+    }
+
+    /**
+     * Агрегирует planned-события заданного типа по категории.
+     * Возвращает {@link ArrayList} (а не неизменяемый список), чтобы вызывающий код
+     * мог добавлять predicted-элементы после агрегации.
+     */
+    private List<BreakdownItemDto> aggregatePlannedByCategory(List<FinancialEvent> events, EventType type) {
+        return events.stream()
+                .filter(e -> e.getType() == type)
+                .filter(e -> e.getCategory() != null)
+                .collect(Collectors.groupingBy(
+                        e -> e.getCategory().getName(),
+                        Collectors.collectingAndThen(Collectors.toList(),
+                                list -> new BreakdownItemDto(
+                                        list.get(0).getCategory().getName(),
+                                        list.stream()
+                                                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                                                .reduce(BigDecimal.ZERO, BigDecimal::add),
+                                        list.stream().anyMatch(e -> e.getRecurringRule() != null),
+                                        false
+                                ))))
+                .values().stream()
+                .sorted((a, b) -> b.amount().compareTo(a.amount()))
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     private List<BreakdownItemDto> aggregateByCategory(List<FinancialEvent> events, EventType type,

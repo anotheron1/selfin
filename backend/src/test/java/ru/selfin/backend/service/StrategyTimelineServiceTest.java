@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.capital.CapitalTrajectoryDto;
 import ru.selfin.backend.dto.strategy.BreakdownDto;
 import ru.selfin.backend.dto.strategy.BreakdownItemDto;
+import ru.selfin.backend.dto.strategy.CategoryMonthStats;
 import ru.selfin.backend.dto.strategy.StrategyPointPhase;
 import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
 import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
@@ -21,7 +22,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -175,29 +178,25 @@ class StrategyTimelineServiceTest {
         // Замокать liquidAt(today) — seed для balanceConfirmed[0]
         when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("180000"));
 
-        // Замокать список forecast-enabled категорий: 3 категории с разной историей
+        // Строим statsMap напрямую — buildFuturePoints больше не вызывает categoryRepo/predictionService
         Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
         Category transport = Category.builder().id(UUID.randomUUID()).name("Транспорт").forecastEnabled(true).build();
         Category fun = Category.builder().id(UUID.randomUUID()).name("Развлечения").forecastEnabled(true).build();
-        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(food, transport, fun));
 
-        // PredictionService возвращает разные статы
-        when(predictionService.getStatsForCategory(food, 6)).thenReturn(
-                new ru.selfin.backend.dto.strategy.CategoryMonthStats(food.getId(), 6,
-                        new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000"))); // halfIqr=5000
-        when(predictionService.getStatsForCategory(transport, 6)).thenReturn(
-                new ru.selfin.backend.dto.strategy.CategoryMonthStats(transport.getId(), 6,
-                        new BigDecimal("10000"), new BigDecimal("8000"), new BigDecimal("12000"))); // halfIqr=2000
-        when(predictionService.getStatsForCategory(fun, 6)).thenReturn(
-                new ru.selfin.backend.dto.strategy.CategoryMonthStats(fun.getId(), 6,
-                        new BigDecimal("15000"), new BigDecimal("10000"), new BigDecimal("20000"))); // halfIqr=5000
+        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
+        statsMap.put(food, new CategoryMonthStats(food.getId(), 6,
+                new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000"))); // halfIqr=5000
+        statsMap.put(transport, new CategoryMonthStats(transport.getId(), 6,
+                new BigDecimal("10000"), new BigDecimal("8000"), new BigDecimal("12000"))); // halfIqr=2000
+        statsMap.put(fun, new CategoryMonthStats(fun.getId(), 6,
+                new BigDecimal("15000"), new BigDecimal("10000"), new BigDecimal("20000"))); // halfIqr=5000
 
         // sumMedian = 60000, sumHalfIqr = sqrt(25M + 4M + 25M) = sqrt(54M) ≈ 7348
 
         // Recurring + planned событий на будущие месяцы — пусто (тест на чистый прогноз)
         when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
 
-        List<StrategyTimelinePointDto> future = service.buildFuturePoints(current, 3);
+        List<StrategyTimelinePointDto> future = service.buildFuturePoints(current, 3, statsMap);
 
         assertThat(future).hasSize(3);
 
@@ -273,8 +272,13 @@ class StrategyTimelineServiceTest {
                         .type(EventType.EXPENSE).factAmount(new BigDecimal("40000"))
                         .eventKind(EventKind.FACT).deleted(false).build()
         ));
+        // Нет планов в этом диапазоне
+        when(eventRepo.findPlannedEventsByDateRange(mar.atDay(1), mar.atEndOfMonth())).thenReturn(List.of());
 
-        List<StrategyTimelinePointDto> result = service.enrichWithBreakdown(List.of(march));
+        // Пустой statsMap — PAST breakdown его не использует
+        Map<Category, CategoryMonthStats> statsMap = Map.of();
+
+        List<StrategyTimelinePointDto> result = service.enrichWithBreakdown(List.of(march), statsMap);
 
         BreakdownDto br = result.get(0).breakdown();
         assertThat(br).isNotNull();
@@ -301,14 +305,15 @@ class StrategyTimelineServiceTest {
                         .type(EventType.EXPENSE).plannedAmount(new BigDecimal("80000"))
                         .eventKind(EventKind.PLAN).recurringRule(rule).deleted(false).build()
         ));
+        // Нет фактов в этом диапазоне
+        when(eventRepo.findFactsByDateRange(jun.atDay(1), jun.atEndOfMonth())).thenReturn(List.of());
 
-        // Forecast-enabled категории и их прогноз
-        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(food));
-        when(predictionService.getStatsForCategory(food, 6)).thenReturn(
-                new ru.selfin.backend.dto.strategy.CategoryMonthStats(food.getId(), 6,
-                        new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000")));
+        // statsMap с предвычисленной статистикой для food — передаётся напрямую
+        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
+        statsMap.put(food, new CategoryMonthStats(food.getId(), 6,
+                new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000")));
 
-        List<StrategyTimelinePointDto> result = service.enrichWithBreakdown(List.of(june));
+        List<StrategyTimelinePointDto> result = service.enrichWithBreakdown(List.of(june), statsMap);
 
         BreakdownDto br = result.get(0).breakdown();
         assertThat(br.expenseItems()).hasSize(2);
@@ -321,7 +326,7 @@ class StrategyTimelineServiceTest {
         assertThat(mortgageItem.isRecurring()).isTrue();
         assertThat(mortgageItem.isPredicted()).isFalse();
 
-        // Predicted продукты
+        // Predicted продукты — без суффикса " (прогноз остатка)", isPredicted=true — контракт
         BreakdownItemDto foodItem = br.expenseItems().stream()
                 .filter(i -> i.category().equals("Продукты"))
                 .findFirst().orElseThrow();
