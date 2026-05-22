@@ -248,6 +248,134 @@ public class StrategyTimelineService {
         return enriched;
     }
 
+    List<StrategyTimelinePointDto> enrichWithBreakdown(List<StrategyTimelinePointDto> points) {
+        List<StrategyTimelinePointDto> enriched = new ArrayList<>(points.size());
+        for (StrategyTimelinePointDto p : points) {
+            BreakdownDto br = switch (p.phase()) {
+                case PAST -> breakdownForPast(p.yearMonth());
+                case CURRENT -> breakdownForCurrent(p.yearMonth());
+                case FUTURE -> breakdownForFuture(p.yearMonth());
+            };
+            enriched.add(withBreakdown(p, br));
+        }
+        return enriched;
+    }
+
+    private BreakdownDto breakdownForPast(YearMonth ym) {
+        List<FinancialEvent> facts = eventRepository.findFactsByDateRange(ym.atDay(1), ym.atEndOfMonth()).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.FACT)
+                .toList();
+        return new BreakdownDto(
+                aggregateByCategory(facts, EventType.INCOME, FinancialEvent::getFactAmount, false, false),
+                aggregateByCategory(facts, EventType.EXPENSE, FinancialEvent::getFactAmount, false, false)
+        );
+    }
+
+    private BreakdownDto breakdownForFuture(YearMonth ym) {
+        // Recurring + manual planned (recurring distinguished by recurringRule != null)
+        List<FinancialEvent> planned = eventRepository.findPlannedEventsByDateRange(ym.atDay(1), ym.atEndOfMonth()).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .toList();
+
+        List<BreakdownItemDto> incomeItems = new ArrayList<>(
+                planned.stream()
+                        .filter(e -> e.getType() == EventType.INCOME)
+                        .collect(Collectors.groupingBy(
+                                e -> e.getCategory().getName(),
+                                Collectors.collectingAndThen(Collectors.toList(),
+                                        list -> new BreakdownItemDto(
+                                                list.get(0).getCategory().getName(),
+                                                list.stream().map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                                                        .reduce(BigDecimal.ZERO, BigDecimal::add),
+                                                list.stream().anyMatch(e -> e.getRecurringRule() != null),
+                                                false
+                                        ))))
+                        .values()
+        );
+
+        List<BreakdownItemDto> expenseItems = new ArrayList<>(
+                planned.stream()
+                        .filter(e -> e.getType() == EventType.EXPENSE)
+                        .collect(Collectors.groupingBy(
+                                e -> e.getCategory().getName(),
+                                Collectors.collectingAndThen(Collectors.toList(),
+                                        list -> new BreakdownItemDto(
+                                                list.get(0).getCategory().getName(),
+                                                list.stream().map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                                                        .reduce(BigDecimal.ZERO, BigDecimal::add),
+                                                list.stream().anyMatch(e -> e.getRecurringRule() != null),
+                                                false
+                                        ))))
+                        .values()
+        );
+
+        // Добавляем predicted items для forecast-категорий
+        List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
+        for (Category cat : forecastCats) {
+            CategoryMonthStats stats = predictionService.getStatsForCategory(cat, PREDICTION_WINDOW_MONTHS);
+            if (stats.median().compareTo(BigDecimal.ZERO) > 0) {
+                expenseItems.add(new BreakdownItemDto(cat.getName(), stats.median(), false, true));
+            }
+        }
+        return new BreakdownDto(incomeItems, expenseItems);
+    }
+
+    private BreakdownDto breakdownForCurrent(YearMonth ym) {
+        // Текущий месяц: факты до сегодня + прогноз остатка
+        BreakdownDto past = breakdownForPast(ym);
+
+        List<BreakdownItemDto> expense = new ArrayList<>(past.expenseItems());
+
+        // Pro-rated прогноз
+        LocalDate today = LocalDate.now();
+        int daysInMonth = ym.lengthOfMonth();
+        int daysRemaining = Math.max(0, daysInMonth - today.getDayOfMonth());
+        double fraction = (double) daysRemaining / daysInMonth;
+
+        if (fraction > 0) {
+            List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
+            for (Category cat : forecastCats) {
+                CategoryMonthStats stats = predictionService.getStatsForCategory(cat, PREDICTION_WINDOW_MONTHS);
+                BigDecimal proRated = stats.median().multiply(BigDecimal.valueOf(fraction))
+                        .setScale(2, RoundingMode.HALF_UP);
+                if (proRated.compareTo(BigDecimal.ZERO) > 0) {
+                    expense.add(new BreakdownItemDto(cat.getName() + " (прогноз остатка)", proRated, false, true));
+                }
+            }
+        }
+        return new BreakdownDto(past.incomeItems(), expense);
+    }
+
+    private List<BreakdownItemDto> aggregateByCategory(List<FinancialEvent> events, EventType type,
+                                                       java.util.function.Function<FinancialEvent, BigDecimal> amountFn,
+                                                       boolean isRecurring, boolean isPredicted) {
+        return events.stream()
+                .filter(e -> e.getType() == type)
+                .filter(e -> e.getCategory() != null)
+                .collect(Collectors.groupingBy(
+                        e -> e.getCategory().getName(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                e -> amountFn.apply(e) != null ? amountFn.apply(e) : BigDecimal.ZERO,
+                                BigDecimal::add)
+                ))
+                .entrySet().stream()
+                .map(en -> new BreakdownItemDto(en.getKey(), en.getValue(), isRecurring, isPredicted))
+                .sorted((a, b) -> b.amount().compareTo(a.amount()))    // сортировка по убыванию суммы
+                .toList();
+    }
+
+    private StrategyTimelinePointDto withBreakdown(StrategyTimelinePointDto p, BreakdownDto br) {
+        return new StrategyTimelinePointDto(
+                p.yearMonth(), p.phase(),
+                p.balance(), p.income(), p.expense(), p.nettoFlow(),
+                p.balanceConfirmed(), p.balanceLow(), p.balanceHigh(),
+                p.capital(), p.assets(), p.liabilities(),
+                br
+        );
+    }
+
     /**
      * Самый ранний месяц активности пользователя — минимум из:
      * <ul>
