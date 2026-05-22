@@ -3,9 +3,12 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.capital.CapitalTrajectoryDto;
+import ru.selfin.backend.dto.strategy.BreakdownDto;
+import ru.selfin.backend.dto.strategy.BreakdownItemDto;
 import ru.selfin.backend.dto.strategy.StrategyPointPhase;
 import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.RecurringRule;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventType;
@@ -251,6 +254,79 @@ class StrategyTimelineServiceTest {
         assertThat(result.get(2).capital()).isEqualByComparingTo("3600000");
         assertThat(result.get(2).assets()).isEqualByComparingTo("4600000");
         assertThat(result.get(2).liabilities()).isEqualByComparingTo("500000");
+    }
+
+    @Test
+    void enrichWithBreakdown_for_past_aggregates_facts_by_category() {
+        YearMonth mar = YearMonth.of(2026, 3);
+        StrategyTimelinePointDto march = pointWith(mar, StrategyPointPhase.PAST);
+
+        Category salary = Category.builder().id(UUID.randomUUID()).name("Зарплата").build();
+        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").build();
+
+        when(eventRepo.findFactsByDateRange(mar.atDay(1), mar.atEndOfMonth())).thenReturn(List.of(
+                FinancialEvent.builder().date(LocalDate.of(2026, 3, 5)).category(salary)
+                        .type(EventType.INCOME).factAmount(new BigDecimal("200000"))
+                        .eventKind(EventKind.FACT).deleted(false).build(),
+                FinancialEvent.builder().date(LocalDate.of(2026, 3, 10)).category(food)
+                        .type(EventType.EXPENSE).factAmount(new BigDecimal("40000"))
+                        .eventKind(EventKind.FACT).deleted(false).build()
+        ));
+
+        List<StrategyTimelinePointDto> result = service.enrichWithBreakdown(List.of(march));
+
+        BreakdownDto br = result.get(0).breakdown();
+        assertThat(br).isNotNull();
+        assertThat(br.incomeItems()).hasSize(1);
+        assertThat(br.incomeItems().get(0).category()).isEqualTo("Зарплата");
+        assertThat(br.incomeItems().get(0).amount()).isEqualByComparingTo("200000");
+        assertThat(br.expenseItems()).hasSize(1);
+        assertThat(br.expenseItems().get(0).category()).isEqualTo("Продукты");
+        assertThat(br.expenseItems().get(0).amount()).isEqualByComparingTo("40000");
+    }
+
+    @Test
+    void enrichWithBreakdown_for_future_includes_recurring_planned_and_predicted() {
+        YearMonth jun = YearMonth.of(2026, 6);
+        StrategyTimelinePointDto june = pointWith(jun, StrategyPointPhase.FUTURE);
+
+        Category mortgage = Category.builder().id(UUID.randomUUID()).name("Ипотека").build();
+        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
+        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+
+        // Recurring planned EXPENSE на ипотеку
+        when(eventRepo.findPlannedEventsByDateRange(jun.atDay(1), jun.atEndOfMonth())).thenReturn(List.of(
+                FinancialEvent.builder().date(LocalDate.of(2026, 6, 15)).category(mortgage)
+                        .type(EventType.EXPENSE).plannedAmount(new BigDecimal("80000"))
+                        .eventKind(EventKind.PLAN).recurringRule(rule).deleted(false).build()
+        ));
+
+        // Forecast-enabled категории и их прогноз
+        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(food));
+        when(predictionService.getStatsForCategory(food, 6)).thenReturn(
+                new ru.selfin.backend.dto.strategy.CategoryMonthStats(food.getId(), 6,
+                        new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000")));
+
+        List<StrategyTimelinePointDto> result = service.enrichWithBreakdown(List.of(june));
+
+        BreakdownDto br = result.get(0).breakdown();
+        assertThat(br.expenseItems()).hasSize(2);
+
+        // Recurring ипотека
+        BreakdownItemDto mortgageItem = br.expenseItems().stream()
+                .filter(i -> i.category().equals("Ипотека"))
+                .findFirst().orElseThrow();
+        assertThat(mortgageItem.amount()).isEqualByComparingTo("80000");
+        assertThat(mortgageItem.isRecurring()).isTrue();
+        assertThat(mortgageItem.isPredicted()).isFalse();
+
+        // Predicted продукты
+        BreakdownItemDto foodItem = br.expenseItems().stream()
+                .filter(i -> i.category().equals("Продукты"))
+                .findFirst().orElseThrow();
+        assertThat(foodItem.amount()).isEqualByComparingTo("35000");
+        assertThat(foodItem.isRecurring()).isFalse();
+        assertThat(foodItem.isPredicted()).isTrue();
     }
 
     // helper-метод pointWith
