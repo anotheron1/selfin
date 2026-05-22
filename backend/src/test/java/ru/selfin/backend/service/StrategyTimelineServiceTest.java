@@ -2,17 +2,15 @@ package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
+import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -20,6 +18,8 @@ class StrategyTimelineServiceTest {
 
     private FinancialEventRepository eventRepo;
     private BalanceCheckpointRepository checkpointRepo;
+    private CategoryRepository categoryRepo;
+    private PredictionService predictionService;
     private CapitalService capitalService;
     private StrategyTimelineService service;
 
@@ -27,8 +27,12 @@ class StrategyTimelineServiceTest {
     void setUp() {
         eventRepo = mock(FinancialEventRepository.class);
         checkpointRepo = mock(BalanceCheckpointRepository.class);
+        categoryRepo = mock(CategoryRepository.class);
+        predictionService = mock(PredictionService.class);
         capitalService = mock(CapitalService.class);
-        service = new StrategyTimelineService(eventRepo, checkpointRepo, capitalService);
+
+        service = new StrategyTimelineService(eventRepo, checkpointRepo, categoryRepo,
+                predictionService, capitalService);
     }
 
     @Test
@@ -85,5 +89,14 @@ class StrategyTimelineServiceTest {
         when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
 
         assertThat(service.firstActivityMonth()).isEqualTo(YearMonth.of(2024, 8));
+    }
+
+    @Test
+    void firstActivityMonth_with_only_checkpoint() {
+        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.empty());
+        when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.of(LocalDate.of(2024, 2, 1)));
+        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
+
+        assertThat(service.firstActivityMonth()).isEqualTo(YearMonth.of(2024, 2));
     }
 }

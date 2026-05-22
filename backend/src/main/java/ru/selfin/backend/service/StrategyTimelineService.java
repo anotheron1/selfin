@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
+import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.time.LocalDate;
@@ -27,6 +28,11 @@ public class StrategyTimelineService {
 
     private final FinancialEventRepository eventRepository;
     private final BalanceCheckpointRepository checkpointRepository;
+    private final CategoryRepository categoryRepository;
+    private final PredictionService predictionService;
+    // ВАЖНО: НЕ добавлять CapitalRevaluationRepository здесь.
+    // Доступ к "earliest revaluation" идёт через capitalService.findEarliestRevaluationDate() —
+    // CapitalService уже инжектит revRepo и предоставляет публичный метод.
     private final CapitalService capitalService;
 
     /**
