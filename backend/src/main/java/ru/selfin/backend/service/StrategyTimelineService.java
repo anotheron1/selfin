@@ -53,10 +53,82 @@ public class StrategyTimelineService {
 
     /**
      * Точка входа для GET /api/v1/strategy/timeline.
-     * Реализуется в следующих чанках.
+     *
+     * @param horizonMonths  количество будущих месяцев для прогноза
+     * @param withBreakdown  включать ли разбивку по категориям в каждую точку
      */
-    public StrategyTimelineDto getTimeline(int historyMonths, int horizonMonths, boolean withBreakdown) {
-        throw new UnsupportedOperationException("Not yet implemented");
+    public StrategyTimelineDto getTimeline(int horizonMonths, boolean withBreakdown) {
+        YearMonth firstMonth = firstActivityMonth();
+        YearMonth currentMonth = YearMonth.now();
+        YearMonth horizonEnd = currentMonth.plusMonths(horizonMonths);
+
+        List<StrategyTimelinePointDto> past = buildPastPoints(firstMonth, currentMonth);
+
+        StrategyTimelinePointDto current = buildCurrentPoint(currentMonth);
+
+        List<StrategyTimelinePointDto> future = buildFuturePoints(currentMonth, horizonMonths);
+
+        boolean fanEnabled = isFanEnabled();
+
+        List<StrategyTimelinePointDto> all = new ArrayList<>();
+        all.addAll(past);
+        all.add(current);
+        all.addAll(future);
+
+        all = enrichWithCapital(all);
+        if (withBreakdown) {
+            all = enrichWithBreakdown(all);
+        }
+
+        return new StrategyTimelineDto(
+                firstMonth,
+                currentMonth,
+                horizonEnd,
+                PREDICTION_WINDOW_MONTHS,
+                fanEnabled,
+                all
+        );
+    }
+
+    StrategyTimelinePointDto buildCurrentPoint(YearMonth current) {
+        LocalDate today = LocalDate.now();
+        LocalDate monthStart = current.atDay(1);
+
+        // Факты с начала месяца до сегодня
+        List<FinancialEvent> factsToDate = eventRepository.findFactsByDateRange(monthStart, today).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.FACT)
+                .toList();
+
+        BigDecimal incomeToDate = sumByType(factsToDate, EventType.INCOME);
+        BigDecimal expenseToDate = sumByType(factsToDate, EventType.EXPENSE);
+        BigDecimal nettoFlow = incomeToDate.subtract(expenseToDate);
+
+        // balance для CURRENT — live liquidAt(today), не end-of-month проекция
+        BigDecimal balance = capitalService.liquidAt(today);
+
+        return new StrategyTimelinePointDto(
+                current,
+                StrategyPointPhase.CURRENT,
+                balance,
+                incomeToDate,
+                expenseToDate,
+                nettoFlow,
+                balance,   // balanceConfirmed = текущий live баланс
+                balance,   // balanceLow = balance (нет прогноза накопленного на текущий месяц)
+                balance,   // balanceHigh = balance
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                null
+        );
+    }
+
+    private boolean isFanEnabled() {
+        List<Category> cats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
+        long eligibleCount = cats.stream()
+                .map(c -> predictionService.getStatsForCategory(c, PREDICTION_WINDOW_MONTHS))
+                .filter(s -> s.monthsOfHistory() >= MIN_HISTORY_FOR_FAN)
+                .count();
+        return eligibleCount >= MIN_CATEGORIES_FOR_FAN;
     }
 
     List<StrategyTimelinePointDto> buildPastPoints(YearMonth from, YearMonth currentMonth) {
