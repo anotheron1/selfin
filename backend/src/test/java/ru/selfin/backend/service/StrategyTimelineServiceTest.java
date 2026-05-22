@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.data.Offset.offset;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -159,5 +160,61 @@ class StrategyTimelineServiceTest {
         assertThat(past.get(2).income()).isEqualByComparingTo("200000");
         assertThat(past.get(2).expense()).isEqualByComparingTo("35000");
         assertThat(past.get(2).balance()).isEqualByComparingTo("180000");
+    }
+
+    @Test
+    void buildFuturePoints_uses_recurring_planned_and_predicts_with_fan_bounds() {
+        YearMonth current = YearMonth.of(2026, 5);
+
+        // Замокать liquidAt(today) — seed для balanceConfirmed[0]
+        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("180000"));
+
+        // Замокать список forecast-enabled категорий: 3 категории с разной историей
+        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
+        Category transport = Category.builder().id(UUID.randomUUID()).name("Транспорт").forecastEnabled(true).build();
+        Category fun = Category.builder().id(UUID.randomUUID()).name("Развлечения").forecastEnabled(true).build();
+        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(food, transport, fun));
+
+        // PredictionService возвращает разные статы
+        when(predictionService.getStatsForCategory(food, 6)).thenReturn(
+                new ru.selfin.backend.dto.strategy.CategoryMonthStats(food.getId(), 6,
+                        new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000"))); // halfIqr=5000
+        when(predictionService.getStatsForCategory(transport, 6)).thenReturn(
+                new ru.selfin.backend.dto.strategy.CategoryMonthStats(transport.getId(), 6,
+                        new BigDecimal("10000"), new BigDecimal("8000"), new BigDecimal("12000"))); // halfIqr=2000
+        when(predictionService.getStatsForCategory(fun, 6)).thenReturn(
+                new ru.selfin.backend.dto.strategy.CategoryMonthStats(fun.getId(), 6,
+                        new BigDecimal("15000"), new BigDecimal("10000"), new BigDecimal("20000"))); // halfIqr=5000
+
+        // sumMedian = 60000, sumHalfIqr = sqrt(25M + 4M + 25M) = sqrt(54M) ≈ 7348
+
+        // Recurring + planned событий на будущие месяцы — пусто (тест на чистый прогноз)
+        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
+
+        List<StrategyTimelinePointDto> future = service.buildFuturePoints(current, 3);
+
+        assertThat(future).hasSize(3);
+
+        // Месяц 1 — k=1
+        StrategyTimelinePointDto m1 = future.get(0);
+        assertThat(m1.yearMonth()).isEqualTo(YearMonth.of(2026, 6));
+        assertThat(m1.phase()).isEqualTo(StrategyPointPhase.FUTURE);
+        // balanceConfirmed[1] = 180000 + 0 - 0 = 180000 (нет recurring/planned)
+        assertThat(m1.balanceConfirmed()).isEqualByComparingTo("180000");
+        // balanceMedian[1] = 180000 - 60000 * 1 = 120000
+        assertThat(m1.balance()).isEqualByComparingTo("120000");
+        // accumulatedHalfIqr[1] = 7348 * sqrt(1) ≈ 7348
+        // balanceLow = 120000 - 7348 ≈ 112652, balanceHigh = 120000 + 7348 ≈ 127348
+        assertThat(m1.balanceLow().doubleValue()).isCloseTo(112652, offset(50.0));
+        assertThat(m1.balanceHigh().doubleValue()).isCloseTo(127348, offset(50.0));
+
+        // Месяц 3 — k=3
+        StrategyTimelinePointDto m3 = future.get(2);
+        // balanceMedian[3] = 180000 - 60000 * 3 = 0
+        assertThat(m3.balance()).isEqualByComparingTo("0");
+        // accumulatedHalfIqr[3] = 7348 * sqrt(3) ≈ 12727; cap=2×|0|=0
+        // НО т.к. balanceMedian=0, cap=0 → fan ширина 0
+        assertThat(m3.balanceLow()).isEqualByComparingTo("0");
+        assertThat(m3.balanceHigh()).isEqualByComparingTo("0");
     }
 }
