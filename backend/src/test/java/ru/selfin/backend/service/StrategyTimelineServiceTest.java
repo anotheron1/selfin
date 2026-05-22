@@ -6,6 +6,7 @@ import ru.selfin.backend.dto.capital.CapitalTrajectoryDto;
 import ru.selfin.backend.dto.strategy.BreakdownDto;
 import ru.selfin.backend.dto.strategy.BreakdownItemDto;
 import ru.selfin.backend.dto.strategy.StrategyPointPhase;
+import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
 import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.RecurringRule;
@@ -327,6 +328,51 @@ class StrategyTimelineServiceTest {
         assertThat(foodItem.amount()).isEqualByComparingTo("35000");
         assertThat(foodItem.isRecurring()).isFalse();
         assertThat(foodItem.isPredicted()).isTrue();
+    }
+
+    @Test
+    void getTimeline_assembles_past_current_future_with_capital_and_breakdown() {
+        // Замокать минимально, чтобы пройти всю цепочку
+        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.of(LocalDate.now().minusMonths(2)));
+        when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
+        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
+
+        when(capitalService.liquidAt(any())).thenReturn(new BigDecimal("100000"));
+        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
+        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
+        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
+        when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of()));
+
+        StrategyTimelineDto dto = service.getTimeline(3, true);
+
+        // 2 past + 1 current + 3 future = 6
+        assertThat(dto.points()).hasSize(6);
+        assertThat(dto.currentMonth()).isEqualTo(YearMonth.now());
+        assertThat(dto.horizonEnd()).isEqualTo(YearMonth.now().plusMonths(3));
+        assertThat(dto.predictionWindowMonths()).isEqualTo(6);
+        assertThat(dto.fanEnabled()).isFalse(); // нет forecast-категорий
+    }
+
+    @Test
+    void getTimeline_currentMonth_balance_uses_liquidAt_today() {
+        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.empty());
+        when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
+        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
+        // Fallback firstActivityMonth = today.minusMonths(1) — значит будут PAST + CURRENT + FUTURE
+        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("550000"));
+        when(capitalService.liquidAt(any())).thenReturn(new BigDecimal("550000"));
+        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
+        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
+        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
+        when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of()));
+
+        StrategyTimelineDto dto = service.getTimeline(2, false);
+
+        StrategyTimelinePointDto current = dto.points().stream()
+                .filter(p -> p.phase() == StrategyPointPhase.CURRENT)
+                .findFirst().orElseThrow();
+        assertThat(current.balance()).isEqualByComparingTo("550000");
+        assertThat(current.yearMonth()).isEqualTo(YearMonth.now());
     }
 
     // helper-метод pointWith
