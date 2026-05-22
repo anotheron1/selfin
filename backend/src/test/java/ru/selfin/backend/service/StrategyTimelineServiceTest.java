@@ -2,6 +2,7 @@ package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import ru.selfin.backend.dto.capital.CapitalTrajectoryDto;
 import ru.selfin.backend.dto.strategy.StrategyPointPhase;
 import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
 import ru.selfin.backend.model.Category;
@@ -15,6 +16,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -216,5 +218,47 @@ class StrategyTimelineServiceTest {
         // НО т.к. balanceMedian=0, cap=0 → fan ширина 0
         assertThat(m3.balanceLow()).isEqualByComparingTo("0");
         assertThat(m3.balanceHigh()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void enrichWithCapital_fills_capital_assets_liabilities_for_past_and_future() {
+        // Подаём 3 точки (2 PAST + 1 FUTURE) с нулевыми капитал-полями
+        YearMonth jan = YearMonth.of(2026, 1);
+        YearMonth feb = YearMonth.of(2026, 2);
+        YearMonth jun = YearMonth.of(2026, 6);
+        List<StrategyTimelinePointDto> points = new ArrayList<>(List.of(
+                pointWith(jan, StrategyPointPhase.PAST),
+                pointWith(feb, StrategyPointPhase.PAST),
+                pointWith(jun, StrategyPointPhase.FUTURE)
+        ));
+
+        // Замокать trajectory: 2 прошлые точки + 0 будущих в реальности
+        CapitalTrajectoryDto trajectory = new CapitalTrajectoryDto(List.of(
+                new CapitalTrajectoryDto.Point(LocalDate.of(2026, 1, 31),
+                        new BigDecimal("3500000"), new BigDecimal("4000000"),
+                        new BigDecimal("4500000"), new BigDecimal("500000")),
+                new CapitalTrajectoryDto.Point(LocalDate.of(2026, 2, 28),
+                        new BigDecimal("3600000"), new BigDecimal("4100000"),
+                        new BigDecimal("4600000"), new BigDecimal("500000"))
+        ));
+        when(capitalService.trajectory(any(), any())).thenReturn(trajectory);
+
+        List<StrategyTimelinePointDto> result = service.enrichWithCapital(points);
+
+        assertThat(result.get(0).capital()).isEqualByComparingTo("3500000");
+        assertThat(result.get(1).capital()).isEqualByComparingTo("3600000");
+        // Future месяц получает last-known: 3600000
+        assertThat(result.get(2).capital()).isEqualByComparingTo("3600000");
+        assertThat(result.get(2).assets()).isEqualByComparingTo("4600000");
+        assertThat(result.get(2).liabilities()).isEqualByComparingTo("500000");
+    }
+
+    // helper-метод pointWith
+    private StrategyTimelinePointDto pointWith(YearMonth ym, StrategyPointPhase phase) {
+        return new StrategyTimelinePointDto(ym, phase,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                null, null, null,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                null);
     }
 }
