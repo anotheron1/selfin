@@ -201,6 +201,54 @@ public class StrategyTimelineService {
     }
 
     /**
+     * Обогащает точки timeline данными капитала (capital, assets, liabilities).
+     *
+     * <p><b>Контракт:</b> {@code points} ДОЛЖЕН быть полным списком (past + current + future)
+     * — диапазон вызова `trajectory(first, last)` определяется крайними точками. При передаче
+     * частичного списка trajectory будет вычислена на меньшем интервале, и future-точки могут
+     * получить некорректные значения капитала.
+     */
+    List<StrategyTimelinePointDto> enrichWithCapital(List<StrategyTimelinePointDto> points) {
+        if (points.isEmpty()) return points;
+
+        YearMonth first = points.get(0).yearMonth();
+        YearMonth last = points.get(points.size() - 1).yearMonth();
+
+        CapitalTrajectoryDto trajectory = capitalService.trajectory(first.atDay(1), last.atEndOfMonth());
+
+        // Маппим точки траектории по YearMonth
+        Map<YearMonth, CapitalTrajectoryDto.Point> byMonth = trajectory.points().stream()
+                .collect(Collectors.toMap(
+                        p -> YearMonth.from(p.date()),
+                        p -> p,
+                        (a, b) -> b   // если коллизия — берём более поздний
+                ));
+
+        // Last known — для пропусков и для будущих точек после последней revaluation
+        BigDecimal lastCapital = BigDecimal.ZERO;
+        BigDecimal lastAssets = BigDecimal.ZERO;
+        BigDecimal lastLiabilities = BigDecimal.ZERO;
+
+        List<StrategyTimelinePointDto> enriched = new ArrayList<>(points.size());
+        for (StrategyTimelinePointDto p : points) {
+            CapitalTrajectoryDto.Point cap = byMonth.get(p.yearMonth());
+            if (cap != null) {
+                lastCapital = cap.capital();
+                lastAssets = cap.assets();
+                lastLiabilities = cap.liabilities();
+            }
+            enriched.add(new StrategyTimelinePointDto(
+                    p.yearMonth(), p.phase(),
+                    p.balance(), p.income(), p.expense(), p.nettoFlow(),
+                    p.balanceConfirmed(), p.balanceLow(), p.balanceHigh(),
+                    lastCapital, lastAssets, lastLiabilities,
+                    p.breakdown()
+            ));
+        }
+        return enriched;
+    }
+
+    /**
      * Самый ранний месяц активности пользователя — минимум из:
      * <ul>
      *   <li>первого FACT-события</li>
