@@ -33,7 +33,7 @@ import java.util.stream.Stream;
 /**
  * Сервис стратегической временной шкалы.
  *
- * <p>Точка входа — {@link #getTimeline(int, int, boolean)}, реализуемая в следующих чанках.
+ * <p>Точка входа — {@link #getTimeline(int, boolean)}.
  * Вспомогательные методы (firstActivityMonth и др.) реализуются по TDD в Chunk 2.
  */
 @Service
