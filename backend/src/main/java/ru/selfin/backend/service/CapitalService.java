@@ -32,8 +32,8 @@ import java.util.UUID;
  * <p>Все мутации (CRUD по items и revaluations) — {@code @Transactional}.
  * Чтения (summary, trajectory, list, history) — readOnly на классе.
  *
- * <p>{@code liquidAt(date)} вычисляется здесь же как приватный метод: переиспользует
- * существующие репозитории. Формула «безопасная», без зависимости от инварианта
+ * <p>{@code liquidAt(date)} — публичный метод (используется также StrategyTimelineService):
+ * переиспользует существующие репозитории. Формула «безопасная», без зависимости от инварианта
  * FUND_TRANSFER ↔ FundTransaction 1:1:
  * <pre>
  *   liquid(t) = AccountBalance(t) + Σ FundBalance(t)
@@ -212,6 +212,14 @@ public class CapitalService {
         return new CapitalTrajectoryDto(result);
     }
 
+    /**
+     * Самая ранняя дата переоценки капитала. Null если переоценок нет.
+     * Используется StrategyTimelineService.firstActivityMonth().
+     */
+    public Optional<LocalDate> findEarliestRevaluationDate() {
+        return revRepo.findEarliestValuedAt();
+    }
+
     // === helpers ===
 
     private BigDecimal capitalAt(LocalDate t) {
@@ -230,7 +238,12 @@ public class CapitalService {
         return result;
     }
 
-    private BigDecimal liquidAt(LocalDate t) {
+    /**
+     * Жидкий баланс на дату {@code t} = баланс расчётного счёта (по чекпоинтам и фактам)
+     * + сумма балансов всех копилок. Публичный API для согласования с другими сервисами
+     * (например, StrategyTimelineService использует этот метод для seed {@code balanceConfirmed}).
+     */
+    public BigDecimal liquidAt(LocalDate t) {
         Optional<BalanceCheckpoint> latest = checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(t);
         BigDecimal start = latest.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO);
         // Конвенция: события включаются начиная с даты чекпоинта (см. Javadoc класса

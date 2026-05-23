@@ -24,6 +24,7 @@ import type {
     PurchaseType,
     ScopeEnum,
     StandaloneFactCreateDto,
+    StrategyTimelineDto,
     TargetFund,
     WishlistCreateDto,
 } from '../types/api';
@@ -232,4 +233,17 @@ export const fetchCapitalTrajectory = (from?: string, to?: string) => {
     if (to) params.set('to', to);
     const qs = params.toString();
     return get<CapitalTrajectory>(`/capital/trajectory${qs ? '?' + qs : ''}`);
+};
+
+// --- Strategy ---
+
+export const fetchStrategyTimeline = (params?: {
+    horizonMonths?: number;
+    withBreakdown?: boolean;
+}) => {
+    const qs = new URLSearchParams();
+    if (params?.horizonMonths !== undefined) qs.set('horizonMonths', String(params.horizonMonths));
+    if (params?.withBreakdown !== undefined) qs.set('withBreakdown', String(params.withBreakdown));
+    const query = qs.toString();
+    return get<StrategyTimelineDto>(`/strategy/timeline${query ? '?' + query : ''}`);
 };

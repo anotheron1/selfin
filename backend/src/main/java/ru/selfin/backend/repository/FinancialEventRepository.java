@@ -191,6 +191,25 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         @Param("monthStart") LocalDate monthStart,
         @Param("today") LocalDate today);
 
+    // --- Strategy ---
+
+    /**
+     * Все PLAN-события в диапазоне дат (включая recurring-материализованные).
+     * Используется StrategyTimelineService для построения {@code balanceConfirmed} и breakdown будущих точек.
+     */
+    @Query("SELECT e FROM FinancialEvent e " +
+           "WHERE e.deleted = false " +
+           "  AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN " +
+           "  AND e.date >= :startDate AND e.date <= :endDate")
+    List<FinancialEvent> findPlannedEventsByDateRange(
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate);
+
+    @Query("SELECT MIN(e.date) FROM FinancialEvent e " +
+           "WHERE e.eventKind = ru.selfin.backend.model.EventKind.FACT " +
+           "  AND e.deleted = false")
+    Optional<LocalDate> findEarliestFactDate();
+
     // --- Recurring ---
 
     @Query("SELECT MAX(e.date) FROM FinancialEvent e " +

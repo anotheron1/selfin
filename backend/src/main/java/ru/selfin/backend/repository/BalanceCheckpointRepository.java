@@ -24,4 +24,8 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
 
     /** Вся история чекпоинтов, от свежих к старым. */
     List<BalanceCheckpoint> findAllByOrderByDateDesc();
+
+    /** Самая ранняя дата чекпоинта. Используется StrategyTimelineService.firstActivityMonth(). */
+    @Query("SELECT MIN(b.date) FROM BalanceCheckpoint b")
+    Optional<LocalDate> findEarliestCheckpointDate();
 }

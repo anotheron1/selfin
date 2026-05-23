@@ -6,6 +6,8 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.CategoryForecastDto;
 import ru.selfin.backend.dto.DailyForecastPointDto;
 import ru.selfin.backend.dto.MonthlyForecastDto;
+import ru.selfin.backend.dto.strategy.CategoryMonthStats;
+import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -90,6 +92,73 @@ public class PredictionService {
         LocalDate end = month.atEndOfMonth();
         List<FinancialEvent> events = eventRepository.findAllByDeletedFalseAndDateBetween(start, end);
         return forecastFromEvents(events, today);
+    }
+
+    /**
+     * Стата трат категории за последние {@code historyWindowMonths} полных месяцев.
+     * Используется StrategyTimelineService для построения fan chart.
+     *
+     * <p>Фильтр событий — тот же что в {@link #sumFacts}: {@code eventKind = FACT, deleted = false}.
+     * {@code EventStatus} не учитывается (все FACT-события — учётные транзакции).
+     *
+     * <p>Если {@code monthsOfHistory < 3}, caller (StrategyTimelineService) не должен учитывать
+     * категорию в расчёте конуса неопределённости — но median всё равно вычисляется.
+     *
+     * <p>Percentile-вычисление — линейная интерполяция между соседними точками отсортированного массива.
+     */
+    public CategoryMonthStats getStatsForCategory(Category cat, int historyWindowMonths) {
+        LocalDate today = LocalDate.now();
+        LocalDate from = today.minusMonths(historyWindowMonths).withDayOfMonth(1);
+        LocalDate to = today.withDayOfMonth(1).minusDays(1);   // конец предыдущего месяца
+
+        List<FinancialEvent> events = eventRepository.findFactsByDateRange(from, to).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.FACT)
+                .filter(e -> e.getCategory() != null && cat.getId().equals(e.getCategory().getId()))
+                .toList();
+
+        Map<YearMonth, BigDecimal> monthlyTotals = events.stream()
+                .collect(Collectors.groupingBy(
+                        e -> YearMonth.from(e.getDate()),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO,
+                                BigDecimal::add)
+                ));
+
+        if (monthlyTotals.isEmpty()) {
+            return new CategoryMonthStats(cat.getId(), 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+
+        List<BigDecimal> sorted = monthlyTotals.values().stream()
+                .sorted()
+                .toList();
+
+        return new CategoryMonthStats(
+                cat.getId(),
+                sorted.size(),
+                percentile(sorted, 0.50),
+                percentile(sorted, 0.25),
+                percentile(sorted, 0.75)
+        );
+    }
+
+    /**
+     * Линейная интерполяция percentile из отсортированного списка.
+     */
+    private BigDecimal percentile(List<BigDecimal> sorted, double q) {
+        if (sorted.isEmpty()) return BigDecimal.ZERO;
+        if (sorted.size() == 1) return sorted.get(0);
+
+        double position = q * (sorted.size() - 1);
+        int lowerIdx = (int) Math.floor(position);
+        int upperIdx = (int) Math.ceil(position);
+        if (lowerIdx == upperIdx) return sorted.get(lowerIdx);
+
+        double frac = position - lowerIdx;
+        BigDecimal lower = sorted.get(lowerIdx);
+        BigDecimal upper = sorted.get(upperIdx);
+        BigDecimal diff = upper.subtract(lower);
+        return lower.add(diff.multiply(BigDecimal.valueOf(frac)));
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
