@@ -13,7 +13,7 @@ export default function Strategy() {
                 <h1 className="text-xl font-semibold">Стратегия</h1>
                 {timeline && (
                     <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Финансовая траектория с {fmtYearMonthFull(timeline.firstActivityMonth).toLowerCase()} на 3 года вперёд
+                        Финансовая траектория: {fmtYearMonthFull(timeline.firstActivityMonth)} → +3 года вперёд
                     </p>
                 )}
             </div>
