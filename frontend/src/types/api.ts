@@ -353,3 +353,44 @@ export interface CapitalTrajectory {
         liabilities: number;
     }>;
 }
+
+// ─── Strategy ─────────────────────────────────────────────────────────────────
+
+export type StrategyPointPhase = 'PAST' | 'CURRENT' | 'FUTURE';
+
+export interface BreakdownItemDto {
+    category: string;
+    amount: number;
+    isRecurring: boolean;
+    isPredicted: boolean;
+}
+
+export interface BreakdownDto {
+    incomeItems: BreakdownItemDto[];
+    expenseItems: BreakdownItemDto[];
+}
+
+export interface StrategyTimelinePointDto {
+    yearMonth: string;          // YYYY-MM (Jackson serialises YearMonth as such)
+    phase: StrategyPointPhase;
+    balance: number;
+    income: number;
+    expense: number;
+    nettoFlow: number;
+    balanceConfirmed: number | null;
+    balanceLow: number | null;
+    balanceHigh: number | null;
+    capital: number;
+    assets: number;
+    liabilities: number;
+    breakdown: BreakdownDto | null;
+}
+
+export interface StrategyTimelineDto {
+    firstActivityMonth: string;   // YYYY-MM
+    currentMonth: string;
+    horizonEnd: string;
+    predictionWindowMonths: number;
+    fanEnabled: boolean;
+    points: StrategyTimelinePointDto[];
+}
