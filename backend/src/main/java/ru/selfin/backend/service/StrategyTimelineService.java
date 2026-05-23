@@ -381,9 +381,11 @@ public class StrategyTimelineService {
 
     private BreakdownDto breakdownForPast(YearMonth ym, Map<YearMonth, List<FinancialEvent>> factsByMonth) {
         List<FinancialEvent> facts = factsByMonth.getOrDefault(ym, List.of());
+        // Per-category isRecurring=anyMatch(recurringRule != null) — FACT-события наследуют
+        // recurring_rule_id от родительского PLAN, и для ↻ иконки в tooltip нужно их детектировать.
         return new BreakdownDto(
-                aggregateByCategory(facts, EventType.INCOME, FinancialEvent::getFactAmount, false, false),
-                aggregateByCategory(facts, EventType.EXPENSE, FinancialEvent::getFactAmount, false, false)
+                aggregateFactsByCategory(facts, EventType.INCOME),
+                aggregateFactsByCategory(facts, EventType.EXPENSE)
         );
     }
 
@@ -453,21 +455,28 @@ public class StrategyTimelineService {
                 .collect(Collectors.toCollection(ArrayList::new));
     }
 
-    private List<BreakdownItemDto> aggregateByCategory(List<FinancialEvent> events, EventType type,
-                                                       java.util.function.Function<FinancialEvent, BigDecimal> amountFn,
-                                                       boolean isRecurring, boolean isPredicted) {
+    /**
+     * Агрегирует FACT-события заданного типа по категории. Per-group {@code isRecurring} —
+     * true если хотя бы один факт в группе наследует {@code recurringRule_id} от родительского PLAN.
+     * {@code isPredicted} всегда false (это факт, не прогноз).
+     */
+    private List<BreakdownItemDto> aggregateFactsByCategory(List<FinancialEvent> events, EventType type) {
         return events.stream()
                 .filter(e -> e.getType() == type)
                 .filter(e -> e.getCategory() != null)
                 .collect(Collectors.groupingBy(
                         e -> e.getCategory().getName(),
-                        Collectors.reducing(BigDecimal.ZERO,
-                                e -> amountFn.apply(e) != null ? amountFn.apply(e) : BigDecimal.ZERO,
-                                BigDecimal::add)
-                ))
-                .entrySet().stream()
-                .map(en -> new BreakdownItemDto(en.getKey(), en.getValue(), isRecurring, isPredicted))
-                .sorted((a, b) -> b.amount().compareTo(a.amount()))    // сортировка по убыванию суммы
+                        Collectors.collectingAndThen(Collectors.toList(),
+                                list -> new BreakdownItemDto(
+                                        list.get(0).getCategory().getName(),
+                                        list.stream()
+                                                .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
+                                                .reduce(BigDecimal.ZERO, BigDecimal::add),
+                                        list.stream().anyMatch(e -> e.getRecurringRule() != null),
+                                        false
+                                ))))
+                .values().stream()
+                .sorted((a, b) -> b.amount().compareTo(a.amount()))
                 .toList();
     }
 
