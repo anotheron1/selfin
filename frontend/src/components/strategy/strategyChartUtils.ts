@@ -23,7 +23,7 @@ export function monthsBetween(fromYm: string, toYm: string): number {
     return Math.max(0, (ty - fy) * 12 + (tm - fm));
 }
 
-/** Маппинг DTO в chart-friendly формат: добавляем балансReange для Recharts Area */
+/** Маппинг DTO в chart-friendly формат: добавляем balanceRange для Recharts Area */
 export interface ChartPoint extends StrategyTimelinePointDto {
     label: string;
     balanceRange: [number, number] | null;
