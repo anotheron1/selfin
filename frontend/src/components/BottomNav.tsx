@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, CalendarDays, PiggyBank, BarChart2, Landmark, Settings } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, PiggyBank, BarChart2, Landmark, TrendingUp, Settings } from 'lucide-react';
 
 const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Дашборд' },
@@ -7,6 +7,7 @@ const navItems = [
     { to: '/funds', icon: PiggyBank, label: 'Цели' },
     { to: '/analytics', icon: BarChart2, label: 'Аналитика' },
     { to: '/capital', icon: Landmark, label: 'Капитал' },
+    { to: '/strategy', icon: TrendingUp, label: 'Стратегия' },
     { to: '/settings', icon: Settings, label: 'Настройки' },
 ];
 
