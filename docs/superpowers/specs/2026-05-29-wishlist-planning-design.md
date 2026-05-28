@@ -112,7 +112,19 @@ CREATE INDEX idx_events_wishlist_status
     ON financial_events (wishlist_status)
     WHERE wishlist_status IS NOT NULL;
 
--- 2. wishlist_status на target_funds
+-- 2. converted_to_fund_id на financial_events
+ALTER TABLE financial_events
+    ADD COLUMN converted_to_fund_id UUID REFERENCES target_funds(id) ON DELETE SET NULL;
+
+ALTER TABLE financial_events
+    ADD CONSTRAINT chk_fund_converted_only_fixed
+    CHECK (converted_to_fund_id IS NULL OR wishlist_status = 'FIXED');
+
+ALTER TABLE financial_events
+    ADD CONSTRAINT chk_single_conversion
+    CHECK (NOT (converted_to_event_id IS NOT NULL AND converted_to_fund_id IS NOT NULL));
+
+-- 3. wishlist_status на target_funds
 ALTER TABLE target_funds
     ADD COLUMN wishlist_status VARCHAR(16);
 
@@ -120,17 +132,35 @@ ALTER TABLE target_funds
     ADD COLUMN converted_to_event_id UUID REFERENCES financial_events(id) ON DELETE SET NULL;
 
 ALTER TABLE target_funds
-    ADD CONSTRAINT chk_fund_converted_only_fixed
+    ADD COLUMN converted_to_fund_id UUID REFERENCES target_funds(id) ON DELETE SET NULL;
+
+ALTER TABLE target_funds
+    ADD CONSTRAINT chk_fund_to_event_only_fixed
     CHECK (converted_to_event_id IS NULL OR wishlist_status = 'FIXED');
+
+ALTER TABLE target_funds
+    ADD CONSTRAINT chk_fund_to_fund_only_fixed
+    CHECK (converted_to_fund_id IS NULL OR wishlist_status = 'FIXED');
+
+ALTER TABLE target_funds
+    ADD CONSTRAINT chk_fund_single_conversion
+    CHECK (NOT (converted_to_event_id IS NOT NULL AND converted_to_fund_id IS NOT NULL));
 
 CREATE INDEX idx_funds_wishlist_status
     ON target_funds (wishlist_status)
     WHERE wishlist_status IS NOT NULL;
 
--- 3. Backfill активных копилок и кредитов как FIXED
-UPDATE target_funds SET wishlist_status = 'FIXED' WHERE status = 'ACTIVE';
+-- 4. Backfill копилок/кредитов в фазе финансирования как FIXED
+-- FundStatus enum в коде = {FUNDING, REACHED}, не {ACTIVE, CLOSED}.
+UPDATE target_funds SET wishlist_status = 'FIXED' WHERE status = 'FUNDING';
 
--- 4. user_settings
+-- 5. Backfill хотелок (LOW events без даты) как OPEN
+-- Существующий WishlistSection на /funds фильтровал по priority=LOW AND date IS NULL.
+-- Эти записи становятся видимы в новой странице /wishlist как «активные».
+UPDATE financial_events SET wishlist_status = 'OPEN'
+WHERE priority = 'LOW' AND date IS NULL AND is_deleted = FALSE;
+
+-- 6. user_settings
 CREATE TABLE user_settings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     settings_key VARCHAR(64) NOT NULL UNIQUE,
@@ -152,16 +182,20 @@ CREATE TABLE user_settings (
 
 - **I1.** `wishlist_status != NULL` для `financial_events` ⇒ `priority = 'LOW'`. Защита: CHECK constraint `chk_wishlist_status_only_low`. Для `target_funds` ограничение отсутствует — копилки/кредиты любого типа могут быть хотелкой.
 - **I2.** `converted_to_event_id != NULL` ⇒ `wishlist_status = 'FIXED'`. Защита: CHECK constraint `chk_converted_only_fixed` (и `chk_fund_converted_only_fixed`).
-- **I3.** Удаление сконвертированного `FinancialEvent` через `DELETE /events/{id}` не каскадно удаляет исходный wishlist item, но обнуляет ссылку `converted_to_event_id` (`ON DELETE SET NULL`). Хотелка остаётся в `FIXED` без артефакта — пользователь увидит это в UI и сможет вернуть в `OPEN` или заново конвертировать.
+- **I3.** Удаление сконвертированного `FinancialEvent` через `DELETE /events/{id}` не каскадно удаляет исходный wishlist item, но обнуляет ссылку `converted_to_event_id` или `converted_to_fund_id` (`ON DELETE SET NULL`). Хотелка остаётся в `FIXED` без артефакта — пользователь увидит это в UI и сможет вернуть в `OPEN` или заново конвертировать.
 - **I4.** Повторная конверсия уже сконвертированного item'а → `409 Conflict`. Семантически — один item имеет максимум один артефакт.
 - **I5.** Item со статусом `DISMISSED` не отдаётся в `WishlistSimulationDto.items`, но остаётся в БД и виден на `/wishlist` в свёрнутой секции «Отклонённые». Может быть восстановлен.
+- **I6.** Один item конвертируется максимум в один артефакт — либо в `FinancialEvent` (`converted_to_event_id`), либо в `TargetFund` (`converted_to_fund_id`). Одновременно установленные обе ссылки запрещены: CHECK constraint `chk_single_conversion` (на `financial_events`) и `chk_fund_single_conversion` (на `target_funds`).
 
 ### Backfill и миграция данных
 
 После V18 применяется на проде:
-- Все существующие `target_funds.status = 'ACTIVE'` становятся `wishlist_status = 'FIXED'`. Они сразу видны на новой странице `/wishlist` как «зафиксированные», их можно редактировать или вернуть в обсуждение.
-- Все `target_funds.status = 'CLOSED'` остаются `wishlist_status = NULL`. Они закрытая история, не хотелки.
-- Все существующие `financial_events.priority = 'LOW'` без даты остаются `wishlist_status = NULL`. Чтобы они попали в `/wishlist`, пользователь должен явно их «принять» — но мы упрощаем: SELECT на странице `/wishlist` фильтрует по `priority='LOW' AND (wishlist_status IS NULL OR wishlist_status='OPEN')`. То есть «исторические» хотелки автоматически считаются `OPEN` до тех пор, пока пользователь не пометит их `FIXED` или `DISMISSED`.
+- Все существующие `target_funds.status = 'FUNDING'` → `wishlist_status = 'FIXED'`. Они сразу видны на новой странице `/wishlist` как «зафиксированные», их можно редактировать или вернуть в обсуждение. (Enum `FundStatus` в проекте = `{FUNDING, REACHED}`.)
+- Все `target_funds.status = 'REACHED'` остаются `wishlist_status = NULL`. Они закрытая история, не хотелки.
+- Все существующие `financial_events.priority = 'LOW' AND date IS NULL AND is_deleted = FALSE` → `wishlist_status = 'OPEN'`. Это записи, которые ранее показывались в старом `WishlistSection` на `/funds`. После миграции они автоматически появляются в новой `/wishlist` со статусом «активные».
+- Все остальные `financial_events` (включая `priority='LOW'` уже с датой — это запланированные платежи, не хотелки) остаются `wishlist_status = NULL`.
+
+Однозначное следствие: фильтр на новой странице `/wishlist` — `priority='LOW' AND wishlist_status IS NOT NULL`. Никаких «`NULL` интерпретируется как `OPEN`» — все хотелки имеют явный статус после V18.
 
 ## API
 
@@ -199,7 +233,7 @@ GET /api/v1/wishlist/simulation?horizonMonths=36
       "amount": 150000,
       "targetDate": "2027-09-15",
       "status": "OPEN",
-      "convertedToEventId": null,
+      "convertedTo": null,
       "delta": [
         { "monthIndex": 15, "accountDelta": -150000, "capitalDelta": -150000 }
       ]
@@ -212,7 +246,7 @@ GET /api/v1/wishlist/simulation?horizonMonths=36
       "targetDate": "2027-06-01",
       "monthlyContribution": 16667,
       "status": "OPEN",
-      "convertedToEventId": null,
+      "convertedTo": null,
       "delta": [
         { "monthIndex": 0,  "accountDelta": -16667, "capitalDelta": 0, "fundDelta": 16667 },
         // ... 11 промежуточных месяцев
@@ -229,7 +263,7 @@ GET /api/v1/wishlist/simulation?horizonMonths=36
       "termMonths": 60,
       "monthlyPMT": 48700,
       "status": "FIXED",
-      "convertedToEventId": "uuid-of-target-fund",
+      "convertedTo": { "kind": "FUND", "id": "uuid-of-target-fund" },
       "delta": [
         { "monthIndex": 2, "accountDelta": 2000000, "capitalDelta": 0, "liabilityDelta": 2000000 },
         { "monthIndex": 3, "accountDelta": -48700, "capitalDelta": 21200, "liabilityDelta": -21200 }
@@ -261,6 +295,7 @@ GET /api/v1/wishlist/simulation?horizonMonths=36
 POST /api/v1/wishlist/simulation/recompute
 Content-Type: application/json
 
+// CREDIT
 {
   "kind": "CREDIT",
   "amount": 2500000,
@@ -268,9 +303,29 @@ Content-Type: application/json
   "rate": 18.0,
   "termMonths": 72
 }
+
+// SAVINGS
+{
+  "kind": "SAVINGS",
+  "amount": 200000,           // целевая сумма
+  "targetDate": "2027-06-01"
+  // monthlyContribution выводится из (amount, targetDate, today)
+  // и возвращается в ответе вместе с delta для UI
+}
+
+// WISHLIST — не нужен (delta линейна по amount, frontend пересчитывает локально).
 ```
 
-Возвращает только массив `MonthDeltaDto[]` для свежевычисленных параметров. Используется при изменении нелинейных параметров (ставка/срок кредита, монтлы-взнос копилки). Простые ползунки amount/date не требуют этого вызова — frontend перешкаливает существующий delta локально.
+Ответ:
+```jsonc
+{
+  "delta": [ ... ],
+  "monthlyContribution": 16667,   // только для SAVINGS
+  "monthlyPMT": 48700              // только для CREDIT
+}
+```
+
+Используется при изменении нелинейных параметров (ставка/срок кредита; целевая сумма или дата копилки). Простые ползунки amount/date на хотелке (WISHLIST) не требуют этого вызова — frontend перешкаливает существующий delta локально.
 
 ### CRUD статусов
 
@@ -302,11 +357,14 @@ Content-Type: application/json
 {
   "wishlistItemId": "uuid",
   "newStatus": "FIXED",
+  "convertedTo": { "kind": "EVENT" | "FUND", "id": "uuid" },
+  // Расширенный артефакт (используется для UI ссылок):
   "artifactKind": "PLAN_EVENT" | "FUND" | "FUND_WITH_CREDIT",
-  "artifactId": "uuid",
   "recurringRuleId": "uuid"   // если createRecurringPayments=true
 }
 ```
+
+Семантика поля `convertedTo` соответствует одному из двух FK на исходном item'е (`converted_to_event_id` или `converted_to_fund_id`). Поле `artifactKind` отдельно — оно различает простой `FUND` и `FUND_WITH_CREDIT`, что не выводимо из `convertedTo.kind` (оба = `FUND`).
 
 Что создаётся под капотом, в одной транзакции:
 
@@ -336,7 +394,7 @@ PUT /api/v1/settings/wishlist
 
 - `WishlistSimulationDto` — корневой ответ `GET /simulation`.
 - `WishlistTimelineBaselineDto` — `baseline` сегмент (повторяет существующий `StrategyTimelineDto`).
-- `WishlistItemDto` — один item. Поля: `id`, `kind`, `name`, `amount`, `targetDate`, `status`, `convertedToEventId`, `delta[]`, плюс kind-specific: `categoryId` (WISHLIST), `monthlyContribution` (SAVINGS), `rate`/`termMonths`/`monthlyPMT` (CREDIT).
+- `WishlistItemDto` — один item. Поля: `id`, `kind`, `name`, `amount`, `targetDate`, `status`, `convertedTo` (`{kind: "EVENT"|"FUND", id} | null`), `delta[]`, плюс kind-specific: `categoryId` (WISHLIST), `monthlyContribution` (SAVINGS), `rate`/`termMonths`/`monthlyPMT` (CREDIT).
 - `MonthDeltaDto` — `{ monthIndex, accountDelta, capitalDelta, fundDelta?, liabilityDelta? }`. Поля fundDelta и liabilityDelta используются только для агрегированной визуализации в tooltip (cashflow и capital уже включают их).
 - `WishlistThresholdsDto` — `{ capitalThresholdRub: nullable BigDecimal, cashBufferMonths: BigDecimal }`.
 - `WishlistConstraintsDto` — `{ monthlyExpensesAvg, monthlyIncomeAvg, currentCapital, maxWishlistAmount, maxCreditAmount }`.
@@ -400,14 +458,20 @@ PUT /api/v1/settings/wishlist
 
 ### Компоненты
 
-- **`<WishlistThresholdsHeader>`** — два number-input'а. При изменении — `PUT /settings/wishlist` debounced 800 ms. Перерасчёт цветовых зон локально (не требует нового запроса).
+- **`<WishlistThresholdsHeader>`** — два number-input'а. При изменении — `PUT /settings/wishlist` debounced 800 ms (значение `thresholds` пишется в БД). Перерасчёт цветовых зон локально (не требует нового запроса).
+
+**Намеренно разные debounce-интервалы:**
+- Слайдеры amount/date в `<WishlistItemCard>` — **500 ms** или `onRelease`: пользователь тянет интенсивно, важна свежесть БД-записи.
+- Threshold-инпуты в шапке — **800 ms**: пользователь печатает в поле, debounce должен пережить паузы между нажатиями цифр.
+
+Это разные UX-сценарии, не дублирование настройки.
 - **`<WishlistImpactChart>`** — один сводный ComposedChart (recharts). Левая Y-ось: счёт (рубли). Правая Y-ось: капитал. Фоновые `ReferenceArea` по месяцам с цветами зон, прозрачность 8–12%. Горизонтальная `ReferenceLine` — `capitalThreshold`. Tooltip с per-item breakdown.
 - **`<WishlistItemList>`** — три секции (OPEN, FIXED, DISMISSED). OPEN всегда развёрнута. FIXED и DISMISSED по умолчанию свёрнуты. Каждая показывает счётчик в заголовке.
 - **`<WishlistItemCard>`** — чекбокс активности, название, бейдж риска, два ползунка (сумма и дата) с подписями текущих значений и max, опциональный раскрывающийся блок параметров (кредит/копилка). Кнопка «Зафиксировать» (или «Вернуть в обсуждение» для FIXED).
 - **`<WishlistRiskBadge>`** — компактный цветной значок. Считается как «риск этого item'а в одиночку»: применяем delta только этого item'а к baseline, проверяем зоны. `red` если хоть один месяц красный, `yellow` если жёлтый, иначе `green`.
 - **`<FixWishlistDialog>`** — диалог конверсии при нажатии «Зафиксировать». Радио-выбор target'а с дефолтом по `kind` item'а. Для `FUND_WITH_CREDIT` — чекбокс «Создать платёжный график (recurring)».
 - **`<AddWishlistDialog>`** — диалог создания нового item'а с выбором kind (WISHLIST/SAVINGS/CREDIT) и заполнением полей.
-- **`<DeleteWishlistDialog>`** — подтверждение удаления. Если есть `convertedToEventId` — предлагает «удалить также созданный план/копилку».
+- **`<DeleteWishlistDialog>`** — подтверждение удаления. Если есть `convertedTo` — предлагает «удалить также созданный план/копилку».
 
 ### Ползунки — ограничения и значения
 
@@ -419,6 +483,8 @@ PUT /api/v1/settings/wishlist
 - `maxWishlistAmount` = `currentCapital + monthlyIncomeAvg × horizonMonths × 0.5`
 - `maxCreditAmount` = `monthlyIncomeAvg × 50`
 - Дата: `сегодня + horizonMonths`
+
+**Backend-валидация:** `maxWishlistAmount` и `maxCreditAmount` — это **UX-affordance**, не жёсткий потолок. На backend при сохранении (`PATCH /events/{id}`, `PATCH /funds/{id}`) принимаются любые положительные значения. Пользователь может вручную в DTO передать сумму выше max — например, через API напрямую — и система это запишет. Зоны на графике корректно покажут этот случай как «красный». Жёсткие нижние границы (`amount ≥ 0`, `targetDate >= сегодня`) валидируются backend'ом.
 
 ### Цветовые зоны
 
@@ -466,10 +532,18 @@ Backend-эндпоинты, которые они использовали (`GET
 
 ```
 ru.selfin.backend.service
+├─ BaselineTimelineBuilder (NEW)
+│   └─ buildWithoutWishlist(horizonMonths) → TimelineSnapshot
+│       (общая утилита: baseline для /wishlist и для /strategy)
 ├─ WishlistSimulationService
 │   ├─ getSimulation(horizonMonths) → WishlistSimulationDto
-│   ├─ recomputeItemDelta(kind, params) → List<MonthDeltaDto>
-│   └─ private computeDeltaForItem(item) → List<MonthDeltaDto>
+│   ├─ recomputeItemDelta(kind, params) → RecomputeResponseDto
+│   └─ computeDeltaForItem(item) → List<MonthDeltaDto>
+│       (используется и StrategyTimelineService для FIXED items)
+├─ StrategyTimelineService (рефакторинг)
+│   └─ buildTimeline(horizonMonths) → StrategyTimelineDto
+│       (delegates baseline to BaselineTimelineBuilder,
+│        adds FIXED-item deltas via WishlistSimulationService)
 ├─ WishlistConversionService
 │   └─ convertItem(itemId, request) → ConvertWishlistResponseDto
 ├─ UserSettingsService
@@ -477,7 +551,9 @@ ru.selfin.backend.service
 │   └─ updateWishlistSettings(dto) → WishlistThresholdsDto
 
 ru.selfin.backend.controller
-├─ WishlistController                          (GET /simulation, POST /recompute, POST /items/{id}/convert)
+├─ WishlistController                          (GET /api/v1/wishlist/simulation,
+│                                                POST /api/v1/wishlist/simulation/recompute,
+│                                                POST /api/v1/wishlist/items/{id}/convert)
 ├─ UserSettingsController                      (GET/PUT /settings/wishlist)
 └─ existing FinancialEventController           (PATCH /events/{id}/wishlist-status — добавляется)
 └─ existing FundController                     (PATCH /funds/{id}/wishlist-status — добавляется)
@@ -501,20 +577,37 @@ ru.selfin.backend.repository
 └─ existing TargetFundRepository — добавляется findActiveFundsByWishlistStatus
 ```
 
-### Расширение `StrategyTimelineService`
+### Расширение `StrategyTimelineService` и устранение цикла
 
-Сейчас baseline собирается из `events + recurring + prediction`. Добавляем четвёртый источник — items со статусом `FIXED`:
+Сейчас baseline собирается из `events + recurring + prediction`. Добавляем четвёртый источник — items со статусом `FIXED`.
+
+Базовая операция «честный timeline без хотелок» выделяется в отдельный компонент **`BaselineTimelineBuilder`**:
 
 ```
-public StrategyTimelineDto buildTimeline(int horizonMonths) {
-    // existing: events + recurring + prediction → baselinePoints
-    // NEW: for each FIXED wishlist item (events with wishlist_status=FIXED and funds with wishlist_status=FIXED),
-    //      compute its delta via WishlistSimulationService.computeDeltaForItem()
-    //      and sum into baselinePoints.
+@Component
+public class BaselineTimelineBuilder {
+    // зависимости: FinancialEventRepo, RecurringRuleRepo, PredictionService,
+    //              CapitalService, BalanceCheckpointService, TargetFundService
+    public TimelineSnapshot buildWithoutWishlist(int horizonMonths) { ... }
 }
 ```
 
-Технически: в `StrategyTimelineService` инжектится `WishlistSimulationService`. Чтобы избежать циклической зависимости (`WishlistSimulationService` сам использует `StrategyTimelineService` для baseline), вводим внутренний метод `StrategyTimelineService.buildBaselineWithoutWishlist()`. Это «честный» baseline без хотелок, используемый и для `/strategy` (как раньше), и для `WishlistSimulationService` (тоже как baseline). На `/strategy` к нему сверху накладываются deltas всех FIXED items — это и есть «новое» поведение.
+Это **чистая утилита без зависимости на `WishlistSimulationService`** — она используется обоими верхними сервисами:
+
+```
+WishlistSimulationService → BaselineTimelineBuilder
+                          → собирает deltas
+                          → возвращает baseline + items + deltas
+
+StrategyTimelineService   → BaselineTimelineBuilder.buildWithoutWishlist()
+                          → запрашивает у WishlistSimulationService deltas всех FIXED items
+                          → накладывает их на baseline
+                          → возвращает финальный StrategyTimelineDto
+```
+
+Зависимости теперь линейны: `BaselineTimelineBuilder ← WishlistSimulationService ← StrategyTimelineService`. Никакого цикла, никакого `@Lazy`, никаких `BeanCurrentlyInCreationException`.
+
+Технический момент: `StrategyTimelineService` уже существует и сейчас инкапсулирует всю логику сборки. В рамках этого PR извлекаем из него «честный baseline» в новый `BaselineTimelineBuilder` (рефакторинг без поведенческих изменений), затем переписываем сам `StrategyTimelineService` как тонкий координатор над `BaselineTimelineBuilder` и `WishlistSimulationService`. На существующих IT `StrategyControllerIT` это поведенчески прозрачно (timeline без FIXED items совпадает с baseline); добавляются новые тест-кейсы про учёт FIXED items.
 
 ## Жизненный цикл item'а
 
