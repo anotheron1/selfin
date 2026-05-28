@@ -369,7 +369,7 @@ Content-Type: application/json
 Что создаётся под капотом, в одной транзакции:
 
 - **`PLAN_EVENT`**: новый `FinancialEvent` (`eventKind=PLAN`, `status=PLANNED`, `type=EXPENSE`, `priority=LOW`, `wishlist_status=NULL`, `categoryId` копируется из исходного item'а, `plannedAmount=item.amount`, `date=item.targetDate`, `description=item.name`). Исходный item обновляется (`wishlist_status='FIXED'`, `converted_to_event_id` = новый `FinancialEvent.id`).
-- **`FUND`**: новый `TargetFund` (`status=ACTIVE`, `wishlist_status='FIXED'`, `purchaseType=SAVINGS`, `targetAmount=item.amount`, `name=item.name`, deadline опционально). Исходный item обновляется.
+- **`FUND`**: новый `TargetFund` (`status=FUNDING`, `wishlist_status='FIXED'`, `purchaseType=SAVINGS`, `targetAmount=item.amount`, `name=item.name`, deadline опционально). Исходный item обновляется.
 - **`FUND_WITH_CREDIT`**: новый `TargetFund` (`purchaseType=CREDIT`, `creditRate=item.rate`, `creditTermMonths=item.termMonths`, ...). Если `createRecurringPayments=true` — дополнительно создаётся `RecurringRule` для PMT-платежей (`frequency=MONTHLY`, `dayOfMonth=targetDate.dayOfMonth`, `endDate=targetDate+termMonths`).
 
 Повторная конверсия → `409 Conflict` с body `{ existingArtifactId, artifactKind }`. Frontend показывает ссылку на существующий артефакт.
@@ -566,8 +566,8 @@ ru.selfin.backend.dto
 ├─ WishlistStatusUpdateDto
 
 ru.selfin.backend.model
-├─ FinancialEvent — добавляется поле wishlist_status, converted_to_event_id
-├─ TargetFund — добавляется поле wishlist_status, converted_to_event_id
+├─ FinancialEvent — добавляются поля wishlist_status, converted_to_event_id, converted_to_fund_id
+├─ TargetFund — добавляются поля wishlist_status, converted_to_event_id, converted_to_fund_id
 ├─ UserSettings — новая сущность
 ├─ enums.WishlistStatus  (OPEN, FIXED, DISMISSED)
 
