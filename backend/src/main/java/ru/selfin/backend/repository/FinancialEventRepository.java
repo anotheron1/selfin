@@ -245,4 +245,17 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
            "  AND e.deleted = false")
     Optional<FinancialEvent> findActiveByRuleAndDate(@Param("ruleId") UUID ruleId,
                                                      @Param("date") LocalDate date);
+
+    // --- Wishlist ---
+
+    /** Все хотелки (LOW-события с явным статусом). Для страницы /wishlist. */
+    @Query("SELECT e FROM FinancialEvent e " +
+           "WHERE e.priority = ru.selfin.backend.model.enums.Priority.LOW " +
+           "  AND e.wishlistStatus IS NOT NULL " +
+           "  AND e.deleted = false")
+    List<FinancialEvent> findAllWishlistEvents();
+
+    /** Хотелки-события с конкретным статусом (например FIXED для timeline). */
+    List<FinancialEvent> findByWishlistStatusAndDeletedFalse(
+            ru.selfin.backend.model.enums.WishlistStatus status);
 }
