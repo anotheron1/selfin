@@ -615,15 +615,17 @@ public class StrategyTimelineService {
 }
 ```
 
-- [ ] **Step 3: Compile**
+- [ ] **Step 3: Compile + update the moved unit test**
 
 Run: `rtk JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw compile`
-Expected: BUILD SUCCESS. Fix any leftover references (e.g. a test that called a now-private method directly).
+Expected: BUILD SUCCESS.
 
-- [ ] **Step 4: Run existing strategy tests — must still pass (proves move is behavior-neutral)**
+The existing `StrategyTimelineServiceTest` constructs `new StrategyTimelineService(eventRepo, checkpointRepo, categoryRepo, predictionService, capitalService)` and calls the now-moved package-private methods (`buildCurrentPoint`, `buildPastPoints`, `buildFuturePoints`, `enrichWithCapital`, `enrichWithBreakdown`, `firstActivityMonth`) directly. After the move those methods live on `BaselineTimelineBuilder`. **Explicitly update the test:** rename it to `BaselineTimelineBuilderTest`, change instantiation to `new BaselineTimelineBuilder(eventRepo, checkpointRepo, categoryRepo, predictionService, capitalService)` (same 5 args), and repoint all moved-method calls onto it. (The new thin `StrategyTimelineService` gets its own focused test in Task 2.6.) Run `mvnw test-compile` to confirm the test compiles.
 
-Run: `rtk JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest='StrategyTimelineServiceTest,StrategyTimelineControllerIT'`
-Expected: PASS. (If `StrategyTimelineServiceTest` referenced moved package-private methods, repoint it at `BaselineTimelineBuilder` — those unit tests logically belong there now.) If Docker is down, run the unit test only and defer the IT; note it.
+- [ ] **Step 4: Run the moved unit test + strategy IT — must still pass (proves move is behavior-neutral)**
+
+Run: `rtk JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest='BaselineTimelineBuilderTest,StrategyTimelineControllerIT'`
+Expected: PASS. If Docker is down, run `BaselineTimelineBuilderTest` only and defer the IT to CI; note it.
 
 - [ ] **Step 5: Commit**
 
@@ -919,22 +921,57 @@ rtk git commit -m "feat(service): WishlistSimulationService.computeWishlistDelta
     @Test
     void computeDelta_savings_monthlyContributionsThenPurchase() {
         YearMonth current = YearMonth.now();
-        LocalDate target = current.plusMonths(12).atDay(1);   // index 11
+        LocalDate target = current.plusMonths(12).atDay(1);   // purchaseIdx = 11
         BigDecimal amount = new BigDecimal("200000");
 
         var result = WishlistSimulationService.computeSavingsDelta(amount, target, current, 36);
 
-        // monthlyContribution = amount / numContributionMonths; numContributionMonths = index+1 = 12
+        // Model: contribute monthly across ALL months 0..purchaseIdx (inclusive) = purchaseIdx+1 = 12 months.
+        // monthly = amount / (purchaseIdx + 1) = 200000 / 12 = 16666.67.
+        // account drops by monthly EVERY month 0..11 (total = amount); capital flat until purchase.
+        // At purchase month (index 11): that month's contribution PLUS the consumption.
+        // account axis and capital axis are independent (account=checking, capital=net worth);
+        // the fund pocket is the intermediary and shows only in tooltips.
         assertThat(result.monthlyContribution()).isEqualByComparingTo("16666.67");
-        // months 0..10: account -= contribution, fund += contribution, capital unchanged
+
+        // contribution months 0..10: account -= monthly, fund += monthly, capital = 0
+        assertThat(result.delta().get(0).monthIndex()).isEqualTo(0);
         assertThat(result.delta().get(0).accountDelta()).isEqualByComparingTo("-16666.67");
         assertThat(result.delta().get(0).fundDelta()).isEqualByComparingTo("16666.67");
         assertThat(result.delta().get(0).capitalDelta()).isEqualByComparingTo("0");
-        // final month (index 11): purchase — fund drained, capital drops by amount, account unchanged
+
+        // purchase month (index 11): account -= monthly (final contribution), capital -= amount (consumption)
         MonthDeltaDto last = result.delta().get(result.delta().size() - 1);
         assertThat(last.monthIndex()).isEqualTo(11);
+        assertThat(last.accountDelta()).isEqualByComparingTo("-16666.67");
         assertThat(last.capitalDelta()).isEqualByComparingTo("-200000");
-        assertThat(last.fundDelta()).isEqualByComparingTo("-200000");
+
+        // total account drop across all 12 entries == amount (12 × 16666.67 ≈ 200000)
+        BigDecimal totalAccount = result.delta().stream()
+                .map(MonthDeltaDto::accountDelta).reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(totalAccount).isEqualByComparingTo("-200000.04");  // rounding: 12 × -16666.67
+    }
+
+    @Test
+    void computeDelta_savings_nextMonthTarget_degeneratesToLumpSum() {
+        YearMonth current = YearMonth.now();
+        LocalDate target = current.plusMonths(1).atDay(1);   // purchaseIdx = 0
+        var result = WishlistSimulationService.computeSavingsDelta(
+                new BigDecimal("200000"), target, current, 36);
+        // No time to save: single entry at index 0, account -amount, capital -amount.
+        assertThat(result.delta()).hasSize(1);
+        assertThat(result.delta().get(0).monthIndex()).isEqualTo(0);
+        assertThat(result.delta().get(0).accountDelta()).isEqualByComparingTo("-200000");
+        assertThat(result.delta().get(0).capitalDelta()).isEqualByComparingTo("-200000");
+    }
+
+    @Test
+    void computeDelta_savings_beyondHorizon_empty() {
+        YearMonth current = YearMonth.now();
+        LocalDate far = current.plusMonths(50).atDay(1);
+        var result = WishlistSimulationService.computeSavingsDelta(
+                new BigDecimal("200000"), far, current, 36);
+        assertThat(result.delta()).isEmpty();
     }
 
     @Test
@@ -990,24 +1027,46 @@ Expected: COMPILE FAIL.
     public record CreditResult(List<MonthDeltaDto> delta, BigDecimal monthlyPMT) {}
 
     /**
-     * Копилка: равномерные взносы каждый месяц до целевой даты, затем покупка.
-     * Взнос уходит со счёта в копилку (account -, fund +, capital 0).
-     * В месяц покупки копилка тратится на актив (fund -amount, capital -amount, account 0).
+     * Копилка: равномерные взносы КАЖДЫЙ месяц 0..purchaseIdx (включительно = purchaseIdx+1 месяцев),
+     * в последний месяц — покупка.
+     *
+     * <p>account (расчётный счёт) и capital (чистая стоимость) — независимые оси; копилка-pocket
+     * выступает посредником и видна только в tooltip:
+     * <ul>
+     *   <li>месяцы 0..purchaseIdx-1: account −= monthly, fund += monthly, capital = 0
+     *       (деньги переехали в копилку, всё ещё мои);</li>
+     *   <li>месяц purchaseIdx: account −= monthly (последний взнос), capital −= amount (потребление),
+     *       fund += (monthly − amount) (копилка наполнилась и потрачена).</li>
+     * </ul>
+     * Итог: account падает на amount равномерно за (purchaseIdx+1) месяцев; capital падает на amount
+     * в месяц покупки. monthly = amount / (purchaseIdx + 1).
+     *
+     * <p>purchaseIdx == 0 (цель в current+1, нет времени копить) → одна запись: account −amount,
+     * capital −amount (вырождается в разовый отток). Возвращает пустой список, если дата в прошлом
+     * или за горизонтом.
      */
     public static SavingsResult computeSavingsDelta(
             BigDecimal amount, LocalDate targetDate, YearMonth current, int horizonMonths) {
         int purchaseIdx = monthIndexOf(targetDate, current);
-        if (purchaseIdx < 0) return new SavingsResult(List.of(), BigDecimal.ZERO);
-        int contribMonths = purchaseIdx + 1;   // indices 0..purchaseIdx-1 contribute; purchase at purchaseIdx
+        if (purchaseIdx < 0 || purchaseIdx >= horizonMonths) {
+            return new SavingsResult(List.of(), BigDecimal.ZERO);
+        }
+        if (purchaseIdx == 0) {
+            // Нет времени копить — разовый отток.
+            return new SavingsResult(
+                    List.of(new MonthDeltaDto(0, amount.negate(), amount.negate(), BigDecimal.ZERO, null)),
+                    amount);
+        }
+        int contribMonths = purchaseIdx + 1;   // взносы в месяцах 0..purchaseIdx включительно
         BigDecimal monthly = amount.divide(BigDecimal.valueOf(contribMonths), 2, java.math.RoundingMode.HALF_UP);
 
         List<MonthDeltaDto> out = new ArrayList<>();
-        for (int i = 0; i < purchaseIdx && i < horizonMonths; i++) {
+        for (int i = 0; i < purchaseIdx; i++) {
             out.add(new MonthDeltaDto(i, monthly.negate(), BigDecimal.ZERO, monthly, null));
         }
-        if (purchaseIdx < horizonMonths) {
-            out.add(new MonthDeltaDto(purchaseIdx, BigDecimal.ZERO, amount.negate(), amount.negate(), null));
-        }
+        // Месяц покупки: последний взнос + потребление.
+        out.add(new MonthDeltaDto(purchaseIdx, monthly.negate(), amount.negate(),
+                monthly.subtract(amount), null));
         return new SavingsResult(out, monthly);
     }
 
@@ -1097,7 +1156,12 @@ Expected: FAIL (`getSimulation` not implemented).
 - [ ] **Step 3: Implement `getSimulation`, `recomputeItemDelta`, `computeDeltaForFixedItems`**
 
 Implement:
-- `getSimulation(int horizonMonths)` — builds baseline via `baselineBuilder.build(horizonMonths, true)`, collects wishlist events + funds (status != DISMISSED), maps each to `WishlistItemDto` (kind from priority/purchaseType), computes delta via the static helpers, fetches thresholds via `UserSettingsService`, computes `WishlistConstraintsDto` (income/expense averages from a 6-month window; reuse existing `eventRepository.findFactsByDateRange`, or a small private helper), wraps into `WishlistSimulationDto`.
+- `getSimulation(int horizonMonths)` — builds baseline via `baselineBuilder.build(horizonMonths, true)`, collects wishlist events (`findAllWishlistEvents`) + funds (`findAllWishlistFunds`), drops `DISMISSED`, maps each to `WishlistItemDto`, computes delta via the static helpers, fetches thresholds via `UserSettingsService`, computes `WishlistConstraintsDto` (income/expense averages from a 6-month window; reuse existing `eventRepository.findFactsByDateRange`, or a small private helper), wraps into `WishlistSimulationDto`.
+
+  **Field mapping (explicit):**
+  - WISHLIST item ← `FinancialEvent`: `kind=WISHLIST`, `name = description` (fallback category name), `amount = plannedAmount`, **`targetDate = event.date`** (the event's `date` field is the wishlist target date; it is nullable — if null, the item still lists but `delta` is empty and the card prompts the user to pick a date), `categoryId = category.id`, `status = wishlistStatus`, `convertedTo` from `convertedToEventId`/`convertedToFundId`.
+  - SAVINGS/CREDIT item ← `TargetFund`: `kind` from `purchaseType` (SAVINGS→`SAVINGS`, CREDIT→`CREDIT`), `name = name`, `amount = targetAmount`, `targetDate = targetDate`, `rate = creditRate`, `termMonths = creditTermMonths` (CREDIT only), `status = wishlistStatus`.
+  - When `targetDate == null`, return an empty `delta` for that item (the static helpers already return empty for a null/past date — guard the call).
 - `recomputeItemDelta(RecomputeRequestDto)` → `RecomputeResponseDto` (delta + monthlyContribution/PMT).
 - `computeDeltaForFixedItems(YearMonth current, int horizonMonths)` → `List<MonthDeltaDto>` summed across all FIXED items (events with `wishlistStatus=FIXED` and funds with `wishlistStatus=FIXED`). Used by `StrategyTimelineService`.
 
@@ -1117,7 +1181,7 @@ return new StrategyTimelineDto(snap.firstMonth(), snap.currentMonth(), snap.hori
         snap.predictionWindowMonths(), snap.fanEnabled(), overlaid);
 ```
 
-`applyDeltas` is a small private helper that, for each FUTURE point at `current + (idx+1)`, accumulates `accountDelta` into `balance`/`balanceConfirmed`/`balanceLow`/`balanceHigh` and `capitalDelta` into `capital`. (Deltas are cumulative-per-month flows; accumulate running sums across months, matching how `buildFuturePoints` accumulates `balanceConfirmed`.)
+`applyDeltas` is a small private helper. **Concrete semantics (load-bearing — the frontend `composeTimeline` mirrors this exactly):** deltas are per-month *flows*, not one-time point shifts. Maintain two running totals `runAccount = 0`, `runCapital = 0`. Iterate future points in chronological order; for the point at month-offset `k` (where `k = 1` is `current+1`, i.e. `monthIndex = k-1`), first add every delta entry whose `monthIndex == k-1` into the running totals (`runAccount += Σ accountDelta`, `runCapital += Σ capitalDelta`), then add `runAccount` to that point's `balance`/`balanceConfirmed`/`balanceLow`/`balanceHigh` and `runCapital` to its `capital`. This way a single outflow at `monthIndex=2` lowers every point from `current+3` onward — matching how `buildFuturePoints` carries `balanceConfirmed` as a running total, and matching the frontend test in Task 5.3 (`out[2].account == 30000`).
 
 - [ ] **Step 5: Run all affected tests**
 
@@ -1136,6 +1200,46 @@ rtk git commit -m "feat(service): getSimulation assembly + FIXED-item overlay on
 ## Chunk 3 — Settings + conversion + status endpoints + controllers
 
 This chunk completes the backend write paths: thresholds storage, status transitions, conversion to real artifacts, and all controllers.
+
+### Task 3.0: Map `ResponseStatusException` to its embedded status (prerequisite)
+
+The existing `GlobalExceptionHandler` has a catch-all `@ExceptionHandler(Exception.class)` returning 500. Because `@ControllerAdvice` handlers resolve before Spring's `ResponseStatusExceptionResolver`, that catch-all intercepts `ResponseStatusException` and returns **500 instead of the embedded 400/409**. Every 400/409 in this chunk relies on `ResponseStatusException`, so add an explicit handler first. (This also retroactively fixes the same latent issue in already-merged code that throws `ResponseStatusException`.)
+
+**Files:**
+- Modify: `backend/src/main/java/ru/selfin/backend/config/GlobalExceptionHandler.java`
+
+- [ ] **Step 1: Add a handler ABOVE the generic `Exception` handler**
+
+```java
+    /**
+     * Пробрасывает HTTP-статус, заложенный в ResponseStatusException (400/404/409/...),
+     * вместо того чтобы он попадал в generic-обработчик и превращался в 500.
+     * Должен стоять ВЫШЕ @ExceptionHandler(Exception.class) — более специфичный матч.
+     */
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(
+            org.springframework.web.server.ResponseStatusException ex) {
+        int code = ex.getStatusCode().value();
+        log.warn("ResponseStatusException {}: {}", code, ex.getReason());
+        return ResponseEntity
+                .status(ex.getStatusCode())
+                .body(ErrorResponse.of(code, ex.getReason() != null ? ex.getReason() : "Error"));
+    }
+```
+
+- [ ] **Step 2: Compile**
+
+Run: `rtk JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw compile`
+Expected: BUILD SUCCESS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+rtk git add backend/src/main/java/ru/selfin/backend/config/GlobalExceptionHandler.java
+rtk git commit -m "fix(error): map ResponseStatusException to its embedded HTTP status"
+```
+
+---
 
 ### Task 3.1: `UserSettingsService` + remaining settings DTO (TDD)
 
@@ -1177,6 +1281,22 @@ class UserSettingsServiceTest {
         assertThatThrownBy(() -> service.updateWishlistSettings(
                 new WishlistThresholdsDto(BigDecimal.ZERO, new BigDecimal("-1"))))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void updateWishlistSettings_bufferAbove36_throws() {
+        assertThatThrownBy(() -> service.updateWishlistSettings(
+                new WishlistThresholdsDto(BigDecimal.ZERO, new BigDecimal("37"))))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void updateWishlistSettings_nullCapitalThreshold_isAllowed() {
+        when(repo.findBySettingsKey("wishlist")).thenReturn(Optional.empty());
+        when(repo.save(org.mockito.ArgumentMatchers.any())).thenAnswer(i -> i.getArgument(0));
+        var saved = service.updateWishlistSettings(
+                new WishlistThresholdsDto(null, new BigDecimal("1.0")));
+        assertThat(saved.capitalThresholdRub()).isNull();   // null = capital criterion disabled
     }
 }
 ```
@@ -1297,6 +1417,17 @@ rtk git commit -m "feat(service): UserSettingsService with lazy-init + validatio
         service.setWishlistStatus(id, WishlistStatus.DISMISSED);
         assertThat(e.getWishlistStatus()).isEqualTo(WishlistStatus.DISMISSED);
     }
+
+    @Test
+    void setWishlistStatus_sameValue_isNoOpNoThrow() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent e = FinancialEvent.builder().id(id).priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.FIXED).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(e));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        service.setWishlistStatus(id, WishlistStatus.FIXED);   // same value
+        assertThat(e.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);  // unchanged, no exception
+    }
 ```
 
 - [ ] **Step 2: Run, expect FAIL**
@@ -1410,18 +1541,124 @@ public record RecomputeResponseDto(
 - [ ] **Step 2: Failing tests for conversion**
 
 ```java
+package ru.selfin.backend.service;
+
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import ru.selfin.backend.dto.wishlist.ConvertWishlistRequestDto;
+import ru.selfin.backend.exception.ResourceNotFoundException;  // verify exact package
+import ru.selfin.backend.model.*;
+import ru.selfin.backend.model.enums.*;
+import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 class WishlistConversionServiceTest {
-    // mock FinancialEventRepository, TargetFundRepository, RecurringRuleService
 
-    @Test void convert_wishlistToPlanEvent_createsEventAndFixesSource() { /* verify new PLAN event saved; source.wishlistStatus=FIXED; source.convertedToEventId set */ }
+    private final FinancialEventRepository eventRepo = mock(FinancialEventRepository.class);
+    private final TargetFundRepository fundRepo = mock(TargetFundRepository.class);
+    private final RecurringRuleService recurringRuleService = mock(RecurringRuleService.class);
+    private final WishlistConversionService service =
+            new WishlistConversionService(eventRepo, fundRepo, recurringRuleService);
 
-    @Test void convert_alreadyConverted_throws409() { /* source has convertedToEventId already → ResponseStatusException CONFLICT */ }
+    private FinancialEvent openWishlist(UUID id) {
+        Category cat = Category.builder().id(UUID.randomUUID()).name("Прочее").build();
+        return FinancialEvent.builder().id(id).priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.OPEN).category(cat)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("150000"))
+                .date(LocalDate.now().plusMonths(6)).description("Ноут").build();
+    }
 
-    @Test void convert_creditWithRecurring_createsFundAndRule() { /* target=FUND_WITH_CREDIT + createRecurringPayments=true → TargetFund + RecurringRule */ }
+    @Test
+    void convert_wishlistToPlanEvent_createsEventAndFixesSource() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        when(eventRepo.save(any())).thenAnswer(i -> {
+            FinancialEvent e = i.getArgument(0);
+            if (e.getId() == null) e.setId(UUID.randomUUID());
+            return e;
+        });
 
-    @Test void convert_planEvent_rollsBackOnFailure() { /* eventRepository.save throws → source stays OPEN (verify no status mutation persisted) */ }
+        var resp = service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false));
+
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        assertThat(src.getConvertedToEventId()).isNotNull();
+        assertThat(resp.convertedTo().kind()).isEqualTo("EVENT");
+        // verify a new PLAN event (eventKind=PLAN, wishlistStatus=null) was saved
+        ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
+        verify(eventRepo, atLeast(1)).save(cap.capture());
+        assertThat(cap.getAllValues()).anySatisfy(e -> {
+            assertThat(e.getEventKind()).isEqualTo(EventKind.PLAN);
+            assertThat(e.getWishlistStatus()).isNull();
+        });
+    }
+
+    @Test
+    void convert_alreadyConverted_throws409() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        src.setWishlistStatus(WishlistStatus.FIXED);
+        src.setConvertedToEventId(UUID.randomUUID());   // already converted
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+
+        assertThatThrownBy(() -> service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(409));
+    }
+
+    @Test
+    void convert_creditWithRecurring_createsFundAndRule() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder().id(id).name("Машина")
+                .purchaseType(FundPurchaseType.CREDIT).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).targetDate(LocalDate.now().plusMonths(2))
+                .creditRate(new BigDecimal("16.5")).creditTermMonths(60).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        when(fundRepo.save(any())).thenAnswer(i -> {
+            TargetFund f = i.getArgument(0);
+            if (f.getId() == null) f.setId(UUID.randomUUID());
+            return f;
+        });
+        UUID ruleId = UUID.randomUUID();
+        // RecurringRuleService.createFromDto returns a CreateResult carrying the rule;
+        // mock to return a rule with ruleId. Match the actual return type.
+        when(recurringRuleService.createFromDto(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new RecurringRuleService.CreateResult(
+                        RecurringRule.builder().id(ruleId).build(), java.util.List.of()));
+
+        var resp = service.convertItem(id,
+                new ConvertWishlistRequestDto("CREDIT", "FUND_WITH_CREDIT", true));
+
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        assertThat(src.getConvertedToFundId()).isNotNull();
+        assertThat(resp.recurringRuleId()).isEqualTo(ruleId);
+        verify(recurringRuleService).createFromDto(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void convert_notFound_throws404() {
+        UUID id = UUID.randomUUID();
+        when(eventRepo.findById(id)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false)))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
 }
 ```
+
+> Verify before writing: the exact package of `ResourceNotFoundException` (grep `class ResourceNotFoundException`), and the exact return type + shape of `RecurringRuleService.createFromDto` (the merged recurring PR added an 8-arg overload returning a `CreateResult(rule, events)` record — confirm the record name and constructor). Adjust the mock in `convert_creditWithRecurring` to match the real signature.
 
 - [ ] **Step 3: Run, expect FAIL**
 
@@ -1431,16 +1668,36 @@ Expected: COMPILE FAIL.
 - [ ] **Step 4: Implement `WishlistConversionService`**
 
 `@Transactional convertItem(UUID itemId, ConvertWishlistRequestDto req)`:
-1. Load source (event or fund depending on `sourceKind`); if not found → 404.
-2. If source already has `convertedToEventId` or `convertedToFundId` → 409 with the existing id.
-3. Branch on `target`:
-   - `PLAN_EVENT`: build `FinancialEvent` (PLAN/PLANNED/EXPENSE/LOW, `wishlistStatus=null`, copy category/amount/date/name), save; set `source.convertedToEventId = saved.id`.
-   - `FUND`: build `TargetFund` (`status=FUNDING`, `purchaseType=SAVINGS`, `wishlistStatus=FIXED`, targetAmount, name), save; set `source.convertedToFundId`.
-   - `FUND_WITH_CREDIT`: build `TargetFund` (`purchaseType=CREDIT`, creditRate, creditTermMonths), save; if `createRecurringPayments`, create `RecurringRule` via `RecurringRuleService` (MONTHLY, dayOfMonth from targetDate, endDate = targetDate + termMonths).
-4. Set `source.wishlistStatus = FIXED`, save source.
-5. Return `ConvertWishlistResponseDto`.
 
-All in one transaction (rollback covers all-or-nothing). Use existing `ResourceNotFoundException` and `ResponseStatusException`.
+1. **Load source by `sourceKind`:** `WISHLIST` → `eventRepo.findById` (a `FinancialEvent`); `SAVINGS`/`CREDIT` → `fundRepo.findById` (a `TargetFund`). Not found → throw `ResourceNotFoundException` (404). Both source types expose `wishlistStatus`, `convertedToEventId`, `convertedToFundId` getters/setters (added in Chunk 1).
+2. **Already-converted guard:** if source has a non-null `convertedToEventId` OR `convertedToFundId` → `throw new ResponseStatusException(HttpStatus.CONFLICT, "already converted")` (409).
+3. **Branch on `target`:**
+   - `PLAN_EVENT`: build a new `FinancialEvent` (`eventKind=PLAN`, `status=PLANNED`, `type=EXPENSE`, `priority=LOW`, `wishlistStatus=null`, `category` copied from source event, `plannedAmount=source.amount`, `date=source.targetDate`, `description=source.name`); `eventRepo.save`; set `source.convertedToEventId = saved.id`; `convertedTo = (EVENT, saved.id)`; `artifactKind="PLAN_EVENT"`.
+   - `FUND`: build `TargetFund` (`status=FUNDING`, `purchaseType=SAVINGS`, `wishlistStatus=FIXED`, `targetAmount=source.amount`, `name=source.name`, `targetDate=source.targetDate`); `fundRepo.save`; set `source.convertedToFundId = saved.id`; `convertedTo=(FUND, saved.id)`; `artifactKind="FUND"`.
+   - `FUND_WITH_CREDIT`: build `TargetFund` (`status=FUNDING`, `purchaseType=CREDIT`, `wishlistStatus=FIXED`, `targetAmount=source.amount`, `name=source.name`, `creditRate=source.rate`, `creditTermMonths=source.termMonths`, `targetDate=source.targetDate`); `fundRepo.save`; **set `source.convertedToFundId = saved.id`** (do not forget this assignment); `convertedTo=(FUND, saved.id)`; `artifactKind="FUND_WITH_CREDIT"`. If `Boolean.TRUE.equals(req.createRecurringPayments())`, also create a PMT rule:
+     ```java
+     var cfg = new RecurringConfigDto(
+             RecurringFrequency.MONTHLY,
+             source.getTargetDate().getDayOfMonth(),   // dayOfMonth
+             null,                                       // monthOfYear (MONTHLY → null)
+             source.getTargetDate().plusMonths(1),       // startDate: first payment month after purchase
+             source.getTargetDate().plusMonths(termMonths)); // endDate
+     var ruleResult = recurringRuleService.createFromDto(
+             /* category   */ null,                       // PMT has no user category (or a "Кредит" system cat if one exists)
+             /* type       */ EventType.EXPENSE,
+             /* plannedAmt  */ monthlyPMT,                 // computed via WishlistSimulationService.computeCreditDelta(...).monthlyPMT()
+             /* priority    */ Priority.MEDIUM,
+             /* description */ source.getName() + " — платёж по кредиту",
+             /* targetFundId*/ savedFund.getId(),
+             /* headRawInput*/ null,
+             cfg);
+     recurringRuleId = ruleResult.rule().getId();
+     ```
+     > If `createFromDto` rejects a null category, check whether a system "Кредит"/"Прочее" category exists (the recurring PR may require a non-null category) — if so, resolve it via `CategoryService`/repo and pass it. Verify against the actual `createFromDto` validation before finalizing.
+4. Set `source.wishlistStatus = FIXED`; save source (`eventRepo.save` or `fundRepo.save`).
+5. Return `ConvertWishlistResponseDto(itemId, "FIXED", convertedTo, artifactKind, recurringRuleId)`.
+
+All in one `@Transactional` method (rollback covers all-or-nothing). Inject `FinancialEventRepository`, `TargetFundRepository`, `RecurringRuleService`. Use `ResourceNotFoundException` (`ru.selfin.backend.exception`) and `ResponseStatusException`.
 
 - [ ] **Step 5: Run, expect PASS; Commit**
 
@@ -1599,7 +1856,7 @@ rtk git commit -m "test(it): wishlist simulation empty-db scaffold"
 
 ### Task 4.2: IT — create wishlist item, appears in simulation with delta
 
-- [ ] **Step 1: Test** — POST a LOW event without date via existing `/events` (priority=LOW), PATCH its `wishlist-status` to OPEN (or rely on backfill semantics — explicit PATCH is cleaner), then GET `/simulation`, assert the item appears in `items[]` with `kind=WISHLIST` and non-empty `delta` when given a future targetDate. (If the simplest path is to seed via repository autowire, do that.)
+- [ ] **Step 1: Test** — Seed a wishlist event so it produces a delta. **Key field mapping:** `WishlistItemDto.targetDate` is populated from `FinancialEvent.date` (see Task 2.6 mapping). So to get a non-empty delta, the event MUST have a future `date`. Simplest: autowire `FinancialEventRepository` and save a `FinancialEvent` with `priority=LOW`, `wishlistStatus=OPEN`, `type=EXPENSE`, `plannedAmount=150000`, `date=LocalDate.now().plusMonths(6)`, `category=<seeded>`. Then GET `/simulation`; assert `items[]` contains an entry with `kind=WISHLIST`, `targetDate` = that date, and `delta` of size 1 with negative `accountDelta`. (Also assert a DISMISSED-status event does NOT appear.)
 - [ ] **Step 2: Run + commit** — `test(it): wishlist item appears in simulation with delta`
 
 ---
@@ -1620,7 +1877,7 @@ rtk git commit -m "test(it): wishlist simulation empty-db scaffold"
 
 ### Task 4.5: IT — convert CREDIT → FUND_WITH_CREDIT + recurring
 
-- [ ] **Step 1: Test** — create a CREDIT wishlist fund (TargetFund purchaseType=CREDIT, wishlist_status=OPEN via repo seed), convert with `target=FUND_WITH_CREDIT, createRecurringPayments=true`. Assert: a new TargetFund exists and a RecurringRule exists (query repos); response has `recurringRuleId`.
+- [ ] **Step 1: Test** — seed a CREDIT wishlist fund via repo autowire: `TargetFund` with `purchaseType=CREDIT`, `wishlistStatus=OPEN`, `targetAmount=2000000`, `targetDate=LocalDate.now().plusMonths(2)`, **`creditRate=16.5`, `creditTermMonths=60`** (both non-null — required for `computeCreditDelta` and the PMT rule). Convert with `target=FUND_WITH_CREDIT, createRecurringPayments=true`. Assert: a new TargetFund exists (query `TargetFundRepository`), a RecurringRule exists (query `RecurringRuleRepository`), response has non-null `recurringRuleId`, and the source fund now has `wishlistStatus=FIXED` + `convertedToFundId` set.
 - [ ] **Step 2: Run + commit** — `test(it): convert credit creates fund + recurring rule`
 
 ---
@@ -1641,7 +1898,7 @@ rtk git commit -m "test(it): wishlist simulation empty-db scaffold"
 
 ### Task 4.8: IT — FIXED-without-conversion item affects /strategy timeline
 
-- [ ] **Step 1: Test** — seed a FIXED wishlist event WITHOUT conversion (future targetDate), `GET /api/v1/strategy/timeline`, assert the future point's `balance` reflects the item's outflow (compare against a baseline run with the item DISMISSED, or assert the delta direction). This is the cross-cutting guarantee from Task 2.6.
+- [ ] **Step 1: Test** — deterministic two-call comparison. (a) Seed a FIXED wishlist event WITHOUT conversion (`wishlistStatus=FIXED`, `convertedToEventId=null`, `convertedToFundId=null`, `date=LocalDate.now().plusMonths(6)`, `plannedAmount=300000`, `type=EXPENSE`). `GET /api/v1/strategy/timeline`, capture `balance` of the point at month `now+6` → call it `withFixed`. (b) PATCH the event's `wishlist-status` to `DISMISSED`. `GET /api/v1/strategy/timeline` again, capture the same month's `balance` → `withoutFixed`. (c) Assert `withFixed < withoutFixed` (the FIXED outflow lowered the balance) and approximately `withoutFixed - withFixed ≈ 300000` (allow rounding tolerance). This pins the Task 2.6 overlay deterministically.
 - [ ] **Step 2: Run + commit** — `test(it): fixed wishlist item affects strategy timeline`
 
 ---
@@ -1768,7 +2025,7 @@ export const updateWishlistSettings = (body: WishlistThresholds) =>
     put<WishlistThresholds>('/settings/wishlist', body);
 ```
 
-Add the type imports to the existing import block at the top of `api/index.ts`.
+Add these to the existing `import type { ... } from '../types/api'` block at the top of `api/index.ts`: `WishlistSimulationDto`, `WishlistThresholds`, `WishlistKind`, `WishlistStatus`, `RecomputeResponse`, `ConvertResponse`. (`MonthDelta`/`WishlistItem` are only used transitively via `WishlistSimulationDto`, no direct import needed.)
 
 - [ ] **Step 2: Typecheck + commit**
 
@@ -1995,10 +2252,16 @@ rtk git commit -m "feat(frontend): riskZones (TDD)"
 Mirror `useStrategyTimeline` structure (fetch + tick refetch). Additionally hold local UI state:
 - `activeMap: Record<itemId, boolean>` — default true for OPEN+FIXED items.
 - `overrideMap: Record<itemId, { amount?: number; targetDate?: string; delta?: MonthDelta[] }>` — slider overrides; amount-only overrides reuse `scaleDelta` locally, parameter changes store a recomputed `delta`.
-- Derived `composedAccount`/`composedCapital` arrays via `composeTimeline` over baseline points (extract `{account, capital}` from `baseline.points` future segment) + active items (applying overrides).
+
+**Baseline extraction (index alignment — load-bearing):**
+- `monthIndex=0` means `current+1`. So the composed arrays must cover ONLY the future segment, aligned so array index `i` ↔ `monthIndex=i`.
+- Filter `data.baseline.points` to `phase === 'FUTURE'` (these are already in chronological order, `current+1 … current+horizon`). Past + current points are NOT part of the simulation surface.
+- **Field mapping:** `StrategyTimelinePointDto` has `balance` and `capital` (no `account` field). Map each future point to `BaselinePoint` as `{ account: point.balance, capital: point.capital }`. (`balance` is the running account/cashflow balance — what the spec calls "account" on the chart.)
+- Derived `composed: BaselinePoint[]` via `composeTimeline(futureBaseline, activeItemsWithOverrides)`; `zones: RiskLevel[]` via `riskZones(composed, thresholds, constraints.monthlyExpensesAvg)`.
+
 - `toggleItem(id)`, `setAmountOverride(id, amount)`, `setDateOverride(id, date)`, `applyRecomputedDelta(id, delta)`, `refetch()`.
 
-Return `{ data, isLoading, error, refetch, activeMap, overrideMap, composed, actions }`.
+Return `{ data, isLoading, error, refetch, activeMap, overrideMap, composed, zones, futureMonths, actions }` where `futureMonths` is the array of `YYYY-MM` labels from the FUTURE points (for the chart x-axis).
 
 > Keep the hook focused on state + derivation. No network call on slider drag (only on release, done by the card via the API). Recompute calls are triggered by the card and pushed back via `applyRecomputedDelta`.
 
@@ -2006,6 +2269,8 @@ Return `{ data, isLoading, error, refetch, activeMap, overrideMap, composed, act
 
 Run: `cd frontend && npx tsc --noEmit`
 Expected: clean.
+
+> **Testing decision (deviation from spec's generic test list, documented):** The spec listed `useWishlistSimulation.test.ts` + component tests using MSW. The actual project has **no React test infrastructure** — vitest runs in the `node` environment, there is no `@testing-library/react`, no `jsdom`, no MSW; the only existing frontend test (`savingsStrategyUtils.test.ts`) is a pure-function test. Introducing React-rendering + network-mock infra is a disproportionate scope addition for this PR and fights the codebase convention. Instead: ALL non-trivial hook logic is extracted into the pure functions `composeTimeline`, `scaleDelta`, `riskZones` (fully unit-tested in Tasks 5.3–5.4). The hook is a thin fetch+state+derivation wrapper over those tested functions; its end-to-end behavior is covered by the manual smoke matrix in Task 7.4. Introducing React test infra can be a separate follow-up if desired. Do NOT add jsdom/testing-library/MSW in this PR.
 
 - [ ] **Step 3: Commit**
 
@@ -2097,7 +2362,9 @@ Shadcn `Dialog`. Props: `open`, `item: WishlistItem`, `onClose`, `onConfirm(targ
 
 - [ ] **Step 2: `AddWishlistDialog`**
 
-Dialog with kind selector (WISHLIST/SAVINGS/CREDIT) and fields: name, amount, targetDate, plus credit params when CREDIT. Props: `open`, `onClose`, `onCreate(payload)`. Creating a WISHLIST posts a LOW event (existing `createEvent` with priority=LOW) then PATCHes status OPEN; creating SAVINGS/CREDIT posts a fund (existing `createFund`) then PATCHes fund status OPEN. (Document this two-call flow in a comment.)
+Dialog with kind selector (WISHLIST/SAVINGS/CREDIT) and fields: name, amount, targetDate, plus credit params when CREDIT. Props: `open`, `onClose`, `onCreate(payload)`. Creating a WISHLIST posts a LOW event (existing `createEvent` with priority=LOW, `date=targetDate`) then PATCHes status OPEN; creating SAVINGS/CREDIT posts a fund (existing `createFund`) then PATCHes fund status OPEN.
+
+> **Two-call flow + failure mode (document in a comment and handle):** creation is two sequential network calls — POST entity, then PATCH `wishlist-status=OPEN`. If the POST succeeds but the PATCH fails, the entity exists with `wishlist_status=NULL` and is invisible on `/wishlist` (a "stranded" event/fund). Acceptable behavior for this PR: surface a toast/error and trigger a `refetch()` of the parent funds/events so the user can see and retry; the stranded entity is tolerated (it shows up on `/funds` for a fund, or is simply an undated LOW event). Do NOT attempt a compensating delete. Wrap the two calls in a try/catch; on PATCH failure, show the error and still close-or-keep-open per the catch. Keep this explicit so the implementer doesn't ship a silent inconsistency.
 
 - [ ] **Step 3: `DeleteWishlistDialog`**
 
@@ -2207,9 +2474,13 @@ rm frontend/src/components/funds/SavingsStrategySection.tsx frontend/src/compone
 - [ ] **Step 3: Grep for dangling references**
 
 ```bash
-rtk grep "WishlistSection|WishlistForm|SavingsStrategySection|savingsStrategyUtils" frontend/src
+rtk grep "WishlistSection|WishlistItem|WishlistForm|SavingsStrategySection|savingsStrategyUtils" frontend/src
 ```
-Fix any remaining import (e.g. a test or `savingsStrategyUtils.test.ts`). If a util test exists for the deleted file, delete it too.
+Note `WishlistItem` is in the pattern because `WishlistItem.tsx` is a standalone file that could be imported independently of `WishlistSection`. Also delete the existing util test for the removed savings file — confirmed present at `frontend/src/components/funds/__tests__/savingsStrategyUtils.test.ts`:
+```bash
+rm frontend/src/components/funds/__tests__/savingsStrategyUtils.test.ts
+```
+Fix any remaining import the grep surfaces.
 
 - [ ] **Step 4: Typecheck + build**
 
