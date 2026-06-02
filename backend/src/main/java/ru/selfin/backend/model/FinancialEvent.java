@@ -110,6 +110,22 @@ public class FinancialEvent implements FinancialRecord {
     @Builder.Default
     private boolean deleted = false;
 
+    /**
+     * Статус item'а в модуле /wishlist. NULL — обычное событие, не хотелка.
+     * Не-NULL допустим только при priority=LOW (DB constraint chk_wishlist_status_only_low).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "wishlist_status", length = 16)
+    private ru.selfin.backend.model.enums.WishlistStatus wishlistStatus;
+
+    /** Если хотелка сконвертирована в PLAN-событие — ссылка на него. Только при FIXED. */
+    @Column(name = "converted_to_event_id")
+    private UUID convertedToEventId;
+
+    /** Если хотелка сконвертирована в копилку/кредит — ссылка на TargetFund. Только при FIXED. */
+    @Column(name = "converted_to_fund_id")
+    private UUID convertedToFundId;
+
     @PreUpdate
     public void onUpdate() {
         this.updatedAt = LocalDateTime.now();

@@ -68,4 +68,17 @@ public class TargetFund {
     /** Срок кредита в месяцах, nullable */
     @Column(name = "credit_term_months")
     private Integer creditTermMonths;
+
+    /** Статус в модуле /wishlist. NULL — обычная копилка/кредит вне планирования. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "wishlist_status", length = 16)
+    private ru.selfin.backend.model.enums.WishlistStatus wishlistStatus;
+
+    /** Конверсия копилки в PLAN-событие (редко; для симметрии модели). Только при FIXED. */
+    @Column(name = "converted_to_event_id")
+    private UUID convertedToEventId;
+
+    /** Конверсия копилки в другую копилку/кредит. Только при FIXED. */
+    @Column(name = "converted_to_fund_id")
+    private UUID convertedToFundId;
 }
