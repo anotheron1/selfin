@@ -224,4 +224,63 @@ class WishlistControllerIT {
                 .as("artifact PLAN event must be returned by GET /events at the target date")
                 .isTrue();
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Task 4.4 — double conversion returns 409
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void doubleConversion_returns409_referencingExistingArtifact() throws Exception {
+        Category cat = seededExpenseCategory();
+        LocalDate targetDate = LocalDate.now().plusMonths(4);
+
+        FinancialEvent src = eventRepository.save(FinancialEvent.builder()
+                .priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
+                .status(EventStatus.PLANNED)
+                .plannedAmount(new BigDecimal("120000"))
+                .date(targetDate)
+                .category(cat)
+                .description("Двойная конверсия")
+                .build());
+
+        String convertBody = """
+                {"sourceKind":"WISHLIST","target":"PLAN_EVENT"}
+                """;
+
+        // First conversion succeeds and produces the artifact.
+        String firstResp = mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(convertBody))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID artifactId = UUID.fromString(om.readTree(firstResp).get("convertedTo").get("id").asText());
+
+        // Second conversion of the already-FIXED source → 409 Conflict.
+        mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(convertBody))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409));
+
+        // The conflict left the source untouched: it still references the original (existing) artifact id.
+        FinancialEvent reloaded = eventRepository.findById(src.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        assertThat(reloaded.getConvertedToEventId())
+                .as("double-convert must not replace or clear the existing artifact reference")
+                .isEqualTo(artifactId);
+
+        // And no duplicate artifact PLAN event was created at the target date.
+        long artifactsAtDate = eventRepository.findAll().stream()
+                .filter(e -> !e.isDeleted()
+                        && e.getWishlistStatus() == null
+                        && e.getEventKind() == EventKind.PLAN
+                        && targetDate.equals(e.getDate()))
+                .count();
+        assertThat(artifactsAtDate)
+                .as("exactly one artifact event should exist after a failed second conversion")
+                .isEqualTo(1);
+    }
 }
