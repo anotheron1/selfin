@@ -137,4 +137,14 @@ public class FinancialEventController {
         eventService.delete(id, scope);
         return ResponseEntity.noContent().build();
     }
+
+    @Operation(summary = "Сменить wishlist-статус события (OPEN/FIXED/DISMISSED)",
+            description = "Применимо только к LOW-приоритетным событиям (хотелкам).")
+    @PatchMapping("/{id}/wishlist-status")
+    public void setWishlistStatus(
+            @Parameter(description = "ID события") @PathVariable UUID id,
+            @RequestBody ru.selfin.backend.dto.wishlist.WishlistStatusUpdateDto dto) {
+        eventService.setWishlistStatus(id,
+                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()));
+    }
 }

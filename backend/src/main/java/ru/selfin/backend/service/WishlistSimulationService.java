@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
 import ru.selfin.backend.dto.wishlist.MonthDeltaDto;
+import ru.selfin.backend.dto.wishlist.RecomputeRequestDto;
+import ru.selfin.backend.dto.wishlist.RecomputeResponseDto;
 import ru.selfin.backend.dto.wishlist.TimelineSnapshot;
 import ru.selfin.backend.dto.wishlist.WishlistConstraintsDto;
 import ru.selfin.backend.dto.wishlist.WishlistItemDto;
@@ -85,6 +87,35 @@ public class WishlistSimulationService {
         WishlistConstraintsDto constraints = computeConstraints(current);
 
         return new WishlistSimulationDto(baselineDto, items, thresholds, constraints);
+    }
+
+    /**
+     * Пересчитывает delta-вектор одного item'а по «черновым» параметрам слайдеров
+     * (без сохранения). Диспетчеризует по {@code kind} на статические compute*Delta-хелперы.
+     * Горизонт фиксирован 36 месяцев (как и дефолт {@link #getSimulation(int)}).
+     *
+     * @param req kind + сумма + дата (+ ставка/срок для CREDIT)
+     * @return delta + выведенные monthlyContribution (SAVINGS) / monthlyPMT (CREDIT)
+     */
+    public RecomputeResponseDto recomputeItemDelta(RecomputeRequestDto req) {
+        YearMonth current = YearMonth.now();
+        int horizonMonths = 36;
+        BigDecimal amount = req.amount() != null ? req.amount() : BigDecimal.ZERO;
+        String kind = req.kind();
+
+        if ("CREDIT".equals(kind)) {
+            BigDecimal rate = req.rate() != null ? req.rate() : BigDecimal.ZERO;
+            int term = req.termMonths() != null ? req.termMonths() : 0;
+            CreditResult cr = computeCreditDelta(amount, req.targetDate(), current, horizonMonths, rate, term);
+            return new RecomputeResponseDto(cr.delta(), null, cr.monthlyPMT());
+        }
+        if ("SAVINGS".equals(kind)) {
+            SavingsResult sr = computeSavingsDelta(amount, req.targetDate(), current, horizonMonths);
+            return new RecomputeResponseDto(sr.delta(), sr.monthlyContribution(), null);
+        }
+        // WISHLIST (default): single-month outflow.
+        List<MonthDeltaDto> delta = computeWishlistDelta(amount, req.targetDate(), current, horizonMonths);
+        return new RecomputeResponseDto(delta, null, null);
     }
 
     /**

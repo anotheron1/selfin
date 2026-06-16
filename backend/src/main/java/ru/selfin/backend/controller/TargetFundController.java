@@ -79,6 +79,15 @@ public class TargetFundController {
         return fundService.transferToPocket(id, idempotencyKey, request.amount());
     }
 
+    @Operation(summary = "Сменить wishlist-статус копилки/кредита (OPEN/FIXED/DISMISSED)")
+    @PatchMapping("/{id}/wishlist-status")
+    public void setWishlistStatus(
+            @Parameter(description = "ID фонда") @PathVariable UUID id,
+            @RequestBody ru.selfin.backend.dto.wishlist.WishlistStatusUpdateDto dto) {
+        fundService.setWishlistStatus(id,
+                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()));
+    }
+
     /**
      * Тело запроса на пополнение фонда.
      *
