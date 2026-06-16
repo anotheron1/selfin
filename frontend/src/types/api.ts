@@ -394,3 +394,68 @@ export interface StrategyTimelineDto {
     fanEnabled: boolean;
     points: StrategyTimelinePointDto[];
 }
+
+// --- Wishlist planning ---
+
+export type WishlistStatus = 'OPEN' | 'FIXED' | 'DISMISSED';
+export type WishlistKind = 'WISHLIST' | 'SAVINGS' | 'CREDIT';
+
+export interface MonthDelta {
+    monthIndex: number;
+    accountDelta: number;
+    capitalDelta: number;
+    fundDelta?: number | null;
+    liabilityDelta?: number | null;
+}
+
+export interface ConvertedTo { kind: 'EVENT' | 'FUND'; id: string; }
+
+export interface WishlistItem {
+    id: string;
+    kind: WishlistKind;
+    name: string;
+    amount: number;
+    targetDate: string;       // YYYY-MM-DD
+    status: WishlistStatus;
+    convertedTo: ConvertedTo | null;
+    delta: MonthDelta[];
+    categoryId?: string | null;
+    monthlyContribution?: number | null;
+    rate?: number | null;
+    termMonths?: number | null;
+    monthlyPMT?: number | null;
+}
+
+export interface WishlistThresholds {
+    capitalThresholdRub: number | null;
+    cashBufferMonths: number;
+}
+
+export interface WishlistConstraints {
+    monthlyExpensesAvg: number;
+    monthlyIncomeAvg: number;
+    currentCapital: number;
+    maxWishlistAmount: number;
+    maxCreditAmount: number;
+}
+
+export interface WishlistSimulationDto {
+    baseline: StrategyTimelineDto;   // existing type
+    items: WishlistItem[];
+    thresholds: WishlistThresholds;
+    constraints: WishlistConstraints;
+}
+
+export interface RecomputeResponse {
+    delta: MonthDelta[];
+    monthlyContribution?: number | null;
+    monthlyPMT?: number | null;
+}
+
+export interface ConvertResponse {
+    wishlistItemId: string;
+    newStatus: WishlistStatus;
+    convertedTo: ConvertedTo;
+    artifactKind: 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT';
+    recurringRuleId?: string | null;
+}
