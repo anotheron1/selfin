@@ -283,4 +283,63 @@ class WishlistControllerIT {
                 .as("exactly one artifact event should exist after a failed second conversion")
                 .isEqualTo(1);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Task 4.5 — convert CREDIT → FUND_WITH_CREDIT + recurring rule
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void convertCredit_createsFundAndRecurringRule() throws Exception {
+        TargetFund src = fundRepository.save(TargetFund.builder()
+                .name("Машина в кредит")
+                .purchaseType(FundPurchaseType.CREDIT)
+                .status(FundStatus.FUNDING)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000"))
+                .targetDate(LocalDate.now().plusMonths(2))
+                .creditRate(new BigDecimal("16.5"))
+                .creditTermMonths(60)
+                .build());
+
+        long rulesBefore = ruleRepository.count();
+        long fundsBefore = fundRepository.count();
+
+        String convertBody = """
+                {"sourceKind":"CREDIT","target":"FUND_WITH_CREDIT","createRecurringPayments":true}
+                """;
+
+        String resp = mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(convertBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.newStatus").value("FIXED"))
+                .andExpect(jsonPath("$.artifactKind").value("FUND_WITH_CREDIT"))
+                .andExpect(jsonPath("$.convertedTo.kind").value("FUND"))
+                .andExpect(jsonPath("$.recurringRuleId").exists())
+                .andReturn().getResponse().getContentAsString();
+
+        var root = om.readTree(resp);
+        assertThat(root.get("recurringRuleId").isNull())
+                .as("FUND_WITH_CREDIT + createRecurringPayments must return a non-null recurringRuleId")
+                .isFalse();
+        UUID recurringRuleId = UUID.fromString(root.get("recurringRuleId").asText());
+        UUID newFundId = UUID.fromString(root.get("convertedTo").get("id").asText());
+
+        // A brand-new TargetFund was created (distinct from the source).
+        assertThat(fundRepository.count()).isGreaterThan(fundsBefore);
+        TargetFund newFund = fundRepository.findById(newFundId).orElseThrow();
+        assertThat(newFund.getId()).isNotEqualTo(src.getId());
+        assertThat(newFund.getPurchaseType()).isEqualTo(FundPurchaseType.CREDIT);
+
+        // A RecurringRule was created and is retrievable by the returned id.
+        assertThat(ruleRepository.count()).isGreaterThan(rulesBefore);
+        assertThat(ruleRepository.findById(recurringRuleId))
+                .as("the returned recurringRuleId must resolve to a persisted RecurringRule")
+                .isPresent();
+
+        // Source fund: FIXED + convertedToFundId set.
+        TargetFund reloaded = fundRepository.findById(src.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        assertThat(reloaded.getConvertedToFundId()).isEqualTo(newFundId);
+    }
 }
