@@ -27,6 +27,12 @@ import type {
     StrategyTimelineDto,
     TargetFund,
     WishlistCreateDto,
+    WishlistSimulationDto,
+    WishlistThresholds,
+    WishlistKind,
+    WishlistStatus,
+    RecomputeResponse,
+    ConvertResponse,
 } from '../types/api';
 
 // --- Categories ---
@@ -247,3 +253,28 @@ export const fetchStrategyTimeline = (params?: {
     const query = qs.toString();
     return get<StrategyTimelineDto>(`/strategy/timeline${query ? '?' + query : ''}`);
 };
+
+// --- Wishlist ---
+
+export const fetchWishlistSimulation = (horizonMonths = 36) =>
+    get<WishlistSimulationDto>(`/wishlist/simulation?horizonMonths=${horizonMonths}`);
+
+export const recomputeWishlistItem = (body: {
+    kind: WishlistKind; amount: number; targetDate: string; rate?: number; termMonths?: number;
+}) => post<RecomputeResponse>('/wishlist/simulation/recompute', body);
+
+export const convertWishlistItem = (itemId: string, body: {
+    sourceKind: WishlistKind; target: 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT'; createRecurringPayments?: boolean;
+}) => post<ConvertResponse>(`/wishlist/items/${itemId}/convert`, body);
+
+export const setEventWishlistStatus = (id: string, status: WishlistStatus) =>
+    patch<void>(`/events/${id}/wishlist-status`, { status });
+
+export const setFundWishlistStatus = (id: string, status: WishlistStatus) =>
+    patch<void>(`/funds/${id}/wishlist-status`, { status });
+
+export const fetchWishlistSettings = () =>
+    get<WishlistThresholds>('/settings/wishlist');
+
+export const updateWishlistSettings = (body: WishlistThresholds) =>
+    put<WishlistThresholds>('/settings/wishlist', body);
