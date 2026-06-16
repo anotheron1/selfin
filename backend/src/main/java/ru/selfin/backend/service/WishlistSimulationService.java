@@ -98,6 +98,11 @@ public class WishlistSimulationService {
      * @return delta + выведенные monthlyContribution (SAVINGS) / monthlyPMT (CREDIT)
      */
     public RecomputeResponseDto recomputeItemDelta(RecomputeRequestDto req) {
+        if (req.targetDate() == null || req.kind() == null || req.amount() == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "kind, amount, targetDate are required");
+        }
         YearMonth current = YearMonth.now();
         int horizonMonths = 36;
         BigDecimal amount = req.amount() != null ? req.amount() : BigDecimal.ZERO;

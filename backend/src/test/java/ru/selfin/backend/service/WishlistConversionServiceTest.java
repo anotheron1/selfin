@@ -107,6 +107,30 @@ class WishlistConversionServiceTest {
     }
 
     @Test
+    void convert_creditWithCredit_missingRateOrTerm_throws400() {
+        UUID id = UUID.randomUUID();
+        // CREDIT fund with null creditTermMonths → degenerate; conversion must be rejected.
+        TargetFund src = TargetFund.builder().id(id).name("Машина")
+                .purchaseType(FundPurchaseType.CREDIT).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).targetDate(LocalDate.now().plusMonths(2))
+                .creditRate(new BigDecimal("16.5")).creditTermMonths(null).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+
+        assertThatThrownBy(() -> service.convertItem(id,
+                new ConvertWishlistRequestDto("CREDIT", "FUND_WITH_CREDIT", true)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(400));
+
+        // All-or-nothing: nothing saved, source untouched (still OPEN, no conversion link).
+        verify(fundRepo, never()).save(any());
+        verify(recurringRuleService, never())
+                .createFromDto(any(), any(), any(), any(), any(), any(), any(), any());
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.OPEN);
+        assertThat(src.getConvertedToFundId()).isNull();
+    }
+
+    @Test
     void convert_notFound_throws404() {
         UUID id = UUID.randomUUID();
         when(eventRepo.findById(id)).thenReturn(Optional.empty());

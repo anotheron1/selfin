@@ -140,6 +140,12 @@ public class WishlistConversionService {
                 artifactKind = "FUND";
             }
             case "FUND_WITH_CREDIT" -> {
+                if (src.getCreditRate() == null
+                        || src.getCreditTermMonths() == null
+                        || src.getCreditTermMonths() <= 0) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "credit rate and positive term are required for FUND_WITH_CREDIT conversion");
+                }
                 TargetFund saved = fundRepository.save(buildCreditFund(src));
                 src.setConvertedToFundId(saved.getId());
                 convertedTo = new WishlistItemDto.ConvertedToDto("FUND", saved.getId());

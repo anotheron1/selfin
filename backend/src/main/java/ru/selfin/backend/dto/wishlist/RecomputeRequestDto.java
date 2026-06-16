@@ -1,5 +1,7 @@
 package ru.selfin.backend.dto.wishlist;
 
+import jakarta.validation.constraints.NotNull;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
@@ -14,9 +16,9 @@ import java.time.LocalDate;
  * @param termMonths срок в месяцах (CREDIT)
  */
 public record RecomputeRequestDto(
-        String kind,
-        BigDecimal amount,
-        LocalDate targetDate,
+        @NotNull String kind,
+        @NotNull BigDecimal amount,
+        @NotNull LocalDate targetDate,
         BigDecimal rate,
         Integer termMonths
 ) {}

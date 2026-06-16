@@ -309,6 +309,17 @@ class WishlistSimulationServiceTest {
     }
 
     @Test
+    void recomputeItemDelta_nullTargetDate_throws400() {
+        var req = new ru.selfin.backend.dto.wishlist.RecomputeRequestDto(
+                "WISHLIST", new BigDecimal("150000"), null, null, null);
+
+        assertThatThrownBy(() -> simulationService.recomputeItemDelta(req))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(400));
+    }
+
+    @Test
     void computeDelta_credit_beyondHorizon_emptyAndZeroPmt() {
         YearMonth current = YearMonth.now();
         LocalDate far = current.plusMonths(50).atDay(1);   // purchaseIdx = 49 >= horizon 36
