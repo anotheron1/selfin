@@ -342,4 +342,56 @@ class WishlistControllerIT {
         assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
         assertThat(reloaded.getConvertedToFundId()).isEqualTo(newFundId);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Task 4.6 — status FIXED→OPEN preserves the converted artifact
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void statusFixedToOpen_preservesArtifact() throws Exception {
+        Category cat = seededExpenseCategory();
+        LocalDate targetDate = LocalDate.now().plusMonths(5);
+
+        FinancialEvent src = eventRepository.save(FinancialEvent.builder()
+                .priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
+                .status(EventStatus.PLANNED)
+                .plannedAmount(new BigDecimal("140000"))
+                .date(targetDate)
+                .category(cat)
+                .description("Хотелка, которую открутят назад")
+                .build());
+
+        // Convert to a PLAN event → source becomes FIXED with convertedToEventId set.
+        String resp = mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceKind":"WISHLIST","target":"PLAN_EVENT"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID artifactId = UUID.fromString(om.readTree(resp).get("convertedTo").get("id").asText());
+
+        // Attempt to move the source back to OPEN. The artifact must be preserved either way —
+        // the DB constraint chk_event_converted_only_fixed governs whether the status flip itself
+        // is accepted, but a converted source must never lose its artifact reference.
+        mockMvc.perform(patch("/api/v1/events/" + src.getId() + "/wishlist-status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"status":"OPEN"}
+                        """));
+
+        // convertedToEventId is still set, and the artifact event still exists and is not deleted.
+        FinancialEvent reloaded = eventRepository.findById(src.getId()).orElseThrow();
+        assertThat(reloaded.getConvertedToEventId())
+                .as("converted artifact reference must survive a FIXED→OPEN status change attempt")
+                .isEqualTo(artifactId);
+
+        assertThat(eventRepository.findById(artifactId))
+                .as("the converted artifact event must still exist")
+                .isPresent()
+                .hasValueSatisfying(a -> assertThat(a.isDeleted()).isFalse());
+    }
 }
