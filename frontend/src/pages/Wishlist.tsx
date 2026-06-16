@@ -184,7 +184,12 @@ export default function Wishlist() {
 
             {data && !isLoading && !error && hasBaseline && (
                 <>
+                    {/* key меняется один раз на переходе pending→loaded порогов сервера: форсирует
+                        корректный одноразовый (ре)монтаж шапки с серверными значениями, даже если
+                        будущий рефактор отрендерит её раньше загрузки. Zero-risk: ремонт только до
+                        того, как пользователь успеет печатать (см. seed-once контракт в шапке). */}
                     <WishlistThresholdsHeader
+                        key={`thr-${data?.thresholds ? 'loaded' : 'pending'}`}
                         value={effThresholds}
                         monthlyExpensesAvg={monthlyExpensesAvg}
                         onChange={setThresholds}

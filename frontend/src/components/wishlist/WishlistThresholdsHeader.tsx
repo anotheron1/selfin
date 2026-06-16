@@ -19,7 +19,12 @@ const DEBOUNCE_MS = 800;
  * мгновенного пересчёта зон риска. Внизу — производная строка с абсолютной суммой буфера.
  */
 export default function WishlistThresholdsHeader({ value, monthlyExpensesAvg, onChange }: Props) {
-    // Локальные строковые поля для свободного ввода (в т.ч. пустого).
+    // Контракт seed-once: локальные строковые поля СОЗНАТЕЛЬНО инициализируются из `value`
+    // только при монтировании и НЕ ре-синхронизируются из `value` через useEffect. Причина:
+    // правки текут наверх через onChange и возвращаются обратно как `value` — value-sync effect
+    // затирал бы ввод пользователя в процессе печати. Родитель гарантирует, что шапка монтируется
+    // лишь ПОСЛЕ загрузки порогов с сервера (и ремонтирует её через key на переходе pending→loaded),
+    // поэтому стартовые значения здесь всегда серверные.
     const [capitalStr, setCapitalStr] = useState(
         value.capitalThresholdRub != null ? String(value.capitalThresholdRub) : '',
     );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -44,6 +44,8 @@ interface Props {
 
 const MIN_OFFSET = 1;
 const MAX_OFFSET = 36;
+/** Дебаунс сетевого персиста: стрелки клавиатуры на слайдере шлют onKeyUp на каждый шаг — коалесцируем в один PUT. */
+const PERSIST_DEBOUNCE_MS = 500;
 
 /** "YYYY-MM" + N месяцев → "YYYY-MM". */
 function addMonths(ym: string, n: number): string {
@@ -102,13 +104,23 @@ export default function WishlistItemCard(props: Props) {
         ...over,
     });
 
+    // Дебаунс ТОЛЬКО сетевого персиста. Локальное состояние (слайдер + override) обновляется
+    // синхронно в onChange — здесь дебаунсим только PUT, чтобы серии нажатий стрелок схлопывались.
+    const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => {
+        if (persistTimer.current) clearTimeout(persistTimer.current);
+    }, []);
+
     const persist = (over: { amount?: number; targetDate?: string } = {}) => {
-        onPersist({
+        // Значения резолвим в момент вызова (актуальный closure), отправляем по трейлинг-таймеру.
+        const patch = {
             amount: over.amount ?? amount,
             targetDate: over.targetDate ?? targetDate,
             rate: isCredit && rate ? Number(rate) : undefined,
             termMonths: isCredit && term ? Number(term) : undefined,
-        });
+        };
+        if (persistTimer.current) clearTimeout(persistTimer.current);
+        persistTimer.current = setTimeout(() => onPersist(patch), PERSIST_DEBOUNCE_MS);
     };
 
     // PMT/contribution строка: для кредита локально считаем PMT (мгновенный отклик),

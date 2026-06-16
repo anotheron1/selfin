@@ -33,8 +33,12 @@ const SYSTEM_WISHLIST_CATEGORY = 'Хотелки';
  * («осиротевшая» сущность). Допустимое поведение для этого PR: показать ошибку и инициировать
  * refetch() родителя, чтобы пользователь мог увидеть/повторить; осиротевшая сущность терпима
  * (fund виден на /funds, event — это просто недатированная LOW-хотелка). Компенсирующее
- * удаление НЕ делаем — иначе риск удалить чужую запись при гонке. Оба вызова обёрнуты в
- * try/catch; при падении PATCH показываем ошибку и оставляем диалог открытым для ретрая.
+ * удаление НЕ делаем — иначе риск удалить чужую запись при гонке.
+ *
+ * <p><b>Идемпотентность ретрая:</b> успешно созданную на предыдущей попытке сущность запоминаем
+ * в state {@code created}. При повторном «Создать» (если упал именно PATCH) POST НЕ повторяется —
+ * переиспользуем {@code created.id}, чтобы не плодить дубли. {@code created} сбрасывается при
+ * полном успехе и при закрытии/переоткрытии диалога.
  */
 export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
     const [kind, setKind] = useState<WishlistKind>('WISHLIST');
@@ -46,9 +50,16 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
     const [categories, setCategories] = useState<Category[]>([]);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Успешно созданная сущность с предыдущей попытки (POST прошёл, PATCH мог упасть).
+    // Если задана — ретрай пропускает POST и переиспользует id, чтобы не плодить дубли.
+    const [created, setCreated] = useState<{ id: string; kind: WishlistKind } | null>(null);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open) {
+            // Свежее открытие должно стартовать чисто — сбрасываем память о созданной сущности.
+            setCreated(null);
+            return;
+        }
         setKind('WISHLIST');
         setName('');
         setAmount('');
@@ -56,6 +67,7 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
         setRate('');
         setTerm('');
         setError(null);
+        setCreated(null);
         fetchCategories().then(setCategories).catch(() => {/* категория резолвится при сабмите */});
     }, [open]);
 
@@ -68,43 +80,60 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
         setSaving(true);
         setError(null);
         try {
-            if (kind === 'WISHLIST') {
-                // Категория «Хотелки» (EXPENSE) — по соглашению из FinancialEventService.createWishlistItem.
-                const cat = categories.find(c => c.name === SYSTEM_WISHLIST_CATEGORY && c.type === 'EXPENSE')
-                    ?? categories.find(c => c.type === 'EXPENSE');
-                if (!cat) {
-                    setError('Нет ни одной категории расходов для хотелки');
-                    setSaving(false);
-                    return;
+            // ШАГ 1: POST сущности — пропускаем, если она уже создана прошлой попыткой (ретрай PATCH).
+            let entity = created;
+            if (entity == null) {
+                if (kind === 'WISHLIST') {
+                    // Категория «Хотелки» (EXPENSE) — по соглашению из FinancialEventService.createWishlistItem.
+                    const cat = categories.find(c => c.name === SYSTEM_WISHLIST_CATEGORY && c.type === 'EXPENSE')
+                        ?? categories.find(c => c.type === 'EXPENSE');
+                    if (!cat) {
+                        setError('Нет ни одной категории расходов для хотелки');
+                        setSaving(false);
+                        return;
+                    }
+                    // POST события (LOW, дата = целевая).
+                    const ev = await createEvent({
+                        date: targetDate,
+                        categoryId: cat.id,
+                        type: 'EXPENSE',
+                        priority: 'LOW',
+                        plannedAmount: amountNum,
+                        description: name.trim(),
+                    });
+                    entity = { id: ev.id, kind };
+                } else {
+                    // POST копилки/кредита.
+                    const fund = await createFund({
+                        name: name.trim(),
+                        targetAmount: amountNum,
+                        targetDate,
+                        purchaseType: kind === 'CREDIT' ? 'CREDIT' : 'SAVINGS',
+                        creditRate: kind === 'CREDIT' ? Number(rate) : undefined,
+                        creditTermMonths: kind === 'CREDIT' ? Number(term) : undefined,
+                    });
+                    entity = { id: fund.id, kind };
                 }
-                // ШАГ 1: POST события (LOW, дата = целевая).
-                const created = await createEvent({
-                    date: targetDate,
-                    categoryId: cat.id,
-                    type: 'EXPENSE',
-                    priority: 'LOW',
-                    plannedAmount: amountNum,
-                    description: name.trim(),
-                });
-                // ШАГ 2: PATCH wishlist-status=OPEN. При падении — см. javadoc (без компенсации).
-                await setEventWishlistStatus(created.id, 'OPEN');
-            } else {
-                // ШАГ 1: POST копилки/кредита.
-                const created = await createFund({
-                    name: name.trim(),
-                    targetAmount: amountNum,
-                    targetDate,
-                    purchaseType: kind === 'CREDIT' ? 'CREDIT' : 'SAVINGS',
-                    creditRate: kind === 'CREDIT' ? Number(rate) : undefined,
-                    creditTermMonths: kind === 'CREDIT' ? Number(term) : undefined,
-                });
-                // ШАГ 2: PATCH wishlist-status=OPEN.
-                await setFundWishlistStatus(created.id, 'OPEN');
+                // Запоминаем созданную сущность ДО PATCH — чтобы ретрай при падении PATCH не делал второй POST.
+                setCreated(entity);
             }
+            // ШАГ 2: PATCH wishlist-status=OPEN. При падении — см. javadoc (без компенсации, ретрай переиспользует entity).
+            if (entity.kind === 'WISHLIST') {
+                await setEventWishlistStatus(entity.id, 'OPEN');
+            } else {
+                await setFundWishlistStatus(entity.id, 'OPEN');
+            }
+            // Полный успех: чистим память о созданной сущности и форму, рефетчим, закрываем.
+            setCreated(null);
+            setName('');
+            setAmount('');
+            setTargetDate('');
+            setRate('');
+            setTerm('');
             onCreated();
             onClose();
         } catch (e) {
-            // Покрывает обе фазы. Если упал PATCH — сущность осиротела (терпимо), даём ретрай.
+            // Покрывает обе фазы. Если упал PATCH — сущность осиротела (терпимо), created оставлен → ретрай пропустит POST.
             setError(e instanceof Error ? e.message : 'Не удалось создать. Попробуйте ещё раз.');
             onCreated(); // refetch, чтобы подтянуть актуальное состояние
         } finally {
