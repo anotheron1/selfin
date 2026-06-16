@@ -26,10 +26,16 @@ export default function WishlistThresholdsHeader({ value, monthlyExpensesAvg, on
     const [bufferStr, setBufferStr] = useState(String(value.cashBufferMonths));
 
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const firstRun = useRef(true);
     const [saveError, setSaveError] = useState<string | null>(null);
 
-    // Дебаунс-PUT при каждом изменении локальных полей.
+    // Дебаунс-PUT при каждом изменении локальных полей. Пропускаем самый первый прогон,
+    // чтобы не слать избыточный PUT с начальными значениями при монтировании.
     useEffect(() => {
+        if (firstRun.current) {
+            firstRun.current = false;
+            return;
+        }
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => {
             const capital = capitalStr.trim() === '' ? null : Number(capitalStr);
