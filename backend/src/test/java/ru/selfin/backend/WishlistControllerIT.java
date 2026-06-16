@@ -94,4 +94,71 @@ class WishlistControllerIT {
                 .andExpect(jsonPath("$.items").isArray())
                 .andExpect(jsonPath("$.thresholds.cashBufferMonths").value(1.0));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Task 4.2 — wishlist item appears in simulation with delta; DISMISSED hidden
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void getSimulation_wishlistEvent_appearsWithDelta_andDismissedHidden() throws Exception {
+        Category cat = seededExpenseCategory();
+        LocalDate targetDate = LocalDate.now().plusMonths(6);
+
+        // OPEN wishlist event with a future date → produces a single-month negative delta.
+        FinancialEvent openItem = eventRepository.save(FinancialEvent.builder()
+                .priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
+                .status(EventStatus.PLANNED)
+                .plannedAmount(new BigDecimal("150000"))
+                .date(targetDate)
+                .category(cat)
+                .description("Новый ноутбук")
+                .build());
+
+        // DISMISSED wishlist event — must NOT appear in the simulation list.
+        FinancialEvent dismissedItem = eventRepository.save(FinancialEvent.builder()
+                .priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.DISMISSED)
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
+                .status(EventStatus.PLANNED)
+                .plannedAmount(new BigDecimal("99000"))
+                .date(LocalDate.now().plusMonths(3))
+                .category(cat)
+                .description("Отклонённая хотелка")
+                .build());
+
+        String body = mockMvc.perform(get("/api/v1/wishlist/simulation"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        var root = om.readValue(body, Map.class);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) root.get("items");
+
+        // The OPEN item is present with kind=WISHLIST, matching targetDate and a 1-element negative delta.
+        Map<String, Object> open = items.stream()
+                .filter(i -> openItem.getId().toString().equals(i.get("id")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("OPEN wishlist item missing from simulation"));
+
+        assertThat(open.get("kind")).isEqualTo("WISHLIST");
+        assertThat(open.get("targetDate")).isEqualTo(targetDate.toString());
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> delta = (List<Map<String, Object>>) open.get("delta");
+        assertThat(delta).hasSize(1);
+        assertThat(Double.parseDouble(delta.get(0).get("accountDelta").toString()))
+                .as("wishlist outflow lowers the account")
+                .isLessThan(0.0);
+
+        // The DISMISSED item must be absent.
+        boolean dismissedPresent = items.stream()
+                .anyMatch(i -> dismissedItem.getId().toString().equals(i.get("id")));
+        assertThat(dismissedPresent)
+                .as("DISMISSED wishlist items must not appear in the simulation")
+                .isFalse();
+    }
 }
