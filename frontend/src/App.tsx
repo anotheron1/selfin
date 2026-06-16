@@ -10,6 +10,7 @@ import Budget from './pages/Budget';
 import Funds from './pages/Funds';
 import Settings from './pages/Settings';
 import Strategy from './pages/Strategy';
+import Wishlist from './pages/Wishlist';
 
 export default function App() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/capital" element={<Capital refreshSignal={refreshKey} />} />
             <Route path="/strategy" element={<Strategy />} />
+            <Route path="/wishlist" element={<Wishlist />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
