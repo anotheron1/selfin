@@ -25,7 +25,6 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * Считает влияние (delta-вектор) каждого wishlist-item'а на горизонт месяцев.
@@ -89,28 +88,28 @@ public class WishlistSimulationService {
     }
 
     /**
-     * Суммарный delta-вектор всех FIXED-items БЕЗ конверсии (те, что УЖЕ есть в baseline — не трогаем).
-     * Используется StrategyTimelineService для наложения на timeline.
+     * Суммарный delta-вектор FIXED WISHLIST-items БЕЗ конверсии, для наложения на /strategy timeline.
+     *
+     * <p>Funds are real pockets already represented in the baseline's liquidAt; overlaying their
+     * synthetic delta would double-count. WISHLIST LOW events contribute nothing to the baseline
+     * (no planned event/FACT), so only they are overlaid here. The /wishlist simulation page still
+     * models funds fully — that's its sandbox purpose.
+     *
+     * <p>Поэтому здесь собираются ТОЛЬКО WISHLIST-события (LOW-хотелки) и исключаются все
+     * TargetFund-производные items (SAVINGS/CREDIT).
      */
     public List<MonthDeltaDto> computeDeltaForFixedItems(YearMonth current, int horizonMonths) {
         List<FinancialEvent> fixedEvents = eventRepository
                 .findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED).stream()
-                .filter(e -> e.getConvertedToEventId() == null && e.getConvertedToFundId() == null)
-                .toList();
-        List<TargetFund> fixedFunds = fundRepository
-                .findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED).stream()
-                .filter(f -> f.getConvertedToEventId() == null && f.getConvertedToFundId() == null)
+                .filter(e -> e.getConvertedToEventId() == null
+                        && e.getConvertedToFundId() == null
+                        && e.getDate() != null)
                 .toList();
 
         List<MonthDeltaDto> all = new ArrayList<>();
         for (FinancialEvent e : fixedEvents) {
-            if (e.getDate() == null || e.getPlannedAmount() == null) continue;
+            if (e.getPlannedAmount() == null) continue;
             all.addAll(computeWishlistDelta(e.getPlannedAmount(), e.getDate(), current, horizonMonths));
-        }
-        for (TargetFund f : fixedFunds) {
-            if (f.getTargetDate() == null || f.getTargetAmount() == null) continue;
-            List<MonthDeltaDto> delta = computeFundDelta(f, current, horizonMonths);
-            all.addAll(delta);
         }
         return all;
     }
@@ -183,17 +182,6 @@ public class WishlistSimulationService {
         );
     }
 
-    private List<MonthDeltaDto> computeFundDelta(TargetFund f, YearMonth current, int horizonMonths) {
-        BigDecimal amount = f.getTargetAmount() != null ? f.getTargetAmount() : BigDecimal.ZERO;
-        if (f.getPurchaseType() == FundPurchaseType.CREDIT
-                && f.getCreditRate() != null && f.getCreditTermMonths() != null) {
-            return computeCreditDelta(amount, f.getTargetDate(), current, horizonMonths,
-                    f.getCreditRate(), f.getCreditTermMonths()).delta();
-        } else {
-            return computeSavingsDelta(amount, f.getTargetDate(), current, horizonMonths).delta();
-        }
-    }
-
     private WishlistItemDto.ConvertedToDto buildConvertedTo(java.util.UUID eventId, java.util.UUID fundId) {
         if (eventId != null) return new WishlistItemDto.ConvertedToDto("EVENT", eventId);
         if (fundId != null) return new WishlistItemDto.ConvertedToDto("FUND", fundId);
@@ -215,8 +203,17 @@ public class WishlistSimulationService {
                 .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal monthlyIncomeAvg = totalIncome.divide(BigDecimal.valueOf(6), 2, RoundingMode.HALF_UP);
-        BigDecimal monthlyExpenseAvg = totalExpense.divide(BigDecimal.valueOf(6), 2, RoundingMode.HALF_UP);
+        // Divide by actual months with data, not a hard 6: onboarding users with <6 months of facts
+        // would otherwise see understated averages. Clamp to [1,6] to avoid div-by-zero / inflation.
+        long actualMonthsWithData = recentFacts.stream()
+                .filter(e -> e.getDate() != null)
+                .map(e -> YearMonth.from(e.getDate()))
+                .distinct()
+                .count();
+        long divisor = Math.min(6, Math.max(1, actualMonthsWithData));
+
+        BigDecimal monthlyIncomeAvg = totalIncome.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_UP);
+        BigDecimal monthlyExpenseAvg = totalExpense.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_UP);
         BigDecimal currentCapital = capitalService.liquidAt(LocalDate.now());
 
         // Max wishlist: 6 months income
@@ -307,7 +304,10 @@ public class WishlistSimulationService {
             BigDecimal amount, LocalDate targetDate, YearMonth current, int horizonMonths,
             BigDecimal annualRatePct, int termMonths) {
         int purchaseIdx = monthIndexOf(targetDate, current);
-        if (purchaseIdx < 0) return new CreditResult(List.of(), BigDecimal.ZERO);
+        // Symmetric with savings: a purchase outside the horizon yields no delta AND no PMT.
+        if (purchaseIdx < 0 || purchaseIdx >= horizonMonths) return new CreditResult(List.of(), BigDecimal.ZERO);
+        // Defensive: a malformed credit with non-positive term would divide by zero below.
+        if (termMonths <= 0) return new CreditResult(List.of(), BigDecimal.ZERO);
 
         double monthlyRate = annualRatePct.doubleValue() / 100.0 / 12.0;
         double pmtRaw;
@@ -320,9 +320,8 @@ public class WishlistSimulationService {
         BigDecimal pmt = BigDecimal.valueOf(pmtRaw).setScale(2, java.math.RoundingMode.HALF_UP);
 
         List<MonthDeltaDto> out = new ArrayList<>();
-        if (purchaseIdx < horizonMonths) {
-            out.add(new MonthDeltaDto(purchaseIdx, amount, BigDecimal.ZERO, null, amount));
-        }
+        // purchaseIdx is guaranteed in [0, horizonMonths) by the guard above.
+        out.add(new MonthDeltaDto(purchaseIdx, amount, BigDecimal.ZERO, null, amount));
         double remaining = amount.doubleValue();
         for (int p = 1; p <= termMonths; p++) {
             int idx = purchaseIdx + p;

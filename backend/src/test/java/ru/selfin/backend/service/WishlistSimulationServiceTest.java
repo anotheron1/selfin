@@ -265,4 +265,59 @@ class WishlistSimulationServiceTest {
         assertThat(deltas).hasSize(1);
         assertThat(deltas.get(0).accountDelta()).isEqualByComparingTo("-100000");
     }
+
+    @Test
+    void computeDeltaForFixedItems_overlaysOnlyWishlistEvents_notFunds() {
+        YearMonth current = YearMonth.now();
+
+        // FIXED WISHLIST LOW event → MUST shift the strategy timeline (no planned event/FACT in baseline).
+        FinancialEvent fixedWishlistEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .description("Хотелка LOW")
+                .plannedAmount(new BigDecimal("100000"))
+                .date(current.plusMonths(3).atDay(1))
+                .wishlistStatus(WishlistStatus.FIXED)
+                .convertedToEventId(null)
+                .convertedToFundId(null)
+                .deleted(false)
+                .build();
+        // FIXED savings fund → MUST NOT shift the timeline (real pocket already in baseline's liquidAt).
+        TargetFund fixedSavingsFund = TargetFund.builder()
+                .id(UUID.randomUUID())
+                .name("Копилка на отпуск")
+                .purchaseType(FundPurchaseType.SAVINGS)
+                .targetAmount(new BigDecimal("500000"))
+                .targetDate(current.plusMonths(5).atDay(1))
+                .wishlistStatus(WishlistStatus.FIXED)
+                .convertedToEventId(null)
+                .convertedToFundId(null)
+                .deleted(false)
+                .build();
+        when(eventRepo.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED))
+                .thenReturn(List.of(fixedWishlistEvent));
+        // Even if a FIXED fund exists, computeDeltaForFixedItems must not iterate funds.
+        when(fundRepo.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED))
+                .thenReturn(List.of(fixedSavingsFund));
+
+        List<MonthDeltaDto> deltas = simulationService.computeDeltaForFixedItems(current, 36);
+
+        // Only the WISHLIST LOW event contributes; the savings fund adds nothing (no double-count).
+        assertThat(deltas).hasSize(1);
+        assertThat(deltas.get(0).monthIndex()).isEqualTo(2);   // current+3 → index 2
+        assertThat(deltas.get(0).accountDelta()).isEqualByComparingTo("-100000");
+        assertThat(deltas.get(0).capitalDelta()).isEqualByComparingTo("-100000");
+    }
+
+    @Test
+    void computeDelta_credit_beyondHorizon_emptyAndZeroPmt() {
+        YearMonth current = YearMonth.now();
+        LocalDate far = current.plusMonths(50).atDay(1);   // purchaseIdx = 49 >= horizon 36
+        var result = WishlistSimulationService.computeCreditDelta(
+                new BigDecimal("2000000"), far, current, 36,
+                new BigDecimal("16.5"), 60);
+
+        // Symmetric with savings beyond-horizon: no delta AND zero PMT.
+        assertThat(result.delta()).isEmpty();
+        assertThat(result.monthlyPMT()).isEqualByComparingTo("0");
+    }
 }
