@@ -104,6 +104,21 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Пробрасывает HTTP-статус, заложенный в ResponseStatusException (400/404/409/...),
+     * вместо того чтобы он попадал в generic-обработчик и превращался в 500.
+     * Должен стоять ВЫШЕ @ExceptionHandler(Exception.class) — более специфичный матч.
+     */
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(
+            org.springframework.web.server.ResponseStatusException ex) {
+        int code = ex.getStatusCode().value();
+        log.warn("ResponseStatusException {}: {}", code, ex.getReason());
+        return ResponseEntity
+                .status(ex.getStatusCode())
+                .body(ErrorResponse.of(code, ex.getReason() != null ? ex.getReason() : "Error"));
+    }
+
+    /**
      * Fallback-обработчик для всех непредвиденных исключений.
      * Логирует полный стек, возвращает HTTP 500 без деталей реализации клиенту.
      */
