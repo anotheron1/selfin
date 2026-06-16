@@ -4,13 +4,28 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
 import ru.selfin.backend.dto.wishlist.MonthDeltaDto;
+import ru.selfin.backend.dto.wishlist.TimelineSnapshot;
+import ru.selfin.backend.dto.wishlist.WishlistConstraintsDto;
+import ru.selfin.backend.dto.wishlist.WishlistItemDto;
+import ru.selfin.backend.dto.wishlist.WishlistSimulationDto;
+import ru.selfin.backend.dto.wishlist.WishlistThresholdsDto;
+import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.FundPurchaseType;
+import ru.selfin.backend.model.enums.WishlistStatus;
+import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Считает влияние (delta-вектор) каждого wishlist-item'а на горизонт месяцев.
@@ -26,10 +41,195 @@ import java.util.List;
 @Slf4j
 public class WishlistSimulationService {
 
+    private final BaselineTimelineBuilder baselineBuilder;
+    private final FinancialEventRepository eventRepository;
+    private final TargetFundRepository fundRepository;
+    private final UserSettingsService userSettingsService;
+    private final CapitalService capitalService;
+
     /** Результат расчёта копилки: delta + выведенный месячный взнос. */
     public record SavingsResult(List<MonthDeltaDto> delta, BigDecimal monthlyContribution) {}
     /** Результат расчёта кредита: delta + выведенный месячный платёж (PMT). */
     public record CreditResult(List<MonthDeltaDto> delta, BigDecimal monthlyPMT) {}
+
+    // ====== Instance methods (stateful, use repos) ======
+
+    /**
+     * Полный ответ GET /api/v1/wishlist/simulation.
+     * Собирает baseline, items, thresholds, constraints.
+     */
+    public WishlistSimulationDto getSimulation(int horizonMonths) {
+        TimelineSnapshot snap = baselineBuilder.build(horizonMonths, true);
+        YearMonth current = snap.currentMonth();
+
+        StrategyTimelineDto baselineDto = new StrategyTimelineDto(
+                snap.firstMonth(), current, snap.horizonEnd(),
+                snap.predictionWindowMonths(), snap.fanEnabled(), snap.points());
+
+        // Collect all wishlist events and funds, drop DISMISSED
+        List<FinancialEvent> wishlistEvents = eventRepository.findAllWishlistEvents().stream()
+                .filter(e -> e.getWishlistStatus() != WishlistStatus.DISMISSED)
+                .toList();
+        List<TargetFund> wishlistFunds = fundRepository.findAllWishlistFunds().stream()
+                .filter(f -> f.getWishlistStatus() != WishlistStatus.DISMISSED)
+                .toList();
+
+        List<WishlistItemDto> items = new ArrayList<>();
+        for (FinancialEvent e : wishlistEvents) {
+            items.add(mapEventToItem(e, current, horizonMonths));
+        }
+        for (TargetFund f : wishlistFunds) {
+            items.add(mapFundToItem(f, current, horizonMonths));
+        }
+
+        WishlistThresholdsDto thresholds = userSettingsService.getWishlistSettings();
+        WishlistConstraintsDto constraints = computeConstraints(current);
+
+        return new WishlistSimulationDto(baselineDto, items, thresholds, constraints);
+    }
+
+    /**
+     * Суммарный delta-вектор всех FIXED-items БЕЗ конверсии (те, что УЖЕ есть в baseline — не трогаем).
+     * Используется StrategyTimelineService для наложения на timeline.
+     */
+    public List<MonthDeltaDto> computeDeltaForFixedItems(YearMonth current, int horizonMonths) {
+        List<FinancialEvent> fixedEvents = eventRepository
+                .findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED).stream()
+                .filter(e -> e.getConvertedToEventId() == null && e.getConvertedToFundId() == null)
+                .toList();
+        List<TargetFund> fixedFunds = fundRepository
+                .findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED).stream()
+                .filter(f -> f.getConvertedToEventId() == null && f.getConvertedToFundId() == null)
+                .toList();
+
+        List<MonthDeltaDto> all = new ArrayList<>();
+        for (FinancialEvent e : fixedEvents) {
+            if (e.getDate() == null || e.getPlannedAmount() == null) continue;
+            all.addAll(computeWishlistDelta(e.getPlannedAmount(), e.getDate(), current, horizonMonths));
+        }
+        for (TargetFund f : fixedFunds) {
+            if (f.getTargetDate() == null || f.getTargetAmount() == null) continue;
+            List<MonthDeltaDto> delta = computeFundDelta(f, current, horizonMonths);
+            all.addAll(delta);
+        }
+        return all;
+    }
+
+    // ====== Private mapping helpers ======
+
+    private WishlistItemDto mapEventToItem(FinancialEvent e, YearMonth current, int horizonMonths) {
+        BigDecimal amount = e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO;
+        List<MonthDeltaDto> delta = (e.getDate() != null)
+                ? computeWishlistDelta(amount, e.getDate(), current, horizonMonths)
+                : List.of();
+        WishlistItemDto.ConvertedToDto convertedTo = buildConvertedTo(e.getConvertedToEventId(), e.getConvertedToFundId());
+        String name = (e.getDescription() != null && !e.getDescription().isBlank())
+                ? e.getDescription()
+                : (e.getCategory() != null ? e.getCategory().getName() : "");
+        return new WishlistItemDto(
+                e.getId(),
+                "WISHLIST",
+                name,
+                amount,
+                e.getDate(),
+                e.getWishlistStatus() != null ? e.getWishlistStatus().name() : null,
+                convertedTo,
+                delta,
+                e.getCategory() != null ? e.getCategory().getId() : null,
+                null, null, null, null
+        );
+    }
+
+    private WishlistItemDto mapFundToItem(TargetFund f, YearMonth current, int horizonMonths) {
+        String kind = f.getPurchaseType() == FundPurchaseType.CREDIT ? "CREDIT" : "SAVINGS";
+        BigDecimal amount = f.getTargetAmount() != null ? f.getTargetAmount() : BigDecimal.ZERO;
+
+        List<MonthDeltaDto> delta;
+        BigDecimal monthlyContrib = null;
+        BigDecimal monthlyPmt = null;
+
+        if (f.getTargetDate() != null) {
+            if (f.getPurchaseType() == FundPurchaseType.CREDIT
+                    && f.getCreditRate() != null && f.getCreditTermMonths() != null) {
+                CreditResult cr = computeCreditDelta(amount, f.getTargetDate(), current, horizonMonths,
+                        f.getCreditRate(), f.getCreditTermMonths());
+                delta = cr.delta();
+                monthlyPmt = cr.monthlyPMT();
+            } else {
+                SavingsResult sr = computeSavingsDelta(amount, f.getTargetDate(), current, horizonMonths);
+                delta = sr.delta();
+                monthlyContrib = sr.monthlyContribution();
+            }
+        } else {
+            delta = List.of();
+        }
+
+        WishlistItemDto.ConvertedToDto convertedTo = buildConvertedTo(f.getConvertedToEventId(), f.getConvertedToFundId());
+
+        return new WishlistItemDto(
+                f.getId(),
+                kind,
+                f.getName(),
+                amount,
+                f.getTargetDate(),
+                f.getWishlistStatus() != null ? f.getWishlistStatus().name() : null,
+                convertedTo,
+                delta,
+                null,
+                monthlyContrib,
+                f.getCreditRate(),
+                f.getCreditTermMonths(),
+                monthlyPmt
+        );
+    }
+
+    private List<MonthDeltaDto> computeFundDelta(TargetFund f, YearMonth current, int horizonMonths) {
+        BigDecimal amount = f.getTargetAmount() != null ? f.getTargetAmount() : BigDecimal.ZERO;
+        if (f.getPurchaseType() == FundPurchaseType.CREDIT
+                && f.getCreditRate() != null && f.getCreditTermMonths() != null) {
+            return computeCreditDelta(amount, f.getTargetDate(), current, horizonMonths,
+                    f.getCreditRate(), f.getCreditTermMonths()).delta();
+        } else {
+            return computeSavingsDelta(amount, f.getTargetDate(), current, horizonMonths).delta();
+        }
+    }
+
+    private WishlistItemDto.ConvertedToDto buildConvertedTo(java.util.UUID eventId, java.util.UUID fundId) {
+        if (eventId != null) return new WishlistItemDto.ConvertedToDto("EVENT", eventId);
+        if (fundId != null) return new WishlistItemDto.ConvertedToDto("FUND", fundId);
+        return null;
+    }
+
+    private WishlistConstraintsDto computeConstraints(YearMonth current) {
+        // 6-month window of facts for averages
+        LocalDate from = current.minusMonths(6).atDay(1);
+        LocalDate to = current.minusMonths(1).atEndOfMonth();
+        List<FinancialEvent> recentFacts = eventRepository.findFactsByDateRange(from, to);
+
+        BigDecimal totalIncome = recentFacts.stream()
+                .filter(e -> e.getType() == EventType.INCOME)
+                .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalExpense = recentFacts.stream()
+                .filter(e -> e.getType() == EventType.EXPENSE)
+                .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal monthlyIncomeAvg = totalIncome.divide(BigDecimal.valueOf(6), 2, RoundingMode.HALF_UP);
+        BigDecimal monthlyExpenseAvg = totalExpense.divide(BigDecimal.valueOf(6), 2, RoundingMode.HALF_UP);
+        BigDecimal currentCapital = capitalService.liquidAt(LocalDate.now());
+
+        // Max wishlist: 6 months income
+        BigDecimal maxWishlist = monthlyIncomeAvg.multiply(BigDecimal.valueOf(6));
+        // Max credit: 3x capital or 36 months income
+        BigDecimal maxCredit = currentCapital.multiply(BigDecimal.valueOf(3))
+                .max(monthlyIncomeAvg.multiply(BigDecimal.valueOf(36)));
+
+        return new WishlistConstraintsDto(monthlyExpenseAvg, monthlyIncomeAvg,
+                currentCapital, maxWishlist, maxCredit);
+    }
+
+    // ====== Static math methods (pure, no Spring) ======
 
     /**
      * Разовая хотелка: один отток в месяц целевой даты. Уменьшает счёт и капитал на сумму.

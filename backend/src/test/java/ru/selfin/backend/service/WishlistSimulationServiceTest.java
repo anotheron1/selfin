@@ -1,17 +1,51 @@
 package ru.selfin.backend.service;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
+import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
 import ru.selfin.backend.dto.wishlist.MonthDeltaDto;
+import ru.selfin.backend.dto.wishlist.TimelineSnapshot;
+import ru.selfin.backend.dto.wishlist.WishlistSimulationDto;
+import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.FundPurchaseType;
+import ru.selfin.backend.model.enums.WishlistStatus;
+import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class WishlistSimulationServiceTest {
+
+    private BaselineTimelineBuilder baselineBuilder;
+    private FinancialEventRepository eventRepo;
+    private TargetFundRepository fundRepo;
+    private UserSettingsService userSettingsService;
+    private CapitalService capitalService;
+    private WishlistSimulationService simulationService;
+
+    @BeforeEach
+    void setUp() {
+        baselineBuilder = mock(BaselineTimelineBuilder.class);
+        eventRepo = mock(FinancialEventRepository.class);
+        fundRepo = mock(TargetFundRepository.class);
+        userSettingsService = mock(UserSettingsService.class);
+        capitalService = mock(CapitalService.class);
+        simulationService = new WishlistSimulationService(
+                baselineBuilder, eventRepo, fundRepo, userSettingsService, capitalService);
+    }
 
     // Pure-math helper under test is static (no Spring context needed).
     @Test
@@ -141,5 +175,94 @@ class WishlistSimulationServiceTest {
 
         // No delta entry exceeds monthIndex 35
         assertThat(result.delta()).allSatisfy(d -> assertThat(d.monthIndex()).isLessThan(36));
+    }
+
+    @Test
+    void getSimulation_returnsBaselineAndItems_dismissedExcluded() {
+        YearMonth current = YearMonth.now();
+        YearMonth first = current.minusMonths(3);
+        YearMonth horizonEnd = current.plusMonths(36);
+
+        // stub baseline
+        StrategyTimelineDto baselineDto = new StrategyTimelineDto(
+                first, current, horizonEnd, 6, false, List.of());
+        TimelineSnapshot snap = new TimelineSnapshot(first, current, horizonEnd, 6, false, List.of());
+        when(baselineBuilder.build(36, true)).thenReturn(snap);
+
+        // OPEN wishlist event (should be included)
+        Category cat = Category.builder().id(UUID.randomUUID()).name("Техника").build();
+        FinancialEvent openEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .description("Ноутбук")
+                .plannedAmount(new BigDecimal("150000"))
+                .date(current.plusMonths(6).atDay(1))
+                .wishlistStatus(WishlistStatus.OPEN)
+                .category(cat)
+                .deleted(false)
+                .build();
+        // DISMISSED event (should be excluded)
+        FinancialEvent dismissedEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .description("Автомобиль")
+                .plannedAmount(new BigDecimal("3000000"))
+                .wishlistStatus(WishlistStatus.DISMISSED)
+                .category(cat)
+                .deleted(false)
+                .build();
+        when(eventRepo.findAllWishlistEvents()).thenReturn(List.of(openEvent, dismissedEvent));
+        when(fundRepo.findAllWishlistFunds()).thenReturn(List.of());
+
+        // stub thresholds and capital
+        when(userSettingsService.getWishlistSettings())
+                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null, new BigDecimal("1.0")));
+        when(capitalService.liquidAt(any())).thenReturn(new BigDecimal("500000"));
+        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
+
+        WishlistSimulationDto result = simulationService.getSimulation(36);
+
+        // DISMISSED should be excluded
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).name()).isEqualTo("Ноутбук");
+        assertThat(result.items().get(0).delta()).isNotNull();
+        // constraints non-null
+        assertThat(result.constraints()).isNotNull();
+    }
+
+    @Test
+    void computeDeltaForFixedItems_excludesConverted() {
+        YearMonth current = YearMonth.now();
+
+        // FIXED event WITHOUT conversion → must be included
+        FinancialEvent fixedNoConvert = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .description("Хотелка без конверсии")
+                .plannedAmount(new BigDecimal("100000"))
+                .date(current.plusMonths(3).atDay(1))
+                .wishlistStatus(WishlistStatus.FIXED)
+                .convertedToEventId(null)
+                .convertedToFundId(null)
+                .deleted(false)
+                .build();
+        // FIXED event WITH conversion → must be excluded (already in baseline as real PLAN)
+        FinancialEvent fixedWithConvert = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .description("Хотелка с конверсией")
+                .plannedAmount(new BigDecimal("200000"))
+                .date(current.plusMonths(4).atDay(1))
+                .wishlistStatus(WishlistStatus.FIXED)
+                .convertedToEventId(UUID.randomUUID())
+                .convertedToFundId(null)
+                .deleted(false)
+                .build();
+        when(eventRepo.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED))
+                .thenReturn(List.of(fixedNoConvert, fixedWithConvert));
+        when(fundRepo.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED))
+                .thenReturn(List.of());
+
+        List<MonthDeltaDto> deltas = simulationService.computeDeltaForFixedItems(current, 36);
+
+        // Only one entry from the non-converted item
+        assertThat(deltas).hasSize(1);
+        assertThat(deltas.get(0).accountDelta()).isEqualByComparingTo("-100000");
     }
 }
