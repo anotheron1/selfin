@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { composeTimeline, scaleDelta } from './wishlistUtils';
+import { composeTimeline, scaleDelta, riskZones } from './wishlistUtils';
 import type { MonthDelta } from '../../types/api';
 
 const baseline = [
@@ -42,5 +42,36 @@ describe('scaleDelta', () => {
         const scaled = scaleDelta(delta, 100000, 150000);  // baseAmount=100k, override=150k
         expect(scaled[0].accountDelta).toBe(-150000);
         expect(scaled[0].capitalDelta).toBe(-150000);
+    });
+});
+
+describe('riskZones', () => {
+    const thresholds = { capitalThresholdRub: 1000000, cashBufferMonths: 1 };
+    const monthlyExpenses = 95000;
+
+    it('account negative is red', () => {
+        const zones = riskZones([{ account: -1, capital: 2000000 }], thresholds, monthlyExpenses);
+        expect(zones[0]).toBe('red');
+    });
+    it('account below buffer is yellow', () => {
+        const zones = riskZones([{ account: 50000, capital: 2000000 }], thresholds, monthlyExpenses);
+        expect(zones[0]).toBe('yellow');
+    });
+    it('capital below threshold is red', () => {
+        const zones = riskZones([{ account: 500000, capital: 900000 }], thresholds, monthlyExpenses);
+        expect(zones[0]).toBe('red');
+    });
+    it('capital near threshold is yellow', () => {
+        const zones = riskZones([{ account: 500000, capital: 1050000 }], thresholds, monthlyExpenses);
+        expect(zones[0]).toBe('yellow');
+    });
+    it('null capital threshold disables capital criterion', () => {
+        const zones = riskZones([{ account: 500000, capital: 1 }],
+            { capitalThresholdRub: null, cashBufferMonths: 1 }, monthlyExpenses);
+        expect(zones[0]).toBe('green');
+    });
+    it('combined risk takes the worse of the two', () => {
+        const zones = riskZones([{ account: 50000, capital: 900000 }], thresholds, monthlyExpenses);
+        expect(zones[0]).toBe('red');   // account=yellow, capital=red → red
     });
 });

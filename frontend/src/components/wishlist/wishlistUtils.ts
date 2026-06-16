@@ -37,3 +37,28 @@ export function scaleDelta(delta: MonthDelta[], baseAmount: number, override: nu
         liabilityDelta: d.liabilityDelta != null ? d.liabilityDelta * k : d.liabilityDelta,
     }));
 }
+
+export type RiskLevel = 'green' | 'yellow' | 'red';
+
+export function riskZones(
+    points: BaselinePoint[],
+    thresholds: { capitalThresholdRub: number | null; cashBufferMonths: number },
+    monthlyExpensesAvg: number,
+): RiskLevel[] {
+    const buffer = monthlyExpensesAvg * thresholds.cashBufferMonths;
+    return points.map(p => {
+        const accountRisk: RiskLevel =
+            p.account < 0 ? 'red' : p.account < buffer ? 'yellow' : 'green';
+        let capitalRisk: RiskLevel = 'green';
+        if (thresholds.capitalThresholdRub != null) {
+            const t = thresholds.capitalThresholdRub;
+            capitalRisk = p.capital < t ? 'red' : p.capital < t * 1.1 ? 'yellow' : 'green';
+        }
+        return worse(accountRisk, capitalRisk);
+    });
+}
+
+function worse(a: RiskLevel, b: RiskLevel): RiskLevel {
+    const rank = { green: 0, yellow: 1, red: 2 };
+    return rank[a] >= rank[b] ? a : b;
+}
