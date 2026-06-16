@@ -35,7 +35,7 @@ CREATE INDEX idx_funds_wishlist_status
 
 -- 3. Backfill: активные (FUNDING) копилки/кредиты → FIXED
 -- FundStatus enum в коде = {FUNDING, REACHED}.
-UPDATE target_funds SET wishlist_status = 'FIXED' WHERE status = 'FUNDING';
+UPDATE target_funds SET wishlist_status = 'FIXED' WHERE status = 'FUNDING' AND is_deleted = FALSE;
 
 -- 4. Backfill: хотелки (LOW без даты) → OPEN
 UPDATE financial_events SET wishlist_status = 'OPEN'
