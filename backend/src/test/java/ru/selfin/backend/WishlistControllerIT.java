@@ -425,4 +425,66 @@ class WishlistControllerIT {
                                 """))
                 .andExpect(status().isBadRequest());
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Task 4.8 — FIXED-without-conversion wishlist item affects /strategy timeline
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void fixedWishlistItem_affectsStrategyTimeline() throws Exception {
+        Category cat = seededExpenseCategory();
+        LocalDate targetDate = LocalDate.now().plusMonths(6);
+        String targetYm = YearMonth.now().plusMonths(6).toString();   // "YYYY-MM"
+        BigDecimal amount = new BigDecimal("300000");
+
+        // FIXED wishlist event WITHOUT conversion → contributes a delta overlay onto /strategy.
+        FinancialEvent fixed = eventRepository.save(FinancialEvent.builder()
+                .priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.FIXED)
+                .convertedToEventId(null)
+                .convertedToFundId(null)
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
+                .status(EventStatus.PLANNED)
+                .plannedAmount(amount)
+                .date(targetDate)
+                .category(cat)
+                .description("Зафиксированная хотелка")
+                .build());
+
+        double withFixed = balanceAtMonth(targetYm);
+
+        // Move it to DISMISSED → overlay disappears; the baseline PLAN contribution is unchanged
+        // across both calls, so the difference isolates exactly the FIXED overlay.
+        mockMvc.perform(patch("/api/v1/events/" + fixed.getId() + "/wishlist-status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"DISMISSED"}
+                                """))
+                .andExpect(status().isOk());
+
+        double withoutFixed = balanceAtMonth(targetYm);
+
+        assertThat(withFixed)
+                .as("the FIXED outflow must lower the strategy balance vs. the dismissed state")
+                .isLessThan(withoutFixed);
+        assertThat(withoutFixed - withFixed)
+                .as("removing the FIXED overlay restores exactly the item amount (within rounding)")
+                .isCloseTo(amount.doubleValue(), org.assertj.core.data.Offset.offset(1.0));
+    }
+
+    /** GET /api/v1/strategy/timeline and read {@code balance} of the point with the given yearMonth. */
+    private double balanceAtMonth(String yearMonth) throws Exception {
+        String body = mockMvc.perform(get("/api/v1/strategy/timeline"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var dto = om.readValue(body, Map.class);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> points = (List<Map<String, Object>>) dto.get("points");
+        Map<String, Object> point = points.stream()
+                .filter(p -> yearMonth.equals(p.get("yearMonth")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no timeline point for " + yearMonth));
+        return Double.parseDouble(point.get("balance").toString());
+    }
 }
