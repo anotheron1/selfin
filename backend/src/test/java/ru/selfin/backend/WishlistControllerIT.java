@@ -394,4 +394,35 @@ class WishlistControllerIT {
                 .isPresent()
                 .hasValueSatisfying(a -> assertThat(a.isDeleted()).isFalse());
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Task 4.7 — settings round-trip + validation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void wishlistSettings_roundTrip_andRejectsNegativeBuffer() throws Exception {
+        // PUT new thresholds.
+        mockMvc.perform(put("/api/v1/settings/wishlist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"capitalThresholdRub":1000000,"cashBufferMonths":2.0}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capitalThresholdRub").value(1000000))
+                .andExpect(jsonPath("$.cashBufferMonths").value(2.0));
+
+        // GET returns the same values.
+        mockMvc.perform(get("/api/v1/settings/wishlist"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capitalThresholdRub").value(1000000))
+                .andExpect(jsonPath("$.cashBufferMonths").value(2.0));
+
+        // PUT with a negative buffer is rejected with 400.
+        mockMvc.perform(put("/api/v1/settings/wishlist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"capitalThresholdRub":1000000,"cashBufferMonths":-1}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
 }
