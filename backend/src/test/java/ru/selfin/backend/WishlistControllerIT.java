@@ -374,19 +374,25 @@ class WishlistControllerIT {
                 .andReturn().getResponse().getContentAsString();
         UUID artifactId = UUID.fromString(om.readTree(resp).get("convertedTo").get("id").asText());
 
-        // Attempt to move the source back to OPEN. The artifact must be preserved either way —
-        // the DB constraint chk_event_converted_only_fixed governs whether the status flip itself
-        // is accepted, but a converted source must never lose its artifact reference.
+        // Move the source back to OPEN ("вернуть в обсуждение"). This now SUCCEEDS: the former
+        // chk_event_converted_only_fixed constraint was dropped, because a converted item may
+        // legitimately return to OPEN/DISMISSED while keeping its conversion link. The void
+        // controller method maps to 200 OK on success, and the artifact reference is preserved.
         mockMvc.perform(patch("/api/v1/events/" + src.getId() + "/wishlist-status")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"status":"OPEN"}
-                        """));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"OPEN"}
+                                """))
+                .andExpect(status().isOk());
 
-        // convertedToEventId is still set, and the artifact event still exists and is not deleted.
+        // Source is OPEN again, convertedToEventId is still set, and the artifact event still
+        // exists and is not deleted.
         FinancialEvent reloaded = eventRepository.findById(src.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus())
+                .as("FIXED→OPEN status change must take effect")
+                .isEqualTo(WishlistStatus.OPEN);
         assertThat(reloaded.getConvertedToEventId())
-                .as("converted artifact reference must survive a FIXED→OPEN status change attempt")
+                .as("converted artifact reference must survive a FIXED→OPEN status change")
                 .isEqualTo(artifactId);
 
         assertThat(eventRepository.findById(artifactId))

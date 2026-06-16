@@ -8,9 +8,8 @@ ALTER TABLE financial_events ADD COLUMN converted_to_fund_id  UUID REFERENCES ta
 ALTER TABLE financial_events
     ADD CONSTRAINT chk_wishlist_status_only_low
     CHECK (wishlist_status IS NULL OR priority = 'LOW');
-ALTER TABLE financial_events
-    ADD CONSTRAINT chk_event_converted_only_fixed
-    CHECK ((converted_to_event_id IS NULL AND converted_to_fund_id IS NULL) OR wishlist_status = 'FIXED');
+-- NB: a converted item may legitimately return to OPEN/DISMISSED while keeping its conversion link
+--     (lifecycle "вернуть в обсуждение, артефакт остаётся"), so we do NOT constrain converted rows to FIXED.
 ALTER TABLE financial_events
     ADD CONSTRAINT chk_event_single_conversion
     CHECK (NOT (converted_to_event_id IS NOT NULL AND converted_to_fund_id IS NOT NULL));
@@ -23,9 +22,8 @@ ALTER TABLE target_funds ADD COLUMN wishlist_status VARCHAR(16);
 ALTER TABLE target_funds ADD COLUMN converted_to_event_id UUID REFERENCES financial_events(id) ON DELETE SET NULL;
 ALTER TABLE target_funds ADD COLUMN converted_to_fund_id  UUID REFERENCES target_funds(id)    ON DELETE SET NULL;
 
-ALTER TABLE target_funds
-    ADD CONSTRAINT chk_fund_converted_only_fixed
-    CHECK ((converted_to_event_id IS NULL AND converted_to_fund_id IS NULL) OR wishlist_status = 'FIXED');
+-- NB: same lifecycle rule as financial_events — a converted fund may return to OPEN/DISMISSED
+--     while keeping its conversion link, so we do NOT constrain converted rows to FIXED.
 ALTER TABLE target_funds
     ADD CONSTRAINT chk_fund_single_conversion
     CHECK (NOT (converted_to_event_id IS NOT NULL AND converted_to_fund_id IS NOT NULL));
