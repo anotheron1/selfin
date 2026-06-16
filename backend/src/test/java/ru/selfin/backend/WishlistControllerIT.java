@@ -161,4 +161,67 @@ class WishlistControllerIT {
                 .as("DISMISSED wishlist items must not appear in the simulation")
                 .isFalse();
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Task 4.3 — convert WISHLIST → PLAN_EVENT end-to-end
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void convertWishlistToPlanEvent_fixesSourceAndCreatesArtifact() throws Exception {
+        Category cat = seededExpenseCategory();
+        LocalDate targetDate = LocalDate.now().plusMonths(6);
+
+        FinancialEvent src = eventRepository.save(FinancialEvent.builder()
+                .priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
+                .status(EventStatus.PLANNED)
+                .plannedAmount(new BigDecimal("150000"))
+                .date(targetDate)
+                .category(cat)
+                .description("Хотелка для конверсии")
+                .build());
+
+        String convertBody = """
+                {"sourceKind":"WISHLIST","target":"PLAN_EVENT"}
+                """;
+
+        String resp = mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(convertBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.newStatus").value("FIXED"))
+                .andExpect(jsonPath("$.convertedTo.kind").value("EVENT"))
+                .andExpect(jsonPath("$.convertedTo.id").exists())
+                .andReturn().getResponse().getContentAsString();
+
+        UUID artifactId = UUID.fromString(om.readTree(resp).get("convertedTo").get("id").asText());
+
+        // Reload source: FIXED + convertedToEventId points at the new artifact.
+        FinancialEvent reloaded = eventRepository.findById(src.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        assertThat(reloaded.getConvertedToEventId()).isEqualTo(artifactId);
+
+        // The artifact is a brand-new PLAN event at the target date with wishlist_status = null.
+        FinancialEvent artifact = eventRepository.findById(artifactId).orElseThrow();
+        assertThat(artifact.getId()).isNotEqualTo(src.getId());
+        assertThat(artifact.getWishlistStatus()).isNull();
+        assertThat(artifact.getEventKind()).isEqualTo(EventKind.PLAN);
+        assertThat(artifact.getDate()).isEqualTo(targetDate);
+
+        // And it is queryable via GET /events for the target day (FinancialEventDto carries no
+        // wishlist_status field, so null-status is asserted on the entity above, not the JSON).
+        String listJson = mockMvc.perform(get("/api/v1/events")
+                        .param("startDate", targetDate.toString())
+                        .param("endDate", targetDate.toString()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<Map<String, Object>> events = om.readValue(listJson, List.class);
+        boolean artifactReturned = events.stream()
+                .anyMatch(e -> artifactId.toString().equals(e.get("id")));
+        assertThat(artifactReturned)
+                .as("artifact PLAN event must be returned by GET /events at the target date")
+                .isTrue();
+    }
 }
