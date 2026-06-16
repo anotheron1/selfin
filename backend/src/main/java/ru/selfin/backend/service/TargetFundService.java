@@ -20,6 +20,7 @@ import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
+import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -279,6 +280,23 @@ public class TargetFundService {
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
         fund.setDeleted(true);
         fundRepository.save(fund);
+    }
+
+    /**
+     * Устанавливает статус копилки/кредита в модуле /wishlist (OPEN/FIXED/DISMISSED).
+     * Идемпотентно: запись того же значения не меняет состояние.
+     *
+     * @param id     идентификатор фонда
+     * @param status новый wishlist-статус
+     * @throws ResourceNotFoundException если фонд не найден или удалён
+     */
+    @Transactional
+    public void setWishlistStatus(UUID id, WishlistStatus status) {
+        TargetFund f = fundRepository.findById(id)
+                .filter(x -> !x.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        f.setWishlistStatus(status);
+        fundRepository.save(f);
     }
 
     /**

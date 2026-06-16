@@ -565,6 +565,40 @@ class FinancialEventServiceTest {
         verifyNoInteractions(ruleService);
     }
 
+    @Test
+    @DisplayName("setWishlistStatus: на не-LOW событии бросает 400")
+    void setWishlistStatus_onNonLowEvent_throws400() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent e = FinancialEvent.builder().id(id).priority(Priority.HIGH).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(e));
+        assertThatThrownBy(() -> service.setWishlistStatus(id, WishlistStatus.FIXED))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    @DisplayName("setWishlistStatus: на LOW событии обновляет статус")
+    void setWishlistStatus_onLowEvent_updates() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent e = FinancialEvent.builder().id(id).priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.OPEN).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(e));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        service.setWishlistStatus(id, WishlistStatus.DISMISSED);
+        assertThat(e.getWishlistStatus()).isEqualTo(WishlistStatus.DISMISSED);
+    }
+
+    @Test
+    @DisplayName("setWishlistStatus: то же значение — no-op без исключения")
+    void setWishlistStatus_sameValue_isNoOpNoThrow() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent e = FinancialEvent.builder().id(id).priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.FIXED).build();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(e));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        service.setWishlistStatus(id, WishlistStatus.FIXED);   // same value
+        assertThat(e.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);  // unchanged, no exception
+    }
+
     // --- helpers ---
 
     private Category category() {

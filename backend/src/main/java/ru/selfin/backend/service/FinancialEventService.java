@@ -359,6 +359,29 @@ public class FinancialEventService {
     }
 
     /**
+     * Устанавливает статус item'а в модуле /wishlist (OPEN/FIXED/DISMISSED).
+     * Применимо только к LOW-приоритетным событиям (хотелкам) — иначе 400.
+     * Идемпотентно: запись того же значения не меняет состояние.
+     *
+     * @param id     идентификатор события
+     * @param status новый wishlist-статус
+     * @throws ResourceNotFoundException если событие не найдено или удалено
+     * @throws ResponseStatusException   400, если приоритет события не LOW
+     */
+    @Transactional
+    public void setWishlistStatus(UUID id, WishlistStatus status) {
+        FinancialEvent e = eventRepository.findById(id)
+                .filter(ev -> !ev.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
+        if (e.getPriority() != Priority.LOW) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "wishlist_status applies to LOW-priority events only");
+        }
+        e.setWishlistStatus(status);   // idempotent: same value is a no-op write
+        eventRepository.save(e);
+    }
+
+    /**
      * Возвращает список хотелок: LOW-приоритетные PLANNED-события без даты.
      *
      * @return список DTO хотелок
