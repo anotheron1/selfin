@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { composeTimeline, scaleDelta, riskZones } from './wishlistUtils';
+import { composeTimeline, scaleDelta, riskZones, calcPMT } from './wishlistUtils';
 import type { MonthDelta } from '../../types/api';
+
+describe('calcPMT', () => {
+    it('computes the annuity payment for a positive rate', () => {
+        // 2,000,000 @ 16.5%/yr over 60 months ≈ 49,180/mo
+        const pmt = calcPMT(2000000, 16.5, 60);
+        expect(pmt).toBeGreaterThan(49000);
+        expect(pmt).toBeLessThan(49400);
+    });
+
+    it('falls back to straight-line division at zero rate', () => {
+        expect(calcPMT(120000, 0, 12)).toBe(10000);
+    });
+});
 
 const baseline = [
     { account: 100000, capital: 500000 },

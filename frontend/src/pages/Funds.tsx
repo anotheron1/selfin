@@ -10,8 +10,6 @@ import { Progress } from '../components/ui/progress';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import WishlistSection from '../components/WishlistSection';
-import SavingsStrategySection from '../components/funds/SavingsStrategySection';
 import type { PurchaseType } from '../types/api';
 
 const fmt = (n: number | null) =>
@@ -598,17 +596,6 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                     ))
                 ))}
 
-                {/* Хотелки */}
-                <WishlistSection />
-
-                {/* Разделитель секций */}
-                <div style={{ height: 1, background: 'var(--color-border)', margin: '8px 0' }} />
-
-                {/* Планировщик копилок */}
-                <SavingsStrategySection
-                    funds={data.funds}
-                    onFundUpdated={load}
-                />
             </div>
             </ScrollArea>
 

@@ -4,10 +4,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import WishlistRiskBadge from './WishlistRiskBadge';
-import type { RiskLevel } from './wishlistUtils';
+import { calcPMT, type RiskLevel } from './wishlistUtils';
 import type { WishlistItem, WishlistStatus } from '../../types/api';
 import { fmtRub, fmtYearMonthFull } from '../strategy/strategyChartUtils';
-import { calcPMT } from '../funds/savingsStrategyUtils';
 
 /** Параметры пересчёта delta на бэке (смена суммы/даты/кредитных параметров). */
 export interface RecomputeRequest {

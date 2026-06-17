@@ -273,8 +273,5 @@ export const setEventWishlistStatus = (id: string, status: WishlistStatus) =>
 export const setFundWishlistStatus = (id: string, status: WishlistStatus) =>
     patch<void>(`/funds/${id}/wishlist-status`, { status });
 
-export const fetchWishlistSettings = () =>
-    get<WishlistThresholds>('/settings/wishlist');
-
 export const updateWishlistSettings = (body: WishlistThresholds) =>
     put<WishlistThresholds>('/settings/wishlist', body);

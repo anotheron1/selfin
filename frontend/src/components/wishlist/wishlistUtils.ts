@@ -4,6 +4,18 @@ export interface BaselinePoint { account: number; capital: number; }
 export interface ActiveItem { active: boolean; delta: MonthDelta[]; }
 
 /**
+ * Аннуитетный месячный платёж по кредиту. Используется в WishlistItemCard для живого
+ * пересчёта PMT при перетаскивании ползунка суммы (backend пересчитывает delta только
+ * при смене ставки/срока). Перенесён из удалённого savingsStrategyUtils при миграции на /wishlist.
+ */
+export function calcPMT(principal: number, annualRate: number, termMonths: number): number {
+    const r = annualRate / 100 / 12;
+    if (r === 0) return principal / termMonths;
+    const pow = Math.pow(1 + r, termMonths);
+    return (principal * r * pow) / (pow - 1);
+}
+
+/**
  * Накладывает delta всех активных items на baseline. Delta трактуется как поток (flow),
  * применяемый начиная с monthIndex и накапливающийся вперёд — зеркалит backend applyDeltas.
  */
