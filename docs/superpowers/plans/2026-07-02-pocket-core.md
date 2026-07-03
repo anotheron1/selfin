@@ -8,7 +8,7 @@
 
 **Tech Stack:** Java 21, Spring Boot 4, JUnit 5 + AssertJ + Mockito (юнит), Testcontainers + MockMvc (IT), React 18 + TypeScript (фронт).
 
-**Тестовый прогон:** `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -pl backend` из корня (или `./mvnw -f backend/pom.xml test`; проверь, как собран проект: если `backend/` — отдельный Maven-модуль со своим `mvnw`, запускай из `backend/`). IT-тесты требуют запущенный Docker.
+**Тестовый прогон:** корневого `mvnw`/`pom.xml` НЕТ — `backend/` это отдельный Maven-проект со своим врапером. Все maven-команды запускать как `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw ...` (Run-строки ниже уже написаны так). IT-тесты требуют запущенный Docker.
 
 **Конвенции:** TDD (@superpowers:test-driven-development), коммит после каждой задачи. Ветка: `feature/pocket-core` (уже создана, спека закоммичена).
 
@@ -78,7 +78,7 @@ class PocketScopeTest {
 
 - [ ] **Step 2: Прогнать тест — убедиться, что падает** (класс не существует)
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketScopeTest`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketScopeTest`
 Expected: COMPILATION ERROR / cannot find symbol PocketScope
 
 - [ ] **Step 3: Создать все DTO**
@@ -244,7 +244,7 @@ public record PocketResultDto(
 
 - [ ] **Step 4: Прогнать тест — зелёный**
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketScopeTest`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketScopeTest`
 Expected: PASS (6 tests)
 
 - [ ] **Step 5: Commit**
@@ -564,7 +564,7 @@ class PocketEngineTest {
 
 - [ ] **Step 2: Прогнать — убедиться, что падает** (PocketEngine не существует)
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketEngineTest`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketEngineTest`
 Expected: COMPILATION ERROR
 
 - [ ] **Step 3: Реализовать движок**
@@ -792,12 +792,12 @@ public final class PocketEngine {
 
 - [ ] **Step 4: Прогнать тесты движка — зелёные**
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketEngineTest`
-Expected: PASS (13 tests)
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketEngineTest`
+Expected: PASS (14 tests)
 
 - [ ] **Step 5: Прогнать ВСЕ юнит-тесты бэкенда** (регрессий быть не может — новый код изолирован, но проверяем)
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -863,7 +863,7 @@ git commit -m "feat(pocket): pure calculation engine — min trajectory, breakdo
 
 - [ ] **Step 2: Компиляция**
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw compile`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw compile`
 Expected: BUILD SUCCESS
 
 - [ ] **Step 3: Commit**
@@ -955,7 +955,7 @@ public record PocketSettingsDto(BigDecimal bufferAmount) {}
 
 - [ ] **Step 4: Компиляция + commit**
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw compile`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw compile`
 Expected: BUILD SUCCESS
 
 ```bash
@@ -1081,7 +1081,7 @@ class PocketServiceTest {
 
 - [ ] **Step 2: Прогнать — падает** (PocketService не существует)
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketServiceTest`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketServiceTest`
 Expected: COMPILATION ERROR
 
 - [ ] **Step 3: Реализовать сервис**
@@ -1199,8 +1199,9 @@ public class PocketService {
 
     /**
      * Имена линейных категорий с ожидаемым добором (для details строки UNPLANNED_FORECAST).
-     * Логика идентична бывшему TargetFundService.buildContributors: линейная категория =
-     * без PLAN-событий (plannedLimit == 0), вклад = projection − currentFact > 0.
+     * Фильтр идентичен бывшему TargetFundService.buildContributors (линейная категория =
+     * без PLAN-событий, plannedLimit == 0; вклад = projection − currentFact > 0),
+     * но вывод — голые имена категорий, без сумм «(+3к)».
      */
     private List<String> buildContributors(MonthlyForecastDto forecast) {
         return forecast.categories().stream()
@@ -1214,7 +1215,7 @@ public class PocketService {
 
 - [ ] **Step 4: Прогнать — зелёные**
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketServiceTest`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketServiceTest`
 Expected: PASS (6 tests)
 
 Примечание: если `CategoryForecastDto` не имеет полей `plannedLimit()/projectionAmount()/currentFact()` — открой DTO и подставь фактические имена (эталон использования: `TargetFundService.buildContributors`, строки 151–169).
@@ -1282,6 +1283,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -1374,33 +1376,37 @@ class PocketControllerIT {
 
     /**
      * Сценарий ANO-6: ввод плана и факта немедленно меняет ответ кармашка.
-     * План будущего HIGH-расхода −5000 → кармашек падает на 5000;
+     * План HIGH-расхода на СЕГОДНЯ −5000 → кармашек падает на 5000 (день 0 траектории);
      * факт 4000 по этому плану → факт вытесняет план: кармашек = старт − 4000.
+     *
+     * Дата = сегодня НАМЕРЕННО: updateFact пишет factAmount в ту же PLAN-запись,
+     * а факт с БУДУЩЕЙ датой не попадает ни в баланс (date > asOf), ни в траекторию
+     * (factAmount != null) — известная дыра v1, залогирована в ANO-12.
      */
     @Test
     void ano6_inputImmediatelyChangesPocket() throws Exception {
-        // Категория для события. ВАЖНО: перед запуском сверь имена полей с CategoryCreateDto.
+        // Категория для события (оба POST в этом API возвращают 200, не 201)
         String catBody = mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"IT-pocket-test","type":"EXPENSE"}
                                 """))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String categoryId = objectMapper.readTree(catBody).get("id").asText();
 
         BigDecimal before = pocket();
 
-        // План: HIGH-расход через 5 дней (внутри любого горизонта, вкл. фолбэк 30 дней).
-        // ВАЖНО: перед запуском сверь имена полей с FinancialEventCreateDto.
-        LocalDate planDate = LocalDate.now().plusDays(5);
+        // План: HIGH-расход на сегодня. POST /events требует Idempotency-Key (обязательный header).
+        LocalDate planDate = LocalDate.now();
         String eventBody = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"date":"%s","categoryId":"%s","type":"EXPENSE",
                                  "plannedAmount":5000,"priority":"HIGH","description":"IT plan"}
                                 """.formatted(planDate, categoryId)))
-                .andExpect(status().isCreated())
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String planId = objectMapper.readTree(eventBody).get("id").asText();
 
@@ -1424,12 +1430,12 @@ class PocketControllerIT {
 
 - [ ] **Step 3: Прогнать IT** (нужен Docker)
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketControllerIT`
-Expected: PASS (4 tests). Если `ano6_...` падает на создании категории/события — сверь JSON с фактическими полями `CategoryCreateDto` / `FinancialEventCreateDto` / эндпоинтом фактов в `FinancialEventController` и поправь тело запроса (контракт кармашка от этого не зависит).
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test -Dtest=PocketControllerIT`
+Expected: PASS (4 tests). Имена полей JSON и статусы уже сверены с `CategoryCreateDto`/`FinancialEventCreateDto`/контроллерами (оба POST → 200; POST /events требует Idempotency-Key; PATCH /fact → 200).
 
 - [ ] **Step 4: Полный прогон**
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test`
 Expected: PASS, ноль регрессий
 
 - [ ] **Step 5: Commit**
@@ -1623,8 +1629,8 @@ git commit -m "feat(pocket): frontend client + PocketCard with breakdown and sco
 3. На место блока «Кармашек» поставить: `<PocketCard onData={setPocket} refreshSignal={refreshSignal} />`.
 4. «Доступно сейчас» для переводов = день-0 траектории (деньги, не занятые прямо сейчас — ближайший аналог старого pocketBalance): `const availableNow = pocket?.trajectory[0]?.balance ?? 0;`
 5. Заменить `data.pocketBalance` → `availableNow` в `FundCard` (строка ~592) и `TransferModal` (строка ~612).
-6. В `onSuccess` у `TransferModal` дополнительно перезагружать кармашек — самый простой способ: поднять `refreshSignal`-инкремент локально или вызвать `load()` + `setPocket(null)`; выбери минимальный вариант, согласованный с текущей структурой компонента.
-7. Удалить неиспользуемые импорты (`Wallet`, `HelpCircle`, `fetchEvents`, если больше не нужны).
+6. В `onSuccess` у `TransferModal` дополнительно перезагружать кармашек через **локальный инкремент, скомбинированный с пропом**: `const [pocketBump, setPocketBump] = useState(0);` → `<PocketCard onData={setPocket} refreshSignal={(refreshSignal ?? 0) + pocketBump} />` → в `onSuccess` перевода: `setPocketBump(b => b + 1)`. НЕ использовать `setPocket(null)` — PocketCard владеет данными и рефетчит только по scope/refreshSignal, обнуление в родителе оставит `availableNow` = 0 навсегда и скроет кнопки перевода.
+7. Удалить ставшее неиспользуемым: импорты `Wallet`, `HelpCircle`, `fetchEvents`; тип-импорт `FinancialEvent` (жил только в `isMandatory` удаляемого useEffect); тип `ProjectionSet` (строки ~384–390); хелпер `fmtDate` (строка ~476, единственное использование — внутри удаляемого JSX). Сборка без них не падает (нет noUnusedLocals), но ESLint отловит.
 
 - [ ] **Step 2: types/api.ts — убрать старые поля из FundsOverview** (строки 151–154): удалить `pocketBalance`, `predictionAdjustedPocket`, `forecastContributors`; оставить `funds`.
 
@@ -1656,13 +1662,18 @@ public record FundsOverviewDto(List<TargetFundDto> funds) {}
     }
 ```
 
-Удалить ставшие ненужными импорты. Javadoc класса обновить: расчёт кармашка переехал в `PocketEngine`/`PocketService` (спека 2026-07-02).
+Удалить ставшие ненужными импорты. Дополнительно — скрытые ссылки на удаляемое:
 
-- [ ] **Step 5: Обновить TargetFundServiceTest** — тесты `calcPocketBalance`/`adjustedPocket`/overview-прогнозов удалить (их поведение теперь покрыто `PocketEngineTest`); тесты переводов/CRUD оставить. Если конструктор сервиса изменился (ушёл `predictionService`) — поправить сборку сервиса в тестах.
+1. **Поле `checkpointRepository`** в `TargetFundService` использовалось только внутри `calcPocketBalance` — удалить поле (конструктор через `@RequiredArgsConstructor` сожмётся автоматически; в тестах поправить создание сервиса).
+2. **Javadoc `CapitalService`** (строки ~48, 52 — `{@link TargetFundService#calcPocketBalance()}`, и строка ~250 — комментарий «обе формулы должны двигаться вместе»): перенаправить на `PocketEngine` — это инвариант согласованности формул, он не должен указывать в пустоту.
+3. **Мёртвые методы репозитория** после удаления `calcPocketBalance`: `sumFactExecutedByType`, `sumFactExecutedByTypeFromDate`, `sumAllFactByType`, `sumAllFactByTypeFromDate` — проверить грепом, что других потребителей нет (`sumFactByTypeBetween` НЕ трогать — им живёт CapitalService), и удалить.
+4. **Javadoc класса `TargetFundService`** (шапка, строки ~38–67, описывает алгоритм кармашка целиком) переписать: класс теперь только про CRUD фондов и переводы; расчёт кармашка — `PocketEngine`/`PocketService` (спека 2026-07-02).
+
+- [ ] **Step 5: Удалить `TargetFundServiceTest` целиком** — все 6 тестов файла (строки 63–186) проверяют `getOverview`/`pocketBalance`/`adjustedPocket`, чьё поведение теперь покрыто `PocketEngineTest`; тестов переводов/CRUD в этом файле НЕТ (переводы покрыты `FinancialEventControllerIT`/фонд-IT, проверить грепом перед удалением). Если предпочитаешь оставить файл — оставь пустой каркас с одним smoke-тестом слимованного `getOverview` (возвращает funds без POCKET), но не ищи несуществующие тесты.
 
 - [ ] **Step 6: Полный прогон бэка + фронта**
 
-Run: `JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test && cd frontend && npm run build`
+Run: `cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test` затем `cd frontend && npm run build` (из корня репо)
 Expected: PASS / сборка чистая. Отдельно проверить глазами через preview: страница Funds показывает PocketCard, breakdown разворачивается, переключатель скоупов меняет число, перевод в копилку обновляет кармашек.
 
 - [ ] **Step 7: Commit**
