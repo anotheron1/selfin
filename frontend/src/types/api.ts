@@ -154,6 +154,26 @@ export interface FundsOverview {
     forecastContributors: string[];
 }
 
+// ── Pocket (ANO-12) ─────────────────────────────────────────────────────────
+export type PocketScopeType = 'NEXT_INCOME' | 'MONTHS' | 'DATE';
+export type BreakdownType =
+    | 'STARTING_BALANCE' | 'OVERDUE_RESERVE' | 'PLANNED_EXPENSES' | 'PLANNED_INCOME'
+    | 'UNPLANNED_FORECAST' | 'TRAJECTORY_MIN' | 'BUFFER' | 'POCKET' | 'WISHLIST_INFO';
+
+export interface PocketResponse {
+    pocket: number;
+    currentBalance: number;
+    buffer: number;
+    horizon: { type: PocketScopeType; endDate: string; label: string; fallback: boolean };
+    minPoint: { date: string; balance: number };
+    breakdown: { type: BreakdownType; label: string; amount: number; details: string[] }[];
+    trajectory: { date: string; balance: number }[];
+    wishlistCandidates: {
+        id: string; description: string | null;
+        plannedAmount: number | null; date: string | null; fixed: boolean;
+    }[];
+}
+
 export interface BudgetSnapshot {
     id: string;
     periodStart: string;
