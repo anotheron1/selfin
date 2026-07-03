@@ -315,7 +315,7 @@ class PocketEngineTest {
 
     private static BigDecimal dec(long v) { return BigDecimal.valueOf(v); }
 
-    private static PocketInput.PocketInputBuilder base() { return PocketInputBuilder.create(); }
+    private static PocketInputBuilder base() { return PocketInputBuilder.create(); }
 
     /** Билдер входа с дефолтами: чекпоинт 10 000 на TODAY, горизонт NEXT_INCOME до 15.03, буфер 0. */
     static class PocketInputBuilder {
