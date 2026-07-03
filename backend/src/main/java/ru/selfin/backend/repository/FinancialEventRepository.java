@@ -258,4 +258,47 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     /** Хотелки-события с конкретным статусом (например FIXED для timeline). */
     List<FinancialEvent> findByWishlistStatusAndDeletedFalse(
             ru.selfin.backend.model.enums.WishlistStatus status);
+
+    // --- Pocket (ANO-12) ---
+
+    /**
+     * Просроченные обязательные расходы БЕЗ границы месяца (спека §3.4):
+     * PLAN(PLANNED) HIGH EXPENSE с датой в прошлом и без FACT-детей.
+     * Возвращает события (не сумму) — движку нужны details для breakdown.
+     * wishlistStatus проверять не нужно: хотелки всегда LOW (DB constraint), HIGH-фильтр их исключает.
+     */
+    @Query("""
+        SELECT e FROM FinancialEvent e
+        WHERE e.eventKind = ru.selfin.backend.model.EventKind.PLAN
+          AND e.type = ru.selfin.backend.model.enums.EventType.EXPENSE
+          AND e.priority = ru.selfin.backend.model.enums.Priority.HIGH
+          AND e.status = ru.selfin.backend.model.enums.EventStatus.PLANNED
+          AND e.date < :today
+          AND e.deleted = false
+          AND NOT EXISTS (
+              SELECT 1 FROM FinancialEvent f
+              WHERE f.parentEventId = e.id AND f.deleted = false
+          )
+        """)
+    List<FinancialEvent> findOverdueMandatoryExpenses(@Param("today") LocalDate today);
+
+    /**
+     * Дата ближайшего будущего плана-дохода ЛЮБОЙ категории (горизонт NEXT_INCOME, спека §4).
+     * Хотелки исключены явно (income-хотелок не бывает, но фильтр дешёвый и страхует).
+     */
+    @Query("""
+        SELECT MIN(e.date) FROM FinancialEvent e
+        WHERE e.deleted = false
+          AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN
+          AND e.status = ru.selfin.backend.model.enums.EventStatus.PLANNED
+          AND e.type = ru.selfin.backend.model.enums.EventType.INCOME
+          AND e.wishlistStatus IS NULL
+          AND e.date > :after AND e.date <= :until
+        """)
+    Optional<LocalDate> findNextPlannedIncomeDate(
+        @Param("after") LocalDate after, @Param("until") LocalDate until);
+
+    /** Хотелки нескольких статусов одним запросом (вход движка wishlistEvents, спека §3.1). */
+    List<FinancialEvent> findByWishlistStatusInAndDeletedFalse(
+            java.util.Collection<ru.selfin.backend.model.enums.WishlistStatus> statuses);
 }
