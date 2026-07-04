@@ -148,10 +148,7 @@ export interface TargetFund {
 }
 
 export interface FundsOverview {
-    pocketBalance: number;
     funds: TargetFund[];
-    predictionAdjustedPocket: number | null;
-    forecastContributors: string[];
 }
 
 // ── Pocket (ANO-12) ─────────────────────────────────────────────────────────
