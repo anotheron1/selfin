@@ -4,12 +4,12 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * Full monthly forecast: per-category results plus the delta relevant for pocket balance.
+ * Full monthly forecast: per-category results plus the delta relevant for the pocket.
  *
  * <p>netPredictionDelta is the sum of extrapolated future spending for forecast_enabled
  * categories that have NO plan events (linear-only categories).
- * For plan-based categories, delta = 0 because кармашек already accounts for them
- * via pocketBalance (which tracks executed facts) + remaining plan events.</p>
+ * For plan-based categories, delta = 0 because the pocket trajectory ({@code PocketEngine})
+ * already accounts for them via facts in the balance + remaining plan events.</p>
  */
 public record MonthlyForecastDto(
         List<CategoryForecastDto> categories,
