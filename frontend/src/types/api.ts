@@ -164,7 +164,7 @@ export interface PocketResponse {
     horizon: { type: PocketScopeType; endDate: string; label: string; fallback: boolean };
     minPoint: { date: string; balance: number };
     breakdown: { type: BreakdownType; label: string; amount: number; details: string[] }[];
-    trajectory: { date: string; balance: number }[];
+    trajectory: { date: string; balance: number; income: number; expense: number }[];
     wishlistCandidates: {
         id: string; description: string | null;
         plannedAmount: number | null; date: string | null; fixed: boolean;

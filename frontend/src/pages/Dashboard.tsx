@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchDashboard, fetchAnalyticsReport, fetchEvents } from '../api';
-import type { AnalyticsReport, DashboardData, DailyForecastPoint, FinancialEvent } from '../types/api';
+import { fetchDashboard, fetchEvents } from '../api';
+import type { DashboardData, DailyForecastPoint, FinancialEvent, PocketResponse } from '../types/api';
 import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
+import PocketCard from '../components/PocketCard';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
@@ -149,7 +150,7 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
     const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
 
     const [data, setData] = useState<DashboardData | null>(null);
-    const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
+    const [pocket, setPocket] = useState<PocketResponse | null>(null);
     const [todayEvents, setTodayEvents] = useState<FinancialEvent[]>([]);
     const [monthEvents, setMonthEvents] = useState<FinancialEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -162,13 +163,11 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
 
         Promise.all([
             fetchDashboard(),
-            fetchAnalyticsReport(),
             fetchEvents(todayStr, todayStr),
             fetchEvents(monthStart, monthEnd),
         ])
-            .then(([dash, rep, evts, mEvts]) => {
+            .then(([dash, evts, mEvts]) => {
                 setData(dash);
-                setAnalytics(rep);
                 setTodayEvents(evts);
                 setMonthEvents(mEvts);
             })
@@ -314,6 +313,9 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                 )}
             </div>
 
+            {/* Кармашек — единый расчёт из GET /pocket (ANO-12) */}
+            <PocketCard onData={setPocket} refreshSignal={refreshSignal} />
+
             {/* Алерт кассового разрыва */}
             {data.cashGapAlert && (
                 <div className="rounded-xl p-4 flex gap-3 items-start"
@@ -435,20 +437,20 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                 </div>
             )}
 
-            {/* Кассовый календарь */}
-            {analytics && (
-                <CashFlowSection cashFlow={analytics.cashFlow} />
+            {/* Кассовый календарь — близнец кармашка: та же trajectory из GET /pocket (ANO-6, ANO-14) */}
+            {pocket && (
+                <CashFlowSection trajectory={pocket.trajectory} />
             )}
         </div>
         </div>
     );
 }
 
-// ─── Кассовый календарь (только будущие дни) ─────────────────────────────────
+// ─── Кассовый календарь: trajectory кармашка по дням, горизонт = скоуп кармашка ──
 
-function CashFlowSection({ cashFlow }: { cashFlow: AnalyticsReport['cashFlow'] }) {
-    const futureDays = cashFlow.filter(d => d.isFuture);
-    if (futureDays.length === 0) return null;
+function CashFlowSection({ trajectory }: { trajectory: PocketResponse['trajectory'] }) {
+    if (trajectory.length === 0) return null;
+    const todayStr = trajectory[0].date;
 
     return (
         <div className="rounded-2xl p-5"
@@ -457,30 +459,27 @@ function CashFlowSection({ cashFlow }: { cashFlow: AnalyticsReport['cashFlow'] }
                 КАССОВЫЙ КАЛЕНДАРЬ
             </h3>
             <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
-                {futureDays.map(day => {
-                    const balanceColor = day.runningBalance < 0 ? 'var(--color-danger)' : 'var(--color-success)';
+                {trajectory.map(day => {
+                    const isGap = day.balance < 0;
+                    const balanceColor = isGap ? 'var(--color-danger)' : 'var(--color-success)';
                     return (
                         <div key={day.date}
                             className="flex-none rounded-xl p-2 text-center"
                             style={{
                                 minWidth: '64px',
-                                background: day.isGap
-                                    ? 'rgba(239,68,68,0.12)'
-                                    : 'var(--color-surface-2)',
-                                border: day.isGap
-                                    ? '1px solid var(--color-danger)'
-                                    : '1px solid var(--color-border)',
+                                background: isGap ? 'rgba(239,68,68,0.12)' : 'var(--color-surface-2)',
+                                border: isGap ? '1px solid var(--color-danger)' : '1px solid var(--color-border)',
                             }}>
                             <p className="text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>
-                                {fmtDay(day.date)}
+                                {day.date === todayStr ? 'сегодня' : fmtDay(day.date)}
                             </p>
                             <p className="text-xs font-bold" style={{ color: balanceColor }}>
-                                {fmt(day.runningBalance)}
+                                {fmt(day.balance)}
                             </p>
-                            {(day.dailyIncome > 0 || day.dailyExpense > 0) && (
+                            {(day.income > 0 || day.expense > 0) && (
                                 <p className="mt-1" style={{ color: 'var(--color-text-muted)', fontSize: '10px' }}>
-                                    {day.dailyIncome > 0 && <span style={{ color: 'var(--color-success)' }}>+{fmt(day.dailyIncome)}</span>}
-                                    {day.dailyExpense > 0 && <span style={{ color: 'var(--color-danger)' }}>{' '}−{fmt(day.dailyExpense)}</span>}
+                                    {day.income > 0 && <span style={{ color: 'var(--color-success)' }}>+{fmt(day.income)}</span>}
+                                    {day.expense > 0 && <span style={{ color: 'var(--color-danger)' }}>{' '}−{fmt(day.expense)}</span>}
                                 </p>
                             )}
                         </div>
