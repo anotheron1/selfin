@@ -17,7 +17,8 @@ public record PocketResultDto(
 ) {
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}
     public record MinPoint(LocalDate date, BigDecimal balance) {}
-    public record TrajectoryPoint(LocalDate date, BigDecimal balance) {}
+    /** Точка траектории с дневными суммами (спека §3.6, дополнение 2026-07-04): прогноз входит в expense. */
+    public record TrajectoryPoint(LocalDate date, BigDecimal balance, BigDecimal income, BigDecimal expense) {}
     public record BreakdownLine(BreakdownType type, String label, BigDecimal amount, List<String> details) {}
     public record WishlistCandidate(java.util.UUID id, String description,
                                     BigDecimal plannedAmount, LocalDate date, boolean fixed) {}

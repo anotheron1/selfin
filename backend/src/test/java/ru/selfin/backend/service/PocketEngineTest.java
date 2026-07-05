@@ -278,6 +278,38 @@ class PocketEngineTest {
         assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.UNPLANNED_FORECAST);
     }
 
+    @Test
+    @DisplayName("Траектория несёт дневные суммы: income/expense по дням, прогноз входит в expense")
+    void trajectoryDailySums() {
+        // Чекпоинт 10 000; просрочка 1 000; расход сегодня 500; 5.03 доход 20 000 и расход 3 000;
+        // прогноз 1 400 на окно 2.03..15.03 (14 дней → 100/день)
+        PocketInput in = base()
+                .overdue(plan(EventType.EXPENSE, LocalDate.of(2026, 2, 20), 1_000, Priority.HIGH))
+                .events(plan(EventType.EXPENSE, TODAY, 500, Priority.MEDIUM),
+                        plan(EventType.INCOME, LocalDate.of(2026, 3, 5), 20_000, Priority.HIGH),
+                        plan(EventType.EXPENSE, LocalDate.of(2026, 3, 5), 3_000, Priority.MEDIUM))
+                .forecast(1_400, "Продукты")
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        PocketResultDto.TrajectoryPoint day0 = r.trajectory().get(0);
+        assertThat(day0.income()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(day0.expense()).isEqualByComparingTo(dec(1_500)); // просрочка 1 000 + сегодня 500
+
+        PocketResultDto.TrajectoryPoint mar5 = r.trajectory().stream()
+                .filter(p -> p.date().equals(LocalDate.of(2026, 3, 5))).findFirst().orElseThrow();
+        assertThat(mar5.income()).isEqualByComparingTo(dec(20_000));
+        assertThat(mar5.expense()).isEqualByComparingTo(dec(3_100)); // 3 000 + 100 прогноза
+
+        // Инвариант: balance(i) = balance(i-1) + income(i) − expense(i) — на каждой точке после нулевой
+        for (int i = 1; i < r.trajectory().size(); i++) {
+            PocketResultDto.TrajectoryPoint prev = r.trajectory().get(i - 1);
+            PocketResultDto.TrajectoryPoint cur = r.trajectory().get(i);
+            assertThat(prev.balance().add(cur.income()).subtract(cur.expense()))
+                    .isEqualByComparingTo(cur.balance());
+        }
+    }
+
     // ── без чекпоинта ────────────────────────────────────────────────────────
 
     @Test

@@ -78,7 +78,8 @@ public final class PocketEngine {
         // 5. Траектория + минимум + суммы-до-минимума (для breakdown-инварианта §5).
         List<PocketResultDto.TrajectoryPoint> trajectory = new ArrayList<>();
         BigDecimal running = currentBalance.subtract(overdue).subtract(todayExpenses);
-        trajectory.add(new PocketResultDto.TrajectoryPoint(in.asOfDate(), running));
+        trajectory.add(new PocketResultDto.TrajectoryPoint(
+                in.asOfDate(), running, BigDecimal.ZERO, overdue.add(todayExpenses)));
 
         BigDecimal minBalance = running;
         LocalDate minDate = in.asOfDate();
@@ -91,12 +92,16 @@ public final class PocketEngine {
         BigDecimal forecastSpread = BigDecimal.ZERO;
 
         for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(in.horizonEnd()); d = d.plusDays(1)) {
+            BigDecimal dayIncome = BigDecimal.ZERO;
+            BigDecimal dayExpense = BigDecimal.ZERO;
             for (EventSnapshot e : futureByDay.getOrDefault(d, List.of())) {
                 BigDecimal amount = e.plannedAmount() != null ? e.plannedAmount() : BigDecimal.ZERO;
                 if (e.type() == EventType.INCOME) {
+                    dayIncome = dayIncome.add(amount);
                     incomeCum = incomeCum.add(amount);
                     running = running.add(amount);
                 } else {
+                    dayExpense = dayExpense.add(amount);
                     expensesCum = expensesCum.add(amount);
                     running = running.subtract(amount);
                 }
@@ -107,9 +112,10 @@ public final class PocketEngine {
                         : dailyForecast;
                 forecastSpread = forecastSpread.add(dayForecast);
                 forecastCum = forecastCum.add(dayForecast);
+                dayExpense = dayExpense.add(dayForecast);
                 running = running.subtract(dayForecast);
             }
-            trajectory.add(new PocketResultDto.TrajectoryPoint(d, running));
+            trajectory.add(new PocketResultDto.TrajectoryPoint(d, running, dayIncome, dayExpense));
             if (running.compareTo(minBalance) < 0) {
                 minBalance = running;
                 minDate = d;
