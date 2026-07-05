@@ -45,11 +45,11 @@ import java.util.UUID;
  * </pre>
  *
  * <p>Диапазон событий начинается от {@code checkpoint.date} включительно — это
- * соответствует конвенции {@link TargetFundService#calcPocketBalance()} и гарантирует,
- * что Capital и Dashboard показывают одно и то же значение жидкой части.
+ * соответствует конвенции расчёта баланса в {@link PocketEngine} и гарантирует,
+ * что Capital и кармашек показывают одно и то же значение жидкой части.
  * Если когда-нибудь окажется, что чекпоинт хранит баланс на конец дня (то есть события
  * этой даты в нём уже учтены) — нужно будет одновременно сдвинуть и эту, и
- * {@link TargetFundService#calcPocketBalance()} формулы на {@code +1 day}.
+ * {@link PocketEngine} формулы на {@code +1 day} (наследуемая неоднозначность, решается в ANO-15).
  */
 @Service
 @RequiredArgsConstructor
@@ -247,7 +247,7 @@ public class CapitalService {
         Optional<BalanceCheckpoint> latest = checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(t);
         BigDecimal start = latest.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO);
         // Конвенция: события включаются начиная с даты чекпоинта (см. Javadoc класса
-        // и TargetFundService.calcPocketBalance — обе формулы должны двигаться вместе).
+        // и PocketEngine.calculate — обе формулы должны двигаться вместе).
         LocalDate fromDate = latest.map(BalanceCheckpoint::getDate).orElse(EPOCH_SENTINEL);
 
         BigDecimal income       = eventRepo.sumFactByTypeBetween(EventType.INCOME,        fromDate, t);

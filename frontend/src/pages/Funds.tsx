@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchEvents } from '../api';
-import type { FundsOverview, TargetFund, FinancialEvent } from '../types/api';
-import { Wallet, Plus, ArrowDownToLine, Pencil, Trash2, HelpCircle } from 'lucide-react';
+import { fetchFunds, createFund, updateFund, deleteFund, transferToFund } from '../api';
+import type { FundsOverview, TargetFund, PocketResponse } from '../types/api';
+import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
+import PocketCard from '../components/PocketCard';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -381,18 +382,9 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
     const [showCreate, setShowCreate] = useState(false);
     const [transferFund, setTransferFund] = useState<TargetFund | null>(null);
     const [editFund, setEditFund] = useState<TargetFund | null>(null);
-    type ProjectionSet = {
-        endOfMonth: number;
-        end3Month: number;
-        end6Month: number;
-        endOfPlans: number | null;
-        lastPlanDate: string | null;
-    };
-    const [projections, setProjections] = useState<{
-        mandatory: ProjectionSet; // факт + все доходы − только обязательные расходы
-        full: ProjectionSet;      // факт + все доходы − все расходы
-    } | null>(null);
-    const [showHelp, setShowHelp] = useState(false);
+    const [pocket, setPocket] = useState<PocketResponse | null>(null);
+    // Локальный инкремент для перезагрузки PocketCard после перевода в копилку
+    const [pocketBump, setPocketBump] = useState(0);
     const [showFunds, setShowFunds] = useState(true);
 
     const load = useCallback(() => {
@@ -407,161 +399,19 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refreshSignal]);
 
-    useEffect(() => {
-        if (!data) return;
-        const today = new Date();
-        const localDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const todayStr = localDate(today);
-        const monthEnd = localDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
-        const farFuture = localDate(new Date(today.getTime() + 730 * 24 * 60 * 60 * 1000));
-
-        const month3End = localDate(new Date(today.getFullYear(), today.getMonth() + 3, 0));
-        const month6End = localDate(new Date(today.getFullYear(), today.getMonth() + 6, 0));
-
-        fetchEvents(todayStr, farFuture).then(allFutureEvts => {
-            const planned = allFutureEvts.filter(e => e.status === 'PLANNED');
-
-            // Обязательные = высокий приоритет или явный флаг mandatory
-            const isMandatory = (e: FinancialEvent) =>
-                e.mandatory === true || e.priority === 'HIGH';
-
-            // Факт + все доходы − все расходы (включая необязательные и копилки)
-            const projectFull = (cutoff: string) =>
-                planned
-                    .filter(e => e.date != null && e.date <= cutoff)
-                    .reduce((bal, e) => {
-                        const amt = e.plannedAmount ?? 0;
-                        return e.type === 'INCOME' ? bal + amt : bal - amt;
-                    }, data.pocketBalance);
-
-            // Факт + все доходы − только обязательные расходы (необязательные и копилки пропускаем)
-            const projectMandatory = (cutoff: string) =>
-                planned
-                    .filter(e => e.date != null && e.date <= cutoff)
-                    .reduce((bal, e) => {
-                        const amt = e.plannedAmount ?? 0;
-                        if (e.type === 'INCOME') return bal + amt;
-                        if (e.type === 'EXPENSE' && isMandatory(e)) return bal - amt;
-                        return bal;
-                    }, data.pocketBalance);
-
-            const lastPlanDate = planned.length > 0
-                ? (planned.map(e => e.date).filter(Boolean).sort().at(-1) ?? null)
-                : null;
-
-            setProjections({
-                mandatory: {
-                    endOfMonth: projectMandatory(monthEnd),
-                    end3Month: projectMandatory(month3End),
-                    end6Month: projectMandatory(month6End),
-                    endOfPlans: lastPlanDate ? projectMandatory(farFuture) : null,
-                    lastPlanDate,
-                },
-                full: {
-                    endOfMonth: projectFull(monthEnd),
-                    end3Month: projectFull(month3End),
-                    end6Month: projectFull(month6End),
-                    endOfPlans: lastPlanDate ? projectFull(farFuture) : null,
-                    lastPlanDate,
-                },
-            });
-        }).catch(() => {
-            // Projection fetch failed — leave projections null (hidden)
-        });
-    }, [data]);
-
     if (error) return <div className="p-6 text-center text-sm" style={{ color: 'var(--color-danger, #ef4444)' }}>Ошибка: {error}</div>;
     if (!data) return <div className="p-6 text-center animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</div>;
 
-    const fmtDate = (s: string) =>
-        new Date(s + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+    // «Доступно сейчас» для переводов = день 0 траектории кармашка:
+    // деньги, не занятые прямо сейчас (баланс − просрочка − плановые расходы сегодня)
+    const availableNow = pocket?.trajectory[0]?.balance ?? 0;
 
     return (
         <>
             <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
             <div className="px-4 py-6 space-y-5">
-                {/* Кармашек */}
-                <div className="rounded-2xl p-6 flex items-center justify-between"
-                    style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
-                    <div className="flex items-start gap-4 flex-1 min-w-0">
-                        <Wallet size={32} color="white" className="shrink-0 mt-1" />
-                        <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                                <p className="text-sm text-white/70">В кармашке</p>
-                                <button
-                                    onClick={() => setShowHelp(h => !h)}
-                                    className="text-white/50 hover:text-white/90 transition-colors"
-                                    aria-label="Что такое кармашек">
-                                    <HelpCircle size={14} />
-                                </button>
-                            </div>
-                            {showHelp && (
-                                <div className="mt-1 mb-2 text-xs text-white/70 leading-relaxed rounded-xl bg-black/20 px-3 py-2 space-y-2">
-                                    <div>
-                                        <b className="text-white/90">Сейчас (факт)</b> — реальные свободные деньги прямо сейчас.<br />
-                                        Формула: <span className="text-white/90">баланс счёта</span> (чекпоинт + все исполненные доходы − все исполненные расходы) <span className="text-white/90">− сумма во всех копилках</span>.<br />
-                                        Если отрицательный — в копилках зарезервировано больше, чем есть на счету.
-                                    </div>
-                                    <div>
-                                        <b className="text-white/90">После обязательных</b> — прогноз с учётом только обязательных событий: все плановые доходы придут, но из расходов вычитаются только высокоприоритетные (ипотека, коммуналка и т.д.). Необязательные расходы и переводы в копилки не учитываются — это и есть максимум, который ты теоретически можешь пустить в копилки.
-                                    </div>
-                                    <div>
-                                        <b className="text-white/90">После всех расходов</b> — прогноз при полном выполнении плана: все доходы, все расходы, все переводы в копилки. Это минимум, который останется, если всё пойдёт по плану.
-                                    </div>
-                                </div>
-                            )}
-                            {/* Факт */}
-                            <p className="text-xs text-white/60 mt-1">Сейчас (факт)</p>
-                            <p className="text-3xl font-bold text-white">
-                                {new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 })
-                                    .format(data.pocketBalance)}
-                            </p>
-                            {projections && (() => {
-                                const fmtC = (n: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
-                                const row = (label: string, p: typeof projections.full) => (
-                                    <div key={label} className="mt-2">
-                                        <p className="text-white/50 text-xs mb-0.5">{label}</p>
-                                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-white/80">
-                                            <span>Конец мес: <b className="text-white">{fmtC(p.endOfMonth)}</b></span>
-                                            <span>3 мес: <b className="text-white">{fmtC(p.end3Month)}</b></span>
-                                            <span>6 мес: <b className="text-white">{fmtC(p.end6Month)}</b></span>
-                                            {p.endOfPlans != null && p.lastPlanDate && (
-                                                <span>Конец планов: <b className="text-white">{fmtC(p.endOfPlans)}</b>
-                                                    <span className="text-white/50"> · до {fmtDate(p.lastPlanDate)}</span>
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                                return (
-                                    <>
-                                        {row('После обязательных расходов', projections.mandatory)}
-                                        {row('После всех расходов', projections.full)}
-                                        {data.predictionAdjustedPocket != null && (
-                                            <div className="mt-2 p-2.5 bg-secondary/30 border border-primary/20 rounded-lg">
-                                                <div className="flex justify-between items-start">
-                                                    <span className="text-sm text-primary">По текущему темпу</span>
-                                                    <span className={`text-sm font-semibold ml-3 ${
-                                                        data.predictionAdjustedPocket < data.pocketBalance
-                                                            ? 'text-destructive'
-                                                            : 'text-green-400'
-                                                    }`}>
-                                                        {fmt(data.predictionAdjustedPocket)}
-                                                    </span>
-                                                </div>
-                                                {data.forecastContributors.length > 0 && (
-                                                    <p className="text-xs text-muted-foreground mt-1">
-                                                        {data.forecastContributors.join(', ')}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        )}
-                                    </>
-                                );
-                            })()}
-                        </div>
-                    </div>
-                </div>
+                {/* Кармашек — единый расчёт из GET /pocket (ANO-12) */}
+                <PocketCard onData={setPocket} refreshSignal={(refreshSignal ?? 0) + pocketBump} />
 
                 {/* Заголовок с кнопкой создания */}
                 <div className="flex items-center justify-between">
@@ -589,7 +439,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                         <FundCard
                             key={fund.id}
                             fund={fund}
-                            pocketBalance={data.pocketBalance}
+                            pocketBalance={availableNow}
                             onTransfer={setTransferFund}
                             onEdit={setEditFund}
                         />
@@ -609,9 +459,9 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
             {transferFund && (
                 <TransferModal
                     fund={transferFund}
-                    pocketBalance={data.pocketBalance}
+                    pocketBalance={availableNow}
                     onClose={() => setTransferFund(null)}
-                    onSuccess={() => { setTransferFund(null); load(); }}
+                    onSuccess={() => { setTransferFund(null); load(); setPocketBump(b => b + 1); }}
                 />
             )}
 

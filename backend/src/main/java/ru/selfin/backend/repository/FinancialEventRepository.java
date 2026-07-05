@@ -41,59 +41,6 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         @Param("status") EventStatus status,
         @Param("cutoff") LocalDate cutoff);
 
-    /**
-     * Сумма эффективных сумм по типу для расчёта баланса кармашка (без привязки к дате).
-     * После миграции:
-     *   FACT.factAmount              → реально потраченное/полученное
-     *   PLAN(PLANNED).plannedAmount  → запланированное (ещё не исполненное)
-     *   PLAN(EXECUTED).planned       → 0 (исполнение уже учтено через FACT-записи)
-     */
-    @Query("""
-        SELECT COALESCE(SUM(CASE
-            WHEN e.eventKind = ru.selfin.backend.model.EventKind.FACT
-                THEN e.factAmount
-            WHEN e.eventKind = ru.selfin.backend.model.EventKind.PLAN
-                 AND e.status <> ru.selfin.backend.model.enums.EventStatus.EXECUTED
-                THEN e.plannedAmount
-            ELSE 0
-        END), 0)
-        FROM FinancialEvent e WHERE e.type = :type AND e.deleted = false
-        """)
-    BigDecimal sumEffectiveByType(@Param("type") EventType type);
-
-    @Query("""
-        SELECT COALESCE(SUM(CASE
-            WHEN e.eventKind = ru.selfin.backend.model.EventKind.FACT
-                THEN e.factAmount
-            WHEN e.eventKind = ru.selfin.backend.model.EventKind.PLAN
-                 AND e.status <> ru.selfin.backend.model.enums.EventStatus.EXECUTED
-                THEN e.plannedAmount
-            ELSE 0
-        END), 0)
-        FROM FinancialEvent e WHERE e.type = :type AND e.deleted = false AND e.date >= :fromDate
-        """)
-    BigDecimal sumEffectiveByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
-
-    /**
-     * Сумма фактических (только FACT-записи) по типу.
-     * После миграции factAmount гарантированно есть только у FACT-записей.
-     */
-    @Query("""
-        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
-        WHERE e.type = :type
-          AND e.eventKind = ru.selfin.backend.model.EventKind.FACT
-          AND e.deleted = false
-        """)
-    BigDecimal sumFactExecutedByType(@Param("type") EventType type);
-
-    @Query("""
-        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
-        WHERE e.type = :type
-          AND e.eventKind = ru.selfin.backend.model.EventKind.FACT
-          AND e.deleted = false AND e.date >= :fromDate
-        """)
-    BigDecimal sumFactExecutedByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
-
     /** Планировщик фондов: все не-удалённые PLANы с любым статусом кроме CANCELLED */
     @Query("SELECT e FROM FinancialEvent e WHERE e.deleted = false " +
            "AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN " +
@@ -113,29 +60,6 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         GROUP BY e.parentEventId
         """)
     List<FactAggregateProjection> findFactAggregatesByPlanIds(@Param("planIds") List<UUID> planIds);
-
-    /**
-     * Сумма фактических сумм по типу без фильтра eventKind.
-     * Необходим для FUND_TRANSFER: события, созданные через doTransfer, имеют
-     * eventKind=PLAN (DB default), а не FACT, поэтому стандартный
-     * sumFactExecutedByType их не видит.
-     */
-    @Query("""
-        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
-        WHERE e.type = :type
-          AND e.factAmount IS NOT NULL
-          AND e.deleted = false
-        """)
-    BigDecimal sumAllFactByType(@Param("type") EventType type);
-
-    /** Аналог {@link #sumAllFactByType} с фильтром по дате. */
-    @Query("""
-        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
-        WHERE e.type = :type
-          AND e.factAmount IS NOT NULL
-          AND e.deleted = false AND e.date >= :fromDate
-        """)
-    BigDecimal sumAllFactByTypeFromDate(@Param("type") EventType type, @Param("fromDate") LocalDate fromDate);
 
     /**
      * Сумма фактически случившихся (любых записей с factAmount, включая PLAN-FUND_TRANSFER)
@@ -258,4 +182,47 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     /** Хотелки-события с конкретным статусом (например FIXED для timeline). */
     List<FinancialEvent> findByWishlistStatusAndDeletedFalse(
             ru.selfin.backend.model.enums.WishlistStatus status);
+
+    // --- Pocket (ANO-12) ---
+
+    /**
+     * Просроченные обязательные расходы БЕЗ границы месяца (спека §3.4):
+     * PLAN(PLANNED) HIGH EXPENSE с датой в прошлом и без FACT-детей.
+     * Возвращает события (не сумму) — движку нужны details для breakdown.
+     * wishlistStatus проверять не нужно: хотелки всегда LOW (DB constraint), HIGH-фильтр их исключает.
+     */
+    @Query("""
+        SELECT e FROM FinancialEvent e
+        WHERE e.eventKind = ru.selfin.backend.model.EventKind.PLAN
+          AND e.type = ru.selfin.backend.model.enums.EventType.EXPENSE
+          AND e.priority = ru.selfin.backend.model.enums.Priority.HIGH
+          AND e.status = ru.selfin.backend.model.enums.EventStatus.PLANNED
+          AND e.date < :today
+          AND e.deleted = false
+          AND NOT EXISTS (
+              SELECT 1 FROM FinancialEvent f
+              WHERE f.parentEventId = e.id AND f.deleted = false
+          )
+        """)
+    List<FinancialEvent> findOverdueMandatoryExpenses(@Param("today") LocalDate today);
+
+    /**
+     * Дата ближайшего будущего плана-дохода ЛЮБОЙ категории (горизонт NEXT_INCOME, спека §4).
+     * Хотелки исключены явно (income-хотелок не бывает, но фильтр дешёвый и страхует).
+     */
+    @Query("""
+        SELECT MIN(e.date) FROM FinancialEvent e
+        WHERE e.deleted = false
+          AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN
+          AND e.status = ru.selfin.backend.model.enums.EventStatus.PLANNED
+          AND e.type = ru.selfin.backend.model.enums.EventType.INCOME
+          AND e.wishlistStatus IS NULL
+          AND e.date > :after AND e.date <= :until
+        """)
+    Optional<LocalDate> findNextPlannedIncomeDate(
+        @Param("after") LocalDate after, @Param("until") LocalDate until);
+
+    /** Хотелки нескольких статусов одним запросом (вход движка wishlistEvents, спека §3.1). */
+    List<FinancialEvent> findByWishlistStatusInAndDeletedFalse(
+            java.util.Collection<ru.selfin.backend.model.enums.WishlistStatus> statuses);
 }

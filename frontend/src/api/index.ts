@@ -21,6 +21,7 @@ import type {
     FundPlannerData,
     FundsOverview,
     MultiMonthReport,
+    PocketResponse,
     PurchaseType,
     ScopeEnum,
     StandaloneFactCreateDto,
@@ -136,9 +137,15 @@ export const fetchAnalyticsReport = (date?: string) =>
 export const fetchMultiMonthReport = (startDate: string, endDate: string) =>
     get<MultiMonthReport>(`/analytics/multi-month?startDate=${startDate}&endDate=${endDate}`);
 
+// --- Pocket (ANO-12) ---
+
+/** Кармашек: единый ответ «сколько свободно и почему» на выбранном скоупе. */
+export const fetchPocket = (scope?: string) =>
+    get<PocketResponse>(`/pocket${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`);
+
 // --- Funds ---
 
-/** Загружает обзор фондов: баланс кармашка и список копилок с прогрессом. */
+/** Загружает обзор фондов: список копилок с прогрессом (кармашек — см. fetchPocket). */
 export const fetchFunds = () => get<FundsOverview>('/funds');
 
 /** Создаёт новый целевой фонд (копилку). */
