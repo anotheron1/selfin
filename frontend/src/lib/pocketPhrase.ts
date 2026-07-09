@@ -1,7 +1,7 @@
 import type { PocketResponse } from '../types/api';
 
 const fmtC = (n: number) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 const fmtD = (iso: string) => {
     const [, m, d] = iso.split('-');
     return `${d}.${m}`;

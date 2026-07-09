@@ -5,7 +5,7 @@ import { buildPocketPhrase } from '../lib/pocketPhrase';
 import type { PocketResponse } from '../types/api';
 
 const fmtC = (n: number) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
 const SCOPES: { key: string | undefined; label: string }[] = [
     { key: undefined, label: 'До дохода' },

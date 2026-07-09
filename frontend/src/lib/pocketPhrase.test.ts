@@ -3,7 +3,7 @@ import { buildPocketPhrase } from './pocketPhrase';
 import type { PocketResponse } from '../types/api';
 
 const fmtC = (n: number) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
 /** Минимальный PocketResponse: горизонт NEXT_INCOME до 15.07, буфер 0, breakdown не важен для фразы. */
 function make(overrides: Partial<PocketResponse> = {}): PocketResponse {

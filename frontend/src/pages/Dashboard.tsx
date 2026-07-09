@@ -6,7 +6,7 @@ import { Badge } from '../components/ui/badge';
 import PocketCard from '../components/PocketCard';
 
 const fmt = (n: number) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
+    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
 const fmtAmt = (n: number | null) => n != null ? fmt(n) : '—';
 
