@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchDashboard, fetchEvents } from '../api';
 import type { DashboardData, DailyForecastPoint, FinancialEvent, PocketResponse } from '../types/api';
-import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import PocketCard from '../components/PocketCard';
 
@@ -118,33 +118,6 @@ function ForecastSparkline({ history, plannedLimit, projectionAmount, daysInMont
 const fmtDay = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 
-/**
- * Строка прогноза в зарплатном горизонте: иконка тренда + метка + сумма.
- * @param label  текст метки («До зп (28 мар)» / «После зп (28 мар)»)
- * @param value  прогнозная сумма (null — не отображается)
- * @param dimmed уменьшенная яркость для «вспомогательных» строк (стартовый капитал)
- */
-function SalaryRow({ label, value, dimmed = false }: {
-    label: string;
-    value: number | null | undefined;
-    dimmed?: boolean;
-}) {
-    if (value == null) return null;
-    const positive = value >= 0;
-    return (
-        <div className="flex items-center justify-center gap-2 text-sm"
-            style={{ color: dimmed ? 'var(--color-text-muted)' : 'var(--color-text-muted)', opacity: dimmed ? 0.65 : 1 }}>
-            {positive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-            <span>
-                {label}:{' '}
-                <b style={{ color: positive ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                    {fmt(value)}
-                </b>
-            </span>
-        </div>
-    );
-}
-
 export default function Dashboard({ refreshSignal }: { refreshSignal?: number }) {
     const _today = new Date();
     const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
@@ -190,14 +163,12 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
         <div className="p-6 text-center animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</div>
     );
 
-    const balancePositive = data.currentBalance >= 0;
-
-    // Прогноз конца дня: currentBalance + плановые суммы ещё не исполненных событий сегодня
+    // Прогноз конца дня: остаток кармашка + плановые суммы ещё не исполненных событий сегодня
     const unexecutedToday = todayEvents.filter(e => e.status === 'PLANNED');
     const endOfDayForecast = unexecutedToday.reduce((bal, e) => {
         const amt = e.plannedAmount ?? 0;
         return e.type === 'INCOME' ? bal + amt : bal - amt;
-    }, data.currentBalance);
+    }, pocket?.currentBalance ?? 0);
     const hasUnexecutedToday = unexecutedToday.length > 0;
 
     const incomeToday = todayEvents.filter(e => e.type === 'INCOME');
@@ -206,55 +177,16 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
     return (
         <div className="overflow-y-auto overflow-x-hidden scrollbar-none" style={{ height: 'calc(100dvh - var(--nav-height))' }}>
         <div className="pl-4 pr-5 py-6 space-y-5">
-            {/* Hero: Текущий баланс + события сегодня */}
-            <div className="rounded-2xl p-5 space-y-3"
-                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            {/* Hero: кармашек — единый ответ из GET /pocket (ANO-12/13).
+                Старые «Текущий баланс» + зарплатные горизонты DashboardService удалены:
+                расчёт расходился с кармашком (см. флаг в ANO-12). */}
+            <PocketCard onData={setPocket} refreshSignal={refreshSignal} />
 
-                {/* Главное число */}
-                <div className="text-center space-y-1">
-                    <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Текущий баланс</p>
-                    <p className="text-5xl font-bold tracking-tight"
-                        style={{ color: balancePositive ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                        {fmt(data.currentBalance)}
-                    </p>
-                    {/* Зарплатные горизонты: до/после/до-второй или fallback конец месяца */}
-                    {data.nextSalaryDate ? (
-                        <div className="space-y-1 pt-1">
-                            {/* Строка 1: низшая точка перед первой зп */}
-                            <SalaryRow
-                                label={`До зп (${fmtDay(data.nextSalaryDate)})`}
-                                value={data.balanceBeforeNextSalary}
-                            />
-                            {/* Строка 2: стартовый капитал после первой зп */}
-                            <SalaryRow
-                                label={`После зп (${fmtDay(data.nextSalaryDate)})`}
-                                value={data.balanceAfterNextSalary}
-                                dimmed
-                            />
-                            {/* Строка 3: низшая точка перед второй зп (если есть) */}
-                            {data.secondSalaryDate && (
-                                <SalaryRow
-                                    label={`До зп (${fmtDay(data.secondSalaryDate)})`}
-                                    value={data.balanceBeforeSecondSalary}
-                                />
-                            )}
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center gap-2 text-sm"
-                            style={{ color: 'var(--color-text-muted)' }}>
-                            {data.endOfMonthForecast >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                            <span>Прогноз конец месяца:{' '}
-                                <b style={{ color: data.endOfMonthForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                                    {fmt(data.endOfMonthForecast)}
-                                </b>
-                            </span>
-                        </div>
-                    )}
-                </div>
-
-                {/* События сегодня */}
-                {todayEvents.length > 0 && (
-                    <div className="pt-2 border-t space-y-2" style={{ borderColor: 'var(--color-border)' }}>
+            {/* События сегодня */}
+            {todayEvents.length > 0 && (
+                <div className="rounded-2xl p-5 space-y-3"
+                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                    <div className="space-y-2">
                         <p className="text-xs font-semibold uppercase" style={{ color: 'var(--color-text-muted)' }}>
                             Сегодня
                         </p>
@@ -300,7 +232,7 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                         ))}
 
                         {/* Прогноз конца дня — только если есть неисполненные */}
-                        {hasUnexecutedToday && (
+                        {hasUnexecutedToday && pocket && (
                             <div className="flex justify-between items-center pt-2 border-t text-sm font-semibold"
                                 style={{ borderColor: 'var(--color-border)' }}>
                                 <span style={{ color: 'var(--color-text-muted)' }}>Прогноз конца дня</span>
@@ -310,11 +242,8 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                             </div>
                         )}
                     </div>
-                )}
-            </div>
-
-            {/* Кармашек — единый расчёт из GET /pocket (ANO-12) */}
-            <PocketCard onData={setPocket} refreshSignal={refreshSignal} />
+                </div>
+            )}
 
             {/* Алерт кассового разрыва */}
             {data.cashGapAlert && (

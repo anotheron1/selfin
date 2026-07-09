@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { HelpCircle, Wallet } from 'lucide-react';
 import { fetchPocket } from '../api';
+import { buildPocketPhrase } from '../lib/pocketPhrase';
 import type { PocketResponse } from '../types/api';
 
 const fmtC = (n: number) =>
@@ -55,11 +56,8 @@ export default function PocketCard({ onData, refreshSignal }: {
                     {data && (
                         <>
                             <p className="text-3xl font-bold text-white">{fmtC(data.pocket)}</p>
-                            <p className="text-xs text-white/60 mt-0.5">
-                                {data.horizon.label}
-                                {data.minPoint.date !== data.horizon.endDate &&
-                                    ` · минимум ${fmtC(data.minPoint.balance)}`}
-                            </p>
+                            <p className="text-xs text-white/60 mt-0.5">на счёте {fmtC(data.currentBalance)}</p>
+                            <p className="text-sm text-white/85 mt-2 leading-snug">{buildPocketPhrase(data)}</p>
 
                             <div className="flex gap-1.5 mt-3">
                                 {SCOPES.map(s => (
