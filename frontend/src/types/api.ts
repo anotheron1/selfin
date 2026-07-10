@@ -162,7 +162,7 @@ export interface PocketResponse {
     currentBalance: number;
     buffer: number;
     horizon: { type: PocketScopeType; endDate: string; label: string; fallback: boolean };
-    minPoint: { date: string; balance: number };
+    minPoint: { date: string; balance: number; drivenBy: string | null };
     breakdown: { type: BreakdownType; label: string; amount: number; details: string[] }[];
     trajectory: { date: string; balance: number; income: number; expense: number }[];
     wishlistCandidates: {

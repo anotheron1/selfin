@@ -83,6 +83,7 @@ public final class PocketEngine {
 
         BigDecimal minBalance = running;
         LocalDate minDate = in.asOfDate();
+        String minDrivenBy = null;
         BigDecimal expensesCum = todayExpenses;
         BigDecimal incomeCum = BigDecimal.ZERO;
         BigDecimal forecastCum = BigDecimal.ZERO;
@@ -94,6 +95,8 @@ public final class PocketEngine {
         for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(in.horizonEnd()); d = d.plusDays(1)) {
             BigDecimal dayIncome = BigDecimal.ZERO;
             BigDecimal dayExpense = BigDecimal.ZERO;
+            BigDecimal dayTopExpenseAmount = BigDecimal.ZERO;
+            String dayTopExpense = null;
             for (EventSnapshot e : futureByDay.getOrDefault(d, List.of())) {
                 BigDecimal amount = e.plannedAmount() != null ? e.plannedAmount() : BigDecimal.ZERO;
                 if (e.type() == EventType.INCOME) {
@@ -104,6 +107,10 @@ public final class PocketEngine {
                     dayExpense = dayExpense.add(amount);
                     expensesCum = expensesCum.add(amount);
                     running = running.subtract(amount);
+                    if (amount.compareTo(dayTopExpenseAmount) > 0) {
+                        dayTopExpenseAmount = amount;
+                        dayTopExpense = e.description();
+                    }
                 }
             }
             if (forecastDays > 0 && !d.isAfter(forecastEnd)) {
@@ -119,6 +126,7 @@ public final class PocketEngine {
             if (running.compareTo(minBalance) < 0) {
                 minBalance = running;
                 minDate = d;
+                minDrivenBy = dayTopExpense;
                 expensesAtMin = expensesCum;
                 incomeAtMin = incomeCum;
                 forecastAtMin = forecastCum;
@@ -143,7 +151,7 @@ public final class PocketEngine {
         return new PocketResultDto(pocket, currentBalance, buffer,
                 new PocketResultDto.Horizon(in.scope().type(), in.horizonEnd(),
                         horizonLabel(in), in.horizonFallback()),
-                new PocketResultDto.MinPoint(minDate, minBalance),
+                new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),
                 breakdown, trajectory, candidates);
     }
 

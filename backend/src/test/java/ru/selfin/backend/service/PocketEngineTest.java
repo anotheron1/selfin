@@ -48,6 +48,11 @@ class PocketEngineTest {
                 EventStatus.EXECUTED, Priority.MEDIUM, null, dec(amount), null, false, "transfer");
     }
 
+    private static EventSnapshot planNamed(EventType type, LocalDate date, long amount, String description) {
+        return new EventSnapshot(UUID.randomUUID(), date, type, EventKind.PLAN, EventStatus.PLANNED,
+                Priority.MEDIUM, dec(amount), null, null, false, description);
+    }
+
     private static EventSnapshot wishlist(WishlistStatus st, LocalDate date, long amount, boolean converted) {
         return new EventSnapshot(UUID.randomUUID(), date, EventType.EXPENSE, EventKind.PLAN,
                 EventStatus.PLANNED, Priority.LOW, dec(amount), null, st, converted, "хотелка");
@@ -308,6 +313,31 @@ class PocketEngineTest {
             assertThat(prev.balance().add(cur.income()).subtract(cur.expense()))
                     .isEqualByComparingTo(cur.balance());
         }
+    }
+
+    @Test
+    @DisplayName("minPoint.drivenBy = самый крупный плановый расход дня минимума; в день 0 — null")
+    void minPointDrivenBy() {
+        // Провал 12.03: страховка 9 000 + кафе 2 000; зп 15.03 возвращает вверх
+        PocketInput in = base()
+                .monthsScope(3, LocalDate.of(2026, 6, 1))
+                .events(planNamed(EventType.EXPENSE, LocalDate.of(2026, 3, 12), 9_000, "Страховка"),
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 3, 12), 2_000, "Кафе"),
+                        plan(EventType.INCOME, LocalDate.of(2026, 3, 15), 100_000, Priority.HIGH))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+        assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 12));
+        assertThat(r.minPoint().drivenBy()).isEqualTo("Страховка");
+
+        // Минимум в день 0 (трат в будущем нет) → drivenBy null
+        PocketResultDto flat = PocketEngine.calculate(base().build());
+        assertThat(flat.minPoint().drivenBy()).isNull();
+
+        // Типовой продакшен-случай: минимум создан размазкой прогноза (событий в день минимума нет)
+        // → минимум НЕ в день 0, но drivenBy всё равно null
+        PocketResultDto smeared = PocketEngine.calculate(base().forecast(1_400, "Продукты").build());
+        assertThat(smeared.minPoint().date()).isNotEqualTo(TODAY);
+        assertThat(smeared.minPoint().drivenBy()).isNull();
     }
 
     // ── без чекпоинта ────────────────────────────────────────────────────────
