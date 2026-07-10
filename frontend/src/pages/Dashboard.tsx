@@ -4,9 +4,9 @@ import type { DashboardData, DailyForecastPoint, FinancialEvent, PocketResponse 
 import { AlertTriangle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import PocketCard from '../components/PocketCard';
+import { fmtRub } from '../lib/format';
 
-const fmt = (n: number) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+const fmt = fmtRub;
 
 const fmtAmt = (n: number | null) => n != null ? fmt(n) : '—';
 

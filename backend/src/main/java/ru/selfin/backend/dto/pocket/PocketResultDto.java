@@ -16,7 +16,11 @@ public record PocketResultDto(
         List<WishlistCandidate> wishlistCandidates
 ) {
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}
-    /** Точка минимума; drivenBy = самый крупный плановый расход дня минимума (null — минимум в день 0). */
+    /**
+     * Точка минимума; drivenBy = описание самого крупного планового расхода дня минимума.
+     * null — если минимум в день 0, если в день минимума нет расходов-событий (типовой случай:
+     * минимум создан размазкой прогноза незапланированных) или у события нет описания.
+     */
     public record MinPoint(LocalDate date, BigDecimal balance, String drivenBy) {}
     /** Точка траектории с дневными суммами (спека §3.6, дополнение 2026-07-04): прогноз входит в expense. */
     public record TrajectoryPoint(LocalDate date, BigDecimal balance, BigDecimal income, BigDecimal expense) {}

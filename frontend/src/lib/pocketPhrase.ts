@@ -1,7 +1,6 @@
 import type { PocketResponse } from '../types/api';
+import { fmtRub as fmtC } from './format';
 
-const fmtC = (n: number) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 const fmtD = (iso: string) => {
     const [, m, d] = iso.split('-');
     return `${d}.${m}`;
@@ -41,9 +40,10 @@ export function buildPocketPhrase(p: PocketResponse): string {
 
     const bufferPart = buffer > 0 ? ` Буфер ${fmtC(buffer)} уже отложен.` : '';
 
-    // Трат до горизонта нет: минимум в день 0
+    // Минимум в день 0: ниже сегодняшнего траектория не опускается
+    // (это НЕ значит «расходов нет» — доход внутри горизонта может перекрывать поздние траты)
     if (minPoint.date === trajectory[0]?.date) {
-        return `Свободно ${fmtC(pocket)} ${horizonPart} — трат по плану до конца горизонта нет.${bufferPart}${afterTail}`;
+        return `Свободно ${fmtC(pocket)} ${horizonPart}. Минимум — уже сегодня: дальше по плану не ниже.${bufferPart}${afterTail}`;
     }
 
     return `Свободно ${fmtC(pocket)} ${horizonPart}. Самый узкий день — ${minDate}: на счёте останется ${fmtC(minPoint.balance)}${cause}.${bufferPart}${afterTail}`;

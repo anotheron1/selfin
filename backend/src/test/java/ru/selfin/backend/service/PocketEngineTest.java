@@ -332,6 +332,12 @@ class PocketEngineTest {
         // Минимум в день 0 (трат в будущем нет) → drivenBy null
         PocketResultDto flat = PocketEngine.calculate(base().build());
         assertThat(flat.minPoint().drivenBy()).isNull();
+
+        // Типовой продакшен-случай: минимум создан размазкой прогноза (событий в день минимума нет)
+        // → минимум НЕ в день 0, но drivenBy всё равно null
+        PocketResultDto smeared = PocketEngine.calculate(base().forecast(1_400, "Продукты").build());
+        assertThat(smeared.minPoint().date()).isNotEqualTo(TODAY);
+        assertThat(smeared.minPoint().drivenBy()).isNull();
     }
 
     // ── без чекпоинта ────────────────────────────────────────────────────────

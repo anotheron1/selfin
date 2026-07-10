@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { fmtRub as fmtC } from './format';
 import { buildPocketPhrase } from './pocketPhrase';
 import type { PocketResponse } from '../types/api';
-
-const fmtC = (n: number) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
 /** Минимальный PocketResponse: горизонт NEXT_INCOME до 15.07, буфер 0, breakdown не важен для фразы. */
 function make(overrides: Partial<PocketResponse> = {}): PocketResponse {
@@ -42,13 +40,19 @@ describe('buildPocketPhrase', () => {
         );
     });
 
-    it('трат до горизонта нет: минимум в день 0', () => {
+    it('минимум в день 0: траектория не опускается ниже сегодняшнего (расходы могут быть!)', () => {
+        // Фикстура консистентна движку: день 0 — низшая точка, дальше доход перекрывает трату
         const p = make({
             pocket: 60000,
             minPoint: { date: '2026-07-10', balance: 60000, drivenBy: null },
+            trajectory: [
+                { date: '2026-07-10', balance: 60000, income: 0, expense: 5000 },
+                { date: '2026-07-12', balance: 153000, income: 100000, expense: 7000 },
+                { date: '2026-07-15', balance: 129000, income: 0, expense: 24000 },
+            ],
         });
         expect(buildPocketPhrase(p)).toBe(
-            `Свободно ${fmtC(60000)} до дохода 15.07 — трат по плану до конца горизонта нет. После дохода → ${fmtC(129000)}.`,
+            `Свободно ${fmtC(60000)} до дохода 15.07. Минимум — уже сегодня: дальше по плану не ниже. После дохода → ${fmtC(129000)}.`,
         );
     });
 

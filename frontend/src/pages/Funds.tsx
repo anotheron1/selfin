@@ -4,6 +4,7 @@ import { fetchFunds, createFund, updateFund, deleteFund, transferToFund } from '
 import type { FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
+import { fmtRub } from '../lib/format';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -13,10 +14,7 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import type { PurchaseType } from '../types/api';
 
-const fmt = (n: number | null) =>
-    n != null
-        ? new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n)
-        : '∞';
+const fmt = (n: number | null) => (n != null ? fmtRub(n) : '∞');
 
 // ─── Диалог создания фонда ───────────────────────────────────────────────────
 
