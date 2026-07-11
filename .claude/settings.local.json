@@ -140,7 +140,12 @@
       "Bash(find /c/Users/Kirill/IdeaProjects/selfin/.worktrees/feature/savings-planner -name *.md)",
       "Bash(find /c/Users/Kirill/IdeaProjects/selfin -name *.md)",
       "Bash(find /c/Users/Kirill/IdeaProjects/selfin -name *plan* -o -name *TODO*)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(find src *)",
+      "Bash(grep -A8 \"test:\" vite.config.ts)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw compile)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test \"-Dtest=!*IT\")",
+      "Bash(rtk git *)"
     ]
   }
 }

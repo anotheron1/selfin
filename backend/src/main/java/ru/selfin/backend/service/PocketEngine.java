@@ -232,6 +232,7 @@ public final class PocketEngine {
         if (in.horizonFallback()) return "30 дней вперёд (нет плановых доходов)";
         return switch (in.scope().type()) {
             case NEXT_INCOME -> "до дохода " + DD_MM.format(in.horizonEnd());
+            case SECOND_INCOME -> "до 2-го дохода " + DD_MM.format(in.horizonEnd());
             case MONTHS -> in.scope().months() + " мес (до " + DD_MM.format(in.horizonEnd()) + ")";
             case DATE -> "до " + DD_MM_YYYY.format(in.horizonEnd());
         };

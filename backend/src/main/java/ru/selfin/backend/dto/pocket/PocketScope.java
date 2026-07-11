@@ -4,18 +4,22 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 
 /**
- * Скоуп кармашка (спека §4): NEXT_INCOME (дефолт) | MONTHS:n (1..36) | DATE:yyyy-MM-dd.
+ * Скоуп кармашка (спека §4 + ANO-14 §4): NEXT_INCOME (дефолт) | SECOND_INCOME |
+ * MONTHS:n (1..36) | DATE:yyyy-MM-dd.
  * Парсер бросает IllegalArgumentException — обвязка мапит на 400.
  */
 public record PocketScope(Type type, Integer months, LocalDate date) {
 
-    public enum Type { NEXT_INCOME, MONTHS, DATE }
+    public enum Type { NEXT_INCOME, SECOND_INCOME, MONTHS, DATE }
 
     public static final int MAX_MONTHS = 36;
 
     public static PocketScope parse(String raw) {
         if (raw == null || raw.isBlank() || raw.equals("NEXT_INCOME")) {
             return new PocketScope(Type.NEXT_INCOME, null, null);
+        }
+        if (raw.equals("SECOND_INCOME")) {
+            return new PocketScope(Type.SECOND_INCOME, null, null);
         }
         if (raw.startsWith("MONTHS:")) {
             int n;
