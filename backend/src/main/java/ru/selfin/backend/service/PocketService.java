@@ -1,6 +1,8 @@
 package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +33,7 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+@Slf4j
 public class PocketService {
 
     /** Кап поиска следующего дохода (спека §4): дальше квартала — не «период до дохода». */
@@ -43,6 +46,7 @@ public class PocketService {
     private final BalanceCheckpointRepository checkpointRepository;
     private final UserSettingsService settingsService;
     private final PredictionService predictionService;
+    private final RecurringRuleService recurringRuleService;
 
     public PocketResultDto getPocket(String rawScope, LocalDate asOfDate) {
         PocketScope scope;
@@ -52,15 +56,40 @@ public class PocketService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
 
+        // 0. Материализация recurring-правил ДО резолюции горизонта (ANO-14 §6):
+        //    нематериализованный доход не должен ронять NEXT/SECOND_INCOME в фолбэк,
+        //    а расходы за пределами сгенерированных строк — теряться из траектории.
+        //    Сбой продления не роняет чтение (REQUIRES_NEW, зеркально FundPlannerService).
+        try {
+            recurringRuleService.extendIndefiniteRules(asOfDate.plusMonths(36));
+        } catch (Exception e) {
+            log.warn("Lazy-extend of indefinite rules failed; pocket continues on existing events: {}",
+                    e.getMessage());
+        }
+
         // 1. Горизонт (спека §4)
         FallbackKind fallback = FallbackKind.NONE;
         LocalDate horizonEnd;
         switch (scope.type()) {
             case NEXT_INCOME -> {
-                Optional<LocalDate> next = eventRepository.findNextPlannedIncomeDate(
-                        asOfDate, asOfDate.plusDays(NEXT_INCOME_SEARCH_DAYS));
-                if (next.isPresent()) {
-                    horizonEnd = next.get();
+                List<LocalDate> dates = incomeDates(asOfDate);
+                if (!dates.isEmpty()) {
+                    horizonEnd = dates.get(0);
+                } else {
+                    horizonEnd = asOfDate.plusDays(FALLBACK_HORIZON_DAYS);
+                    fallback = FallbackKind.NO_INCOMES;
+                }
+            }
+            case SECOND_INCOME -> {
+                List<LocalDate> dates = incomeDates(asOfDate);
+                if (dates.size() >= 2) {
+                    horizonEnd = dates.get(1);
+                } else if (dates.size() == 1) {
+                    // Второго дохода нет — горизонт всё равно накрывает известный первый
+                    // и тянется минимум на 30 дней (правдивый label, ANO-14 §4).
+                    LocalDate floor = asOfDate.plusDays(FALLBACK_HORIZON_DAYS);
+                    horizonEnd = dates.get(0).isAfter(floor) ? dates.get(0) : floor;
+                    fallback = FallbackKind.SECOND_NOT_FOUND;
                 } else {
                     horizonEnd = asOfDate.plusDays(FALLBACK_HORIZON_DAYS);
                     fallback = FallbackKind.NO_INCOMES;
@@ -108,6 +137,12 @@ public class PocketService {
                 checkpoint.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO),
                 checkpoint.map(BalanceCheckpoint::getDate).orElse(null),
                 events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors));
+    }
+
+    /** Две ближайшие различные даты плановых доходов в окне поиска (NEXT/SECOND_INCOME). */
+    private List<LocalDate> incomeDates(LocalDate asOfDate) {
+        return eventRepository.findPlannedIncomeDates(
+                asOfDate, asOfDate.plusDays(NEXT_INCOME_SEARCH_DAYS), PageRequest.of(0, 2));
     }
 
     /**

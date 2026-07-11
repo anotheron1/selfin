@@ -1,5 +1,6 @@
 package ru.selfin.backend.repository;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -207,20 +208,22 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     List<FinancialEvent> findOverdueMandatoryExpenses(@Param("today") LocalDate today);
 
     /**
-     * Дата ближайшего будущего плана-дохода ЛЮБОЙ категории (горизонт NEXT_INCOME, спека §4).
+     * Ближайшие РАЗЛИЧНЫЕ даты будущих планов-доходов ЛЮБОЙ категории, по возрастанию
+     * (горизонты NEXT_INCOME / SECOND_INCOME, спека §4 + ANO-14 §4). Лимит — через Pageable.
      * Хотелки исключены явно (income-хотелок не бывает, но фильтр дешёвый и страхует).
      */
     @Query("""
-        SELECT MIN(e.date) FROM FinancialEvent e
+        SELECT DISTINCT e.date FROM FinancialEvent e
         WHERE e.deleted = false
           AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN
           AND e.status = ru.selfin.backend.model.enums.EventStatus.PLANNED
           AND e.type = ru.selfin.backend.model.enums.EventType.INCOME
           AND e.wishlistStatus IS NULL
           AND e.date > :after AND e.date <= :until
+        ORDER BY e.date
         """)
-    Optional<LocalDate> findNextPlannedIncomeDate(
-        @Param("after") LocalDate after, @Param("until") LocalDate until);
+    List<LocalDate> findPlannedIncomeDates(
+        @Param("after") LocalDate after, @Param("until") LocalDate until, Pageable pageable);
 
     /** Хотелки нескольких статусов одним запросом (вход движка wishlistEvents, спека §3.1). */
     List<FinancialEvent> findByWishlistStatusInAndDeletedFalse(
