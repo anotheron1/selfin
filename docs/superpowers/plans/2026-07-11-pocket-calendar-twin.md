@@ -72,7 +72,7 @@ private static String horizonLabel(PocketInput in) {
 **Files:**
 - Modify: `backend/src/main/java/ru/selfin/backend/repository/FinancialEventRepository.java`
 
-- [ ] **3.1** Заменить `findNextPlannedIncomeDate` (Optional MIN) на общий запрос (единственный вызов — PocketService; DRY):
+- [ ] **3.1** Добавить общий запрос РЯДОМ со старым `findNextPlannedIncomeDate` (старый удаляется в Task 4 вместе с переводом PocketService — так каждый шаг остаётся компилируемым):
 
 ```java
 /** Ближайшие различные даты будущих планов-доходов (NEXT_INCOME / SECOND_INCOME, спека ANO-14 §4). */
@@ -91,7 +91,7 @@ List<LocalDate> findPlannedIncomeDates(
 ```
 
 Вызов: `PageRequest.of(0, 2)`. Проверка семантики DISTINCT+ORDER — в PocketControllerIT (Task 5).
-- [ ] **3.2** Компиляция + существующие тесты зелёные. Коммит вместе с Task 4.
+- [ ] **3.2** Компиляция зелёная (оба метода сосуществуют). Коммит вместе с Task 4.
 
 ### Task 4: PocketService — резолюция SECOND_INCOME + recurring-продление
 
@@ -100,7 +100,7 @@ List<LocalDate> findPlannedIncomeDates(
 - Test: `backend/src/test/java/ru/selfin/backend/service/PocketServiceTest.java`
 
 - [ ] **4.1** Тесты (мок-стиль существующего PocketServiceTest): (а) две даты → horizonEnd = вторая, kind NONE; (б) одна дата d, d > asOf+30 → horizonEnd = d, kind SECOND_NOT_FOUND; (в) одна дата d, d < asOf+30 → horizonEnd = asOf+30, kind SECOND_NOT_FOUND; (г) ноль дат → asOf+30, kind NO_INCOMES; (д) NEXT_INCOME использует первую дату из того же запроса; (е) `recurringRuleService.extendIndefiniteRules(asOf+36мес)` вызван ДО `findPlannedIncomeDates` (InOrder), исключение из него не роняет запрос. FAIL.
-- [ ] **4.2** Реализация: инжект `RecurringRuleService`; в начале `getPocket` (после parse):
+- [ ] **4.2** Реализация: `@Slf4j` на класс (`import lombok.extern.slf4j.Slf4j` — сейчас его НЕТ, без него `log` не скомпилируется); инжект `RecurringRuleService`; удалить `findNextPlannedIncomeDate` из репозитория (оба потребителя переведены). В начале `getPocket` (после parse):
 
 ```java
 try {
@@ -137,7 +137,7 @@ case SECOND_INCOME -> {
 **Files:**
 - Test: `backend/src/test/java/ru/selfin/backend/PocketControllerIT.java`
 
-- [ ] **5.1** IT-кейсы (дельта-стиль существующих): (а) два плановых дохода → `?scope=SECOND_INCOME` даёт horizon.endDate = вторая дата, label «до 2-го дохода», trajectory до неё включительно; (б) два дохода В ОДИН день + один позже → вторая РАЗЛИЧНАЯ дата (DISTINCT); (в) один доход → fallback=true, label «(второй доход не найден)», горизонт ≥ asOf+30 и накрывает доход; (г) recurring: бессрочное правило расхода, созданное с коротким окном генерации → `?scope=MONTHS:3` содержит его события в хвосте траектории (extendIndefiniteRules отработал).
+- [ ] **5.1** IT-кейсы (дельта-стиль существующих): (а) два плановых дохода → `?scope=SECOND_INCOME` даёт horizon.endDate = вторая дата, label «до 2-го дохода», trajectory до неё включительно; (б) два дохода В ОДИН день + один позже → вторая РАЗЛИЧНАЯ дата (DISTINCT); (в) один доход → fallback=true, label «(второй доход не найден)», горизонт ≥ asOf+30 и накрывает доход; (г) recurring: создать бессрочное правило расхода штатным флоу, затем репозиторием удалить (soft-delete) сгенерированный хвост событий дальше ~1 мес — имитация нематериализованного правила; `?scope=MONTHS:3` должен содержать события в хвосте траектории (extendIndefiniteRules отработал); (д) recurring-ДОХОД с урезанным хвостом + `?scope=NEXT_INCOME` → `fallback == false` (материализация якорит горизонт — поведенческое доказательство спеки §6, дополняет юнит-InOrder из 4.1е).
 - [ ] **5.2** `mvnw -pl backend test -Dtest=PocketControllerIT` (Docker) → PASS. Коммит `test(pocket): SECOND_INCOME + recurring extension IT`.
 
 ## Chunk 2: Frontend — скоуп, фраза, график
@@ -178,7 +178,13 @@ pickTicks(trajectory: TrajPoint[], minDate: string, maxTicks?: number): number[]
 // всегда: 0 (сегодня), последний (конец горизонта), индекс минимума, дни с income>0;
 // прореживание по минимальному расстоянию, приоритет: сегодня/конец/минимум > доходы
 buildLinePoints(trajectory, w, h, pad): string  // "x,y x,y ..." для polyline
+showDangerZone(domain): boolean   // true iff domain.min < 0 (спека §8: зоны только когда должны)
+showBufferZone(buffer): boolean   // true iff buffer > 0
+buildMinAnnotation(minPoint): string  // "мин dd.MM · X ₽ · виновник" | без хвоста при drivenBy null
+buildDayDetails(point, isToday): string  // "dd.MM · остаток X" + только ненулевые "+доход/−расход"; день 0 → "сегодня"
 ```
+
+(@testing-library НЕ заводим — вся логика §8-тестов графика живёт в этих чистых хелперах, компонент только рендерит их результат.)
 
 - [ ] **7.2** Реализация (чистые функции, без React). `npx vitest run` → PASS. Коммит `feat(pocket-ui): trajectory chart helpers`.
 
@@ -192,7 +198,7 @@ buildLinePoints(trajectory, w, h, pad): string  // "x,y x,y ..." для polyline
   - Слои по спеке §3 (порядок рендера): янтарная зона 0..buffer (если buffer>0) → красная зона <0 (если domain.min<0) → линия нуля → пунктир буфера → polygon-заливка (#6c63ff, opacity .14) → polyline (#8f86ff, 2px) → точки-маркеры дней (только если траектория ≤ 31 точки) → маркеры доходов (income>0: круг var(--color-success)) → маркер+аннотация минимума (minPoint: круг янтарный/красный по знаку balance; текст «мин dd.MM · {fmtRub} · {drivenBy}» без drivenBy-части при null; аннотация над точкой, прижимается внутрь у краёв) → «сегодня» у первой точки → тики дат по pickTicks → вертикальная направляющая selectedIdx.
   - Хит-зоны: невидимые rect на каждый день, onClick → setSelectedIdx (повторный клик — снять).
   - Строка деталей при selectedIdx: «{dd.MM} · остаток {fmtRub(balance)}» + «+{income}» / «−{expense}» (только ненулевые), день 0 подписывать «сегодня». Использовать общий `fmtRub`.
-  - Легенда 11px: запас / ниже буфера / разрыв(<0) — как в текущей ленте нечего, добавить компактно под графиком.
+  - Легенда 11px под графиком: запас / ниже буфера / разрыв(<0). В спеке легенды нет — оставляем ОСОЗНАННО: три цветовые зоны без расшифровки нечитаемы для целевого пользователя.
 - [ ] **8.2** Ручная проверка в dev-превью (Task 10 сделает полную). Коммит `feat(pocket-ui): PocketTrajectoryChart SVG component`.
 
 ### Task 9: Dashboard — rewire: график вместо ленты, алерт-сторож
@@ -208,6 +214,7 @@ buildLinePoints(trajectory, w, h, pad): string  // "x,y x,y ..." для polyline
 buildWatchdogAlert(watchdog: PocketResponse | null, userHorizonEnd: string | null):
   { date: string; deficit: number; drivenBy: string | null; beyondChart: boolean } | null
 // null если watchdog null или minPoint.balance >= 0; beyondChart = watchdog.minPoint.date > userHorizonEnd
+// userHorizonEnd === null (пользовательский pocket не загружен/упал) → beyondChart: false — с тестом
 ```
 
 - [ ] **9.2** Dashboard: в `loadAll` Promise.all добавить `fetchPocket('SECOND_INCOME')` → state `watchdog: PocketResponse | null` (ошибку сторожа глотать → null, страница не падает). Алерт-блок (строки ~249-261): рендер из `buildWatchdogAlert(watchdog, pocket?.horizon.endDate ?? null)`; текст прежний + «виновник» при наличии + при `beyondChart` строка «Разрыв за пределами графика — переключись на „2-й доход“». Empty-state условие (~363): `!watchdogAlert` вместо `!data.cashGapAlert`. `CashFlowSection` (378-420) удалить целиком, вместо неё `<PocketTrajectoryChart data={pocket} />` (шапка с label теперь внутри компонента). `DashboardData` в types → только `progressBars`; `CashGapAlert` интерфейс удалить.
