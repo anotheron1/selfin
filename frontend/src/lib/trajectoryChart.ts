@@ -12,10 +12,11 @@ export interface Domain {
     max: number;
 }
 
-const fmtD = (iso: string) => {
+export const fmtDayMonth = (iso: string) => {
     const [, m, d] = iso.split('-');
     return `${d}.${m}`;
 };
+const fmtD = fmtDayMonth;
 
 /** Домен Y всегда включает ноль (спека §3.2): расстояние до дна — главный сигнал. */
 export function computeDomain(balances: number[]): Domain {
