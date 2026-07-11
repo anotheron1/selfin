@@ -15,12 +15,16 @@ const fmtD = (iso: string) => {
 export function buildPocketPhrase(p: PocketResponse): string {
     const { pocket, buffer, minPoint, horizon, trajectory } = p;
     const last = trajectory[trajectory.length - 1];
-    const isNextIncome = horizon.type === 'NEXT_INCOME' && !horizon.fallback;
-    const afterIncome = isNextIncome && last ? last.balance : null;
+    // Горизонт «заякорен доходом» — его конец = день дохода, можно говорить «после дохода».
+    const isIncomeAnchored =
+        (horizon.type === 'NEXT_INCOME' || horizon.type === 'SECOND_INCOME') && !horizon.fallback;
+    const afterIncome = isIncomeAnchored && last ? last.balance : null;
     const minDate = fmtD(minPoint.date);
-    const horizonPart = horizon.fallback
+    // SECOND_INCOME-фолбэки несут правдивый label с бэка (ANO-14 §4) — используем дословно;
+    // NEXT_INCOME-фолбэк сохраняет старую формулировку с «на».
+    const horizonPart = horizon.fallback && horizon.type !== 'SECOND_INCOME'
         ? 'на 30 дней вперёд (плановых доходов нет)'
-        : isNextIncome ? `до дохода ${fmtD(horizon.endDate)}` : horizon.label;
+        : horizon.label;
     const cause = minPoint.drivenBy ? ` («${minPoint.drivenBy}»)` : '';
     const afterTail = afterIncome != null && afterIncome > 0 ? ` После дохода → ${fmtC(afterIncome)}.` : '';
 

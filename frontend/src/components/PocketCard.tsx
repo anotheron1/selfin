@@ -7,6 +7,7 @@ import type { PocketResponse } from '../types/api';
 
 const SCOPES: { key: string | undefined; label: string }[] = [
     { key: undefined, label: 'До дохода' },
+    { key: 'SECOND_INCOME', label: '2-й доход' },
     { key: 'MONTHS:3', label: '3 мес' },
     { key: 'MONTHS:6', label: '6 мес' },
 ];
