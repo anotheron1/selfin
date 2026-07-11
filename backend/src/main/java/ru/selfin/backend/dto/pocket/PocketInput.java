@@ -12,7 +12,8 @@ import java.util.List;
  * @param overdueEvents   просроченные обязательные PLAN(PLANNED) HIGH EXPENSE без FACT-детей,
  *                        БЕЗ границы месяца (спека §3.4)
  * @param checkpointDate  null = чекпоинта нет, баланс от нуля
- * @param horizonFallback true = плановых доходов не нашлось, горизонт условный +30 дней
+ * @param fallbackKind    тип фолбэка горизонта (NONE = заякорен как просил скоуп);
+ *                        различает «доходов нет» и «второй не найден» для правдивого label
  * @param unplannedForecast прогноз незапланированных трат текущего месяца (≥ 0)
  * @param forecastContributors имена категорий-виновников прогноза (для details)
  */
@@ -25,7 +26,7 @@ public record PocketInput(
         List<EventSnapshot> overdueEvents,
         PocketScope scope,
         LocalDate horizonEnd,
-        boolean horizonFallback,
+        FallbackKind fallbackKind,
         BigDecimal bufferAmount,
         BigDecimal unplannedForecast,
         List<String> forecastContributors

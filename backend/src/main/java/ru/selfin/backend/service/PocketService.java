@@ -8,6 +8,7 @@ import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.CategoryForecastDto;
 import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.pocket.EventSnapshot;
+import ru.selfin.backend.dto.pocket.FallbackKind;
 import ru.selfin.backend.dto.pocket.PocketInput;
 import ru.selfin.backend.dto.pocket.PocketResultDto;
 import ru.selfin.backend.dto.pocket.PocketScope;
@@ -52,7 +53,7 @@ public class PocketService {
         }
 
         // 1. Горизонт (спека §4)
-        boolean fallback = false;
+        FallbackKind fallback = FallbackKind.NONE;
         LocalDate horizonEnd;
         switch (scope.type()) {
             case NEXT_INCOME -> {
@@ -62,7 +63,7 @@ public class PocketService {
                     horizonEnd = next.get();
                 } else {
                     horizonEnd = asOfDate.plusDays(FALLBACK_HORIZON_DAYS);
-                    fallback = true;
+                    fallback = FallbackKind.NO_INCOMES;
                 }
             }
             case MONTHS -> horizonEnd = asOfDate.plusMonths(scope.months());
