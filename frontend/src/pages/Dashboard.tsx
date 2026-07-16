@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchDashboard, fetchEvents } from '../api';
+import { fetchDashboard, fetchEvents, fetchPocket } from '../api';
 import type { DashboardData, DailyForecastPoint, FinancialEvent, PocketResponse } from '../types/api';
 import { AlertTriangle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import PocketCard from '../components/PocketCard';
+import PocketTrajectoryChart from '../components/pocket/PocketTrajectoryChart';
+import { buildWatchdogAlert } from '../lib/watchdogAlert';
 import { fmtRub } from '../lib/format';
 
 const fmt = fmtRub;
 
 const fmtAmt = (n: number | null) => n != null ? fmt(n) : '—';
+
+/** «14 июля» из ISO-строки БЕЗ UTC-парсинга (new Date('YYYY-MM-DD') сдвигает день в западных TZ). */
+const fmtLocalDate = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+};
 
 interface BarState {
     barColor: string;
@@ -115,15 +123,17 @@ function ForecastSparkline({ history, plannedLimit, projectionAmount, daysInMont
     );
 }
 
-const fmtDay = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-
 export default function Dashboard({ refreshSignal }: { refreshSignal?: number }) {
     const _today = new Date();
     const todayStr = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-${String(_today.getDate()).padStart(2, '0')}`;
 
     const [data, setData] = useState<DashboardData | null>(null);
     const [pocket, setPocket] = useState<PocketResponse | null>(null);
+    // Сторожевой скоуп (ANO-14 §5): алерт разрыва всегда смотрит до 2-го дохода,
+    // независимо от скоупа PocketCard. Ошибка сторожа не роняет страницу и НЕ стирает
+    // ранее показанный алерт (транзиентный сбой не должен молча снять предупреждение).
+    const [watchdog, setWatchdog] = useState<PocketResponse | null>(null);
+    const [watchdogFailed, setWatchdogFailed] = useState(false);
     const [todayEvents, setTodayEvents] = useState<FinancialEvent[]>([]);
     const [monthEvents, setMonthEvents] = useState<FinancialEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -145,6 +155,10 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                 setMonthEvents(mEvts);
             })
             .catch(e => setError(e.message));
+
+        fetchPocket('SECOND_INCOME')
+            .then(wd => { setWatchdog(wd); setWatchdogFailed(false); })
+            .catch(() => setWatchdogFailed(true)); // прежний watchdog-стейт сохраняем
     }, [todayStr]);
 
     useEffect(() => { loadAll(); }, [loadAll]);
@@ -173,6 +187,8 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
 
     const incomeToday = todayEvents.filter(e => e.type === 'INCOME');
     const expenseToday = todayEvents.filter(e => e.type === 'EXPENSE' || e.type === 'FUND_TRANSFER');
+
+    const watchdogAlert = buildWatchdogAlert(watchdog, pocket?.horizon.endDate ?? null);
 
     return (
         <div className="overflow-y-auto overflow-x-hidden scrollbar-none" style={{ height: 'calc(100dvh - var(--nav-height))' }}>
@@ -245,17 +261,23 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                 </div>
             )}
 
-            {/* Алерт кассового разрыва */}
-            {data.cashGapAlert && (
+            {/* Алерт кассового разрыва — из minPoint сторожевого скоупа SECOND_INCOME (ANO-14 §5) */}
+            {watchdogAlert && (
                 <div className="rounded-xl p-4 flex gap-3 items-start"
                     style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid var(--color-danger)' }}>
                     <AlertTriangle size={18} style={{ color: 'var(--color-danger)', flexShrink: 0, marginTop: 2 }} />
                     <div>
                         <p className="font-semibold text-sm" style={{ color: 'var(--color-danger)' }}>Кассовый разрыв!</p>
                         <p className="text-sm" style={{ color: 'var(--color-text)' }}>
-                            {new Date(data.cashGapAlert.gapDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} — ожидается дефицит{' '}
-                            <b>{fmt(data.cashGapAlert.gapAmount)}</b>
+                            {fmtLocalDate(watchdogAlert.date)} — ожидается дефицит{' '}
+                            <b>{fmt(watchdogAlert.deficit)}</b>
+                            {watchdogAlert.drivenBy && <> («{watchdogAlert.drivenBy}»)</>}
                         </p>
+                        {watchdogAlert.beyondChart && (
+                            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                                Разрыв за пределами графика — переключись на «2-й доход»
+                            </p>
+                        )}
                     </div>
                 </div>
             )}
@@ -360,61 +382,25 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                 </div>
             )}
 
-            {data.progressBars.length === 0 && !data.cashGapAlert && todayEvents.length === 0 && (
+            {/* Сторож недоступен и данных нет — честная пометка вместо тишины */}
+            {watchdogFailed && !watchdog && (
+                <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+                    Не удалось проверить кассовый разрыв — обнови страницу
+                </p>
+            )}
+
+            {data.progressBars.length === 0 && !watchdogAlert && todayEvents.length === 0 && (
                 <div className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                     Нет событий за текущий месяц. Добавь первую трату кнопкой «+»!
                 </div>
             )}
 
-            {/* Кассовый календарь — близнец кармашка: та же trajectory из GET /pocket (ANO-6, ANO-14) */}
+            {/* Кассовый календарь — близнец кармашка: та же trajectory из GET /pocket,
+                нарисованная графиком; горизонт = скоуп PocketCard (ANO-6, ANO-14) */}
             {pocket && (
-                <CashFlowSection trajectory={pocket.trajectory} />
+                <PocketTrajectoryChart data={pocket} />
             )}
         </div>
-        </div>
-    );
-}
-
-// ─── Кассовый календарь: trajectory кармашка по дням, горизонт = скоуп кармашка ──
-
-function CashFlowSection({ trajectory }: { trajectory: PocketResponse['trajectory'] }) {
-    if (trajectory.length === 0) return null;
-    const todayStr = trajectory[0].date;
-
-    return (
-        <div className="rounded-2xl p-5"
-            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-            <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
-                КАССОВЫЙ КАЛЕНДАРЬ
-            </h3>
-            <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
-                {trajectory.map(day => {
-                    const isGap = day.balance < 0;
-                    const balanceColor = isGap ? 'var(--color-danger)' : 'var(--color-success)';
-                    return (
-                        <div key={day.date}
-                            className="flex-none rounded-xl p-2 text-center"
-                            style={{
-                                minWidth: '64px',
-                                background: isGap ? 'rgba(239,68,68,0.12)' : 'var(--color-surface-2)',
-                                border: isGap ? '1px solid var(--color-danger)' : '1px solid var(--color-border)',
-                            }}>
-                            <p className="text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>
-                                {day.date === todayStr ? 'сегодня' : fmtDay(day.date)}
-                            </p>
-                            <p className="text-xs font-bold" style={{ color: balanceColor }}>
-                                {fmt(day.balance)}
-                            </p>
-                            {(day.income > 0 || day.expense > 0) && (
-                                <p className="mt-1" style={{ color: 'var(--color-text-muted)', fontSize: '10px' }}>
-                                    {day.income > 0 && <span style={{ color: 'var(--color-success)' }}>+{fmt(day.income)}</span>}
-                                    {day.expense > 0 && <span style={{ color: 'var(--color-danger)' }}>{' '}−{fmt(day.expense)}</span>}
-                                </p>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
         </div>
     );
 }

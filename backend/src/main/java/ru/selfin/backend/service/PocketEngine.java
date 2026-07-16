@@ -2,6 +2,7 @@ package ru.selfin.backend.service;
 
 import ru.selfin.backend.dto.pocket.BreakdownType;
 import ru.selfin.backend.dto.pocket.EventSnapshot;
+import ru.selfin.backend.dto.pocket.FallbackKind;
 import ru.selfin.backend.dto.pocket.PocketInput;
 import ru.selfin.backend.dto.pocket.PocketResultDto;
 import ru.selfin.backend.model.EventKind;
@@ -150,7 +151,7 @@ public final class PocketEngine {
 
         return new PocketResultDto(pocket, currentBalance, buffer,
                 new PocketResultDto.Horizon(in.scope().type(), in.horizonEnd(),
-                        horizonLabel(in), in.horizonFallback()),
+                        horizonLabel(in), in.fallbackKind() != FallbackKind.NONE),
                 new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),
                 breakdown, trajectory, candidates);
     }
@@ -227,11 +228,14 @@ public final class PocketEngine {
         return lines;
     }
 
-    /** Шаблоны label горизонта — без категорийных эвристик (спека §4). */
+    /** Шаблоны label горизонта — без категорийных эвристик, правдивые в фолбэках (спека §4, ANO-14 §4). */
     private static String horizonLabel(PocketInput in) {
-        if (in.horizonFallback()) return "30 дней вперёд (нет плановых доходов)";
+        if (in.fallbackKind() == FallbackKind.NO_INCOMES) return "30 дней вперёд (нет плановых доходов)";
+        if (in.fallbackKind() == FallbackKind.SECOND_NOT_FOUND)
+            return "до " + DD_MM.format(in.horizonEnd()) + " (второй доход не найден)";
         return switch (in.scope().type()) {
             case NEXT_INCOME -> "до дохода " + DD_MM.format(in.horizonEnd());
+            case SECOND_INCOME -> "до 2-го дохода " + DD_MM.format(in.horizonEnd());
             case MONTHS -> in.scope().months() + " мес (до " + DD_MM.format(in.horizonEnd()) + ")";
             case DATE -> "до " + DD_MM_YYYY.format(in.horizonEnd());
         };

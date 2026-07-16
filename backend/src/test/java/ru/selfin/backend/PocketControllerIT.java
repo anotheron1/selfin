@@ -1,5 +1,6 @@
 package ru.selfin.backend;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,13 +9,19 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.RecurringRuleRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -35,12 +42,204 @@ class PocketControllerIT {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
+    @Autowired FinancialEventRepository eventRepo;
+    @Autowired RecurringRuleRepository ruleRepo;
+    @Autowired PlatformTransactionManager txManager;
+
+    private static final DateTimeFormatter DD_MM = DateTimeFormatter.ofPattern("dd.MM");
 
     private BigDecimal pocket() throws Exception {
         String body = mockMvc.perform(get("/api/v1/pocket"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return new BigDecimal(objectMapper.readTree(body).get("pocket").asText());
+    }
+
+    // ── хелперы для SECOND_INCOME / recurring сценариев (ANO-14) ────────────
+
+    private String createCategory(String name, String type) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/categories")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"%s","type":"%s"}
+                                """.formatted(name, type)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
+    }
+
+    private String createEvent(String json) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
+    }
+
+    private String createIncome(String categoryId, LocalDate date, long amount, String desc) throws Exception {
+        return createEvent("""
+                {"date":"%s","categoryId":"%s","type":"INCOME",
+                 "plannedAmount":%d,"priority":"MEDIUM","description":"%s"}
+                """.formatted(date, categoryId, amount, desc));
+    }
+
+    private void deleteEvent(String id) throws Exception {
+        mockMvc.perform(delete("/api/v1/events/" + id)).andExpect(status().isNoContent());
+    }
+
+    private JsonNode getPocket(String scope) throws Exception {
+        String body = mockMvc.perform(get("/api/v1/pocket" + (scope != null ? "?scope=" + scope : "")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body);
+    }
+
+    private <T> T inTx(Supplier<T> work) {
+        return new TransactionTemplate(txManager).execute(s -> work.get());
+    }
+
+    private UUID ruleIdOf(String eventId) {
+        return inTx(() -> eventRepo.findById(UUID.fromString(eventId))
+                .orElseThrow().getRecurringRule().getId());
+    }
+
+    /** Симуляция нематериализованного хвоста + вывод правила из активных при уборке. */
+    private void trimRuleEvents(UUID ruleId, LocalDate fromDate) {
+        inTx(() -> eventRepo.softDeletePlanEventsByRuleFromDate(ruleId, fromDate));
+    }
+
+    private void retireRule(UUID ruleId, LocalDate startDate) {
+        inTx(() -> {
+            eventRepo.softDeletePlanEventsByRuleFromDate(ruleId, startDate);
+            ruleRepo.findById(ruleId).ifPresent(r -> {
+                // endDate = startDate (не start−1): chk_end_after_start требует end >= start.
+                // deleted=true сам по себе выводит правило из findIndefiniteActiveIds.
+                r.setDeleted(true);
+                r.setEndDate(startDate);
+                ruleRepo.save(r);
+            });
+            return null;
+        });
+    }
+
+    // ── SECOND_INCOME e2e (ANO-14 §4) ────────────────────────────────────────
+
+    @Test
+    void secondIncome_twoIncomes_horizonAtSecondInclusive() throws Exception {
+        String cat = createCategory("IT-sec-inc-a", "INCOME");
+        LocalDate d1 = LocalDate.now().plusDays(10);
+        LocalDate d2 = LocalDate.now().plusDays(40);
+        String e1 = createIncome(cat, d1, 1_000, "IT income 1");
+        String e2 = createIncome(cat, d2, 2_000, "IT income 2");
+        try {
+            JsonNode r = getPocket("SECOND_INCOME");
+            assertThat(r.get("horizon").get("type").asText()).isEqualTo("SECOND_INCOME");
+            assertThat(r.get("horizon").get("endDate").asText()).isEqualTo(d2.toString());
+            assertThat(r.get("horizon").get("fallback").asBoolean()).isFalse();
+            assertThat(r.get("horizon").get("label").asText())
+                    .isEqualTo("до 2-го дохода " + DD_MM.format(d2));
+            JsonNode traj = r.get("trajectory");
+            assertThat(traj.get(traj.size() - 1).get("date").asText())
+                    .isEqualTo(d2.toString()); // день 2-го дохода включён в траекторию
+        } finally {
+            deleteEvent(e1);
+            deleteEvent(e2);
+        }
+    }
+
+    @Test
+    void secondIncome_sameDayIncomes_countAsOneDate() throws Exception {
+        String cat = createCategory("IT-sec-inc-b", "INCOME");
+        LocalDate d1 = LocalDate.now().plusDays(12);
+        LocalDate d2 = LocalDate.now().plusDays(45);
+        String e1 = createIncome(cat, d1, 1_000, "IT аванс");
+        String e2 = createIncome(cat, d1, 500, "IT кэшбек в тот же день");
+        String e3 = createIncome(cat, d2, 2_000, "IT зп");
+        try {
+            JsonNode r = getPocket("SECOND_INCOME");
+            // Две суммы в один день = ОДНА дата; вторая различная дата — d2
+            assertThat(r.get("horizon").get("endDate").asText()).isEqualTo(d2.toString());
+            assertThat(r.get("horizon").get("fallback").asBoolean()).isFalse();
+        } finally {
+            deleteEvent(e1);
+            deleteEvent(e2);
+            deleteEvent(e3);
+        }
+    }
+
+    @Test
+    void secondIncome_onlyOneIncome_truthfulFallbackCoveringIt() throws Exception {
+        String cat = createCategory("IT-sec-inc-c", "INCOME");
+        LocalDate d1 = LocalDate.now().plusDays(50); // дальше 30 дней
+        String e1 = createIncome(cat, d1, 1_000, "IT единственный доход");
+        try {
+            JsonNode r = getPocket("SECOND_INCOME");
+            assertThat(r.get("horizon").get("fallback").asBoolean()).isTrue();
+            assertThat(r.get("horizon").get("endDate").asText()).isEqualTo(d1.toString());
+            assertThat(r.get("horizon").get("label").asText())
+                    .isEqualTo("до " + DD_MM.format(d1) + " (второй доход не найден)");
+        } finally {
+            deleteEvent(e1);
+        }
+    }
+
+    // ── recurring: продление до/внутри горизонта кармашка (ANO-14 §6) ───────
+
+    @Test
+    void recurringExpense_regeneratedIntoStretchedScope() throws Exception {
+        String cat = createCategory("IT-recur-exp-cat", "EXPENSE");
+        LocalDate first = LocalDate.now().plusMonths(1).withDayOfMonth(15);
+        String eventId = createEvent("""
+                {"date":"%s","categoryId":"%s","type":"EXPENSE",
+                 "plannedAmount":777,"priority":"MEDIUM","description":"IT-recur-exp",
+                 "recurring":{"frequency":"MONTHLY","dayOfMonth":15,"startDate":"%s"}}
+                """.formatted(first, cat, first));
+        UUID ruleId = ruleIdOf(eventId);
+        try {
+            // Симулируем нематериализованный хвост: активные строки дальше first+5д стёрты
+            trimRuleEvents(ruleId, first.plusDays(5));
+            LocalDate second = first.plusMonths(1);
+
+            JsonNode r = getPocket("MONTHS:3");
+            boolean secondOccurrenceInTrajectory = false;
+            for (JsonNode day : r.get("trajectory")) {
+                if (day.get("date").asText().equals(second.toString())
+                        && day.get("expense").decimalValue().compareTo(new BigDecimal("777")) >= 0) {
+                    secondOccurrenceInTrajectory = true;
+                }
+            }
+            assertThat(secondOccurrenceInTrajectory)
+                    .as("повторение %s должно быть регенерировано продлением в /pocket", second)
+                    .isTrue();
+        } finally {
+            retireRule(ruleId, first);
+        }
+    }
+
+    @Test
+    void recurringIncome_materializationAnchorsHorizon_notFallback() throws Exception {
+        String cat = createCategory("IT-recur-inc-cat", "INCOME");
+        LocalDate first = LocalDate.now().plusMonths(1).withDayOfMonth(15);
+        String eventId = createEvent("""
+                {"date":"%s","categoryId":"%s","type":"INCOME",
+                 "plannedAmount":55555,"priority":"MEDIUM","description":"IT-recur-inc",
+                 "recurring":{"frequency":"MONTHLY","dayOfMonth":15,"startDate":"%s"}}
+                """.formatted(first, cat, first));
+        UUID ruleId = ruleIdOf(eventId);
+        try {
+            // Все активные строки правила стёрты — без продления NEXT_INCOME упал бы в фолбэк
+            trimRuleEvents(ruleId, first);
+
+            JsonNode r = getPocket(null);
+            assertThat(r.get("horizon").get("fallback").asBoolean())
+                    .as("материализация в /pocket должна заякорить горизонт")
+                    .isFalse();
+            assertThat(r.get("horizon").get("endDate").asText()).isEqualTo(first.toString());
+        } finally {
+            retireRule(ruleId, first);
+        }
     }
 
     @Test

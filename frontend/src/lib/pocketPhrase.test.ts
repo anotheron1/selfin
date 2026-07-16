@@ -108,6 +108,40 @@ describe('buildPocketPhrase', () => {
         );
     });
 
+    it('скоуп SECOND_INCOME: label дословно + «после дохода» (конец горизонта = день 2-го дохода)', () => {
+        const p = make({
+            horizon: { type: 'SECOND_INCOME', endDate: '2026-07-25', label: 'до 2-го дохода 25.07', fallback: false },
+            trajectory: [
+                { date: '2026-07-10', balance: 60000, income: 0, expense: 20000 },
+                { date: '2026-07-12', balance: 36000, income: 0, expense: 24000 },
+                { date: '2026-07-25', balance: 129000, income: 93000, expense: 0 },
+            ],
+        });
+        expect(buildPocketPhrase(p)).toBe(
+            `Свободно ${fmtC(36000)} до 2-го дохода 25.07. Самый узкий день — 12.07: на счёте останется ${fmtC(36000)} («Страховка»). После дохода → ${fmtC(129000)}.`,
+        );
+    });
+
+    it('SECOND_INCOME-фолбэк без доходов вовсе: грамматика с «на», как у NEXT_INCOME-фолбэка', () => {
+        const p = make({
+            pocket: 20000,
+            horizon: { type: 'SECOND_INCOME', endDate: '2026-08-09', label: '30 дней вперёд (нет плановых доходов)', fallback: true },
+            minPoint: { date: '2026-07-12', balance: 20000, drivenBy: null },
+        });
+        expect(buildPocketPhrase(p)).toBe(
+            `Свободно ${fmtC(20000)} на 30 дней вперёд (плановых доходов нет). Самый узкий день — 12.07: на счёте останется ${fmtC(20000)}.`,
+        );
+    });
+
+    it('SECOND_INCOME-фолбэк: label дословно, БЕЗ утверждения «плановых доходов нет»', () => {
+        const p = make({
+            horizon: { type: 'SECOND_INCOME', endDate: '2026-08-29', label: 'до 29.08 (второй доход не найден)', fallback: true },
+        });
+        expect(buildPocketPhrase(p)).toBe(
+            `Свободно ${fmtC(36000)} до 29.08 (второй доход не найден). Самый узкий день — 12.07: на счёте останется ${fmtC(36000)} («Страховка»).`,
+        );
+    });
+
     it('скоуп MONTHS: горизонт из label, без «после дохода»', () => {
         const p = make({
             horizon: { type: 'MONTHS', endDate: '2026-10-10', label: '3 мес (до 10.10)', fallback: false },

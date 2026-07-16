@@ -91,11 +91,6 @@ export interface StandaloneFactCreateDto {
     priority?: Priority;
 }
 
-export interface CashGapAlert {
-    gapDate: string;
-    gapAmount: number;
-}
-
 export interface DailyForecastPoint {
     day: number;           // day-of-month, 1-based
     cumulativeFact: number;
@@ -113,21 +108,11 @@ export interface CategoryProgressBar {
     history: DailyForecastPoint[];
 }
 
+/**
+ * Дашборд-endpoint после ANO-14: только прогресс-бары. Баланс, горизонты и алерт
+ * разрыва живут в кармашке (GET /pocket) — одна истина, много представлений.
+ */
 export interface DashboardData {
-    currentBalance: number;
-    /** Прогноз баланса на конец месяца; используется если нет зп-событий. */
-    endOfMonthForecast: number;
-    /** Дата ближайшей запланированной зп; null если в горизонте 70 дней нет дохода. */
-    nextSalaryDate: string | null;
-    /** Баланс в последний день перед nextSalaryDate («низшая точка» текущего периода). */
-    balanceBeforeNextSalary: number | null;
-    /** Баланс в конце дня nextSalaryDate, включая само поступление зп. */
-    balanceAfterNextSalary: number | null;
-    /** Дата второй ближайшей запланированной зп; null если только одна зп в горизонте. */
-    secondSalaryDate: string | null;
-    /** Баланс в последний день перед secondSalaryDate («низшая точка» второго периода). */
-    balanceBeforeSecondSalary: number | null;
-    cashGapAlert: CashGapAlert | null;
     progressBars: CategoryProgressBar[];
 }
 
@@ -152,7 +137,7 @@ export interface FundsOverview {
 }
 
 // ── Pocket (ANO-12) ─────────────────────────────────────────────────────────
-export type PocketScopeType = 'NEXT_INCOME' | 'MONTHS' | 'DATE';
+export type PocketScopeType = 'NEXT_INCOME' | 'SECOND_INCOME' | 'MONTHS' | 'DATE';
 export type BreakdownType =
     | 'STARTING_BALANCE' | 'OVERDUE_RESERVE' | 'PLANNED_EXPENSES' | 'PLANNED_INCOME'
     | 'UNPLANNED_FORECAST' | 'TRAJECTORY_MIN' | 'BUFFER' | 'POCKET' | 'WISHLIST_INFO';

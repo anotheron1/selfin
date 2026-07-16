@@ -17,6 +17,14 @@ class PocketScopeTest {
     }
 
     @Test
+    void parse_secondIncome() {
+        PocketScope s = PocketScope.parse("SECOND_INCOME");
+        assertThat(s.type()).isEqualTo(PocketScope.Type.SECOND_INCOME);
+        assertThat(s.months()).isNull();
+        assertThat(s.date()).isNull();
+    }
+
+    @Test
     void parse_months() {
         PocketScope s = PocketScope.parse("MONTHS:3");
         assertThat(s.type()).isEqualTo(PocketScope.Type.MONTHS);

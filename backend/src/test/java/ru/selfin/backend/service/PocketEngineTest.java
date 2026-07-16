@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.pocket.BreakdownType;
 import ru.selfin.backend.dto.pocket.EventSnapshot;
+import ru.selfin.backend.dto.pocket.FallbackKind;
 import ru.selfin.backend.dto.pocket.PocketInput;
 import ru.selfin.backend.dto.pocket.PocketResultDto;
 import ru.selfin.backend.dto.pocket.PocketScope;
@@ -72,7 +73,7 @@ class PocketEngineTest {
         List<EventSnapshot> overdue = List.of();
         PocketScope scope = new PocketScope(PocketScope.Type.NEXT_INCOME, null, null);
         LocalDate horizonEnd = LocalDate.of(2026, 3, 15);
-        boolean fallback = false;
+        FallbackKind fallback = FallbackKind.NONE;
         BigDecimal buffer = BigDecimal.ZERO;
         BigDecimal forecast = BigDecimal.ZERO;
         List<String> contributors = List.of();
@@ -90,7 +91,12 @@ class PocketEngineTest {
             this.scope = new PocketScope(PocketScope.Type.MONTHS, n, null); this.horizonEnd = end; return this;
         }
         PocketInputBuilder noCheckpoint() { this.checkpoint = BigDecimal.ZERO; this.checkpointDate = null; return this; }
-        PocketInputBuilder fallback() { this.fallback = true; return this; }
+        PocketInputBuilder fallback() { this.fallback = FallbackKind.NO_INCOMES; return this; }
+        PocketInputBuilder fallback(FallbackKind kind) { this.fallback = kind; return this; }
+        PocketInputBuilder secondIncomeScope(LocalDate end) {
+            this.scope = new PocketScope(PocketScope.Type.SECOND_INCOME, null, null);
+            this.horizonEnd = end; return this;
+        }
 
         PocketInput build() {
             return new PocketInput(asOf, checkpoint, checkpointDate, events, wishlistEvents, overdue,
@@ -276,7 +282,7 @@ class PocketEngineTest {
         LocalDate eom = LocalDate.of(2026, 3, 31);
         PocketInput in = base().forecast(5_000, "Продукты").build();
         in = new PocketInput(eom, in.checkpointAmount(), eom, in.events(), in.wishlistEvents(),
-                in.overdueEvents(), in.scope(), LocalDate.of(2026, 4, 5), false,
+                in.overdueEvents(), in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
                 in.bufferAmount(), in.unplannedForecast(), in.forecastContributors());
         PocketResultDto r = PocketEngine.calculate(in);
         assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
@@ -358,6 +364,37 @@ class PocketEngineTest {
     @DisplayName("Фолбэк-горизонт помечен флагом и label без даты дохода")
     void fallbackHorizonLabel() {
         PocketResultDto r = PocketEngine.calculate(base().fallback().horizon(TODAY.plusDays(30)).build());
+        assertThat(r.horizon().fallback()).isTrue();
+        assertThat(r.horizon().label()).isEqualTo("30 дней вперёд (нет плановых доходов)");
+    }
+
+    // ── SECOND_INCOME (ANO-14 §4) ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("SECOND_INCOME: label «до 2-го дохода dd.MM», fallback=false")
+    void secondIncomeLabel() {
+        PocketResultDto r = PocketEngine.calculate(
+                base().secondIncomeScope(LocalDate.of(2026, 3, 20)).build());
+        assertThat(r.horizon().fallback()).isFalse();
+        assertThat(r.horizon().label()).isEqualTo("до 2-го дохода 20.03");
+    }
+
+    @Test
+    @DisplayName("SECOND_INCOME-фолбэк с известным первым доходом: правдивый label, fallback=true")
+    void secondIncomeFallback_knownFirstIncome() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .secondIncomeScope(LocalDate.of(2026, 3, 31))
+                .fallback(FallbackKind.SECOND_NOT_FOUND).build());
+        assertThat(r.horizon().fallback()).isTrue();
+        assertThat(r.horizon().label()).isEqualTo("до 31.03 (второй доход не найден)");
+    }
+
+    @Test
+    @DisplayName("SECOND_INCOME-фолбэк без доходов вовсе: старый честный label «нет плановых доходов»")
+    void secondIncomeFallback_noIncomesAtAll() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .secondIncomeScope(TODAY.plusDays(30))
+                .fallback(FallbackKind.NO_INCOMES).build());
         assertThat(r.horizon().fallback()).isTrue();
         assertThat(r.horizon().label()).isEqualTo("30 дней вперёд (нет плановых доходов)");
     }
