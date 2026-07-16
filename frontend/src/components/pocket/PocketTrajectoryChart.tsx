@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PocketResponse } from '../../types/api';
 import {
     buildDayDetails,
+    buildLinePoints,
     buildMinAnnotation,
     computeDomain,
     fmtDayMonth,
+    makeScales,
     pickTicks,
     showBufferZone,
     showDangerZone,
@@ -31,19 +33,25 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
     const geom = useMemo(() => {
         const balances = trajectory.map(p => p.balance);
         const domain = computeDomain(balances);
-        const span = domain.max - domain.min || 1;
         const n = trajectory.length;
-        const x = (i: number) => (n > 1 ? PAD_X + (i * (W - 2 * PAD_X)) / (n - 1) : W / 2);
-        const y = (v: number) => FLOOR - ((v - domain.min) / span) * (FLOOR - TOP);
-        const line = trajectory.map((p, i) => `${x(i)},${y(p.balance)}`).join(' ');
+        const { x, y } = makeScales(n, domain, W, PAD_X, TOP, FLOOR);
+        const line = buildLinePoints(balances, W, PAD_X, TOP, FLOOR, domain);
         return { domain, x, y, line, n };
     }, [trajectory]);
+
+    // Смена горизонта (скоуп/рефреш) делает старый индекс дня бессмысленным — сбрасываем.
+    useEffect(() => {
+        setSelected(null);
+    }, [data.horizon.endDate, trajectory.length]);
 
     if (trajectory.length === 0) return null;
 
     const { domain, x, y, line, n } = geom;
     const yZero = y(0);
     const yBuffer = y(Math.min(buffer, domain.max));
+    // Пунктир буфера рисуем только когда его уровень реально внутри домена —
+    // иначе линия на потолке графика врала бы о величине буфера (зона-подложка остаётся).
+    const showBufferLine = showBufferZone(buffer) && buffer <= domain.max;
     const minIdx = trajectory.findIndex(p => p.date === minPoint.date);
     const ticks = pickTicks(trajectory, minPoint.date);
     const minX = minIdx >= 0 ? x(minIdx) : null;
@@ -78,7 +86,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 <line x1={PAD_X} y1={yZero} x2={W - PAD_X} y2={yZero}
                     stroke="rgba(255,255,255,0.25)" strokeWidth={1} />
                 {/* Линия буфера */}
-                {showBufferZone(buffer) && (
+                {showBufferLine && (
                     <>
                         <line x1={PAD_X} y1={yBuffer} x2={W - PAD_X} y2={yBuffer}
                             stroke={AMBER} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />

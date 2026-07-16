@@ -20,9 +20,9 @@ export function buildPocketPhrase(p: PocketResponse): string {
         (horizon.type === 'NEXT_INCOME' || horizon.type === 'SECOND_INCOME') && !horizon.fallback;
     const afterIncome = isIncomeAnchored && last ? last.balance : null;
     const minDate = fmtD(minPoint.date);
-    // SECOND_INCOME-фолбэки несут правдивый label с бэка (ANO-14 §4) — используем дословно;
-    // NEXT_INCOME-фолбэк сохраняет старую формулировку с «на».
-    const horizonPart = horizon.fallback && horizon.type !== 'SECOND_INCOME'
+    // Фолбэк «доходов нет вовсе» (label «30 дней вперёд…») требует предлога «на» после
+    // «Свободно X …»; правдивый SECOND_NOT_FOUND-label начинается с «до» и читается дословно.
+    const horizonPart = horizon.fallback && !horizon.label.startsWith('до')
         ? 'на 30 дней вперёд (плановых доходов нет)'
         : horizon.label;
     const cause = minPoint.drivenBy ? ` («${minPoint.drivenBy}»)` : '';

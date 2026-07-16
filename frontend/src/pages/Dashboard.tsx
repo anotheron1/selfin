@@ -12,6 +12,12 @@ const fmt = fmtRub;
 
 const fmtAmt = (n: number | null) => n != null ? fmt(n) : '—';
 
+/** «14 июля» из ISO-строки БЕЗ UTC-парсинга (new Date('YYYY-MM-DD') сдвигает день в западных TZ). */
+const fmtLocalDate = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+};
+
 interface BarState {
     barColor: string;
     barWidth: string;
@@ -124,8 +130,10 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
     const [data, setData] = useState<DashboardData | null>(null);
     const [pocket, setPocket] = useState<PocketResponse | null>(null);
     // Сторожевой скоуп (ANO-14 §5): алерт разрыва всегда смотрит до 2-го дохода,
-    // независимо от скоупа PocketCard. Ошибка сторожа не роняет страницу.
+    // независимо от скоупа PocketCard. Ошибка сторожа не роняет страницу и НЕ стирает
+    // ранее показанный алерт (транзиентный сбой не должен молча снять предупреждение).
     const [watchdog, setWatchdog] = useState<PocketResponse | null>(null);
+    const [watchdogFailed, setWatchdogFailed] = useState(false);
     const [todayEvents, setTodayEvents] = useState<FinancialEvent[]>([]);
     const [monthEvents, setMonthEvents] = useState<FinancialEvent[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -140,15 +148,17 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
             fetchDashboard(),
             fetchEvents(todayStr, todayStr),
             fetchEvents(monthStart, monthEnd),
-            fetchPocket('SECOND_INCOME').catch(() => null),
         ])
-            .then(([dash, evts, mEvts, wd]) => {
+            .then(([dash, evts, mEvts]) => {
                 setData(dash);
                 setTodayEvents(evts);
                 setMonthEvents(mEvts);
-                setWatchdog(wd);
             })
             .catch(e => setError(e.message));
+
+        fetchPocket('SECOND_INCOME')
+            .then(wd => { setWatchdog(wd); setWatchdogFailed(false); })
+            .catch(() => setWatchdogFailed(true)); // прежний watchdog-стейт сохраняем
     }, [todayStr]);
 
     useEffect(() => { loadAll(); }, [loadAll]);
@@ -259,7 +269,7 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                     <div>
                         <p className="font-semibold text-sm" style={{ color: 'var(--color-danger)' }}>Кассовый разрыв!</p>
                         <p className="text-sm" style={{ color: 'var(--color-text)' }}>
-                            {new Date(watchdogAlert.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} — ожидается дефицит{' '}
+                            {fmtLocalDate(watchdogAlert.date)} — ожидается дефицит{' '}
                             <b>{fmt(watchdogAlert.deficit)}</b>
                             {watchdogAlert.drivenBy && <> («{watchdogAlert.drivenBy}»)</>}
                         </p>
@@ -370,6 +380,13 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                         );
                     })}
                 </div>
+            )}
+
+            {/* Сторож недоступен и данных нет — честная пометка вместо тишины */}
+            {watchdogFailed && !watchdog && (
+                <p className="text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+                    Не удалось проверить кассовый разрыв — обнови страницу
+                </p>
             )}
 
             {data.progressBars.length === 0 && !watchdogAlert && todayEvents.length === 0 && (

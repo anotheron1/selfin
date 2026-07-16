@@ -122,6 +122,17 @@ describe('buildPocketPhrase', () => {
         );
     });
 
+    it('SECOND_INCOME-фолбэк без доходов вовсе: грамматика с «на», как у NEXT_INCOME-фолбэка', () => {
+        const p = make({
+            pocket: 20000,
+            horizon: { type: 'SECOND_INCOME', endDate: '2026-08-09', label: '30 дней вперёд (нет плановых доходов)', fallback: true },
+            minPoint: { date: '2026-07-12', balance: 20000, drivenBy: null },
+        });
+        expect(buildPocketPhrase(p)).toBe(
+            `Свободно ${fmtC(20000)} на 30 дней вперёд (плановых доходов нет). Самый узкий день — 12.07: на счёте останется ${fmtC(20000)}.`,
+        );
+    });
+
     it('SECOND_INCOME-фолбэк: label дословно, БЕЗ утверждения «плановых доходов нет»', () => {
         const p = make({
             horizon: { type: 'SECOND_INCOME', endDate: '2026-08-29', label: 'до 29.08 (второй доход не найден)', fallback: true },

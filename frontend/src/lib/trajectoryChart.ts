@@ -54,22 +54,39 @@ export function pickTicks(trajectory: TrajPoint[], minDate: string, maxTicks = 6
     return [...picked].sort((a, b) => a - b);
 }
 
+/**
+ * Скейлы координат графика: x по индексу дня, y по остатку (инвертирован).
+ * Единственная реализация маппинга — компонент и buildLinePoints используют её же,
+ * чтобы тестируемая математика совпадала с рендерящейся.
+ */
+export function makeScales(
+    n: number, domain: Domain, w: number, padX: number, top: number, floor: number,
+): { x: (i: number) => number; y: (v: number) => number } {
+    const span = domain.max - domain.min || 1;
+    return {
+        x: (i: number) => (n > 1 ? padX + (i * (w - 2 * padX)) / (n - 1) : w / 2),
+        y: (v: number) => floor - ((v - domain.min) / span) * (floor - top),
+    };
+}
+
 /** Координаты polyline; одна точка рисуется в центре без деления на ноль. */
 export function buildLinePoints(
-    balances: number[], w: number, h: number, pad: number, domain: Domain,
+    balances: number[], w: number, padX: number, top: number, floor: number, domain: Domain,
 ): string {
-    const n = balances.length;
-    const span = domain.max - domain.min || 1;
+    const { x, y } = makeScales(balances.length, domain, w, padX, top, floor);
     const round = (v: number) => Math.round(v * 10) / 10;
-    const x = (i: number) => (n > 1 ? pad + (i * (w - 2 * pad)) / (n - 1) : w / 2);
-    const y = (v: number) => h - pad - ((v - domain.min) / span) * (h - 2 * pad);
     return balances.map((b, i) => `${round(x(i))},${round(y(b))}`).join(' ');
 }
+
+/** Обрезка длинного виновника, чтобы аннотация не вылезала за viewBox. */
+const MAX_DRIVEN_BY = 24;
+const truncate = (s: string) =>
+    s.length > MAX_DRIVEN_BY ? s.slice(0, MAX_DRIVEN_BY - 1).trimEnd() + '…' : s;
 
 /** Аннотация минимума: «мин dd.MM · сумма · виновник», хвост опущен без drivenBy. */
 export function buildMinAnnotation(minPoint: PocketResponse['minPoint']): string {
     const base = `мин ${fmtD(minPoint.date)} · ${fmtRub(minPoint.balance)}`;
-    return minPoint.drivenBy ? `${base} · ${minPoint.drivenBy}` : base;
+    return minPoint.drivenBy ? `${base} · ${truncate(minPoint.drivenBy)}` : base;
 }
 
 /** Строка деталей выбранного дня: только ненулевые потоки, день 0 — «сегодня». */

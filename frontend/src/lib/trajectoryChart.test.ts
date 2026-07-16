@@ -84,14 +84,19 @@ describe('pickTicks', () => {
     });
 });
 
-describe('buildLinePoints', () => {
+describe('buildLinePoints / makeScales', () => {
     it('маппит точки в координаты polyline', () => {
-        // 3 точки, w=100, h=100, pad=0, домен 0..100: x = 0/50/100, y инвертирован
-        const points = buildLinePoints([0, 50, 100], 100, 100, 0, { min: 0, max: 100 });
+        // 3 точки, w=100, padX=0, top=0, floor=100, домен 0..100: x = 0/50/100, y инвертирован
+        const points = buildLinePoints([0, 50, 100], 100, 0, 0, 100, { min: 0, max: 100 });
         expect(points).toBe('0,100 50,50 100,0');
     });
     it('одна точка не делит на ноль', () => {
-        expect(buildLinePoints([42], 100, 100, 0, { min: 0, max: 100 })).toBe('50,58');
+        expect(buildLinePoints([42], 100, 0, 0, 100, { min: 0, max: 100 })).toBe('50,58');
+    });
+    it('асимметричные поля top/floor учитываются', () => {
+        // top=30, floor=190: 0 → y=190, 100 → y=30
+        expect(buildLinePoints([0, 100], 100, 10, 30, 190, { min: 0, max: 100 }))
+            .toBe('10,190 90,30');
     });
 });
 
@@ -103,6 +108,12 @@ describe('buildMinAnnotation', () => {
     it('без виновника — хвост опущен', () => {
         expect(buildMinAnnotation({ date: '2026-07-18', balance: 6800, drivenBy: null }))
             .toBe(`мин 18.07 · ${fmtRub(6800)}`);
+    });
+    it('длинный виновник обрезается, чтобы не вылезать за viewBox', () => {
+        const long = 'Страховка автомобиля КАСКО продление на год';
+        const result = buildMinAnnotation({ date: '2026-07-18', balance: 6800, drivenBy: long });
+        expect(result.endsWith('…')).toBe(true);
+        expect(result.length).toBeLessThan(`мин 18.07 · ${fmtRub(6800)} · `.length + 26);
     });
 });
 
