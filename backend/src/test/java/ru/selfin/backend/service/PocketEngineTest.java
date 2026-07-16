@@ -389,6 +389,61 @@ class PocketEngineTest {
         assertThat(r.horizon().label()).isEqualTo("до 31.03 (второй доход не найден)");
     }
 
+    // ── информационный хвост календаря (ANO-24, спека §3.9) ─────────────────
+
+    @Test
+    @DisplayName("Горизонт завтра → траектория продлена хвостом до asOf+7 (8 точек)")
+    void shortHorizon_trajectoryExtendedToMinWindow() {
+        // Доход завтра (2.03) — горизонт NEXT_INCOME = завтра; расход в хвосте 5.03 виден
+        PocketInput in = base()
+                .events(plan(EventType.INCOME, LocalDate.of(2026, 3, 2), 50_000, Priority.HIGH),
+                        plan(EventType.EXPENSE, LocalDate.of(2026, 3, 5), 7_000, Priority.MEDIUM))
+                .horizon(LocalDate.of(2026, 3, 2))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.trajectory()).hasSize(8); // сегодня + 7 дней
+        assertThat(r.trajectory().get(7).date()).isEqualTo(TODAY.plusDays(7));
+        assertThat(r.horizon().endDate()).isEqualTo(LocalDate.of(2026, 3, 2)); // горизонт не тронут
+        // Хвост несёт плановые события: 5.03 баланс = 10 000 + 50 000 − 7 000
+        assertThat(r.trajectory().get(4).balance()).isEqualByComparingTo(dec(53_000));
+    }
+
+    @Test
+    @DisplayName("Провал в хвосте НЕ двигает минимум и кармашек — число только внутри горизонта")
+    void dipInTail_doesNotAffectPocket() {
+        PocketInput in = base()
+                .events(plan(EventType.INCOME, LocalDate.of(2026, 3, 2), 50_000, Priority.HIGH),
+                        plan(EventType.EXPENSE, LocalDate.of(2026, 3, 5), 200_000, Priority.HIGH))
+                .horizon(LocalDate.of(2026, 3, 2))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        // Внутри горизонта минимум = день 0 (10 000); хвостовой провал −140 000 виден
+        // в траектории, но не в числе
+        assertThat(r.minPoint().date()).isEqualTo(TODAY);
+        assertThat(r.minPoint().balance()).isEqualByComparingTo(dec(10_000));
+        assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
+        assertThat(r.trajectory().get(4).balance()).isEqualByComparingTo(dec(-140_000));
+    }
+
+    @Test
+    @DisplayName("Размаз прогноза НЕ протекает в хвост: окно размаза привязано к горизонту")
+    void forecastSmear_notAppliedInTail() {
+        PocketInput in = base()
+                .events(plan(EventType.INCOME, LocalDate.of(2026, 3, 2), 50_000, Priority.HIGH))
+                .horizon(LocalDate.of(2026, 3, 2))
+                .forecast(1_000, "Продукты")
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        // Весь размаз (1 день окна) лёг на 2.03; дни хвоста — нулевой расход
+        assertThat(r.trajectory().get(1).expense()).isEqualByComparingTo(dec(1_000));
+        for (int i = 2; i < r.trajectory().size(); i++) {
+            assertThat(r.trajectory().get(i).expense()).isEqualByComparingTo(dec(0));
+        }
+    }
+
     @Test
     @DisplayName("SECOND_INCOME-фолбэк без доходов вовсе: старый честный label «нет плановых доходов»")
     void secondIncomeFallback_noIncomesAtAll() {

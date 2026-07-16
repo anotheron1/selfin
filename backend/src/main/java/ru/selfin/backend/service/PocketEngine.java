@@ -34,6 +34,19 @@ public final class PocketEngine {
     private static final DateTimeFormatter DD_MM = DateTimeFormatter.ofPattern("dd.MM");
     private static final DateTimeFormatter DD_MM_YYYY = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
+    /** Минимальное окно календаря (спека §3.9, ANO-24): короткий горизонт получает информационный хвост. */
+    public static final int MIN_CALENDAR_DAYS = 7;
+
+    /**
+     * Конец траектории = max(horizonEnd, asOf + {@link #MIN_CALENDAR_DAYS}).
+     * Хвост за горизонтом — чисто информационный: min/кармашек/breakdown его не видят.
+     * Публичный, чтобы PocketService расширял выборку событий той же формулой.
+     */
+    public static LocalDate trajectoryEnd(LocalDate asOfDate, LocalDate horizonEnd) {
+        LocalDate minEnd = asOfDate.plusDays(MIN_CALENDAR_DAYS);
+        return horizonEnd.isBefore(minEnd) ? minEnd : horizonEnd;
+    }
+
     private PocketEngine() {}
 
     public static PocketResultDto calculate(PocketInput in) {
@@ -69,11 +82,13 @@ public final class PocketEngine {
                 : BigDecimal.ZERO;
 
         // 4. Плановые события будущих дней (фильтр хотелок §3.2 применён).
+        //    Диапазон — до конца траектории с хвостом (§3.9), не только до горизонта.
+        LocalDate trajEnd = trajectoryEnd(in.asOfDate(), in.horizonEnd());
         Map<LocalDate, List<EventSnapshot>> futureByDay = in.events().stream()
                 .filter(PocketEngine::isPendingPlan)
                 .filter(PocketEngine::allowedInTrajectory)
                 .filter(e -> e.date() != null
-                        && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(in.horizonEnd()))
+                        && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(trajEnd))
                 .collect(Collectors.groupingBy(EventSnapshot::date));
 
         // 5. Траектория + минимум + суммы-до-минимума (для breakdown-инварианта §5).
@@ -93,7 +108,7 @@ public final class PocketEngine {
         BigDecimal forecastAtMin = BigDecimal.ZERO;
         BigDecimal forecastSpread = BigDecimal.ZERO;
 
-        for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(in.horizonEnd()); d = d.plusDays(1)) {
+        for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(trajEnd); d = d.plusDays(1)) {
             BigDecimal dayIncome = BigDecimal.ZERO;
             BigDecimal dayExpense = BigDecimal.ZERO;
             BigDecimal dayTopExpenseAmount = BigDecimal.ZERO;
@@ -124,7 +139,8 @@ public final class PocketEngine {
                 running = running.subtract(dayForecast);
             }
             trajectory.add(new PocketResultDto.TrajectoryPoint(d, running, dayIncome, dayExpense));
-            if (running.compareTo(minBalance) < 0) {
+            // Минимум ищем ТОЛЬКО внутри горизонта — хвост информационный (§3.9)
+            if (!d.isAfter(in.horizonEnd()) && running.compareTo(minBalance) < 0) {
                 minBalance = running;
                 minDate = d;
                 minDrivenBy = dayTopExpense;

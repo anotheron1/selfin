@@ -107,11 +107,11 @@ public class PocketService {
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown scope");
         }
 
-        // 2. Чекпоинт и события (баланс + траектория)
+        // 2. Чекпоинт и события (баланс + траектория; диапазон — до конца хвоста §3.9)
         Optional<BalanceCheckpoint> checkpoint = checkpointRepository.findTopByOrderByDateDesc();
         LocalDate from = checkpoint.map(BalanceCheckpoint::getDate).orElse(EPOCH);
         List<EventSnapshot> events = eventRepository
-                .findAllByDeletedFalseAndDateBetween(from, horizonEnd)
+                .findAllByDeletedFalseAndDateBetween(from, PocketEngine.trajectoryEnd(asOfDate, horizonEnd))
                 .stream().map(EventSnapshot::from).toList();
 
         // 3. Просрочка (без границы месяца) и хотелки (отдельные выборки, спека §3.1, §3.4)

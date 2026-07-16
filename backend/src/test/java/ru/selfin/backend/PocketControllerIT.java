@@ -185,6 +185,27 @@ class PocketControllerIT {
         }
     }
 
+    @Test
+    void shortHorizon_calendarTailExtendsToSevenDays() throws Exception {
+        // ANO-24 §3.9: доход завтра → горизонт = завтра, но траектория тянется до asOf+7
+        String cat = createCategory("IT-tail-inc", "INCOME");
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+        String e1 = createIncome(cat, tomorrow, 50_000, "IT доход завтра");
+        try {
+            JsonNode r = getPocket(null);
+            assertThat(r.get("horizon").get("endDate").asText()).isEqualTo(tomorrow.toString());
+            JsonNode traj = r.get("trajectory");
+            assertThat(traj.size()).isGreaterThanOrEqualTo(8);
+            assertThat(traj.get(traj.size() - 1).get("date").asText())
+                    .isEqualTo(LocalDate.now().plusDays(7).toString());
+            // Минимум — внутри горизонта, не в хвосте
+            assertThat(r.get("minPoint").get("date").asText())
+                    .isLessThanOrEqualTo(tomorrow.toString());
+        } finally {
+            deleteEvent(e1);
+        }
+    }
+
     // ── recurring: продление до/внутри горизонта кармашка (ANO-14 §6) ───────
 
     @Test
