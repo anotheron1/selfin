@@ -93,7 +93,14 @@ public class RecurringRuleService {
         eventRepo.softDeletePlanEventsByRuleFromDate(locked.getId(), from);
         java.util.Set<LocalDate> executed = eventRepo.findExecutedDatesByRule(locked.getId());
 
-        List<FinancialEvent> fresh = generator.generate(locked, from, horizonEnd).stream()
+        // @Modifying(clearAutomatically) выше очистил persistence context: locked и его
+        // прокси категории отсоединены. Перечитываем правило, иначе сгенерированные события
+        // унесут отсоединённый прокси в PC и toDto упадёт с LazyInitializationException
+        // на category.getName() при повторной выборке в этой же транзакции.
+        RecurringRule attached = ruleRepo.findById(locked.getId())
+                .orElseThrow(() -> new IllegalStateException("rule disappeared: " + locked.getId()));
+
+        List<FinancialEvent> fresh = generator.generate(attached, from, horizonEnd).stream()
                 .filter(e -> !executed.contains(e.getDate()))
                 .toList();
         eventRepo.saveAll(fresh);
@@ -127,17 +134,24 @@ public class RecurringRuleService {
         if (rule == null) {
             throw new IllegalArgumentException("Scope requires recurring event");
         }
-        LocalDate cutoff = (scope == ru.selfin.backend.model.enums.ScopeEnum.FOLLOWING)
-                ? triggerEvent.getDate()
-                : rule.getStartDate();
+        // startDate читаем ДО модифицирующего запроса: clearAutomatically отсоединяет
+        // неинициализированный прокси правила, и любой доступ к нему после — LazyInitializationException.
+        LocalDate ruleStart = rule.getStartDate();
+        boolean keepsEarlierOccurrences = scope == ru.selfin.backend.model.enums.ScopeEnum.FOLLOWING
+                && triggerEvent.getDate().isAfter(ruleStart);
+        LocalDate cutoff = keepsEarlierOccurrences ? triggerEvent.getDate() : ruleStart;
         eventRepo.softDeletePlanEventsByRuleFromDate(rule.getId(), cutoff);
 
-        if (scope == ru.selfin.backend.model.enums.ScopeEnum.FOLLOWING) {
+        if (keepsEarlierOccurrences) {
             rule.setEndDate(triggerEvent.getDate().minusDays(1));
         } else {
+            // FOLLOWING с головного повторения не оставляет ни одного будущего — эквивалент ALL.
             rule.setDeleted(true);
             LocalDate lastExec = eventRepo.findMaxExecutedDateByRule(rule.getId()).orElse(null);
-            rule.setEndDate(lastExec != null ? lastExec : rule.getStartDate().minusDays(1));
+            // chk_end_after_start требует end_date >= start_date: «не исполнялось» кодируем
+            // как endDate = startDate (из активных правило выводит deleted=true), а lastExec
+            // раньше startDate возможен у FACT с ручной датой — клэмпим к startDate.
+            rule.setEndDate(lastExec != null && lastExec.isAfter(ruleStart) ? lastExec : ruleStart);
         }
         ruleRepo.save(rule);
     }
