@@ -137,10 +137,12 @@ class BalanceCheckpointControllerIT {
 
     @Test
     void dashboard_currentBalance_includesCheckpointAmount() throws Exception {
-        // Используем дату в далёком будущем — там нет засеянных событий,
-        // поэтому currentBalance должен быть равен ровно сумме чекпоинта.
-        String cpDate = "2099-06-01";
-        String asOfDate = "2099-06-15";
+        // Дата чекпоинта обязана быть @PastOrPresent (будущее — 400), поэтому «сегодня».
+        // Событий в этом классе никто не создаёт, а этот чекпоинт — самый поздний по дате
+        // (остальные тесты класса используют прошлые даты), так что currentBalance
+        // должен быть равен ровно его сумме.
+        String cpDate = java.time.LocalDate.now().toString();
+        String asOfDate = cpDate;
 
         mockMvc.perform(post("/api/v1/balance-checkpoints")
                 .contentType(MediaType.APPLICATION_JSON)
