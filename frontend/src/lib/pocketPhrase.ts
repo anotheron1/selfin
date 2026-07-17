@@ -14,11 +14,14 @@ const fmtD = (iso: string) => {
  */
 export function buildPocketPhrase(p: PocketResponse): string {
     const { pocket, buffer, minPoint, horizon, trajectory } = p;
-    const last = trajectory[trajectory.length - 1];
+    // Точка на КОНЦЕ ГОРИЗОНТА, не последняя: траектория может нести информационный
+    // хвост за горизонтом (§3.9), а «после дохода» — это именно день дохода.
+    const horizonPoint = trajectory.find(pt => pt.date === horizon.endDate)
+        ?? trajectory[trajectory.length - 1];
     // Горизонт «заякорен доходом» — его конец = день дохода, можно говорить «после дохода».
     const isIncomeAnchored =
         (horizon.type === 'NEXT_INCOME' || horizon.type === 'SECOND_INCOME') && !horizon.fallback;
-    const afterIncome = isIncomeAnchored && last ? last.balance : null;
+    const afterIncome = isIncomeAnchored && horizonPoint ? horizonPoint.balance : null;
     const minDate = fmtD(minPoint.date);
     // Фолбэк «доходов нет вовсе» (label «30 дней вперёд…») требует предлога «на» после
     // «Свободно X …»; правдивый SECOND_NOT_FOUND-label начинается с «до» и читается дословно.

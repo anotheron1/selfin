@@ -142,6 +142,21 @@ describe('buildPocketPhrase', () => {
         );
     });
 
+    it('информационный хвост за горизонтом: «после дохода» = точка дня дохода, не конец траектории', () => {
+        const p = make({
+            trajectory: [
+                { date: '2026-07-10', balance: 60000, income: 0, expense: 20000 },
+                { date: '2026-07-12', balance: 36000, income: 0, expense: 24000 },
+                { date: '2026-07-15', balance: 129000, income: 93000, expense: 0 },
+                { date: '2026-07-16', balance: 104000, income: 0, expense: 25000 },
+                { date: '2026-07-17', balance: 104000, income: 0, expense: 0 },
+            ],
+        });
+        expect(buildPocketPhrase(p)).toBe(
+            `Свободно ${fmtC(36000)} до дохода 15.07. Самый узкий день — 12.07: на счёте останется ${fmtC(36000)} («Страховка»). После дохода → ${fmtC(129000)}.`,
+        );
+    });
+
     it('скоуп MONTHS: горизонт из label, без «после дохода»', () => {
         const p = make({
             horizon: { type: 'MONTHS', endDate: '2026-10-10', label: '3 мес (до 10.10)', fallback: false },

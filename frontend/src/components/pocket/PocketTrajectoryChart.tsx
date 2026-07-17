@@ -49,6 +49,16 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
     const { domain, x, y, line, n } = geom;
     const yZero = y(0);
     const yBuffer = y(Math.min(buffer, domain.max));
+    // Информационный хвост (§3.9): дни за горизонтом рисуются приглушённо
+    const horizonIdx = trajectory.findIndex(p => p.date === horizon.endDate);
+    const hasTail = horizonIdx >= 0 && horizonIdx < n - 1;
+    const pt = (i: number) => `${x(i)},${y(trajectory[i].balance)}`;
+    const mainLine = hasTail
+        ? trajectory.slice(0, horizonIdx + 1).map((_, i) => pt(i)).join(' ')
+        : line;
+    const tailLine = hasTail
+        ? trajectory.slice(horizonIdx).map((_, i) => pt(horizonIdx + i)).join(' ')
+        : null;
     // Пунктир буфера рисуем только когда его уровень реально внутри домена —
     // иначе линия на потолке графика врала бы о величине буфера (зона-подложка остаётся).
     const showBufferLine = showBufferZone(buffer) && buffer <= domain.max;
@@ -97,12 +107,21 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 {/* Заливка между траекторией и нулём */}
                 <polygon points={`${x(0)},${yZero} ${line} ${x(n - 1)},${yZero}`}
                     fill="#6c63ff" opacity={0.14} />
-                {/* Траектория */}
-                <polyline points={line} fill="none" stroke={LINE} strokeWidth={2}
+                {/* Траектория: внутри горизонта — плотно, хвост за горизонтом — приглушённо */}
+                <polyline points={mainLine} fill="none" stroke={LINE} strokeWidth={2}
                     strokeLinejoin="round" />
+                {tailLine && (
+                    <>
+                        <polyline points={tailLine} fill="none" stroke={LINE} strokeWidth={2}
+                            strokeLinejoin="round" opacity={0.4} />
+                        <line x1={x(horizonIdx)} y1={TOP} x2={x(horizonIdx)} y2={FLOOR}
+                            stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="2 4" />
+                    </>
+                )}
                 {/* Точки дней — только на коротких горизонтах */}
                 {n <= 31 && trajectory.map((p, i) => (
-                    <circle key={p.date} cx={x(i)} cy={y(p.balance)} r={2} fill={LINE} />
+                    <circle key={p.date} cx={x(i)} cy={y(p.balance)} r={2} fill={LINE}
+                        opacity={hasTail && i > horizonIdx ? 0.4 : 1} />
                 ))}
                 {/* Дни доходов */}
                 {trajectory.map((p, i) => p.income > 0 && (
@@ -177,6 +196,12 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                     <span className="inline-block w-2 h-2 rounded-full" style={{ background: 'var(--color-success)' }} />
                     доход
                 </span>
+                {hasTail && (
+                    <span className="flex items-center gap-1.5">
+                        <span className="inline-block w-3.5 h-0.5 rounded" style={{ background: LINE, opacity: 0.4 }} />
+                        за горизонтом
+                    </span>
+                )}
                 <span className="ml-auto">тап по дню — детали</span>
             </div>
         </div>
