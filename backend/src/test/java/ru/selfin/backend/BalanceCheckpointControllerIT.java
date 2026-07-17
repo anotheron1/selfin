@@ -136,13 +136,13 @@ class BalanceCheckpointControllerIT {
     }
 
     @Test
-    void dashboard_currentBalance_includesCheckpointAmount() throws Exception {
+    void pocket_currentBalance_includesCheckpointAmount() throws Exception {
         // Дата чекпоинта обязана быть @PastOrPresent (будущее — 400), поэтому «сегодня».
-        // Событий в этом классе никто не создаёт, а этот чекпоинт — самый поздний по дате
-        // (остальные тесты класса используют прошлые даты), так что currentBalance
-        // должен быть равен ровно его сумме.
+        // После ANO-13/14 дашборд отдаёт только progressBars; единая истина по балансу —
+        // GET /pocket (PocketResultDto.currentBalance). Событий в этом классе никто
+        // не создаёт, а этот чекпоинт — самый поздний по дате (остальные тесты класса
+        // используют прошлые даты), так что currentBalance равен ровно его сумме.
         String cpDate = java.time.LocalDate.now().toString();
-        String asOfDate = cpDate;
 
         mockMvc.perform(post("/api/v1/balance-checkpoints")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -151,7 +151,7 @@ class BalanceCheckpointControllerIT {
                         """, cpDate)))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/v1/analytics/dashboard?date=" + asOfDate))
+        mockMvc.perform(get("/api/v1/pocket"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentBalance").value(55000));
     }
