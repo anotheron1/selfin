@@ -102,11 +102,12 @@ class StrategyTimelineControllerIT {
               "recurring": {
                 "frequency": "MONTHLY",
                 "dayOfMonth": %d,
+                "startDate": "%s",
                 "endDate": "%s"
               }
             }
             """.formatted(today, catId, java.time.LocalDate.now().plusDays(1).getDayOfMonth(),
-                java.time.LocalDate.now().plusMonths(6).toString());
+                today, java.time.LocalDate.now().plusMonths(6).toString());
 
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/events")
                         .header("Idempotency-Key", java.util.UUID.randomUUID().toString())
@@ -150,10 +151,16 @@ class StrategyTimelineControllerIT {
 
         String eventId = (String) objectMapper.readValue(created, java.util.Map.class).get("id");
 
-        // 2. PATCH-fact (FinancialEventUpdateFactDto имеет только factAmount + опц. description)
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/v1/events/" + eventId + "/fact")
+        // 2. Связанный FACT к плану. НЕ PATCH /fact: инлайн-патч ставит factAmount на самой
+        // PLAN-строке, а breakdown таймлайна агрегирует только EventKind.FACT
+        // (BaselineTimelineBuilder) — инлайн-патченные факты в breakdown НЕ попадают.
+        // Это известное расхождение план/факт-семантик (тема ANO-12), тест закрепляет
+        // поддерживаемый путь.
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/events/" + eventId + "/facts")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"factAmount\": 4900, \"description\": \"Оплачено\" }"))
+                        .content("""
+                            { "date": "%s", "factAmount": 4900, "description": "Оплачено" }
+                            """.formatted(today)))
                 .andExpect(status().is2xxSuccessful());
 
         // 3. Получить timeline, проверить что breakdown CURRENT содержит этот факт
