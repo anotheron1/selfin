@@ -87,6 +87,7 @@ class RecurringRuleServiceTest {
 
         // 2026-06-15 уже EXECUTED — генерация должна его пропустить
         when(ruleRepo.findForUpdate(ruleId)).thenReturn(java.util.Optional.of(rule));
+        when(ruleRepo.findById(ruleId)).thenReturn(java.util.Optional.of(rule));
         when(eventRepo.findExecutedDatesByRule(ruleId))
                 .thenReturn(java.util.Set.of(LocalDate.of(2026, 6, 15)));
 
@@ -120,6 +121,7 @@ class RecurringRuleServiceTest {
                 .build();
 
         when(ruleRepo.findForUpdate(ruleId)).thenReturn(java.util.Optional.of(rule));
+        when(ruleRepo.findById(ruleId)).thenReturn(java.util.Optional.of(rule));
         when(eventRepo.findExecutedDatesByRule(ruleId)).thenReturn(java.util.Set.of());
 
         service.regenerate(rule, start);
@@ -244,7 +246,9 @@ class RecurringRuleServiceTest {
     }
 
     @Test
-    void deleteScope_ALL_with_no_executed_events_endsBeforeStart() {
+    void deleteScope_ALL_with_no_executed_events_endsOnStartDate() {
+        // endDate < startDate нарушает chk_end_after_start; «правило не исполнялось»
+        // кодируем как endDate = startDate — из активных его выводит deleted=true.
         UUID ruleId = UUID.randomUUID();
         RecurringRule rule = RecurringRule.builder()
                 .id(ruleId)
@@ -268,7 +272,71 @@ class RecurringRuleServiceTest {
         service.deleteScope(triggerEvent, ru.selfin.backend.model.enums.ScopeEnum.ALL);
 
         assertThat(rule.isDeleted()).isTrue();
-        assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2026, 5, 14)); // startDate - 1
+        assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2026, 5, 15));
+    }
+
+    @Test
+    void deleteScope_ALL_lastExec_before_startDate_clampsToStartDate() {
+        // FACT наследует правило и может иметь ручную дату раньше startDate —
+        // lastExec ниже startDate тоже нарушил бы chk_end_after_start.
+        UUID ruleId = UUID.randomUUID();
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(LocalDate.of(2026, 5, 15))
+                .endDate(LocalDate.of(2027, 5, 15))
+                .build();
+
+        FinancialEvent triggerEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(LocalDate.of(2026, 7, 15))
+                .recurringRule(rule)
+                .build();
+
+        when(eventRepo.findMaxExecutedDateByRule(ruleId))
+                .thenReturn(java.util.Optional.of(LocalDate.of(2026, 5, 1)));
+
+        service.deleteScope(triggerEvent, ru.selfin.backend.model.enums.ScopeEnum.ALL);
+
+        assertThat(rule.isDeleted()).isTrue();
+        assertThat(rule.getEndDate()).isEqualTo(LocalDate.of(2026, 5, 15));
+    }
+
+    @Test
+    void deleteScope_FOLLOWING_from_head_event_degradesToAll() {
+        // FOLLOWING с головного повторения не оставляет ни одного будущего —
+        // endDate = triggerDate - 1 < startDate нарушил бы chk_end_after_start,
+        // поэтому ветка эквивалентна ALL: rule.deleted + endDate >= startDate.
+        UUID ruleId = UUID.randomUUID();
+        LocalDate start = LocalDate.of(2026, 5, 15);
+        RecurringRule rule = RecurringRule.builder()
+                .id(ruleId)
+                .category(category)
+                .eventType(EventType.EXPENSE)
+                .plannedAmount(new BigDecimal("80000"))
+                .frequency(RecurringFrequency.MONTHLY)
+                .dayOfMonth(15)
+                .startDate(start)
+                .endDate(LocalDate.of(2027, 5, 15))
+                .build();
+
+        FinancialEvent headEvent = FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(start)
+                .recurringRule(rule)
+                .build();
+
+        when(eventRepo.findMaxExecutedDateByRule(ruleId)).thenReturn(java.util.Optional.empty());
+
+        service.deleteScope(headEvent, ru.selfin.backend.model.enums.ScopeEnum.FOLLOWING);
+
+        verify(eventRepo).softDeletePlanEventsByRuleFromDate(ruleId, start);
+        assertThat(rule.isDeleted()).isTrue();
+        assertThat(rule.getEndDate()).isEqualTo(start);
     }
 
     @Test

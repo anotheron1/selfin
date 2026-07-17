@@ -82,25 +82,30 @@ class RecurringEventControllerIT {
               "recurring": {
                 "frequency": "MONTHLY",
                 "dayOfMonth": %d,
+                "startDate": "%s",
                 "endDate": "%s"
               }
             }
-            """.formatted(startDate, catId, LocalDate.now().plusDays(1).getDayOfMonth(), endDate);
+            """.formatted(startDate, catId, LocalDate.now().plusDays(1).getDayOfMonth(), startDate, endDate);
 
-        mockMvc.perform(post("/api/v1/events")
+        String createResp = mockMvc.perform(post("/api/v1/events")
                         .header("Idempotency-Key", idem)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recurringRuleId").exists());
+                .andExpect(jsonPath("$.recurringRuleId").exists())
+                .andReturn().getResponse().getContentAsString();
+        String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
 
         // Список событий по периоду должен содержать 12 шт. с тем же ruleId
+        // (фильтруем по ruleId: другие тесты класса делят одну БД).
         String list = mockMvc.perform(get("/api/v1/events")
                         .param("startDate", startDate)
                         .param("endDate", endDate))
                 .andReturn().getResponse().getContentAsString();
-        var arr = objectMapper.readValue(list, java.util.List.class);
-        assertThat(arr).hasSize(12);
+        List<Map<String, Object>> arr = objectMapper.readValue(list, List.class);
+        assertThat(arr.stream().filter(e -> ruleId.equals(e.get("recurringRuleId"))))
+                .hasSize(12);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -148,7 +153,11 @@ class RecurringEventControllerIT {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        List<Map<String, Object>> events = objectMapper.readValue(listJson, List.class);
+        // Фильтруем по ruleId: другие тесты класса делят одну БД.
+        List<Map<String, Object>> allEvents = objectMapper.readValue(listJson, List.class);
+        List<Map<String, Object>> events = allEvents.stream()
+                .filter(e -> ruleId.equals(e.get("recurringRuleId")))
+                .toList();
         assertThat(events).hasSize(12);
         // Events are returned ordered by date (repository ORDER BY date ASC)
         Map<String, Object> sixthEvent = events.get(5);
@@ -186,7 +195,10 @@ class RecurringEventControllerIT {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        List<Map<String, Object>> updatedEvents = objectMapper.readValue(updatedListJson, List.class);
+        List<Map<String, Object>> allUpdatedEvents = objectMapper.readValue(updatedListJson, List.class);
+        List<Map<String, Object>> updatedEvents = allUpdatedEvents.stream()
+                .filter(e -> ruleId.equals(e.get("recurringRuleId")))
+                .toList();
         assertThat(updatedEvents).hasSize(12);
 
         // First 5 events: old amount (10000)
@@ -203,13 +215,6 @@ class RecurringEventControllerIT {
             assertThat(((Number) amount).doubleValue())
                     .as("Event %d should have new amount", i + 1)
                     .isEqualTo(20000.0);
-        }
-
-        // All 12 share the same recurringRuleId
-        for (Map<String, Object> event : updatedEvents) {
-            assertThat(event.get("recurringRuleId"))
-                    .as("All events must share ruleId")
-                    .isEqualTo(ruleId);
         }
     }
 
@@ -382,6 +387,75 @@ class RecurringEventControllerIT {
                 .hasValueSatisfying(rule -> assertThat(rule.isDeleted())
                         .as("Rule must be soft-deleted")
                         .isTrue());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Regression — scope=FOLLOWING с головного события не должен падать 500:
+    // endDate = headDate - 1 нарушил бы chk_end_after_start; ветка эквивалентна ALL.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void scopeFollowing_delete_from_head_event_retires_whole_rule() throws Exception {
+        String catId = getFirstCategoryId();
+        LocalDate startDate = LocalDate.now().plusDays(1);
+        int dayOfMonth = startDate.getDayOfMonth();
+        LocalDate endDate = startDate.plusMonths(5);
+
+        String createBody = """
+            {
+              "date": "%s",
+              "categoryId": "%s",
+              "type": "EXPENSE",
+              "plannedAmount": 3000,
+              "priority": "LOW",
+              "description": "Подписка",
+              "recurring": {
+                "frequency": "MONTHLY",
+                "dayOfMonth": %d,
+                "startDate": "%s",
+                "endDate": "%s"
+              }
+            }
+            """.formatted(startDate, catId, dayOfMonth, startDate, endDate);
+
+        String createResp = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String headEventId = objectMapper.readTree(createResp).get("id").asText();
+        String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
+
+        mockMvc.perform(delete("/api/v1/events/" + headEventId)
+                        .param("scope", "FOLLOWING"))
+                .andExpect(status().isNoContent());
+
+        String listJson = mockMvc.perform(get("/api/v1/events")
+                        .param("startDate", startDate.toString())
+                        .param("endDate", endDate.toString()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<Map<String, Object>> events = objectMapper.readValue(listJson, List.class);
+        long eventsForRule = events.stream()
+                .filter(e -> ruleId.equals(e.get("recurringRuleId")))
+                .count();
+        assertThat(eventsForRule)
+                .as("FOLLOWING с головы не оставляет ни одного PLAN-события")
+                .isZero();
+
+        assertThat(ruleRepository.findById(UUID.fromString(ruleId)))
+                .isPresent()
+                .hasValueSatisfying(rule -> {
+                    assertThat(rule.isDeleted())
+                            .as("FOLLOWING с головы эквивалентен ALL — правило soft-deleted")
+                            .isTrue();
+                    assertThat(rule.getEndDate())
+                            .as("endDate обязан удовлетворять chk_end_after_start")
+                            .isAfterOrEqualTo(rule.getStartDate());
+                });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
