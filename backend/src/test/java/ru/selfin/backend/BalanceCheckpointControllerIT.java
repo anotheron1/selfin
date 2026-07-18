@@ -136,6 +136,70 @@ class BalanceCheckpointControllerIT {
     }
 
     @Test
+    void history_carriesIntervalDrift() throws Exception {
+        // ANO-15 §4: даты в глубоком прошлом (2020) — гарантированно смежные в цепочке,
+        // другие тесты класса живут в 2025-2026. Фактов между нет → computed = prev.amount.
+        String aId = createCp("2020-01-01", 10_000);
+        String bId = createCp("2020-01-15", 8_000);
+        try {
+            String body = mockMvc.perform(get("/api/v1/balance-checkpoints"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            com.fasterxml.jackson.databind.JsonNode b = findById(body, bId);
+            org.assertj.core.api.Assertions.assertThat(b.get("computedBalance").decimalValue())
+                    .isEqualByComparingTo(java.math.BigDecimal.valueOf(10_000));
+            org.assertj.core.api.Assertions.assertThat(b.get("drift").decimalValue())
+                    .isEqualByComparingTo(java.math.BigDecimal.valueOf(-2_000));
+        } finally {
+            deleteCp(aId);
+            deleteCp(bId);
+        }
+    }
+
+    @Test
+    void sameDayDuplicate_laterCreatedWins() throws Exception {
+        // ANO-15 §4: дубль дня («исправил опечатку») — якорь/цепочка детерминированы по createdAt
+        String firstId = createCp("2020-02-01", 100);
+        String fixedId = createCp("2020-02-01", 200);
+        try {
+            String body = mockMvc.perform(get("/api/v1/balance-checkpoints"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            com.fasterxml.jackson.databind.JsonNode fixed = findById(body, fixedId);
+            // Поздняя правка стоит выше ранней того же дня: её prev = первая запись дня
+            org.assertj.core.api.Assertions.assertThat(fixed.get("computedBalance").decimalValue())
+                    .isEqualByComparingTo(java.math.BigDecimal.valueOf(100));
+            org.assertj.core.api.Assertions.assertThat(fixed.get("drift").decimalValue())
+                    .isEqualByComparingTo(java.math.BigDecimal.valueOf(100));
+        } finally {
+            deleteCp(firstId);
+            deleteCp(fixedId);
+        }
+    }
+
+    private String createCp(String date, long amount) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/balance-checkpoints")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","amount":%d}
+                                """.formatted(date, amount)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
+    }
+
+    private void deleteCp(String id) throws Exception {
+        mockMvc.perform(delete("/api/v1/balance-checkpoints/" + id)).andExpect(status().isNoContent());
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode findById(String listBody, String id) throws Exception {
+        for (com.fasterxml.jackson.databind.JsonNode n : objectMapper.readTree(listBody)) {
+            if (id.equals(n.get("id").asText())) return n;
+        }
+        throw new AssertionError("checkpoint " + id + " not found in list");
+    }
+
+    @Test
     void pocket_currentBalance_includesCheckpointAmount() throws Exception {
         // Дата чекпоинта обязана быть @PastOrPresent (будущее — 400), поэтому «сегодня».
         // После ANO-13/14 дашборд отдаёт только progressBars; единая истина по балансу —
