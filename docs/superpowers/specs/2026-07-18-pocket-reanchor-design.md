@@ -20,6 +20,7 @@
   - Зеркало до подтверждения: «selfin считает: {pocket.currentBalance}»; при вводе — живой дрейф: «дрейф −3 200 за {N} дней» (N = дней с последнего чекпоинта). Считается на фронте, ноль новых запросов. Цвет: минус — danger, плюс — success, 0 — muted.
   - Подтверждение → `POST /balance-checkpoints {date: today, amount}` → PocketCard сам перезагружает `/pocket` и зовёт опциональный проп `onReanchor` (Dashboard передаёт `loadAll` — обновляется сторож; Funds может не передавать — PocketCard сам себя обновит, кап перевода придёт через onData).
 - **Напоминалка:** если `checkpointDate` старше 30 дней — приглушённая строка под «на счёте X»: «остаток обновлялся {N} дн. назад». Хелперы (`checkpointAgeDays`, `buildDriftPreview`) — в `frontend/src/lib/reanchor.ts` под vitest.
+- **Первый якорь (`checkpointDate == null`):** напоминалка = «якорь ещё не задан» (онбординг-подсказка); в шторке зеркало подписано «расчёт selfin по записанным фактам: {X}», строка дрейфа НЕ показывается (сравнивать не с чем — «дрейф» от нуля вводил бы в заблуждение).
 
 ## 4. История с дрейфом (бэк + Settings)
 
@@ -29,21 +30,24 @@
 - `drift = amount − computedBalance`. У самого раннего чекпоинта оба поля `null`.
 - Два чекпоинта в один день: интервал пуст → computed = prev.amount (вырожденно, но корректно).
 - `BalanceCheckpointDto` += `computedBalance`, `drift` (nullable). `BalanceCheckpointService` получает `FinancialEventRepository`.
-- Settings-история: бейдж дрейфа у каждой строки («дрейф −3 200» danger / «+500» success / «0 ₽» muted), у早шего — нет.
+- Выборка фактов для всей цепочки — ОДИН range-запрос (`findAllByDeletedFalseAndDateBetween(earliest, latest)`) с раскладкой по интервалам в памяти, не N−1 запросов. НЕ переиспользовать `sumFactByTypeBetween` — в нём нет фильтра `wishlistStatus IS NULL`.
+- **Детерминизм при дубле дня (ре-якорь дважды за день — типовой кейс «исправил опечатку»):** во всех запросах выбора якоря и в порядке цепочки — tiebreak `createdAt DESC`: `findTopByOrderByDateDesc`, `findTopByDateLessThanEqualOrderByDateDesc`, `findAllByOrderByDateDesc` дополняются `createdAt DESC`. Последняя запись дня побеждает; интервал между двумя записями одного дня пуст → drift = разница правок.
+- Settings-история: бейдж дрейфа у каждой строки («дрейф −3 200» danger / «+500» success / «0 ₽» muted), у самого раннего — нет.
 
 ## 5. Семантика дня чекпоинта (фикс задвоения, §3.3 спеки кармашка)
 
 **Правило:** сумма чекпоинта = «число из банка на конец дня его даты», т.е. операции этого дня УЖЕ внутри. В расчёты входят факты **строго после** даты чекпоинта.
 
 - `PocketEngine.calculate` шаг 1: skip фактов с `date <= checkpointDate` (сейчас `< checkpointDate`).
-- `CapitalService` (liquidAt и связанные): диапазон фактов `[checkpoint.date, t]` → `(checkpoint.date, t]`. Формулы движутся синхронно (Javadoc-конвенция).
+- `CapitalService` (liquidAt и связанные): диапазон фактов `[checkpoint.date, t]` → `(checkpoint.date, t]`. Механизм: сменить границу в самом запросе `sumFactByTypeBetween` (`>= :from` → `> :from`) — CapitalService его единственный потребитель; call-site с EPOCH-сентинелом не трогается. Формулы движутся синхронно (Javadoc-конвенция). Известное ДО-существующее расхождение (wishlist-факты: Pocket фильтрует, Capital нет) — за скоупом, не расширяем.
 - `AnalyticsService` НЕ трогаем: его bridge кормит мёртвый cashFlow-расчёт (удаляется в ANO-23) — синхронизировать мертвеца незачем; зафиксировано здесь.
 - Осознанное следствие: у пользователей с фактами, датированными днём чекпоинта, числа сместятся (перестанут задваиваться). Спека кармашка §3.3 при мерже помечается как решённая.
 - Ограничение v1: факт, записанный ПОЗЖЕ ре-якоря в тот же день, в баланс не попадёт (дата = дню якоря). Внутридневная timestamp-семантика — сознательно за скоупом; практическое правило «ре-якорь — последним действием дня» упоминается в подсказке шторки.
 
 ## 6. Валидация и мелочи (бэк)
 
-- `POST/PUT /balance-checkpoints`: дата в будущем → 400 (сервисная проверка; у Кирилла в базе реально жил чекпоинт из будущего, молча глушивший факты).
+- Дата в будущем УЖЕ отбивается: `@PastOrPresent` на `BalanceCheckpointCreateDto.date` живёт в main (покрыто тестами) — новой работы нет, сервисный дубль не делаем. Будущая строка в базе Кирилла (12.05, создана 05.05) уже в прошлом — чистка не нужна.
+- Таймзона «сегодня»: клиент шлёт браузерное сегодня, `@PastOrPresent` мерит серверными часами. Для single-user на локальной машине зоны совпадают — принято как есть; пересмотреть при продакшн-деплое (зафиксировано, не делаем).
 - `PocketResultDto` += `checkpointDate` (nullable LocalDate) — типизированный источник для напоминалки (сейчас дата живёт только внутри label-строки breakdown).
 - Hard delete чекпоинтов остаётся как есть (аудит — за скоупом).
 
@@ -56,11 +60,11 @@
 ## 8. Карта реализации и тестов
 
 Бэк (TDD, порядок):
-1. `PocketEngineTest`: факт В день чекпоинта не считается (красный на текущем `<`); правка `PocketEngine` шаг 1; ревизия существующих фикстур с фактами в день чекпоинта (`factDisplacesPlan` и др.) — даты фактов сдвинуть на +1 день, чтобы тесты проверяли то же самое при новой семантике.
+1. `PocketEngineTest`: факт В день чекпоинта не считается (красный на текущем `<`); правка `PocketEngine` шаг 1; ревизия фикстур с фактами в день чекпоинта (`factDisplacesPlan`, `legacyFundTransfer…`): двигать НЕ даты фактов (+1 день унесёт их за asOfDate — другая ветка фильтра), а `checkpointDate` билдера назад (`TODAY.minusDays(1)`, новый метод билдера) — тесты продолжают проверять то же самое.
 2. `CapitalServiceLiquidTest`: та же граница; правка диапазона в `CapitalService`.
-3. `BalanceCheckpointServiceTest` (новый): drift-цепочка из 3 чекпоинтов с фактами между (включая факт в день cur — входит; в день prev — не входит; wishlist-факт — игнор); самый ранний → null; будущая дата create/update → исключение.
-4. `PocketService`/`PocketEngine`: прокинуть `checkpointDate` в `PocketResultDto`; `PocketControllerIT` contract-строка.
-5. `BalanceCheckpointControllerIT`: POST будущей даты → 400; GET несёт `computedBalance`/`drift` (дельта-стиль, независимо от seed-данных: создать 2 чекпоинта + факт между, проверить drift, прибрать за собой).
+3. `BalanceCheckpointServiceTest` (новый): drift-цепочка из 3 чекпоинтов с фактами между (включая факт в день cur — входит; в день prev — не входит; wishlist-факт — игнор); самый ранний → null; дубль дня → якорь = поздний createdAt, drift между дублями = разница правок.
+4. `PocketService`/`PocketEngine`: прокинуть `checkpointDate` в `PocketResultDto`; `PocketControllerIT` contract-строка через `hasJsonPath()` (в IT-базе чекпоинтов нет → null; чекпоинт «сегодня» в этом классе НЕ создавать — заглушит факт-сегодня сценария ano6, общий контейнер).
+5. `BalanceCheckpointControllerIT`: GET несёт `computedBalance`/`drift` (дельта-стиль: создать 2 чекпоинта в прошлом + факт между, проверить drift, прибрать за собой).
 
 Фронт:
 6. `lib/reanchor.ts` + vitest: `checkpointAgeDays(checkpointDate, today)`, `buildDriftPreview(entered, computed, ageDays)` → строки зеркала (включая 0-дрейф и «первый якорь» без computed).
