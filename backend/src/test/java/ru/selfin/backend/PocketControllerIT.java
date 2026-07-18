@@ -270,6 +270,7 @@ class PocketControllerIT {
                 .andExpect(jsonPath("$.pocket").exists())
                 .andExpect(jsonPath("$.currentBalance").exists())
                 .andExpect(jsonPath("$.buffer").exists())
+                .andExpect(jsonPath("$.checkpointDate").hasJsonPath()) // null в этой базе — якоря нет
                 .andExpect(jsonPath("$.horizon.type").exists())
                 .andExpect(jsonPath("$.horizon.endDate").exists())
                 .andExpect(jsonPath("$.horizon.label").exists())
