@@ -252,6 +252,20 @@ export default function Settings() {
                                         <span className="text-xs ml-2" style={{ color: 'var(--color-text-muted)' }}>
                                             на {fmtDate(cp.date)}
                                         </span>
+                                        {/* Дрейф интервала (ANO-15): незаписанные потоки с прошлого якоря */}
+                                        {cp.drift != null && (
+                                            <span className="text-xs ml-2 px-1.5 py-0.5 rounded-full"
+                                                title={`selfin насчитал ${fmtAmount(cp.computedBalance ?? 0)} ₽ от прошлого якоря`}
+                                                style={{
+                                                    color: cp.drift < 0 ? 'var(--color-danger)'
+                                                        : cp.drift > 0 ? 'var(--color-success)'
+                                                        : 'var(--color-text-muted)',
+                                                    background: 'var(--color-surface-2)',
+                                                    fontSize: '10px',
+                                                }}>
+                                                дрейф {cp.drift > 0 ? '+' : ''}{fmtAmount(cp.drift)} ₽
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="flex gap-1">
                                         <button onClick={() => startEdit(cp)}
