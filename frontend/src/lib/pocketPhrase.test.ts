@@ -9,6 +9,7 @@ function make(overrides: Partial<PocketResponse> = {}): PocketResponse {
         pocket: 36000,
         currentBalance: 80000,
         buffer: 0,
+        checkpointDate: '2026-07-01',
         horizon: { type: 'NEXT_INCOME', endDate: '2026-07-15', label: 'до дохода 15.07', fallback: false },
         minPoint: { date: '2026-07-12', balance: 36000, drivenBy: 'Страховка' },
         breakdown: [],

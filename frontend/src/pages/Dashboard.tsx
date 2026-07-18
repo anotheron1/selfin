@@ -196,7 +196,7 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
             {/* Hero: кармашек — единый ответ из GET /pocket (ANO-12/13).
                 Старые «Текущий баланс» + зарплатные горизонты DashboardService удалены:
                 расчёт расходился с кармашком (см. флаг в ANO-12). */}
-            <PocketCard onData={setPocket} refreshSignal={refreshSignal} />
+            <PocketCard onData={setPocket} refreshSignal={refreshSignal} onReanchor={loadAll} />
 
             {/* События сегодня */}
             {todayEvents.length > 0 && (

@@ -9,6 +9,8 @@ public record PocketResultDto(
         BigDecimal pocket,
         BigDecimal currentBalance,
         BigDecimal buffer,
+        /** Дата последнего якоря остатка; null — якоря ещё не было (ANO-15: напоминалка возраста). */
+        LocalDate checkpointDate,
         Horizon horizon,
         MinPoint minPoint,
         List<BreakdownLine> breakdown,

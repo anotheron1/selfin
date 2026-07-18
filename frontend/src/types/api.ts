@@ -146,6 +146,8 @@ export interface PocketResponse {
     pocket: number;
     currentBalance: number;
     buffer: number;
+    /** Дата последнего якоря остатка; null — якоря ещё не было (ANO-15). */
+    checkpointDate: string | null;
     horizon: { type: PocketScopeType; endDate: string; label: string; fallback: boolean };
     minPoint: { date: string; balance: number; drivenBy: string | null };
     breakdown: { type: BreakdownType; label: string; amount: number; details: string[] }[];
@@ -262,6 +264,10 @@ export interface BalanceCheckpoint {
     date: string;        // YYYY-MM-DD
     amount: number;
     createdAt: string;
+    /** Что selfin насчитал на эту дату от предыдущего якоря; null у самого раннего (ANO-15). */
+    computedBalance: number | null;
+    /** amount − computedBalance: незаписанные потоки интервала; null у самого раннего. */
+    drift: number | null;
 }
 
 export interface BalanceCheckpointCreateDto {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { HelpCircle, Wallet } from 'lucide-react';
+import { HelpCircle, Pencil, Wallet } from 'lucide-react';
 import { fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
 import { buildPocketPhrase } from '../lib/pocketPhrase';
+import { buildAgeHint } from '../lib/reanchor';
+import ReanchorSheet from './pocket/ReanchorSheet';
 import type { PocketResponse } from '../types/api';
 
 const SCOPES: { key: string | undefined; label: string }[] = [
@@ -16,14 +18,17 @@ const SCOPES: { key: string | undefined; label: string }[] = [
  * Кармашек: одно число + «почему столько» (breakdown из GET /pocket).
  * Минимальный UI по спеке ANO-12 §8.2; полноценная подача — ANO-13/14.
  */
-export default function PocketCard({ onData, refreshSignal }: {
+export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     onData?: (p: PocketResponse) => void;
     refreshSignal?: number;
+    /** Зовётся после успешного ре-якоря — страница может обновить свои данные (сторож и т.п.). */
+    onReanchor?: () => void;
 }) {
     const [scope, setScope] = useState<string | undefined>(undefined);
     const [data, setData] = useState<PocketResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showWhy, setShowWhy] = useState(false);
+    const [showReanchor, setShowReanchor] = useState(false);
 
     const load = useCallback(() => {
         fetchPocket(scope)
@@ -55,7 +60,24 @@ export default function PocketCard({ onData, refreshSignal }: {
                     {data && (
                         <>
                             <p className="text-3xl font-bold text-white">{fmtC(data.pocket)}</p>
-                            <p className="text-xs text-white/60 mt-0.5">на счёте {fmtC(data.currentBalance)}</p>
+                            {/* Ре-якорь (ANO-15): тап по остатку → шторка с одним полем */}
+                            <button onClick={() => setShowReanchor(true)}
+                                className="text-xs text-white/60 mt-0.5 flex items-center gap-1 hover:text-white/90 transition-colors"
+                                aria-label="Обновить остаток">
+                                на счёте {fmtC(data.currentBalance)}
+                                <Pencil size={11} />
+                            </button>
+                            {(() => {
+                                const t = new Date();
+                                const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+                                const hint = buildAgeHint(data.checkpointDate, todayIso);
+                                return hint && (
+                                    <button onClick={() => setShowReanchor(true)}
+                                        className="text-[11px] text-white/50 hover:text-white/80 transition-colors text-left">
+                                        {hint}
+                                    </button>
+                                );
+                            })()}
                             <p className="text-sm text-white/85 mt-2 leading-snug">{buildPocketPhrase(data)}</p>
 
                             <div className="flex gap-1.5 mt-3">
@@ -101,6 +123,16 @@ export default function PocketCard({ onData, refreshSignal }: {
                     )}
                 </div>
             </div>
+
+            {data && (
+                <ReanchorSheet
+                    open={showReanchor}
+                    onOpenChange={setShowReanchor}
+                    currentBalance={data.currentBalance}
+                    checkpointDate={data.checkpointDate}
+                    onSuccess={() => { load(); onReanchor?.(); }}
+                />
+            )}
         </div>
     );
 }
