@@ -50,12 +50,14 @@ public final class PocketEngine {
     private PocketEngine() {}
 
     public static PocketResultDto calculate(PocketInput in) {
-        // 1. Текущий баланс: checkpoint + факты (правило §3.2) от даты чекпоинта до asOfDate.
+        // 1. Текущий баланс: checkpoint + факты (правило §3.2) СТРОГО ПОСЛЕ даты чекпоинта
+        //    по asOfDate: сумма якоря — «число из банка на конец его дня», операции дня
+        //    чекпоинта уже внутри (ANO-15 §5, закрывает задвоение из §3.3).
         BigDecimal currentBalance = in.checkpointAmount();
         for (EventSnapshot e : in.events()) {
             if (e.wishlistStatus() != null || e.factAmount() == null || e.date() == null) continue;
             if (e.date().isAfter(in.asOfDate())) continue;
-            if (in.checkpointDate() != null && e.date().isBefore(in.checkpointDate())) continue;
+            if (in.checkpointDate() != null && !e.date().isAfter(in.checkpointDate())) continue;
             currentBalance = currentBalance.add(signed(e.type(), e.factAmount()));
         }
 
@@ -165,7 +167,7 @@ public final class PocketEngine {
         List<PocketResultDto.BreakdownLine> breakdown = buildBreakdown(in, currentBalance, overdue,
                 expensesAtMin, incomeAtMin, forecastAtMin, minBalance, minDate, buffer, pocket, candidates);
 
-        return new PocketResultDto(pocket, currentBalance, buffer,
+        return new PocketResultDto(pocket, currentBalance, buffer, in.checkpointDate(),
                 new PocketResultDto.Horizon(in.scope().type(), in.horizonEnd(),
                         horizonLabel(in), in.fallbackKind() != FallbackKind.NONE),
                 new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),

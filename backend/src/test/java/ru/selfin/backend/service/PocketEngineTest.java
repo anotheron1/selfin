@@ -91,6 +91,7 @@ class PocketEngineTest {
             this.scope = new PocketScope(PocketScope.Type.MONTHS, n, null); this.horizonEnd = end; return this;
         }
         PocketInputBuilder noCheckpoint() { this.checkpoint = BigDecimal.ZERO; this.checkpointDate = null; return this; }
+        PocketInputBuilder checkpointDate(LocalDate d) { this.checkpointDate = d; return this; }
         PocketInputBuilder fallback() { this.fallback = FallbackKind.NO_INCOMES; return this; }
         PocketInputBuilder fallback(FallbackKind kind) { this.fallback = kind; return this; }
         PocketInputBuilder secondIncomeScope(LocalDate end) {
@@ -127,7 +128,8 @@ class PocketEngineTest {
     @Test
     @DisplayName("Факт вытесняет план: PLAN(EXECUTED) пропущен, FACT посчитан")
     void factDisplacesPlan() {
-        PocketInput in = base()
+        // Чекпоинт вчера: факты СЕГОДНЯ считаются поверх него (§5 ANO-15)
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
                 .events(executedPlan(EventType.INCOME, LocalDate.of(2026, 3, 1), 100_000),
                         fact(EventType.INCOME, LocalDate.of(2026, 3, 1), 95_000))
                 .build();
@@ -138,10 +140,20 @@ class PocketEngineTest {
     @Test
     @DisplayName("Легаси FUND_TRANSFER (PLAN + factAmount) учтён как факт")
     void legacyFundTransferCountedAsFact() {
-        PocketInput in = base()
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
                 .events(legacyTransfer(LocalDate.of(2026, 3, 1), 3_000))
                 .build();
         assertThat(PocketEngine.calculate(in).currentBalance()).isEqualByComparingTo(dec(7_000));
+    }
+
+    @Test
+    @DisplayName("Факт В ДЕНЬ чекпоинта не считается: сумма якоря уже содержит операции дня (ANO-15 §5)")
+    void factOnCheckpointDay_notDoubleCounted() {
+        // Чекпоинт = TODAY (дефолт билдера); факт тем же днём должен быть внутри якоря
+        PocketInput in = base()
+                .events(fact(EventType.EXPENSE, TODAY, 4_000))
+                .build();
+        assertThat(PocketEngine.calculate(in).currentBalance()).isEqualByComparingTo(dec(10_000));
     }
 
     // ── просрочка ────────────────────────────────────────────────────────────

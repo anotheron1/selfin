@@ -38,18 +38,17 @@ import java.util.UUID;
  * <pre>
  *   liquid(t) = AccountBalance(t) + Σ FundBalance(t)
  *   AccountBalance(t) = checkpoint(≤t).amount
- *                     + Σ INCOME факт events ∈ [checkpoint.date, t]
- *                     − Σ EXPENSE факт events ∈ [checkpoint.date, t]
- *                     − Σ FUND_TRANSFER факт events ∈ [checkpoint.date, t]
+ *                     + Σ INCOME факт events ∈ (checkpoint.date, t]
+ *                     − Σ EXPENSE факт events ∈ (checkpoint.date, t]
+ *                     − Σ FUND_TRANSFER факт events ∈ (checkpoint.date, t]
  *   Σ FundBalance(t) = Σ FundTransaction.amount, transaction_date ≤ t, не deleted
  * </pre>
  *
- * <p>Диапазон событий начинается от {@code checkpoint.date} включительно — это
- * соответствует конвенции расчёта баланса в {@link PocketEngine} и гарантирует,
+ * <p>Диапазон событий начинается СТРОГО ПОСЛЕ {@code checkpoint.date} (ANO-15 §5:
+ * сумма якоря — «число из банка на конец его дня», операции дня чекпоинта уже внутри) —
+ * это соответствует конвенции расчёта баланса в {@link PocketEngine} и гарантирует,
  * что Capital и кармашек показывают одно и то же значение жидкой части.
- * Если когда-нибудь окажется, что чекпоинт хранит баланс на конец дня (то есть события
- * этой даты в нём уже учтены) — нужно будет одновременно сдвинуть и эту, и
- * {@link PocketEngine} формулы на {@code +1 day} (наследуемая неоднозначность, решается в ANO-15).
+ * Граница живёт в запросе {@code sumFactByTypeBetween} ({@code date > :from}).
  */
 @Service
 @RequiredArgsConstructor
