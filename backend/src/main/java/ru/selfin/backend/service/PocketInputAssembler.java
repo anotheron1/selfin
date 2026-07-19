@@ -3,6 +3,7 @@ package ru.selfin.backend.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -13,9 +14,9 @@ import ru.selfin.backend.dto.pocket.FallbackKind;
 import ru.selfin.backend.dto.pocket.PocketInput;
 import ru.selfin.backend.dto.pocket.PocketScope;
 import ru.selfin.backend.dto.pocket.SandboxRef;
-import org.springframework.data.domain.Pageable;
 import ru.selfin.backend.dto.pocket.SyntheticKind;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.FundPurchaseType;
@@ -122,11 +123,15 @@ public class PocketInputAssembler {
                 .stream().map(EventSnapshot::from).toList());
 
         // Операциональные refs baseline (§9 sandbox): датированные FIXED-неконвертированные
-        // события-хотелки, реально сидящие в траектории.
+        // события-хотелки, реально сидящие в траектории. Фильтр обязан зеркалить движковый
+        // isPendingPlan + allowedInTrajectory: событие с фактом в траекторию не попадает,
+        // значит и в baselineRefs ему нельзя (иначе exclude чанка 2 «вернёт» несуществующее).
         Map<SandboxRef, List<EventSnapshot>> baselineRefs = new LinkedHashMap<>();
         events.stream()
                 .filter(e -> e.wishlistStatus() == WishlistStatus.FIXED
-                        && !e.converted() && e.date() != null && e.date().isAfter(asOfDate))
+                        && !e.converted() && e.date() != null && e.date().isAfter(asOfDate)
+                        && e.factAmount() == null && e.eventKind() == EventKind.PLAN
+                        && e.status() == ru.selfin.backend.model.enums.EventStatus.PLANNED)
                 .forEach(e -> baselineRefs.put(SandboxRef.event(e.id()), List.of(e)));
 
         // 2а. Резервирование датированных FIXED-копилок (спека sandbox §6): SAVINGS,
