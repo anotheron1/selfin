@@ -11,6 +11,7 @@ import ru.selfin.backend.dto.pocket.PocketScope;
 import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -22,7 +23,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-/** Тесты сборки входа: разрешение горизонта, кап 92 дня, маппинг ошибок на 400. */
+/**
+ * Тесты сборки входа: разрешение горизонта, кап 92 дня, маппинг ошибок на 400.
+ * Идут end-to-end через публичный API PocketService → PocketInputAssembler → PocketEngine
+ * (после выделения ассемблера, ANO-16 §3, покрытие сохранено как было).
+ */
 class PocketServiceTest {
 
     private FinancialEventRepository eventRepository;
@@ -50,9 +55,12 @@ class PocketServiceTest {
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
+        TargetFundRepository fundRepository = mock(TargetFundRepository.class);
+        when(fundRepository.findByWishlistStatusAndDeletedFalse(any())).thenReturn(List.of());
 
-        pocketService = new PocketService(eventRepository, checkpointRepository,
-                settingsService, predictionService, recurringRuleService);
+        pocketService = new PocketService(new PocketInputAssembler(eventRepository,
+                checkpointRepository, settingsService, predictionService, recurringRuleService,
+                fundRepository));
     }
 
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */

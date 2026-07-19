@@ -59,6 +59,13 @@ class PocketEngineTest {
                 EventStatus.PLANNED, Priority.LOW, dec(amount), null, st, converted, "хотелка");
     }
 
+    /** Синтетический взнос в копилку (ANO-16 §6): id null, syntheticKind задан. */
+    private static EventSnapshot contribution(LocalDate date, long amount, String fundName) {
+        return new EventSnapshot(null, date, EventType.EXPENSE, EventKind.PLAN, EventStatus.PLANNED,
+                Priority.MEDIUM, dec(amount), null, null, false, fundName,
+                ru.selfin.backend.dto.pocket.SyntheticKind.SAVINGS_CONTRIBUTION);
+    }
+
     private static BigDecimal dec(long v) { return BigDecimal.valueOf(v); }
 
     private static PocketInputBuilder base() { return PocketInputBuilder.create(); }
@@ -464,5 +471,68 @@ class PocketEngineTest {
                 .fallback(FallbackKind.NO_INCOMES).build());
         assertThat(r.horizon().fallback()).isTrue();
         assertThat(r.horizon().label()).isEqualTo("30 дней вперёд (нет плановых доходов)");
+    }
+
+    // ── взносы в копилки (ANO-16 §6) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("Взносы в копилки: режут траекторию, отдельная строка breakdown, не в PLANNED_EXPENSES")
+    void savingsContributions_separateBreakdownLine() {
+        // 10 000 на 1.03; расход 2 000 5.03; взнос «Египет» 5 000 10.03; горизонт 15.03
+        PocketResultDto r = PocketEngine.calculate(base()
+                .events(plan(EventType.EXPENSE, LocalDate.of(2026, 3, 5), 2_000, Priority.MEDIUM),
+                        contribution(LocalDate.of(2026, 3, 10), 5_000, "Египет"))
+                .build());
+
+        assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 10));
+        assertThat(r.minPoint().balance()).isEqualByComparingTo("3000");
+        assertThat(r.minPoint().drivenBy()).isEqualTo("Египет");
+
+        PocketResultDto.BreakdownLine contrib = line(r, BreakdownType.SAVINGS_CONTRIBUTIONS);
+        assertThat(contrib.amount()).isEqualByComparingTo("-5000");
+        assertThat(contrib.label()).isEqualTo("Взносы в копилки (1 шт)");
+        assertThat(contrib.details()).containsExactly("Египет");
+
+        assertThat(line(r, BreakdownType.PLANNED_EXPENSES).amount()).isEqualByComparingTo("-2000");
+        assertThat(r.pocket()).isEqualByComparingTo("3000");
+    }
+
+    @Test
+    @DisplayName("Взносы: инвариант breakdown с новой строкой сходится в MIN")
+    void savingsContributions_breakdownInvariantHolds() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .events(plan(EventType.EXPENSE, LocalDate.of(2026, 3, 3), 1_500, Priority.MEDIUM),
+                        plan(EventType.INCOME, LocalDate.of(2026, 3, 4), 4_000, Priority.MEDIUM),
+                        contribution(LocalDate.of(2026, 3, 6), 2_000, "Египет"),
+                        contribution(LocalDate.of(2026, 3, 12), 3_000, "Горнолыжка"))
+                .forecast(900, "Продукты")
+                .build());
+
+        // STARTING − EXPENSES − CONTRIB + INCOME − FORECAST(≤min) = MIN
+        BigDecimal starting = line(r, BreakdownType.STARTING_BALANCE).amount();
+        BigDecimal expenses = line(r, BreakdownType.PLANNED_EXPENSES).amount();
+        BigDecimal contrib = line(r, BreakdownType.SAVINGS_CONTRIBUTIONS).amount();
+        BigDecimal income = line(r, BreakdownType.PLANNED_INCOME).amount();
+        BigDecimal forecast = line(r, BreakdownType.UNPLANNED_FORECAST).amount();
+        assertThat(starting.add(expenses).add(contrib).add(income).add(forecast))
+                .isEqualByComparingTo(r.minPoint().balance());
+        assertThat(line(r, BreakdownType.SAVINGS_CONTRIBUTIONS).label())
+                .isEqualTo("Взносы в копилки (2 шт)");
+        assertThat(line(r, BreakdownType.SAVINGS_CONTRIBUTIONS).details())
+                .containsExactly("Египет", "Горнолыжка");
+    }
+
+    @Test
+    @DisplayName("Взносы ПОСЛЕ минимума не входят в строку (суммы-до-минимума)")
+    void savingsContributions_afterMinExcludedFromLine() {
+        // Минимум создаётся расходом 8 000 5.03; взнос 10.03 идёт ПОСЛЕ дохода 8.03
+        PocketResultDto r = PocketEngine.calculate(base()
+                .events(plan(EventType.EXPENSE, LocalDate.of(2026, 3, 5), 8_000, Priority.MEDIUM),
+                        plan(EventType.INCOME, LocalDate.of(2026, 3, 8), 50_000, Priority.MEDIUM),
+                        contribution(LocalDate.of(2026, 3, 10), 5_000, "Египет"))
+                .build());
+
+        assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 5));
+        assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.SAVINGS_CONTRIBUTIONS);
     }
 }

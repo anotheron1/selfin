@@ -345,15 +345,10 @@ public class WishlistSimulationService {
         // Defensive: a malformed credit with non-positive term would divide by zero below.
         if (termMonths <= 0) return new CreditResult(List.of(), BigDecimal.ZERO);
 
+        // Единственная формула PMT в проекте — SandboxLayout.monthlyPmt (ANO-16 §5).
         double monthlyRate = annualRatePct.doubleValue() / 100.0 / 12.0;
-        double pmtRaw;
-        if (monthlyRate == 0.0) {
-            pmtRaw = amount.doubleValue() / termMonths;
-        } else {
-            double f = Math.pow(1 + monthlyRate, termMonths);
-            pmtRaw = amount.doubleValue() * monthlyRate * f / (f - 1);
-        }
-        BigDecimal pmt = BigDecimal.valueOf(pmtRaw).setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal pmt = SandboxLayout.monthlyPmt(amount, annualRatePct, termMonths);
+        double pmtRaw = pmt.doubleValue();
 
         List<MonthDeltaDto> out = new ArrayList<>();
         // purchaseIdx is guaranteed in [0, horizonMonths) by the guard above.
