@@ -22,7 +22,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-/** Тесты сборки входа: разрешение горизонта, кап 92 дня, маппинг ошибок на 400. */
+/**
+ * Тесты сборки входа: разрешение горизонта, кап 92 дня, маппинг ошибок на 400.
+ * Идут end-to-end через публичный API PocketService → PocketInputAssembler → PocketEngine
+ * (после выделения ассемблера, ANO-16 §3, покрытие сохранено как было).
+ */
 class PocketServiceTest {
 
     private FinancialEventRepository eventRepository;
@@ -51,8 +55,8 @@ class PocketServiceTest {
         when(predictionService.forecastFromEvents(any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
 
-        pocketService = new PocketService(eventRepository, checkpointRepository,
-                settingsService, predictionService, recurringRuleService);
+        pocketService = new PocketService(new PocketInputAssembler(eventRepository,
+                checkpointRepository, settingsService, predictionService, recurringRuleService));
     }
 
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */
