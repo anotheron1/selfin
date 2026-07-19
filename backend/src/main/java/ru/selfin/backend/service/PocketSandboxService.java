@@ -66,14 +66,23 @@ public class PocketSandboxService {
         PocketResultDto baseline = PocketEngine.calculate(base.input());
 
         // ── валидация §9 ────────────────────────────────────────────────────
-        Set<SandboxRef> excludeSet = new HashSet<>(req.exclude());
-        for (SandboxRef ref : excludeSet) {
+        // Дубликаты refs отвергаются: повтор в exclude задваивал бы положительный вектор
+        // (ломая префикс-инвариант §4), повтор в tryOn — молча задваивал бы элемент.
+        Set<SandboxRef> excludeSet = new java.util.LinkedHashSet<>();
+        for (SandboxRef ref : req.exclude()) {
+            if (!excludeSet.add(ref)) {
+                throw badRequest("дубликат ref в exclude: " + ref.id());
+            }
             if (!base.baselineRefs().containsKey(ref)) {
                 throw badRequest("exclude ref не сидит в baseline: " + ref.id());
             }
         }
         List<ResolvedTryOn> tryOns = new ArrayList<>();
+        Set<SandboxRef> seenTryOnRefs = new HashSet<>();
         for (TryOnDto t : req.tryOn()) {
+            if (t.ref() != null && !seenTryOnRefs.add(t.ref())) {
+                throw badRequest("дубликат ref в tryOn: " + t.ref().id());
+            }
             tryOns.add(validateTryOn(t, base, excludeSet, asOfDate));
         }
 
@@ -141,6 +150,7 @@ public class PocketSandboxService {
             if (t.creditRate() == null || t.creditTermMonths() == null || t.creditTermMonths() < 1) {
                 throw badRequest("кредиту нужны ставка и срок ≥ 1");
             }
+            if (t.creditRate().signum() < 0) throw badRequest("ставка не может быть отрицательной");
         } else if (stretch >= 1) {
             int max = SandboxLayout.maxStretchMonths(asOfDate, t.date());
             if (stretch > max) {

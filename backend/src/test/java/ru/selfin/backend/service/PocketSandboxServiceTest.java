@@ -78,7 +78,7 @@ class PocketSandboxServiceTest {
                 .monthsScope(3, LocalDate.of(2026, 6, 1));
     }
 
-    private static EventSnapshot contribution(UUID sourceless, LocalDate date, long amount, String name) {
+    private static EventSnapshot contribution(LocalDate date, long amount, String name) {
         return new EventSnapshot(null, date, EventType.EXPENSE, EventKind.PLAN, EventStatus.PLANNED,
                 Priority.MEDIUM, BigDecimal.valueOf(amount), null, null, false, name,
                 SyntheticKind.SAVINGS_CONTRIBUTION);
@@ -210,8 +210,8 @@ class PocketSandboxServiceTest {
     void excludeFixedFund_returnsMoney() {
         UUID fundId = UUID.randomUUID();
         List<EventSnapshot> contribs = List.of(
-                contribution(fundId, LocalDate.of(2026, 3, 20), 16_000, "Горнолыжка"),
-                contribution(fundId, LocalDate.of(2026, 4, 20), 16_000, "Горнолыжка"));
+                contribution(LocalDate.of(2026, 3, 20), 16_000, "Горнолыжка"),
+                contribution(LocalDate.of(2026, 4, 20), 16_000, "Горнолыжка"));
         List<EventSnapshot> events = new ArrayList<>(contribs);
         assembled(base().events(events.toArray(EventSnapshot[]::new)).build(),
                 Map.of(SandboxRef.fund(fundId), contribs));
@@ -233,8 +233,8 @@ class PocketSandboxServiceTest {
     void retuneFixed_excludePlusTryOn() {
         UUID fundId = fixedSavingsFundInRepo("Горнолыжка", 80_000, 0, LocalDate.of(2026, 5, 20));
         List<EventSnapshot> contribs = List.of(
-                contribution(fundId, LocalDate.of(2026, 4, 1), 40_000, "Горнолыжка"),
-                contribution(fundId, LocalDate.of(2026, 5, 1), 40_000, "Горнолыжка"));
+                contribution(LocalDate.of(2026, 4, 1), 40_000, "Горнолыжка"),
+                contribution(LocalDate.of(2026, 5, 1), 40_000, "Горнолыжка"));
         assembled(base().events(contribs.toArray(EventSnapshot[]::new)).build(),
                 Map.of(SandboxRef.fund(fundId), contribs));
 
@@ -329,7 +329,7 @@ class PocketSandboxServiceTest {
                 EventStatus.PLANNED, Priority.LOW, new BigDecimal("8500"), null,
                 WishlistStatus.OPEN, false, "Рюкзак");
         List<EventSnapshot> contribs = List.of(
-                contribution(fundId, LocalDate.of(2026, 4, 1), 30_000, "Горнолыжка"));
+                contribution(LocalDate.of(2026, 4, 1), 30_000, "Горнолыжка"));
         assembled(base().wishlist(candidate).events(contribs.toArray(EventSnapshot[]::new)).build(),
                 Map.of(SandboxRef.fund(fundId), contribs));
 
@@ -422,7 +422,7 @@ class PocketSandboxServiceTest {
     void validation_doubleCountAndForeignExclude() {
         UUID fundId = fixedSavingsFundInRepo("Горнолыжка", 80_000, 0, LocalDate.of(2026, 5, 20));
         List<EventSnapshot> contribs = List.of(
-                contribution(fundId, LocalDate.of(2026, 4, 1), 40_000, "Горнолыжка"));
+                contribution(LocalDate.of(2026, 4, 1), 40_000, "Горнолыжка"));
         assembled(base().events(contribs.toArray(EventSnapshot[]::new)).build(),
                 Map.of(SandboxRef.fund(fundId), contribs));
 
@@ -438,5 +438,31 @@ class PocketSandboxServiceTest {
     void validation_scope() {
         assembled(base().build(), Map.of());
         expect400(new SandboxRequestDto("GARBAGE", List.of(), List.of()));
+    }
+
+    @Test
+    @DisplayName("400: дубликаты refs в exclude и в tryOn (ревью PR B, findings 1-2)")
+    void validation_duplicateRefs() {
+        UUID fundId = fixedSavingsFundInRepo("Горнолыжка", 80_000, 0, LocalDate.of(2026, 5, 20));
+        List<EventSnapshot> contribs = List.of(
+                contribution(LocalDate.of(2026, 4, 1), 40_000, "Горнолыжка"));
+        assembled(base().events(contribs.toArray(EventSnapshot[]::new)).build(),
+                Map.of(SandboxRef.fund(fundId), contribs));
+
+        // дубликат в exclude задваивал бы положительный вектор → инвариант §4 ломался бы
+        expect400(req(List.of(), List.of(SandboxRef.fund(fundId), SandboxRef.fund(fundId))));
+        // дубликат ref в tryOn молча задваивал бы элемент (обход защиты §9)
+        UUID openId = openEventInRepo("Рюкзак");
+        TryOnDto t = new TryOnDto(SandboxRef.event(openId), new BigDecimal("8500"),
+                LocalDate.of(2026, 4, 10), null, null, null);
+        expect400(req(List.of(t, t), List.of()));
+    }
+
+    @Test
+    @DisplayName("400: отрицательная кредитная ставка")
+    void validation_negativeCreditRate() {
+        assembled(base().build(), Map.of());
+        expect400(req(List.of(new TryOnDto(null, new BigDecimal("100"),
+                LocalDate.of(2026, 5, 20), null, new BigDecimal("-1"), 12)), List.of()));
     }
 }

@@ -98,6 +98,34 @@ class WishlistConversionServiceTest {
     }
 
     @Test
+    void convert_fundToFund_fundTargetDateOverridesToo() {
+        // Зеркальный кейс: fund-source ветка тоже уважает переопределение даты цели
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder()
+                .id(id).name("Горнолыжка")
+                .targetAmount(new BigDecimal("80000"))
+                .targetDate(LocalDate.now().plusMonths(6))
+                .purchaseType(FundPurchaseType.SAVINGS)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        when(fundRepo.save(any())).thenAnswer(i -> {
+            TargetFund f = i.getArgument(0);
+            if (f.getId() == null) f.setId(UUID.randomUUID());
+            return f;
+        });
+
+        LocalDate override = LocalDate.now().plusMonths(2);
+        service.convertItem(id,
+                new ConvertWishlistRequestDto("SAVINGS", "FUND", false, override));
+
+        ArgumentCaptor<TargetFund> cap = ArgumentCaptor.forClass(TargetFund.class);
+        verify(fundRepo, atLeast(1)).save(cap.capture());
+        assertThat(cap.getAllValues()).anySatisfy(f ->
+                assertThat(f.getTargetDate()).isEqualTo(override));
+    }
+
+    @Test
     void convert_alreadyConverted_throws409() {
         UUID id = UUID.randomUUID();
         FinancialEvent src = openWishlist(id);
