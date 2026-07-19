@@ -14,8 +14,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.FundPurchaseType;
+import ru.selfin.backend.model.enums.FundStatus;
+import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.RecurringRuleRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -44,6 +49,7 @@ class PocketControllerIT {
     @Autowired ObjectMapper objectMapper;
     @Autowired FinancialEventRepository eventRepo;
     @Autowired RecurringRuleRepository ruleRepo;
+    @Autowired TargetFundRepository fundRepo;
     @Autowired PlatformTransactionManager txManager;
 
     private static final DateTimeFormatter DD_MM = DateTimeFormatter.ofPattern("dd.MM");
@@ -324,6 +330,67 @@ class PocketControllerIT {
                                 {"bufferAmount": 0}
                                 """))
                 .andExpect(status().isOk());
+    }
+
+    // ── резервирование FIXED-копилок (ANO-16 §6) ────────────────────────────
+
+    private UUID createFixedSavingsFund(String name, long target, long balance, LocalDate targetDate) {
+        return inTx(() -> fundRepo.save(TargetFund.builder()
+                .name(name)
+                .targetAmount(BigDecimal.valueOf(target))
+                .currentBalance(BigDecimal.valueOf(balance))
+                .targetDate(targetDate)
+                .purchaseType(FundPurchaseType.SAVINGS)
+                .status(FundStatus.FUNDING)
+                .wishlistStatus(WishlistStatus.FIXED)
+                .build()).getId());
+    }
+
+    private void hardDeleteFund(UUID id) {
+        inTx(() -> { fundRepo.deleteById(id); return null; });
+    }
+
+    private JsonNode breakdownLine(JsonNode pocket, String type) {
+        for (JsonNode line : pocket.get("breakdown")) {
+            if (type.equals(line.get("type").asText())) return line;
+        }
+        return null;
+    }
+
+    @Test
+    void fixedSavingsFund_reservedInPocket() throws Exception {
+        BigDecimal before = new BigDecimal(getPocket("MONTHS:3").get("pocket").asText());
+        // Остаток 60 000, цель через 2 месяца → 2 взноса по 30 000, оба внутри MONTHS:3
+        UUID fundId = createFixedSavingsFund("IT-Египет", 80_000, 20_000,
+                LocalDate.now().plusMonths(2));
+        try {
+            JsonNode r = getPocket("MONTHS:3");
+            JsonNode line = breakdownLine(r, "SAVINGS_CONTRIBUTIONS");
+            assertThat(line).as("строка взносов в breakdown").isNotNull();
+            assertThat(line.get("details").get(0).asText()).isEqualTo("IT-Египет");
+            assertThat(new BigDecimal(line.get("amount").asText()))
+                    .isEqualByComparingTo(new BigDecimal("-60000.00"));
+            BigDecimal after = new BigDecimal(r.get("pocket").asText());
+            assertThat(before.subtract(after)).isEqualByComparingTo(new BigDecimal("60000.00"));
+        } finally {
+            hardDeleteFund(fundId);
+        }
+    }
+
+    @Test
+    void fixedSavingsFund_edges_notReservedAndNoError() throws Exception {
+        // Уже накоплено и протухшая цель — не резервируются, GET /pocket не падает (§6 тотален)
+        UUID saved = createFixedSavingsFund("IT-накоплено", 50_000, 50_000,
+                LocalDate.now().plusMonths(2));
+        UUID stale = createFixedSavingsFund("IT-протухла", 50_000, 0,
+                LocalDate.now().minusDays(10));
+        try {
+            JsonNode r = getPocket("MONTHS:3");
+            assertThat(breakdownLine(r, "SAVINGS_CONTRIBUTIONS")).isNull();
+        } finally {
+            hardDeleteFund(saved);
+            hardDeleteFund(stale);
+        }
     }
 
     /**
