@@ -22,6 +22,8 @@ import type {
     FundsOverview,
     MultiMonthReport,
     PocketResponse,
+    SandboxRequest,
+    SandboxResponse,
     PurchaseType,
     ScopeEnum,
     StandaloneFactCreateDto,
@@ -142,6 +144,10 @@ export const fetchMultiMonthReport = (startDate: string, endDate: string) =>
 /** Кармашек: единый ответ «сколько свободно и почему» на выбранном скоупе. */
 export const fetchPocket = (scope?: string) =>
     get<PocketResponse>(`/pocket${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`);
+
+/** Примерка «что если» (ANO-16): движок с подменённым входом, ничего не пишет. */
+export const postPocketSandbox = (body: SandboxRequest) =>
+    post<SandboxResponse>('/pocket/sandbox', body);
 
 // --- Funds ---
 
@@ -271,7 +277,10 @@ export const recomputeWishlistItem = (body: {
 }) => post<RecomputeResponse>('/wishlist/simulation/recompute', body);
 
 export const convertWishlistItem = (itemId: string, body: {
-    sourceKind: WishlistKind; target: 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT'; createRecurringPayments?: boolean;
+    sourceKind: WishlistKind; target: 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT';
+    createRecurringPayments?: boolean;
+    /** ANO-16 §8: дата цели создаваемой копилки (фиксация растянутой примерки). */
+    fundTargetDate?: string;
 }) => post<ConvertResponse>(`/wishlist/items/${itemId}/convert`, body);
 
 export const setEventWishlistStatus = (id: string, status: WishlistStatus) =>
