@@ -63,6 +63,41 @@ class WishlistConversionServiceTest {
     }
 
     @Test
+    void convert_wishlistToFund_fundTargetDateOverridesSourceDate() {
+        // ANO-16 §8: фиксация растянутой примерки передаёт последний день месяца
+        // последнего взноса — дата цели копилки берётся из запроса, не из хотелки
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);   // дата хотелки = +6 месяцев
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        when(fundRepo.save(any())).thenAnswer(i -> {
+            TargetFund f = i.getArgument(0);
+            if (f.getId() == null) f.setId(UUID.randomUUID());
+            return f;
+        });
+        when(eventRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        LocalDate override = LocalDate.now().plusMonths(3).withDayOfMonth(
+                LocalDate.now().plusMonths(3).lengthOfMonth());
+        service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "FUND", false, override));
+
+        ArgumentCaptor<TargetFund> cap = ArgumentCaptor.forClass(TargetFund.class);
+        verify(fundRepo).save(cap.capture());
+        assertThat(cap.getValue().getTargetDate()).isEqualTo(override);
+        assertThat(cap.getValue().getTargetAmount()).isEqualByComparingTo("150000");
+
+        // Без переопределения — прежнее поведение: дата источника
+        UUID id2 = UUID.randomUUID();
+        FinancialEvent src2 = openWishlist(id2);
+        when(eventRepo.findById(id2)).thenReturn(Optional.of(src2));
+        service.convertItem(id2, new ConvertWishlistRequestDto("WISHLIST", "FUND", false));
+        ArgumentCaptor<TargetFund> cap2 = ArgumentCaptor.forClass(TargetFund.class);
+        verify(fundRepo, atLeast(2)).save(cap2.capture());
+        assertThat(cap2.getAllValues().get(cap2.getAllValues().size() - 1).getTargetDate())
+                .isEqualTo(src2.getDate());
+    }
+
+    @Test
     void convert_alreadyConverted_throws409() {
         UUID id = UUID.randomUUID();
         FinancialEvent src = openWishlist(id);
