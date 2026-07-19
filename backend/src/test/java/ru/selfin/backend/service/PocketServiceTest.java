@@ -11,6 +11,7 @@ import ru.selfin.backend.dto.pocket.PocketScope;
 import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -54,9 +55,12 @@ class PocketServiceTest {
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
+        TargetFundRepository fundRepository = mock(TargetFundRepository.class);
+        when(fundRepository.findByWishlistStatusAndDeletedFalse(any())).thenReturn(List.of());
 
         pocketService = new PocketService(new PocketInputAssembler(eventRepository,
-                checkpointRepository, settingsService, predictionService, recurringRuleService));
+                checkpointRepository, settingsService, predictionService, recurringRuleService,
+                fundRepository));
     }
 
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */

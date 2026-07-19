@@ -13,14 +13,20 @@ import ru.selfin.backend.dto.pocket.FallbackKind;
 import ru.selfin.backend.dto.pocket.PocketInput;
 import ru.selfin.backend.dto.pocket.PocketScope;
 import ru.selfin.backend.dto.pocket.SandboxRef;
+import org.springframework.data.domain.Pageable;
+import ru.selfin.backend.dto.pocket.SyntheticKind;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,6 +54,7 @@ public class PocketInputAssembler {
     private final UserSettingsService settingsService;
     private final PredictionService predictionService;
     private final RecurringRuleService recurringRuleService;
+    private final TargetFundRepository fundRepository;
 
     /**
      * Результат сборки: вход движка + что фактически развёрнуто в baseline
@@ -110,17 +117,41 @@ public class PocketInputAssembler {
         // 2. Чекпоинт и события (баланс + траектория; диапазон — до конца хвоста §3.9)
         Optional<BalanceCheckpoint> checkpoint = checkpointRepository.findTopByOrderByDateDesc();
         LocalDate from = checkpoint.map(BalanceCheckpoint::getDate).orElse(EPOCH);
-        List<EventSnapshot> events = eventRepository
+        List<EventSnapshot> events = new ArrayList<>(eventRepository
                 .findAllByDeletedFalseAndDateBetween(from, PocketEngine.trajectoryEnd(asOfDate, horizonEnd))
-                .stream().map(EventSnapshot::from).toList();
+                .stream().map(EventSnapshot::from).toList());
 
         // Операциональные refs baseline (§9 sandbox): датированные FIXED-неконвертированные
-        // события-хотелки, реально сидящие в траектории. Копилки добавит §6.
+        // события-хотелки, реально сидящие в траектории.
         Map<SandboxRef, List<EventSnapshot>> baselineRefs = new LinkedHashMap<>();
         events.stream()
                 .filter(e -> e.wishlistStatus() == WishlistStatus.FIXED
                         && !e.converted() && e.date() != null && e.date().isAfter(asOfDate))
                 .forEach(e -> baselineRefs.put(SandboxRef.event(e.id()), List.of(e)));
+
+        // 2а. Резервирование датированных FIXED-копилок (спека sandbox §6): SAVINGS,
+        //     неконвертированные, с положительным остатком и целью не в текущем месяце.
+        //     Взносы = остаток / n той же раскладкой, что примерка. CREDIT-фонды не
+        //     резервируются: их поток начинается с покупки (recurring PMT при конверсии).
+        List<TargetFund> reservable = fundRepository
+                .findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED).stream()
+                .filter(f -> f.getPurchaseType() == FundPurchaseType.SAVINGS
+                        && f.getTargetDate() != null && f.getTargetAmount() != null
+                        && f.getConvertedToEventId() == null && f.getConvertedToFundId() == null)
+                .toList();
+        if (!reservable.isEmpty()) {
+            List<LocalDate> allIncomes = eventRepository.findPlannedIncomeDates(
+                    asOfDate, PocketEngine.trajectoryEnd(asOfDate, horizonEnd), Pageable.unpaged());
+            for (TargetFund f : reservable) {
+                BigDecimal remaining = f.getTargetAmount().subtract(f.getCurrentBalance());
+                int n = SandboxLayout.maxStretchMonths(asOfDate, f.getTargetDate());
+                if (remaining.signum() <= 0 || n <= 0) continue; // края §6: тотально, без 400
+                List<EventSnapshot> contribs = SandboxLayout.layoutSavings(f.getName(), remaining,
+                        f.getTargetDate(), n, asOfDate, allIncomes, SyntheticKind.SAVINGS_CONTRIBUTION);
+                events.addAll(contribs);
+                baselineRefs.put(SandboxRef.fund(f.getId()), contribs);
+            }
+        }
 
         // 3. Просрочка (без границы месяца) и хотелки (отдельные выборки, спека §3.1, §3.4)
         List<EventSnapshot> overdue = eventRepository.findOverdueMandatoryExpenses(asOfDate)

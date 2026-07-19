@@ -5,6 +5,7 @@ import ru.selfin.backend.dto.pocket.EventSnapshot;
 import ru.selfin.backend.dto.pocket.FallbackKind;
 import ru.selfin.backend.dto.pocket.PocketInput;
 import ru.selfin.backend.dto.pocket.PocketResultDto;
+import ru.selfin.backend.dto.pocket.SyntheticKind;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
@@ -26,8 +27,8 @@ import java.util.stream.Collectors;
  * Ни одного обращения к БД и Spring-зависимостей — только вход → выход.
  *
  * <p>Формула: кармашек(скоуп) = min прогнозной траектории баланса − буфер.
- * Breakdown-инвариант: STARTING − OVERDUE − EXPENSES(≤min) + INCOME(≤min) − FORECAST(≤min) = MIN;
- * MIN − BUFFER = POCKET.
+ * Breakdown-инвариант: STARTING − OVERDUE − EXPENSES(≤min) − CONTRIB(≤min) + INCOME(≤min)
+ * − FORECAST(≤min) = MIN; MIN − BUFFER = POCKET (CONTRIB — взносы в копилки, ANO-16 §6).
  */
 public final class PocketEngine {
 
@@ -105,9 +106,13 @@ public final class PocketEngine {
         BigDecimal expensesCum = todayExpenses;
         BigDecimal incomeCum = BigDecimal.ZERO;
         BigDecimal forecastCum = BigDecimal.ZERO;
+        BigDecimal contribCum = BigDecimal.ZERO;
+        java.util.LinkedHashSet<String> contribNames = new java.util.LinkedHashSet<>();
         BigDecimal expensesAtMin = todayExpenses;
         BigDecimal incomeAtMin = BigDecimal.ZERO;
         BigDecimal forecastAtMin = BigDecimal.ZERO;
+        BigDecimal contribAtMin = BigDecimal.ZERO;
+        List<String> contribNamesAtMin = List.of();
         BigDecimal forecastSpread = BigDecimal.ZERO;
 
         for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(trajEnd); d = d.plusDays(1)) {
@@ -123,7 +128,13 @@ public final class PocketEngine {
                     running = running.add(amount);
                 } else {
                     dayExpense = dayExpense.add(amount);
-                    expensesCum = expensesCum.add(amount);
+                    // Взносы в копилки (ANO-16 §6) — своя строка breakdown, не PLANNED_EXPENSES
+                    if (e.syntheticKind() == SyntheticKind.SAVINGS_CONTRIBUTION) {
+                        contribCum = contribCum.add(amount);
+                        if (e.description() != null) contribNames.add(e.description());
+                    } else {
+                        expensesCum = expensesCum.add(amount);
+                    }
                     running = running.subtract(amount);
                     if (amount.compareTo(dayTopExpenseAmount) > 0) {
                         dayTopExpenseAmount = amount;
@@ -149,6 +160,8 @@ public final class PocketEngine {
                 expensesAtMin = expensesCum;
                 incomeAtMin = incomeCum;
                 forecastAtMin = forecastCum;
+                contribAtMin = contribCum;
+                contribNamesAtMin = List.copyOf(contribNames);
             }
         }
 
@@ -165,7 +178,8 @@ public final class PocketEngine {
                 .toList();
 
         List<PocketResultDto.BreakdownLine> breakdown = buildBreakdown(in, currentBalance, overdue,
-                expensesAtMin, incomeAtMin, forecastAtMin, minBalance, minDate, buffer, pocket, candidates);
+                expensesAtMin, incomeAtMin, forecastAtMin, contribAtMin, contribNamesAtMin,
+                minBalance, minDate, buffer, pocket, candidates);
 
         return new PocketResultDto(pocket, currentBalance, buffer, in.checkpointDate(),
                 new PocketResultDto.Horizon(in.scope().type(), in.horizonEnd(),
@@ -197,6 +211,7 @@ public final class PocketEngine {
     private static List<PocketResultDto.BreakdownLine> buildBreakdown(
             PocketInput in, BigDecimal currentBalance, BigDecimal overdue,
             BigDecimal expensesAtMin, BigDecimal incomeAtMin, BigDecimal forecastAtMin,
+            BigDecimal contribAtMin, List<String> contribNames,
             BigDecimal minBalance, LocalDate minDate, BigDecimal buffer, BigDecimal pocket,
             List<PocketResultDto.WishlistCandidate> candidates) {
 
@@ -219,6 +234,11 @@ public final class PocketEngine {
         if (expensesAtMin.signum() != 0) {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.PLANNED_EXPENSES,
                     "Плановые расходы до " + minDateLabel, expensesAtMin.negate(), List.of()));
+        }
+        if (contribAtMin.signum() != 0) {
+            lines.add(new PocketResultDto.BreakdownLine(BreakdownType.SAVINGS_CONTRIBUTIONS,
+                    "Взносы в копилки (" + contribNames.size() + " шт)",
+                    contribAtMin.negate(), contribNames));
         }
         if (incomeAtMin.signum() != 0) {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.PLANNED_INCOME,
