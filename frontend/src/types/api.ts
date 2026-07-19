@@ -159,6 +159,50 @@ export interface PocketResponse {
     }[];
 }
 
+// ── Pocket sandbox (ANO-16) ──────────────────────────────────────────────────
+export type SandboxRefType = 'EVENT' | 'FUND';
+export interface SandboxRef { type: SandboxRefType; id: string; }
+
+export interface SandboxTryOn {
+    ref: SandboxRef | null;      // null = ad-hoc «а если трата»
+    amount: number;
+    date: string;                // обязательна, строго в будущем
+    stretchMonths?: number | null;   // 0/absent = разовая; n ≥ 1 = растяжка
+    creditRate?: number | null;      // только кредит (взаимоисключимо с растяжкой)
+    creditTermMonths?: number | null;
+}
+
+export interface SandboxRequest {
+    scope?: string;              // тот же парсер, что GET /pocket
+    tryOn: SandboxTryOn[];
+    exclude: SandboxRef[];       // FIXED-элементы, выключенные из baseline
+}
+
+export interface SandboxDayDelta { date: string; delta: number; }
+export interface SandboxItemDelta { ref: SandboxRef | null; days: SandboxDayDelta[]; }
+
+/** Элемент списка окна примерки с дефолтными параметрами (бэк §4). */
+export interface SandboxItem {
+    ref: SandboxRef;
+    kind: 'WISHLIST' | 'SAVINGS' | 'CREDIT';
+    name: string;
+    amount: number | null;
+    date: string | null;
+    stretchMonthsMax: number | null;
+    stretchMonthsDefault: number | null;
+    creditRate: number | null;
+    creditTermMonths: number | null;
+    wishlistStatus: string | null;
+    inBaseline: boolean;         // операционально «сидит в baseline» (§9)
+}
+
+export interface SandboxResponse {
+    baseline: PocketResponse;
+    fitted: PocketResponse;
+    itemDeltas: SandboxItemDelta[];
+    items: SandboxItem[];
+}
+
 export interface BudgetSnapshot {
     id: string;
     periodStart: string;
