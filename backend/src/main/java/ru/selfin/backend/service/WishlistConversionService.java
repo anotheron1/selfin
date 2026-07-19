@@ -97,7 +97,8 @@ public class WishlistConversionService {
             }
             case "FUND" -> {
                 TargetFund saved = fundRepository.save(buildSavingsFund(
-                        src.getDescription(), src.getPlannedAmount(), src.getDate()));
+                        src.getDescription(), src.getPlannedAmount(),
+                        req.fundTargetDate() != null ? req.fundTargetDate() : src.getDate()));
                 src.setConvertedToFundId(saved.getId());
                 convertedTo = new WishlistItemDto.ConvertedToDto("FUND", saved.getId());
                 artifactKind = "FUND";
@@ -134,7 +135,8 @@ public class WishlistConversionService {
             }
             case "FUND" -> {
                 TargetFund saved = fundRepository.save(buildSavingsFund(
-                        src.getName(), src.getTargetAmount(), src.getTargetDate()));
+                        src.getName(), src.getTargetAmount(),
+                        req.fundTargetDate() != null ? req.fundTargetDate() : src.getTargetDate()));
                 src.setConvertedToFundId(saved.getId());
                 convertedTo = new WishlistItemDto.ConvertedToDto("FUND", saved.getId());
                 artifactKind = "FUND";
