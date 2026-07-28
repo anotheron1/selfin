@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { HelpCircle, Pencil, Wallet } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { HelpCircle, Pencil, Wallet, FlaskConical } from 'lucide-react';
 import { fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
 import { buildPocketPhrase } from '../lib/pocketPhrase';
@@ -24,6 +25,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     /** Зовётся после успешного ре-якоря — страница может обновить свои данные (сторож и т.п.). */
     onReanchor?: () => void;
 }) {
+    const navigate = useNavigate();
     const [scope, setScope] = useState<string | undefined>(undefined);
     const [data, setData] = useState<PocketResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             })()}
                             <p className="text-sm text-white/85 mt-2 leading-snug">{buildPocketPhrase(data)}</p>
 
-                            <div className="flex gap-1.5 mt-3">
+                            <div className="flex gap-1.5 mt-3 items-center flex-wrap">
                                 {SCOPES.map(s => (
                                     <button key={s.label}
                                         onClick={() => setScope(s.key)}
@@ -92,6 +94,11 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                         {s.label}
                                     </button>
                                 ))}
+                                <button onClick={() => navigate('/wishlist')}
+                                    className="text-xs px-2.5 py-1 rounded-full bg-white/15 text-white/80 hover:bg-white/25 transition-colors flex items-center gap-1 ml-auto"
+                                    aria-label="Примерить хотелку">
+                                    <FlaskConical size={12} /> Примерить
+                                </button>
                             </div>
 
                             {showWhy && (
