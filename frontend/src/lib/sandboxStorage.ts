@@ -52,6 +52,26 @@ export function forgetRef(state: SandboxState, ref: SandboxRef): SandboxState {
     };
 }
 
+/**
+ * Вычищает из черновика ссылки на элементы, которых сервер больше не знает
+ * (удалены/сконвертированы/DISMISSED на другой странице или устройстве). Иначе
+ * протухший ref в enabled/exclude вечно роняет примерку в 400 — см. восстановление
+ * по чистому baseline в Wishlist.load. adhoc (без ref) сохраняется как есть.
+ */
+export function reconcile(state: SandboxState, knownKeys: Set<string>): SandboxState {
+    const alive = (ref: SandboxRef | null) => ref == null || knownKeys.has(refKey(ref));
+    return {
+        enabled: state.enabled.filter(t => alive(t.ref)),
+        excluded: state.excluded.filter(e => alive(e)),
+        adhoc: state.adhoc,
+    };
+}
+
+/** Нашлось ли в reconcile что вычистить (для решения «перезагружать ли»). */
+export function differs(a: SandboxState, b: SandboxState): boolean {
+    return a.enabled.length !== b.enabled.length || a.excluded.length !== b.excluded.length;
+}
+
 /** Есть ли ref среди включённых. */
 export function isEnabled(state: SandboxState, ref: SandboxRef): boolean {
     return state.enabled.some(t => sameRef(t.ref, ref));

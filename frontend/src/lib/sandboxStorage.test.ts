@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
     emptyState, loadSandbox, saveSandbox, forgetRef, isEnabled, isExcluded, enabledIndex,
+    reconcile, differs,
 } from './sandboxStorage';
 import type { SandboxState } from './sandboxStorage';
 import type { SandboxRef } from '../types/api';
@@ -59,5 +60,22 @@ describe('sandboxStorage', () => {
         expect(isExcluded(s, { type: 'FUND', id: 'egypt' })).toBe(true);
         expect(enabledIndex(s, FUND)).toBe(0);
         expect(enabledIndex(s, EVENT)).toBe(-1);
+    });
+
+    it('reconcile вычищает протухшие refs, adhoc сохраняет', () => {
+        const s = state(); // enabled FUND:f1, excluded FUND:egypt, adhoc без ref
+        // сервер знает только FUND:f1 → egypt протух
+        const known = new Set(['FUND:f1']);
+        const r = reconcile(s, known);
+        expect(r.enabled).toHaveLength(1);        // f1 жив
+        expect(r.excluded).toHaveLength(0);       // egypt вычищен
+        expect(r.adhoc).toHaveLength(1);          // adhoc не трогаем
+        expect(differs(s, r)).toBe(true);
+    });
+
+    it('reconcile ничего не трогает, если все refs известны', () => {
+        const s = state();
+        const known = new Set(['FUND:f1', 'FUND:egypt']);
+        expect(differs(s, reconcile(s, known))).toBe(false);
     });
 });

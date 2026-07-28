@@ -46,6 +46,19 @@ export function lastDayOfMonth(isoDate: string): string {
     return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
 }
 
+/**
+ * Дата цели копилки при фиксации растянутой хотелки (§8): последний день месяца
+ * ПОСЛЕДНЕГО взноса. Взносы §5 занимают первые `stretch` месяцев начиная со следующего,
+ * значит последний взнос — в месяце `today + stretch`. Тогда резерв §6
+ * `maxStretchMonths(today, target) == stretch` воспроизводит ровно ту раскладку,
+ * что юзер видел в примерке (при stretch < max иначе разъехалось бы).
+ */
+export function stretchTargetDate(todayIso: string, stretch: number): string {
+    const [y, m] = todayIso.split('-').map(Number);
+    const d = new Date(y, (m - 1) + Math.max(1, stretch), 1); // month 0-индексный
+    return lastDayOfMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`);
+}
+
 /** Дефолтный tryOn для item (из серверных дефолтов §4). */
 export function defaultTryOn(item: SandboxItem): SandboxTryOn {
     return {

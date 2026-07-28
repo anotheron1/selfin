@@ -10,10 +10,10 @@ import type {
 } from '../types/api';
 import { fmtRub } from '../lib/format';
 import {
-    defaultTryOn, lastDayOfMonth, realizationScope, sameRef,
+    defaultTryOn, realizationScope, refKey, sameRef, stretchTargetDate,
 } from '../lib/sandboxMath';
 import {
-    emptyState, loadSandbox, saveSandbox, forgetRef, type SandboxState,
+    loadSandbox, saveSandbox, forgetRef, reconcile, differs, type SandboxState,
 } from '../lib/sandboxStorage';
 import SandboxChart from '../components/sandbox/SandboxChart';
 import SandboxItemRow from '../components/sandbox/SandboxItemRow';
@@ -54,6 +54,12 @@ export default function Wishlist() {
 
     const effectiveScope = scope === '__REALIZATION__' ? (realization ?? undefined) : scope;
 
+    // Чип «до реализации» пропал (сняли последний датированный элемент) — вернуть скоуп
+    // на дефолт, иначе выбор завис бы на несуществующем чипе без подсветки.
+    useEffect(() => {
+        if (scope === '__REALIZATION__' && realization == null) setScope(undefined);
+    }, [scope, realization]);
+
     // Собираем запрос: tryOn = enabled + adhoc; exclude = excluded.
     const request = useMemo<SandboxRequest>(() => ({
         scope: effectiveScope,
@@ -64,8 +70,22 @@ export default function Wishlist() {
     const load = useCallback(() => {
         postPocketSandbox(request)
             .then(r => { setResp(r); setError(null); })
-            .catch((e: Error) => setError(e.message));
-    }, [request]);
+            .catch((e: Error) => {
+                // Возможная причина 400 — протухший ref в черновике (элемент удалён/
+                // сконвертирован на другой странице). Берём ЧИСТЫЙ baseline (без tryOn/
+                // exclude — по refs он упасть не может), показываем актуальный список и
+                // вычищаем черновик; вычистка сдвигает state → debounce перезапрашивает
+                // уже валидный набор. Без этого протухший ref вечно клинил бы примерку.
+                postPocketSandbox({ scope: effectiveScope, tryOn: [], exclude: [] })
+                    .then(clean => {
+                        setResp(clean);
+                        const known = new Set(clean.items.map(i => refKey(i.ref)));
+                        setState(s => (differs(s, reconcile(s, known)) ? reconcile(s, known) : s));
+                        setError(null);
+                    })
+                    .catch(() => setError(e.message));
+            });
+    }, [request, effectiveScope]);
 
     // Debounce 200 мс на любое изменение (тумблер/правка/скоуп).
     useEffect(() => {
@@ -82,18 +102,28 @@ export default function Wishlist() {
         state.enabled.find(t => sameRef(t.ref, ref)) ?? null;
 
     const isToggled = (item: SandboxItem): boolean => {
-        if (isInPlan(item)) return !state.excluded.some(e => sameRef(e, item.ref)); // «обратный» тумблер
+        if (isInPlan(item)) {
+            // «Обратный» тумблер: ON = сидит в плане как есть ИЛИ покручен (exclude+tryOn).
+            // Покрученный элемент (excluded + enabled) остаётся визуально ВКЛ, иначе тумблер
+            // бы врал «выкл» при заданной примерке и следующий клик молча терял бы правку.
+            const excluded = state.excluded.some(e => sameRef(e, item.ref));
+            const cranked = state.enabled.some(t => sameRef(t.ref, item.ref));
+            return !excluded || cranked;
+        }
         return state.enabled.some(t => sameRef(t.ref, item.ref));
     };
 
     const toggle = (item: SandboxItem, next: boolean) => {
         setState(s => {
             if (isInPlan(item)) {
-                // Обратный тумблер: off → exclude (примерка отказа); on → вернуть как есть
+                // Обратный тумблер: on → вернуть как есть (чистим обе коллекции);
+                // off → примерка отказа: exclude + СБРОС крутилки (иначе покрученный
+                // элемент остался бы в enabled и тумблер не погас бы — exclude+tryOn = retune).
                 return next
                     ? { ...s, excluded: s.excluded.filter(e => !sameRef(e, item.ref)),
                         enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) }
-                    : { ...s, excluded: [...s.excluded.filter(e => !sameRef(e, item.ref)), item.ref] };
+                    : { ...s, excluded: [...s.excluded.filter(e => !sameRef(e, item.ref)), item.ref],
+                        enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) };
             }
             // OPEN / FIXED-не-в-baseline: обычный tryOn
             return next
@@ -121,9 +151,14 @@ export default function Wishlist() {
         const date = p?.date ?? item.date ?? undefined;
         if (item.kind === 'WISHLIST') {
             if (stretch >= 1 && date) {
-                // Растянутая хотелка → копилка с датой цели = месяц последнего взноса (§8)
+                // Растянутая хотелка → копилка; дата цели = последний день месяца
+                // ПОСЛЕДНЕГО взноса (today+stretch), чтобы резерв §6 воспроизвёл раскладку
+                // примерки при любом stretch < max (§8), а не растянул до даты покупки.
+                const t = new Date();
+                const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
                 convertWishlistItem(item.ref.id, {
-                    sourceKind: 'WISHLIST', target: 'FUND', fundTargetDate: lastDayOfMonth(date),
+                    sourceKind: 'WISHLIST', target: 'FUND',
+                    fundTargetDate: stretchTargetDate(todayIso, stretch),
                 }).then(() => afterFix(item.ref)).catch(() => afterFix(item.ref));
             } else {
                 setEventWishlistStatus(item.ref.id, 'FIXED')
@@ -141,8 +176,10 @@ export default function Wishlist() {
     };
 
     const afterFix = (ref: SandboxRef) => {
+        // Только чистим черновик — сдвиг state сам перезапустит debounce-примерку.
+        // Явный load() был бы гонкой: он бы стрельнул старым request с ещё живым ref
+        // (сконвертирован/DISMISSED) → лишний 400-мигание до перезапроса.
         setState(s => forgetRef(s, ref));
-        load();
     };
 
     // ── ad-hoc ──────────────────────────────────────────────────────────────
