@@ -49,7 +49,7 @@ class PocketServiceTest {
 
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(eventRepository.findOverdueMandatoryExpenses(any())).thenReturn(List.of());
+        when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), any())).thenReturn(List.of());
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
