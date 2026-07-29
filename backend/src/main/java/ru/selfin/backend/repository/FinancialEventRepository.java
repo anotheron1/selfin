@@ -193,6 +193,11 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
      * PLAN(PLANNED) HIGH EXPENSE с датой в прошлом и без FACT-детей.
      * Возвращает события (не сумму) — движку нужны details для breakdown.
      * wishlistStatus проверять не нужно: хотелки всегда LOW (DB constraint), HIGH-фильтр их исключает.
+     *
+     * <p>ANO-28: нижняя граница {@code after} (исключительно) = дата последнего якоря.
+     * Семантика якоря (ANO-15): «число из банка уже содержит всё до него» — план старше
+     * якоря либо исполнен (деньги уже ушли из числа чекпоинта — резерв был бы задвоением),
+     * либо неактуален. Живой долг из прошлого переносят на будущую дату.
      */
     @Query("""
         SELECT e FROM FinancialEvent e
@@ -200,6 +205,7 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
           AND e.type = ru.selfin.backend.model.enums.EventType.EXPENSE
           AND e.priority = ru.selfin.backend.model.enums.Priority.HIGH
           AND e.status = ru.selfin.backend.model.enums.EventStatus.PLANNED
+          AND e.date > :after
           AND e.date < :today
           AND e.deleted = false
           AND NOT EXISTS (
@@ -207,7 +213,8 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
               WHERE f.parentEventId = e.id AND f.deleted = false
           )
         """)
-    List<FinancialEvent> findOverdueMandatoryExpenses(@Param("today") LocalDate today);
+    List<FinancialEvent> findOverdueMandatoryExpenses(@Param("after") LocalDate after,
+                                                      @Param("today") LocalDate today);
 
     /**
      * Ближайшие РАЗЛИЧНЫЕ даты будущих планов-доходов ЛЮБОЙ категории, по возрастанию

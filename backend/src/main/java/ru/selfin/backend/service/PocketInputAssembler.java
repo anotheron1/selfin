@@ -158,8 +158,10 @@ public class PocketInputAssembler {
             }
         }
 
-        // 3. Просрочка (без границы месяца) и хотелки (отдельные выборки, спека §3.1, §3.4)
-        List<EventSnapshot> overdue = eventRepository.findOverdueMandatoryExpenses(asOfDate)
+        // 3. Просрочка (без границы месяца, но строго ПОСЛЕ якоря — ANO-28: план старше
+        //    чекпоинта уже «съеден» числом из банка, резерв был бы задвоением)
+        //    и хотелки (отдельные выборки, спека §3.1, §3.4)
+        List<EventSnapshot> overdue = eventRepository.findOverdueMandatoryExpenses(from, asOfDate)
                 .stream().map(EventSnapshot::from).toList();
         List<EventSnapshot> wishlist = eventRepository
                 .findByWishlistStatusInAndDeletedFalse(EnumSet.of(WishlistStatus.OPEN, WishlistStatus.FIXED))

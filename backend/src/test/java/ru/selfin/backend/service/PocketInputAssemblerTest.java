@@ -49,7 +49,7 @@ class PocketInputAssemblerTest {
 
         when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(eventRepository.findOverdueMandatoryExpenses(any())).thenReturn(List.of());
+        when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), any())).thenReturn(List.of());
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
@@ -129,6 +129,37 @@ class PocketInputAssemblerTest {
         assertThat(contributions(a)).isEmpty();
         assertThat(a.baselineRefs().keySet())
                 .noneMatch(r -> r.type() == SandboxRef.RefType.FUND);
+    }
+
+    @Test
+    @DisplayName("ANO-28: просрочка запрашивается строго ПОСЛЕ даты якоря (якорь её съел)")
+    void overdue_queriedAfterCheckpointDate() {
+        BalanceCheckpointRepository cpRepo = mock(BalanceCheckpointRepository.class);
+        LocalDate cpDate = LocalDate.of(2026, 2, 10);
+        when(cpRepo.findTopByOrderByDateDesc()).thenReturn(Optional.of(
+                ru.selfin.backend.model.BalanceCheckpoint.builder()
+                        .id(UUID.randomUUID()).date(cpDate).amount(BigDecimal.valueOf(5000)).build()));
+        UserSettingsService settings = mock(UserSettingsService.class);
+        PredictionService prediction = mock(PredictionService.class);
+        RecurringRuleService recurring = mock(RecurringRuleService.class);
+        when(settings.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
+        when(prediction.forecastFromEvents(any(), any()))
+                .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
+        PocketInputAssembler a = new PocketInputAssembler(eventRepository, cpRepo,
+                settings, prediction, recurring, fundRepository);
+
+        a.build(MONTHS_6, TODAY);
+
+        org.mockito.Mockito.verify(eventRepository)
+                .findOverdueMandatoryExpenses(eq(cpDate), eq(TODAY));
+    }
+
+    @Test
+    @DisplayName("ANO-28: без якоря просрочка запрашивается с начала времён")
+    void overdue_noCheckpoint_queriedFromEpoch() {
+        assembler.build(MONTHS_6, TODAY);
+        org.mockito.Mockito.verify(eventRepository)
+                .findOverdueMandatoryExpenses(eq(LocalDate.of(2000, 1, 1)), eq(TODAY));
     }
 
     @Test

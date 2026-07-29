@@ -332,6 +332,43 @@ class PocketControllerIT {
                 .andExpect(status().isOk());
     }
 
+    // ── ANO-28: просрочка старше якоря не резервируется ─────────────────────
+
+    @Test
+    void overdueOlderThanCheckpoint_notReserved() throws Exception {
+        String cat = createCategory("IT-ano28-cat", "EXPENSE");
+        // Старый HIGH-план (до якоря) и свежий (после якоря)
+        String oldPlan = createEvent("""
+                {"date":"%s","categoryId":"%s","type":"EXPENSE",
+                 "plannedAmount":15000,"priority":"HIGH","description":"IT-старый долг"}
+                """.formatted(LocalDate.now().minusDays(20), cat));
+        String freshPlan = createEvent("""
+                {"date":"%s","categoryId":"%s","type":"EXPENSE",
+                 "plannedAmount":4000,"priority":"HIGH","description":"IT-свежая просрочка"}
+                """.formatted(LocalDate.now().minusDays(5), cat));
+        String cpBody = mockMvc.perform(post("/api/v1/balance-checkpoints")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","amount":50000}
+                                """.formatted(LocalDate.now().minusDays(10))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String cpId = objectMapper.readTree(cpBody).get("id").asText();
+        try {
+            JsonNode r = getPocket(null);
+            JsonNode overdueLine = breakdownLine(r, "OVERDUE_RESERVE");
+            assertThat(overdueLine).as("резерв только по свежей просрочке").isNotNull();
+            assertThat(new BigDecimal(overdueLine.get("amount").asText()))
+                    .isEqualByComparingTo(new BigDecimal("-4000"));
+            assertThat(overdueLine.get("details").toString()).doesNotContain("старый долг");
+        } finally {
+            deleteEvent(oldPlan);
+            deleteEvent(freshPlan);
+            mockMvc.perform(delete("/api/v1/balance-checkpoints/" + cpId))
+                    .andExpect(status().isNoContent());
+        }
+    }
+
     // ── резервирование FIXED-копилок (ANO-16 §6) ────────────────────────────
 
     private UUID createFixedSavingsFund(String name, long target, long balance, LocalDate targetDate) {
