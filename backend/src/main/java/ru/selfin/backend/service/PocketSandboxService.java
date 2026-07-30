@@ -172,7 +172,7 @@ public class PocketSandboxService {
                     t.creditRate(), t.creditTermMonths());
         } else if (stretch >= 1) {
             synthetics = SandboxLayout.layoutSavings(description, t.amount(), t.date(), stretch,
-                    asOfDate, plannedIncomeDates(base.input()),
+                    asOfDate, base.incomeDates(),
                     ru.selfin.backend.dto.pocket.SyntheticKind.TRY_ON);
         } else {
             synthetics = SandboxLayout.layoutOneOff(description, t.amount(), t.date());
@@ -202,18 +202,6 @@ public class PocketSandboxService {
             throw badRequest("ref не является живой копилкой: " + ref.id());
         }
         return f.getName();
-    }
-
-    /** Даты плановых доходов из уже выбранных событий траектории (§5) — без похода в БД. */
-    private static List<LocalDate> plannedIncomeDates(PocketInput input) {
-        return input.events().stream()
-                .filter(e -> e.type() == EventType.INCOME && e.wishlistStatus() == null
-                        && e.factAmount() == null
-                        && e.eventKind() == EventKind.PLAN && e.status() == EventStatus.PLANNED
-                        && e.date() != null)
-                .map(EventSnapshot::date)
-                .sorted()
-                .toList();
     }
 
     /** Агрегирует синтетику/убранные события в разреженный вектор по датам (знак: расход −, возврат +). */

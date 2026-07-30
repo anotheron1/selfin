@@ -26,6 +26,8 @@ export default function Settings() {
     const [editCatType, setEditCatType] = useState<CategoryType>('EXPENSE');
     const [editCatForecast, setEditCatForecast] = useState(false);
     const [createForecast, setCreateForecast] = useState(false);
+    const [editCatPrimaryIncome, setEditCatPrimaryIncome] = useState(false);
+    const [createPrimaryIncome, setCreatePrimaryIncome] = useState(false);
 
     // --- Snapshots ---
     const [snapshots, setSnapshots] = useState<BudgetSnapshot[]>([]);
@@ -75,9 +77,11 @@ export default function Settings() {
             type,
             priority: 'MEDIUM',
             forecastEnabled: type === 'EXPENSE' ? createForecast : false,
+            primaryIncome: type === 'INCOME' ? createPrimaryIncome : false,
         });
         setName('');
         setCreateForecast(false);
+        setCreatePrimaryIncome(false);
         load();
         showToast('Категория добавлена');
     };
@@ -92,6 +96,7 @@ export default function Settings() {
         setEditCatName(cat.name);
         setEditCatType(cat.type);
         setEditCatForecast(cat.forecastEnabled);
+        setEditCatPrimaryIncome(cat.primaryIncome);
     };
 
     const cancelEditCat = () => setEditCatId(null);
@@ -103,6 +108,7 @@ export default function Settings() {
             type: editCatType,
             priority: cat.priority,
             forecastEnabled: editCatType === 'EXPENSE' ? editCatForecast : false,
+            primaryIncome: editCatType === 'INCOME' ? editCatPrimaryIncome : false,
         });
         setEditCatId(null);
         load();
@@ -324,6 +330,18 @@ export default function Settings() {
                                 <span className="text-xs">Отслеживать прогноз</span>
                             </label>
                         )}
+                        {type === 'INCOME' && (
+                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
+                                style={{ color: 'var(--color-text-muted)' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={createPrimaryIncome}
+                                    onChange={e => setCreatePrimaryIncome(e.target.checked)}
+                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
+                                />
+                                <span className="text-xs">Основной доход (задаёт горизонт кармашка)</span>
+                            </label>
+                        )}
                     </form>
                 </div>
 
@@ -379,6 +397,18 @@ export default function Settings() {
                                                 <span className="text-xs">Отслеживать прогноз</span>
                                             </label>
                                         )}
+                                        {editCatType === 'INCOME' && (
+                                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
+                                                style={{ color: 'var(--color-text-muted)' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editCatPrimaryIncome}
+                                                    onChange={e => setEditCatPrimaryIncome(e.target.checked)}
+                                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
+                                                />
+                                                <span className="text-xs">Основной доход (задаёт горизонт кармашка)</span>
+                                            </label>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-between py-2.5 px-1"
@@ -394,6 +424,9 @@ export default function Settings() {
                                                     {c.name}
                                                     {c.forecastEnabled && (
                                                         <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>· прогноз</span>
+                                                    )}
+                                                    {c.primaryIncome && (
+                                                        <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>· основной</span>
                                                     )}
                                                 </span>
                                             )}

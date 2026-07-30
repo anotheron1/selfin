@@ -68,8 +68,13 @@ class PocketSandboxServiceTest {
     // ── фикстуры ────────────────────────────────────────────────────────────
 
     private void assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> refs) {
+        // Даты доходов приходят из ассемблера — примерка обязана раскладывать взносы
+        // теми же днями, что baseline (ANO-35), поэтому берём их из входа, а не считаем сами.
+        List<LocalDate> incomes = input.events().stream()
+                .filter(e -> e.type() == EventType.INCOME && e.date() != null)
+                .map(EventSnapshot::date).sorted().toList();
         when(assembler.build(any(), any()))
-                .thenReturn(new PocketInputAssembler.Assembled(input, refs));
+                .thenReturn(new PocketInputAssembler.Assembled(input, refs, incomes));
     }
 
     /** Базовый вход: чекпоинт 10 000 на 1.03, скоуп MONTHS:3 до 1.06. */

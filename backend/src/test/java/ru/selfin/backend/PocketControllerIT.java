@@ -332,6 +332,72 @@ class PocketControllerIT {
                 .andExpect(status().isOk());
     }
 
+    // ── ANO-35: горизонт по «основному доходу» ──────────────────────────────
+
+    /** Категория с флагом «основной доход» (создание + PUT, т.к. POST флага не несёт). */
+    private String createPrimaryIncomeCategory(String name) throws Exception {
+        String id = createCategory(name, "INCOME");
+        mockMvc.perform(put("/api/v1/categories/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"%s","type":"INCOME","priority":"MEDIUM","primaryIncome":true}
+                                """.formatted(name)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.primaryIncome").value(true));
+        return id;
+    }
+
+    @Test
+    void horizon_anchorsToPrimaryIncome_notToSmallOne() throws Exception {
+        // Точный сценарий Кирилла: мелкий возврат долга раньше зарплаты
+        String salaryCat = createPrimaryIncomeCategory("IT-ano35-зарплата");
+        String miscCat = createCategory("IT-ano35-возврат", "INCOME");
+        LocalDate small = LocalDate.now().plusDays(3);
+        LocalDate salary = LocalDate.now().plusDays(16);
+        String e1 = createIncome(miscCat, small, 6_400, "IT возврат долга");
+        String e2 = createIncome(salaryCat, salary, 140_000, "IT зарплата");
+        try {
+            JsonNode r = getPocket(null);
+            assertThat(r.get("horizon").get("endDate").asText())
+                    .as("горизонт — до зарплаты, а не до возврата долга")
+                    .isEqualTo(salary.toString());
+            assertThat(r.get("horizon").get("fallback").asBoolean()).isFalse();
+        } finally {
+            deleteEvent(e1);
+            deleteEvent(e2);
+        }
+    }
+
+    @Test
+    void horizon_fallsBackToAnyIncome_whenPrimaryHasNoPlannedEvents() throws Exception {
+        // Флаг стоит на пустой категории — кармашек не должен падать в 30-дневный фолбэк
+        createPrimaryIncomeCategory("IT-ano35-пустая");
+        String miscCat = createCategory("IT-ano35-прочее", "INCOME");
+        LocalDate any = LocalDate.now().plusDays(9);
+        String e1 = createIncome(miscCat, any, 5_000, "IT прочий доход");
+        try {
+            JsonNode r = getPocket(null);
+            assertThat(r.get("horizon").get("endDate").asText()).isEqualTo(any.toString());
+            assertThat(r.get("horizon").get("fallback").asBoolean())
+                    .as("доходы есть — подпись «нет плановых доходов» была бы ложью")
+                    .isFalse();
+        } finally {
+            deleteEvent(e1);
+        }
+    }
+
+    @Test
+    void primaryIncomeFlag_ignoredForExpenseCategory_noConstraintViolation() throws Exception {
+        String id = createCategory("IT-ano35-расход", "EXPENSE");
+        mockMvc.perform(put("/api/v1/categories/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"IT-ano35-расход","type":"EXPENSE","priority":"MEDIUM","primaryIncome":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.primaryIncome").value(false));
+    }
+
     // ── ANO-28: просрочка старше якоря не резервируется ─────────────────────
 
     @Test

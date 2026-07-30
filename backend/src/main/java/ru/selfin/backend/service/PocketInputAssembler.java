@@ -56,12 +56,20 @@ public class PocketInputAssembler {
     private final PredictionService predictionService;
     private final RecurringRuleService recurringRuleService;
     private final TargetFundRepository fundRepository;
+    private final ru.selfin.backend.repository.CategoryRepository categoryRepository;
 
     /**
      * Результат сборки: вход движка + что фактически развёрнуто в baseline
-     * (операциональный ключ правил §9 sandbox; порядок вставки сохраняется).
+     * (операциональный ключ правил §9 sandbox; порядок вставки сохраняется)
+     * + разрешённые даты доходов.
+     *
+     * @param incomeDates даты доходов для раскладки взносов, уже с учётом фильтра
+     *                    «основной доход» (ANO-35). Отдаются наружу, чтобы примерка
+     *                    раскладывала взносы ТЕМИ ЖЕ днями, что и baseline — иначе
+     *                    exclude+tryOn одной копилки давал расхождение на ровном месте.
      */
-    public record Assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> baselineRefs) {}
+    public record Assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> baselineRefs,
+                            List<LocalDate> incomeDates) {}
 
     public Assembled build(PocketScope scope, LocalDate asOfDate) {
         // 0. Материализация recurring-правил ДО резолюции горизонта (ANO-14 §6):
@@ -75,12 +83,15 @@ public class PocketInputAssembler {
                     e.getMessage());
         }
 
+        // Один раз на запрос: считать ли доходом только размеченные категории (ANO-35).
+        boolean onlyPrimary = categoryRepository.existsByPrimaryIncomeTrueAndDeletedFalse();
+
         // 1. Горизонт (спека §4)
         FallbackKind fallback = FallbackKind.NONE;
         LocalDate horizonEnd;
         switch (scope.type()) {
             case NEXT_INCOME -> {
-                List<LocalDate> dates = incomeDates(asOfDate);
+                List<LocalDate> dates = incomeDates(asOfDate, onlyPrimary);
                 if (!dates.isEmpty()) {
                     horizonEnd = dates.get(0);
                 } else {
@@ -89,7 +100,7 @@ public class PocketInputAssembler {
                 }
             }
             case SECOND_INCOME -> {
-                List<LocalDate> dates = incomeDates(asOfDate);
+                List<LocalDate> dates = incomeDates(asOfDate, onlyPrimary);
                 if (dates.size() >= 2) {
                     horizonEnd = dates.get(1);
                 } else if (dates.size() == 1) {
@@ -144,18 +155,20 @@ public class PocketInputAssembler {
                         && f.getTargetDate() != null && f.getTargetAmount() != null
                         && f.getConvertedToEventId() == null && f.getConvertedToFundId() == null)
                 .toList();
-        if (!reservable.isEmpty()) {
-            List<LocalDate> allIncomes = eventRepository.findPlannedIncomeDates(
-                    asOfDate, PocketEngine.trajectoryEnd(asOfDate, horizonEnd), Pageable.unpaged());
-            for (TargetFund f : reservable) {
-                BigDecimal remaining = f.getTargetAmount().subtract(f.getCurrentBalance());
-                int n = SandboxLayout.maxStretchMonths(asOfDate, f.getTargetDate());
-                if (remaining.signum() <= 0 || n <= 0) continue; // края §6: тотально, без 400
-                List<EventSnapshot> contribs = SandboxLayout.layoutSavings(f.getName(), remaining,
-                        f.getTargetDate(), n, asOfDate, allIncomes, SyntheticKind.SAVINGS_CONTRIBUTION);
-                events.addAll(contribs);
-                baselineRefs.put(SandboxRef.fund(f.getId()), contribs);
-            }
+        // День взноса = первый доход месяца, с тем же фильтром «основного дохода» (ANO-35):
+        // откладывают с зарплаты, а не со случайного возврата долга. Список считается
+        // ВСЕГДА и уезжает в Assembled — примерка обязана раскладывать взносы теми же днями.
+        List<LocalDate> allIncomes = eventRepository.findPlannedIncomeDates(
+                asOfDate, PocketEngine.trajectoryEnd(asOfDate, horizonEnd),
+                onlyPrimary, Pageable.unpaged());
+        for (TargetFund f : reservable) {
+            BigDecimal remaining = f.getTargetAmount().subtract(f.getCurrentBalance());
+            int n = SandboxLayout.maxStretchMonths(asOfDate, f.getTargetDate());
+            if (remaining.signum() <= 0 || n <= 0) continue; // края §6: тотально, без 400
+            List<EventSnapshot> contribs = SandboxLayout.layoutSavings(f.getName(), remaining,
+                    f.getTargetDate(), n, asOfDate, allIncomes, SyntheticKind.SAVINGS_CONTRIBUTION);
+            events.addAll(contribs);
+            baselineRefs.put(SandboxRef.fund(f.getId()), contribs);
         }
 
         // 3. Просрочка (без границы месяца, но строго ПОСЛЕ якоря — ANO-28: план старше
@@ -183,13 +196,27 @@ public class PocketInputAssembler {
                 checkpoint.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO),
                 checkpoint.map(BalanceCheckpoint::getDate).orElse(null),
                 events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors);
-        return new Assembled(input, baselineRefs);
+        return new Assembled(input, baselineRefs, allIncomes);
     }
 
-    /** Две ближайшие различные даты плановых доходов в окне поиска (NEXT/SECOND_INCOME). */
-    private List<LocalDate> incomeDates(LocalDate asOfDate) {
-        return eventRepository.findPlannedIncomeDates(
-                asOfDate, asOfDate.plusDays(NEXT_INCOME_SEARCH_DAYS), PageRequest.of(0, 2));
+    /**
+     * Две ближайшие различные даты плановых доходов в окне поиска (NEXT/SECOND_INCOME).
+     * Если размечены категории «основной доход» — считаем только их (ANO-35): иначе
+     * возврат долга на 6 400 становился «следующим доходом» и схлопывал горизонт.
+     *
+     * <p>Флаг только УТОЧНЯЕТ: если по размеченным категориям в окне ничего нет,
+     * откатываемся на любой доход. Иначе галочка на категории без плановых поступлений
+     * роняла бы кармашек в 30-дневный фолбэк с неправдивой подписью «нет плановых
+     * доходов» — при том что доходы есть.
+     */
+    private List<LocalDate> incomeDates(LocalDate asOfDate, boolean onlyPrimary) {
+        LocalDate until = asOfDate.plusDays(NEXT_INCOME_SEARCH_DAYS);
+        if (onlyPrimary) {
+            List<LocalDate> primary = eventRepository.findPlannedIncomeDates(
+                    asOfDate, until, true, PageRequest.of(0, 2));
+            if (!primary.isEmpty()) return primary;
+        }
+        return eventRepository.findPlannedIncomeDates(asOfDate, until, false, PageRequest.of(0, 2));
     }
 
     /**

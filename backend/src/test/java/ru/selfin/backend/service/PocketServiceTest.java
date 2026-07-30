@@ -10,6 +10,7 @@ import ru.selfin.backend.dto.pocket.PocketResultDto;
 import ru.selfin.backend.dto.pocket.PocketScope;
 import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
+import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
@@ -20,6 +21,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -51,21 +53,22 @@ class PocketServiceTest {
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
         when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
-        when(eventRepository.findPlannedIncomeDates(any(), any(), any())).thenReturn(List.of());
+        when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
         when(fundRepository.findByWishlistStatusAndDeletedFalse(any())).thenReturn(List.of());
+        CategoryRepository categoryRepository = mock(CategoryRepository.class);
 
         pocketService = new PocketService(new PocketInputAssembler(eventRepository,
                 checkpointRepository, settingsService, predictionService, recurringRuleService,
-                fundRepository));
+                fundRepository, categoryRepository));
     }
 
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */
     private void incomeDates(LocalDate... dates) {
-        when(eventRepository.findPlannedIncomeDates(eq(TODAY), eq(TODAY.plusDays(92)), any()))
+        when(eventRepository.findPlannedIncomeDates(eq(TODAY), eq(TODAY.plusDays(92)), anyBoolean(), any()))
                 .thenReturn(List.of(dates));
     }
 
@@ -125,7 +128,7 @@ class PocketServiceTest {
         pocketService.getPocket(null, TODAY);
         InOrder inOrder = inOrder(recurringRuleService, eventRepository);
         inOrder.verify(recurringRuleService).extendIndefiniteRules(TODAY.plusMonths(36));
-        inOrder.verify(eventRepository).findPlannedIncomeDates(any(), any(), any());
+        inOrder.verify(eventRepository).findPlannedIncomeDates(any(), any(), anyBoolean(), any());
     }
 
     @Test

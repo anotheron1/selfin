@@ -13,6 +13,7 @@ import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
+import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
@@ -24,6 +25,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -36,12 +38,14 @@ class PocketInputAssemblerTest {
 
     private FinancialEventRepository eventRepository;
     private TargetFundRepository fundRepository;
+    private CategoryRepository categoryRepository;
     private PocketInputAssembler assembler;
 
     @BeforeEach
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
         fundRepository = mock(TargetFundRepository.class);
+        categoryRepository = mock(CategoryRepository.class);
         BalanceCheckpointRepository checkpointRepository = mock(BalanceCheckpointRepository.class);
         UserSettingsService settingsService = mock(UserSettingsService.class);
         PredictionService predictionService = mock(PredictionService.class);
@@ -51,7 +55,7 @@ class PocketInputAssemblerTest {
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
         when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
-        when(eventRepository.findPlannedIncomeDates(any(), any(), any())).thenReturn(List.of());
+        when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
@@ -59,7 +63,7 @@ class PocketInputAssemblerTest {
                 .thenReturn(List.of());
 
         assembler = new PocketInputAssembler(eventRepository, checkpointRepository,
-                settingsService, predictionService, recurringRuleService, fundRepository);
+                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository);
     }
 
     private static TargetFund fund(String name, long target, long balance,
@@ -93,7 +97,7 @@ class PocketInputAssemblerTest {
         TargetFund f = fund("Египет", 80_000, 20_000, LocalDate.of(2026, 8, 10), FundPurchaseType.SAVINGS);
         fixedFunds(f);
         // Полное окно доходов: апрель имеет доход 15.04, дальше пусто → 1-е число
-        when(eventRepository.findPlannedIncomeDates(eq(TODAY), any(), any()))
+        when(eventRepository.findPlannedIncomeDates(eq(TODAY), any(), anyBoolean(), any()))
                 .thenReturn(List.of(LocalDate.of(2026, 4, 15)));
 
         PocketInputAssembler.Assembled a = assembler.build(MONTHS_6, TODAY);
@@ -132,6 +136,57 @@ class PocketInputAssemblerTest {
     }
 
     @Test
+    @DisplayName("ANO-35: есть категории «основной доход» — горизонт считается только по ним")
+    void horizonUsesOnlyPrimaryIncome_whenFlagged() {
+        when(categoryRepository.existsByPrimaryIncomeTrueAndDeletedFalse()).thenReturn(true);
+        assembler.build(new PocketScope(PocketScope.Type.NEXT_INCOME, null, null), TODAY);
+
+        org.mockito.Mockito.verify(eventRepository).findPlannedIncomeDates(
+                eq(TODAY), eq(TODAY.plusDays(92)), eq(true), any());
+    }
+
+    @Test
+    @DisplayName("ANO-35: ни одной размеченной категории — прежнее поведение (любой доход)")
+    void horizonUsesAnyIncome_whenNothingFlagged() {
+        when(categoryRepository.existsByPrimaryIncomeTrueAndDeletedFalse()).thenReturn(false);
+        assembler.build(new PocketScope(PocketScope.Type.NEXT_INCOME, null, null), TODAY);
+
+        org.mockito.Mockito.verify(eventRepository).findPlannedIncomeDates(
+                eq(TODAY), eq(TODAY.plusDays(92)), eq(false), any());
+    }
+
+    @Test
+    @DisplayName("ANO-35: флаг стоит, но плановых доходов по нему нет — откат на любой доход")
+    void horizonFallsBackToAnyIncome_whenPrimaryYieldsNothing() {
+        when(categoryRepository.existsByPrimaryIncomeTrueAndDeletedFalse()).thenReturn(true);
+        LocalDate any = LocalDate.of(2026, 3, 20);
+        when(eventRepository.findPlannedIncomeDates(eq(TODAY), any(), eq(true), any()))
+                .thenReturn(List.of());                 // по размеченным — пусто
+        when(eventRepository.findPlannedIncomeDates(eq(TODAY), any(), eq(false), any()))
+                .thenReturn(List.of(any));              // но доходы вообще есть
+
+        var a = assembler.build(new PocketScope(PocketScope.Type.NEXT_INCOME, null, null), TODAY);
+
+        // Горизонт заякорен реальным доходом, а не 30-дневным фолбэком с ложной подписью
+        assertThat(a.input().horizonEnd()).isEqualTo(any);
+        assertThat(a.input().fallbackKind())
+                .isEqualTo(ru.selfin.backend.dto.pocket.FallbackKind.NONE);
+    }
+
+    @Test
+    @DisplayName("ANO-35: даты доходов уезжают в Assembled — примерка кладёт взносы теми же днями")
+    void incomeDates_exposedForSandbox() {
+        LocalDate salary = LocalDate.of(2026, 4, 15);
+        when(eventRepository.findPlannedIncomeDates(eq(TODAY), any(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(List.of(salary));
+
+        var a = assembler.build(MONTHS_6, TODAY);
+
+        assertThat(a.incomeDates()).containsExactly(salary);
+    }
+
+    @Test
     @DisplayName("ANO-28: просрочка запрашивается строго ПОСЛЕ даты якоря (якорь её съел)")
     void overdue_queriedAfterCheckpointDate() {
         BalanceCheckpointRepository cpRepo = mock(BalanceCheckpointRepository.class);
@@ -146,7 +201,7 @@ class PocketInputAssemblerTest {
         when(prediction.forecastFromEvents(any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         PocketInputAssembler a = new PocketInputAssembler(eventRepository, cpRepo,
-                settings, prediction, recurring, fundRepository);
+                settings, prediction, recurring, fundRepository, categoryRepository);
 
         a.build(MONTHS_6, TODAY);
 

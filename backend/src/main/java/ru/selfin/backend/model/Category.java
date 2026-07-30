@@ -43,4 +43,16 @@ public class Category {
     @Column(name = "forecast_enabled", nullable = false)
     @Builder.Default
     private boolean forecastEnabled = false;
+
+    /**
+     * «Основной доход» — приход по этой категории считается настоящим следующим доходом
+     * и задаёт горизонт кармашка (зарплата, аванс). Мелкие нерегулярные приходы
+     * (возврат долга, кэшбек) флага не имеют и горизонт не смещают (ANO-35).
+     *
+     * <p>Пока флага нет НИ У ОДНОЙ категории, горизонт берётся по любому доходу —
+     * прежнее поведение.
+     */
+    @Column(name = "primary_income", nullable = false)
+    @Builder.Default
+    private boolean primaryIncome = false;
 }

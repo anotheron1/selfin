@@ -217,9 +217,14 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
                                                       @Param("today") LocalDate today);
 
     /**
-     * Ближайшие РАЗЛИЧНЫЕ даты будущих планов-доходов ЛЮБОЙ категории, по возрастанию
+     * Ближайшие РАЗЛИЧНЫЕ даты будущих планов-доходов, по возрастанию
      * (горизонты NEXT_INCOME / SECOND_INCOME, спека §4 + ANO-14 §4). Лимит — через Pageable.
      * Хотелки исключены явно (income-хотелок не бывает, но фильтр дешёвый и страхует).
+     *
+     * <p>ANO-35: при {@code onlyPrimary = true} считаются только категории с флагом
+     * «основной доход» — иначе мелкий возврат долга схлопывал горизонт «до дохода»
+     * до пары дней. Вызывающий передаёт true, только если такие категории существуют,
+     * поэтому без настройки поведение прежнее (любой доход).
      */
     @Query("""
         SELECT DISTINCT e.date FROM FinancialEvent e
@@ -229,10 +234,12 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
           AND e.type = ru.selfin.backend.model.enums.EventType.INCOME
           AND e.wishlistStatus IS NULL
           AND e.date > :after AND e.date <= :until
+          AND (:onlyPrimary = false OR (e.category.primaryIncome = true AND e.category.deleted = false))
         ORDER BY e.date
         """)
     List<LocalDate> findPlannedIncomeDates(
-        @Param("after") LocalDate after, @Param("until") LocalDate until, Pageable pageable);
+        @Param("after") LocalDate after, @Param("until") LocalDate until,
+        @Param("onlyPrimary") boolean onlyPrimary, Pageable pageable);
 
     /** Хотелки нескольких статусов одним запросом (вход движка wishlistEvents, спека §3.1). */
     List<FinancialEvent> findByWishlistStatusInAndDeletedFalse(

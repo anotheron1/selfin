@@ -10,5 +10,11 @@ public record CategoryCreateDto(
         @NotBlank String name,
         @NotNull CategoryType type,
         Priority priority,
-        Boolean forecastEnabled) {   // nullable: null = don't change on update, false on create
+        Boolean forecastEnabled,     // nullable: null = don't change on update, false on create
+        Boolean primaryIncome) {     // «основной доход», та же nullable-семантика (ANO-35)
+
+    /** Прежняя сигнатура (без флага основного дохода) — щадит существующие вызовы. */
+    public CategoryCreateDto(String name, CategoryType type, Priority priority, Boolean forecastEnabled) {
+        this(name, type, priority, forecastEnabled, null);
+    }
 }

@@ -9,6 +9,7 @@ import ru.selfin.backend.dto.CategoryCreateDto;
 import ru.selfin.backend.dto.CategoryDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.SystemCategory;
 import ru.selfin.backend.repository.CategoryRepository;
@@ -70,7 +71,17 @@ public class CategoryService {
                 .system(isSystem)
                 .build();
         category.setForecastEnabled(dto.forecastEnabled() != null && dto.forecastEnabled());
+        category.setPrimaryIncome(resolvePrimaryIncome(dto, dto.type(), false));
         return toDto(categoryRepository.save(category));
+    }
+
+    /**
+     * Флаг «основной доход» осмыслен только для доходных категорий — на расходной он
+     * молча гасится (в БД это же стережёт CHECK-констрейнт, ANO-35).
+     */
+    private boolean resolvePrimaryIncome(CategoryCreateDto dto, CategoryType type, boolean current) {
+        boolean requested = dto.primaryIncome() != null ? dto.primaryIncome() : current;
+        return type == CategoryType.INCOME && requested;
     }
 
     /**
@@ -103,6 +114,7 @@ public class CategoryService {
         if (dto.forecastEnabled() != null) {
             category.setForecastEnabled(dto.forecastEnabled());
         }
+        category.setPrimaryIncome(resolvePrimaryIncome(dto, dto.type(), category.isPrimaryIncome()));
         return toDto(categoryRepository.save(category));
     }
 
@@ -153,6 +165,7 @@ public class CategoryService {
      * @return DTO для передачи клиенту
      */
     public CategoryDto toDto(Category c) {
-        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority(), c.isSystem(), c.isForecastEnabled());
+        return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority(), c.isSystem(),
+                c.isForecastEnabled(), c.isPrimaryIncome());
     }
 }
