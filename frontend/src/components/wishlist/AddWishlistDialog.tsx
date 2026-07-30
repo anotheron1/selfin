@@ -2,11 +2,8 @@ import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import {
-    createEvent, createFund, fetchCategories,
-    setEventWishlistStatus, setFundWishlistStatus,
-} from '../../api';
-import type { Category, WishlistKind } from '../../types/api';
+import { createWishlistItem, createFund, setFundWishlistStatus } from '../../api';
+import type { WishlistKind } from '../../types/api';
 
 interface Props {
     open: boolean;
@@ -20,8 +17,6 @@ const KIND_LABEL: Record<WishlistKind, string> = {
     SAVINGS: 'Копилка',
     CREDIT: 'Кредит',
 };
-
-const SYSTEM_WISHLIST_CATEGORY = 'Хотелки';
 
 /**
  * Диалог создания нового item'а: тип (хотелка/копилка/кредит) + название/сумма/дата,
@@ -47,7 +42,6 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
     const [targetDate, setTargetDate] = useState('');
     const [rate, setRate] = useState('');
     const [term, setTerm] = useState('');
-    const [categories, setCategories] = useState<Category[]>([]);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     // Успешно созданная сущность с предыдущей попытки (POST прошёл, PATCH мог упасть).
@@ -68,7 +62,6 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
         setTerm('');
         setError(null);
         setCreated(null);
-        fetchCategories().then(setCategories).catch(() => {/* категория резолвится при сабмите */});
     }, [open]);
 
     const amountNum = amount.trim() === '' ? NaN : Number(amount);
@@ -84,22 +77,12 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
             let entity = created;
             if (entity == null) {
                 if (kind === 'WISHLIST') {
-                    // Категория «Хотелки» (EXPENSE) — по соглашению из FinancialEventService.createWishlistItem.
-                    const cat = categories.find(c => c.name === SYSTEM_WISHLIST_CATEGORY && c.type === 'EXPENSE')
-                        ?? categories.find(c => c.type === 'EXPENSE');
-                    if (!cat) {
-                        setError('Нет ни одной категории расходов для хотелки');
-                        setSaving(false);
-                        return;
-                    }
-                    // POST события (LOW, дата = целевая).
-                    const ev = await createEvent({
-                        date: targetDate,
-                        categoryId: cat.id,
-                        type: 'EXPENSE',
-                        priority: 'LOW',
-                        plannedAmount: amountNum,
+                    // Одна транзакция: бэк сам ставит статус OPEN, категорию «Хотелки»
+                    // и срок — второй шаг для этой ветки больше не нужен (ANO-34).
+                    const ev = await createWishlistItem({
                         description: name.trim(),
+                        plannedAmount: amountNum,
+                        date: targetDate || null,
                     });
                     entity = { id: ev.id, kind };
                 } else {
@@ -117,10 +100,9 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
                 // Запоминаем созданную сущность ДО PATCH — чтобы ретрай при падении PATCH не делал второй POST.
                 setCreated(entity);
             }
-            // ШАГ 2: PATCH wishlist-status=OPEN. При падении — см. javadoc (без компенсации, ретрай переиспользует entity).
-            if (entity.kind === 'WISHLIST') {
-                await setEventWishlistStatus(entity.id, 'OPEN');
-            } else {
+            // ШАГ 2 остался только у копилок/кредитов: createFund статус не проставляет.
+            // Хотелка приходит из createWishlistItem уже OPEN — сироты на этой ветке больше нет.
+            if (entity.kind !== 'WISHLIST') {
                 await setFundWishlistStatus(entity.id, 'OPEN');
             }
             // Полный успех: чистим память о созданной сущности и форму, рефетчим, закрываем.

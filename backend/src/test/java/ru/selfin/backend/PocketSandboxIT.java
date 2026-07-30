@@ -26,6 +26,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,6 +59,41 @@ class PocketSandboxIT {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
+    }
+
+    /**
+     * ANO-34: созданная через POST /events/wishlist хотелка обязана быть видимой в
+     * примерке. Раньше сервис не проставлял wishlistStatus, и запись выпадала из
+     * обеих wishlist-выборок — «Сохранить как хотелку» молча создавало сироту.
+     */
+    @Test
+    void freshWishlistItem_appearsInSandboxItems() throws Exception {
+        String created = mockMvc.perform(post("/api/v1/events/wishlist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"description":"IT-из примерки","plannedAmount":4200,"date":"%s"}
+                                """.formatted(LocalDate.now().plusMonths(2))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID id = UUID.fromString(objectMapper.readTree(created).get("id").asText());
+        try {
+            JsonNode r = sandbox("""
+                    {"scope":"MONTHS:3","tryOn":[],"exclude":[]}
+                    """);
+            JsonNode found = null;
+            for (JsonNode item : r.get("items")) {
+                if (id.toString().equals(item.get("ref").get("id").asText())) found = item;
+            }
+            assertThat(found).as("новая хотелка в списке примерки").isNotNull();
+            assertThat(found.get("wishlistStatus").asText()).isEqualTo("OPEN");
+            assertThat(found.get("kind").asText()).isEqualTo("WISHLIST");
+            assertThat(found.get("name").asText()).isEqualTo("IT-из примерки");
+            assertThat(found.get("date").asText()).isEqualTo(LocalDate.now().plusMonths(2).toString());
+            // OPEN не резервируется — на baseline влиять не должна
+            assertThat(found.get("inBaseline").asBoolean()).isFalse();
+        } finally {
+            mockMvc.perform(delete("/api/v1/events/" + id)).andExpect(status().isNoContent());
+        }
     }
 
     private UUID createFixedSavingsFund(String name, long target, LocalDate targetDate) {

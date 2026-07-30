@@ -213,11 +213,22 @@ export default function Wishlist() {
         setNotice(null);
         setState(s => ({ ...s, adhoc: s.adhoc.filter((_, i) => i !== index) }));
     };
-    // Хотелка создаётся как OPEN без даты (WishlistCreateDto даты не несёт);
-    // дату юзер проставит в строке, если решит примерять её всерьёз.
-    const saveAdhocAsWishlist = (amount: number, _date: string) =>
-        createWishlistItem({ description: 'Из примерки', plannedAmount: amount })
-            .then(load).catch(load);
+    /**
+     * Ad-hoc «а если» → настоящая хотелка (OPEN + срок ставит бэк, ANO-34).
+     * Строку-черновик убираем: она превратилась в элемент списка, и держать обе —
+     * значит показывать одно и то же дважды.
+     */
+    const saveAdhocAsWishlist = (amount: number, date: string) => {
+        setNotice(null);
+        createWishlistItem({ description: 'Из примерки', plannedAmount: amount, date })
+            .then(() => {
+                setState(s => ({
+                    ...s,
+                    adhoc: s.adhoc.filter(t => !(t.amount === amount && t.date === date)),
+                }));
+            })
+            .catch(failed);
+    };
 
     // ── рендер ──────────────────────────────────────────────────────────────
 

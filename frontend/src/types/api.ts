@@ -60,6 +60,8 @@ export interface WishlistCreateDto {
     description: string;
     plannedAmount?: number | null;
     url?: string | null;
+    /** YYYY-MM-DD; необязателен — хотелка «когда-нибудь». Бэк ставит статус OPEN сам. */
+    date?: string | null;
 }
 
 export interface FinancialEventCreateDto {
