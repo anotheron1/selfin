@@ -516,10 +516,17 @@ public class FinancialEventService {
     }
 
     /**
-     * Создаёт хотелку: LOW-приоритетное PLANNED-событие типа EXPENSE без даты.
-     * Категория «Хотелки» создаётся автоматически при первом вызове.
+     * Создаёт хотелку: LOW-приоритетное PLANNED-событие типа EXPENSE в статусе
+     * {@link WishlistStatus#OPEN}. Категория «Хотелки» создаётся автоматически при
+     * первом вызове. Срок необязателен.
      *
-     * @param dto описание и сумма хотелки
+     * <p>Статус проставляется ЗДЕСЬ, одной транзакцией (ANO-34). Раньше он оставался
+     * null, и запись выпадала из обеих wishlist-выборок ({@code findAllWishlistEvents}
+     * и {@code findByWishlistStatusInAndDeletedFalse}) — то есть создавалась невидимой
+     * везде. Это же снимает двухфазный create «POST + PATCH», который оставлял сироту
+     * при падении второго шага.
+     *
+     * @param dto описание, сумма и (необязательно) срок хотелки
      * @return DTO созданного события
      */
     @Transactional
@@ -538,8 +545,10 @@ public class FinancialEventService {
                 .type(EventType.EXPENSE)
                 .priority(Priority.LOW)
                 .status(EventStatus.PLANNED)
+                .wishlistStatus(WishlistStatus.OPEN)
                 .description(dto.description())
                 .plannedAmount(dto.plannedAmount())
+                .date(dto.date())
                 .url(dto.url())
                 .build();
 

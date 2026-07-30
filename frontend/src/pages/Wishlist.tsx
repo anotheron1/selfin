@@ -27,9 +27,15 @@ const SCOPES: { key: string | undefined; label: string }[] = [
     { key: 'MONTHS:6', label: '6 мес' },
 ];
 
-/** true если item реально сидит в baseline и им управляют «обратным» тумблером. */
-function isInPlan(item: SandboxItem): boolean {
-    return item.wishlistStatus === 'FIXED' && item.inBaseline;
+/** Зафиксировано = решение принято: элемент в реальном плане, тумблер заперт. */
+function isFixed(item: SandboxItem): boolean {
+    return item.wishlistStatus === 'FIXED';
+}
+
+/** Человеческая часть ошибки: без «API error: 400 /pocket/sandbox — » в лицо. */
+function reason(e: Error): string {
+    const i = e.message.indexOf(' — ');
+    return i >= 0 ? e.message.slice(i + 3) : e.message;
 }
 
 export default function Wishlist() {
@@ -38,6 +44,8 @@ export default function Wishlist() {
     const [state, setState] = useState<SandboxState>(() => loadSandbox());
     const [resp, setResp] = useState<SandboxResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    /** Заметка о сбросе примерки; гасится следующим действием пользователя. */
+    const [notice, setNotice] = useState<string | null>(null);
     const [showCapital, setShowCapital] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -60,27 +68,37 @@ export default function Wishlist() {
         if (scope === '__REALIZATION__' && realization == null) setScope(undefined);
     }, [scope, realization]);
 
-    // Собираем запрос: tryOn = enabled + adhoc; exclude = excluded.
+    // tryOn = включённые (незафиксированные) + ad-hoc. exclude не используется:
+    // зафиксированное заперто и живёт в baseline, выключать его примеркой нельзя.
     const request = useMemo<SandboxRequest>(() => ({
         scope: effectiveScope,
         tryOn: [...state.enabled, ...state.adhoc].filter(t => t.date), // без даты не шлём
-        exclude: state.excluded,
+        exclude: [],
     }), [effectiveScope, state]);
 
     const load = useCallback(() => {
         postPocketSandbox(request)
-            .then(r => { setResp(r); setError(null); })
+            .then(r => {
+                setResp(r);
+                setError(null);
+                // Элемент могли зафиксировать в другом месте (в т.ч. в секции «что с
+                // капиталом» ниже) — тогда он уже в baseline и его нельзя слать в tryOn.
+                setState(s => { const n = reconcile(s, r.items); return differs(s, n) ? n : s; });
+            })
             .catch((e: Error) => {
                 // Возможная причина 400 — протухший ref в черновике (элемент удалён/
-                // сконвертирован на другой странице). Берём ЧИСТЫЙ baseline (без tryOn/
-                // exclude — по refs он упасть не может), показываем актуальный список и
-                // вычищаем черновик; вычистка сдвигает state → debounce перезапрашивает
-                // уже валидный набор. Без этого протухший ref вечно клинил бы примерку.
+                // сконвертирован на другой странице). Берём ЧИСТЫЙ baseline (без tryOn —
+                // по refs он упасть не может), показываем актуальный список и вычищаем
+                // черновик; вычистка сдвигает state → debounce перезапрашивает валидный набор.
                 postPocketSandbox({ scope: effectiveScope, tryOn: [], exclude: [] })
                     .then(clean => {
                         setResp(clean);
-                        const known = new Set(clean.items.map(i => refKey(i.ref)));
-                        setState(s => (differs(s, reconcile(s, known)) ? reconcile(s, known) : s));
+                        // Функциональная форма обязательна: пока запрос летел, пользователь
+                        // мог что-то переключить — значение из замыкания затёрло бы правку.
+                        setState(s => { const n = reconcile(s, clean.items); return differs(s, n) ? n : s; });
+                        // Заметка живёт до следующего действия пользователя, а не до
+                        // следующего успешного запроса — иначе гасла бы через 200 мс (ANO-30).
+                        setNotice(`Примерка сброшена: ${reason(e)}`);
                         setError(null);
                     })
                     .catch(() => setError(e.message));
@@ -101,46 +119,32 @@ export default function Wishlist() {
     const enabledParams = (ref: SandboxRef): SandboxTryOn | null =>
         state.enabled.find(t => sameRef(t.ref, ref)) ?? null;
 
-    const isToggled = (item: SandboxItem): boolean => {
-        if (isInPlan(item)) {
-            // «Обратный» тумблер: ON = сидит в плане как есть ИЛИ покручен (exclude+tryOn).
-            // Покрученный элемент (excluded + enabled) остаётся визуально ВКЛ, иначе тумблер
-            // бы врал «выкл» при заданной примерке и следующий клик молча терял бы правку.
-            const excluded = state.excluded.some(e => sameRef(e, item.ref));
-            const cranked = state.enabled.some(t => sameRef(t.ref, item.ref));
-            return !excluded || cranked;
-        }
-        return state.enabled.some(t => sameRef(t.ref, item.ref));
-    };
+    /**
+     * Модель тумблера (решение Кирилла 2026-07-30):
+     * ВЫКЛ — вне примерки (состояние по умолчанию при входе);
+     * ВКЛ — участвует только в линии «с примеркой», в плане и на Dashboard НЕ виден;
+     * ВКЛ + замок — зафиксировано: в реальном плане, тумблер не переключается,
+     * выход только через «вернуть в обсуждение».
+     * Зафиксированное никогда не попадает в tryOn/exclude — оно уже в baseline.
+     */
+    const isToggled = (item: SandboxItem): boolean =>
+        isFixed(item) || state.enabled.some(t => sameRef(t.ref, item.ref));
 
     const toggle = (item: SandboxItem, next: boolean) => {
-        setState(s => {
-            if (isInPlan(item)) {
-                // Обратный тумблер: on → вернуть как есть (чистим обе коллекции);
-                // off → примерка отказа: exclude + СБРОС крутилки (иначе покрученный
-                // элемент остался бы в enabled и тумблер не погас бы — exclude+tryOn = retune).
-                return next
-                    ? { ...s, excluded: s.excluded.filter(e => !sameRef(e, item.ref)),
-                        enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) }
-                    : { ...s, excluded: [...s.excluded.filter(e => !sameRef(e, item.ref)), item.ref],
-                        enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) };
-            }
-            // OPEN / FIXED-не-в-baseline: обычный tryOn
-            return next
-                ? { ...s, enabled: [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), defaultTryOn(item)] }
-                : { ...s, enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) };
-        });
+        if (isFixed(item)) return;   // заперт: только «вернуть в обсуждение»
+        setNotice(null);
+        setState(s => next
+            ? { ...s, enabled: [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), defaultTryOn(item)] }
+            : { ...s, enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) });
     };
 
     const changeParams = (item: SandboxItem, next: SandboxTryOn) => {
-        setState(s => {
-            const enabled = [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), next];
-            // Покрутить FIXED-в-плане = exclude + tryOn парой (§7)
-            const excluded = isInPlan(item)
-                ? [...s.excluded.filter(e => !sameRef(e, item.ref)), item.ref]
-                : s.excluded;
-            return { ...s, enabled, excluded };
-        });
+        if (isFixed(item)) return;   // параметры запертого меняются после возврата в обсуждение
+        setNotice(null);
+        setState(s => ({
+            ...s,
+            enabled: [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), next],
+        }));
     };
 
     // ── фиксация / отложить ─────────────────────────────────────────────────
@@ -159,20 +163,37 @@ export default function Wishlist() {
                 convertWishlistItem(item.ref.id, {
                     sourceKind: 'WISHLIST', target: 'FUND',
                     fundTargetDate: stretchTargetDate(todayIso, stretch),
-                }).then(() => afterFix(item.ref)).catch(() => afterFix(item.ref));
+                }).then(() => afterFix(item.ref)).catch(failed);
             } else {
                 setEventWishlistStatus(item.ref.id, 'FIXED')
-                    .then(() => afterFix(item.ref)).catch(() => afterFix(item.ref));
+                    .then(() => afterFix(item.ref)).catch(failed);
             }
         } else {
-            // Копилка/кредит уже FIXED — фиксировать нечего, просто убираем из черновика
-            afterFix(item.ref);
+            // OPEN-копилка/кредит: фиксация = вернуть статус FIXED, параметры уже в фонде.
+            setFundWishlistStatus(item.ref.id, 'FIXED')
+                .then(() => afterFix(item.ref)).catch(failed);
         }
+    };
+
+    /**
+     * Сбой изменения статуса виден пользователю. Черновик при этом НЕ чистим:
+     * элемент не изменился, и молчаливая чистка выглядела бы как «кнопка сработала».
+     */
+    const failed = (e: Error) => setError(reason(e));
+
+    /**
+     * «Вернуть в обсуждение»: FIXED → OPEN. Единственный выход из запертого состояния —
+     * раньше его не было вовсе, и приходилось удалять хотелку (ОС Кирилла, ANO-30).
+     * Обратимо: после возврата элемент снова свободно примеряется и фиксируется.
+     */
+    const unfix = (item: SandboxItem) => {
+        const call = item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus;
+        call(item.ref.id, 'OPEN').then(() => afterFix(item.ref)).catch(failed);
     };
 
     const dismiss = (item: SandboxItem) => {
         const call = item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus;
-        call(item.ref.id, 'DISMISSED').then(() => afterFix(item.ref)).catch(() => afterFix(item.ref));
+        call(item.ref.id, 'DISMISSED').then(() => afterFix(item.ref)).catch(failed);
     };
 
     const afterFix = (ref: SandboxRef) => {
@@ -184,15 +205,30 @@ export default function Wishlist() {
 
     // ── ad-hoc ──────────────────────────────────────────────────────────────
 
-    const addAdhoc = (amount: number, date: string) =>
+    const addAdhoc = (amount: number, date: string) => {
+        setNotice(null);
         setState(s => ({ ...s, adhoc: [...s.adhoc, { ref: null, amount, date }] }));
-    const removeAdhoc = (index: number) =>
+    };
+    const removeAdhoc = (index: number) => {
+        setNotice(null);
         setState(s => ({ ...s, adhoc: s.adhoc.filter((_, i) => i !== index) }));
-    // Хотелка создаётся как OPEN без даты (WishlistCreateDto даты не несёт);
-    // дату юзер проставит в строке, если решит примерять её всерьёз.
-    const saveAdhocAsWishlist = (amount: number, _date: string) =>
-        createWishlistItem({ description: 'Из примерки', plannedAmount: amount })
-            .then(load).catch(load);
+    };
+    /**
+     * Ad-hoc «а если» → настоящая хотелка (OPEN + срок ставит бэк, ANO-34).
+     * Строку-черновик убираем: она превратилась в элемент списка, и держать обе —
+     * значит показывать одно и то же дважды.
+     */
+    const saveAdhocAsWishlist = (amount: number, date: string) => {
+        setNotice(null);
+        createWishlistItem({ description: 'Из примерки', plannedAmount: amount, date })
+            .then(() => {
+                setState(s => ({
+                    ...s,
+                    adhoc: s.adhoc.filter(t => !(t.amount === amount && t.date === date)),
+                }));
+            })
+            .catch(failed);
+    };
 
     // ── рендер ──────────────────────────────────────────────────────────────
 
@@ -223,6 +259,14 @@ export default function Wishlist() {
                 </div>
             )}
 
+            {notice && !error && (
+                <div className="rounded-lg px-4 py-2.5 text-xs"
+                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                        color: 'var(--color-text-muted)' }}>
+                    {notice}
+                </div>
+            )}
+
             {/* Шапка: два числа + разница + скоупы */}
             {baseline && fitted && (
                 <div className="rounded-2xl p-4"
@@ -244,7 +288,7 @@ export default function Wishlist() {
                     )}
                     <div className="flex gap-1.5 mt-3 flex-wrap">
                         {SCOPES.map(sc => (
-                            <button key={sc.label} onClick={() => setScope(sc.key)}
+                            <button key={sc.label} onClick={() => { setNotice(null); setScope(sc.key); }}
                                 className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
                                     scope === sc.key ? 'bg-white/90 text-black font-semibold'
                                         : 'bg-white/15 text-white/80 hover:bg-white/25'}`}>
@@ -272,10 +316,12 @@ export default function Wishlist() {
                         key={`${item.ref.type}:${item.ref.id}`}
                         item={item}
                         enabled={isToggled(item)}
+                        locked={isFixed(item)}
                         params={enabledParams(item.ref)}
                         onToggle={next => toggle(item, next)}
                         onParamsChange={next => changeParams(item, next)}
                         onFix={() => fix(item)}
+                        onUnfix={() => unfix(item)}
                         onDismiss={() => dismiss(item)}
                     />
                 ))}

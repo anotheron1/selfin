@@ -22,7 +22,16 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
             ...extraHeaders,
         },
     });
-    if (!res.ok) throw new Error(`API error: ${res.status} ${path}`);
+    if (!res.ok) {
+        // Причина с бэка (ErrorResponse.message) — иначе на фронте виден голый код
+        // и любая 400 выглядит как «ничего не произошло» (ANO-30).
+        let detail = '';
+        try {
+            const body = await res.json();
+            detail = body?.message ?? body?.error ?? '';
+        } catch { /* тело не JSON — обойдёмся кодом */ }
+        throw new Error(`API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
+    }
     if (res.status === 204) return undefined as T;
     return res.json();
 }

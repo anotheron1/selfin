@@ -35,7 +35,8 @@ interface Props {
     /** Параметры изменились — родитель пересчитывает delta на бэке. */
     onParamsRecompute: (req: RecomputeRequest) => void;
     /** Отпустили слайдер/изменили параметры — персист через updateEvent/updateFund. */
-    onPersist: (patch: { amount: number; targetDate: string; rate?: number; termMonths?: number }) => void;
+    /** targetDate отсутствует, если у элемента нет срока и его сейчас не задавали. */
+    onPersist: (patch: { amount: number; targetDate?: string; rate?: number; termMonths?: number }) => void;
     onFix: () => void;
     onDelete: () => void;
     onStatusChange: (status: WishlistStatus) => void;
@@ -78,7 +79,12 @@ export default function WishlistItemCard(props: Props) {
     } = props;
 
     const amount = amountOverride ?? item.amount;
-    const targetDate = dateOverride ?? item.targetDate;
+    // Дата может отсутствовать (хотелка/копилка без срока) — подставляем ближайший
+    // допустимый месяц, иначе слайдер и подпись падали на null (ANO-29).
+    // Реальная запись даты произойдёт только если пользователь тронет слайдер.
+    const hasDate = (dateOverride ?? item.targetDate) != null;
+    const targetDate = dateOverride ?? item.targetDate
+        ?? `${addMonths(currentMonth, MIN_OFFSET)}-01`;
     const offset = offsetOf(targetDate, currentMonth);
 
     const isCredit = item.kind === 'CREDIT';
@@ -112,9 +118,12 @@ export default function WishlistItemCard(props: Props) {
 
     const persist = (over: { amount?: number; targetDate?: string } = {}) => {
         // Значения резолвим в момент вызова (актуальный closure), отправляем по трейлинг-таймеру.
+        // Дата уходит только если она реально есть или её сейчас задали слайдером: у элемента
+        // без срока targetDate — подставной фолбэк (ANO-29), и записывать его молча нельзя.
+        const date = over.targetDate ?? (hasDate ? targetDate : undefined);
         const patch = {
             amount: over.amount ?? amount,
-            targetDate: over.targetDate ?? targetDate,
+            targetDate: date,
             rate: isCredit && rate ? Number(rate) : undefined,
             termMonths: isCredit && term ? Number(term) : undefined,
         };
@@ -201,7 +210,9 @@ export default function WishlistItemCard(props: Props) {
                 <div className="flex items-center justify-between text-xs">
                     <span style={{ color: 'var(--color-text-muted)' }}>Когда</span>
                     <span className="font-medium">
-                        {fmtYearMonthFull(targetDate.slice(0, 7))} (через {offset} мес)
+                        {hasDate
+                            ? `${fmtYearMonthFull(targetDate.slice(0, 7))} (через ${offset} мес)`
+                            : 'срок не задан'}
                     </span>
                 </div>
                 <input
