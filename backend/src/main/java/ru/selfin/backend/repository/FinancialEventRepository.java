@@ -234,7 +234,7 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
           AND e.type = ru.selfin.backend.model.enums.EventType.INCOME
           AND e.wishlistStatus IS NULL
           AND e.date > :after AND e.date <= :until
-          AND (:onlyPrimary = false OR e.category.primaryIncome = true)
+          AND (:onlyPrimary = false OR (e.category.primaryIncome = true AND e.category.deleted = false))
         ORDER BY e.date
         """)
     List<LocalDate> findPlannedIncomeDates(
