@@ -468,7 +468,8 @@ export interface WishlistItem {
     kind: WishlistKind;
     name: string;
     amount: number;
-    targetDate: string;       // YYYY-MM-DD
+    /** YYYY-MM-DD; null — дата не задана (хотелка/копилка без срока). */
+    targetDate: string | null;
     status: WishlistStatus;
     convertedTo: ConvertedTo | null;
     delta: MonthDelta[];

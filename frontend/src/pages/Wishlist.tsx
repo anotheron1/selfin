@@ -27,9 +27,9 @@ const SCOPES: { key: string | undefined; label: string }[] = [
     { key: 'MONTHS:6', label: '6 мес' },
 ];
 
-/** true если item реально сидит в baseline и им управляют «обратным» тумблером. */
-function isInPlan(item: SandboxItem): boolean {
-    return item.wishlistStatus === 'FIXED' && item.inBaseline;
+/** Зафиксировано = решение принято: элемент в реальном плане, тумблер заперт. */
+function isFixed(item: SandboxItem): boolean {
+    return item.wishlistStatus === 'FIXED';
 }
 
 export default function Wishlist() {
@@ -60,11 +60,12 @@ export default function Wishlist() {
         if (scope === '__REALIZATION__' && realization == null) setScope(undefined);
     }, [scope, realization]);
 
-    // Собираем запрос: tryOn = enabled + adhoc; exclude = excluded.
+    // tryOn = включённые (незафиксированные) + ad-hoc. exclude не используется:
+    // зафиксированное заперто и живёт в baseline, выключать его примеркой нельзя.
     const request = useMemo<SandboxRequest>(() => ({
         scope: effectiveScope,
         tryOn: [...state.enabled, ...state.adhoc].filter(t => t.date), // без даты не шлём
-        exclude: state.excluded,
+        exclude: [],
     }), [effectiveScope, state]);
 
     const load = useCallback(() => {
@@ -72,20 +73,27 @@ export default function Wishlist() {
             .then(r => { setResp(r); setError(null); })
             .catch((e: Error) => {
                 // Возможная причина 400 — протухший ref в черновике (элемент удалён/
-                // сконвертирован на другой странице). Берём ЧИСТЫЙ baseline (без tryOn/
-                // exclude — по refs он упасть не может), показываем актуальный список и
-                // вычищаем черновик; вычистка сдвигает state → debounce перезапрашивает
-                // уже валидный набор. Без этого протухший ref вечно клинил бы примерку.
+                // сконвертирован на другой странице). Берём ЧИСТЫЙ baseline (без tryOn —
+                // по refs он упасть не может), показываем актуальный список и вычищаем
+                // черновик; вычистка сдвигает state → debounce перезапрашивает валидный набор.
                 postPocketSandbox({ scope: effectiveScope, tryOn: [], exclude: [] })
                     .then(clean => {
                         setResp(clean);
                         const known = new Set(clean.items.map(i => refKey(i.ref)));
-                        setState(s => (differs(s, reconcile(s, known)) ? reconcile(s, known) : s));
-                        setError(null);
+                        const cleaned = reconcile(state, known);
+                        if (differs(state, cleaned)) {
+                            // Нашли и убрали протухшее — объясняем, а не молчим.
+                            setState(cleaned);
+                            setError('Примерка сброшена: часть элементов изменилась или была удалена.');
+                        } else {
+                            // Черновик валиден — значит ошибка другая, показываем её как есть,
+                            // иначе действие выглядело бы «кнопка ничего не сделала» (ANO-30).
+                            setError(e.message);
+                        }
                     })
                     .catch(() => setError(e.message));
             });
-    }, [request, effectiveScope]);
+    }, [request, effectiveScope, state]);
 
     // Debounce 200 мс на любое изменение (тумблер/правка/скоуп).
     useEffect(() => {
@@ -101,46 +109,30 @@ export default function Wishlist() {
     const enabledParams = (ref: SandboxRef): SandboxTryOn | null =>
         state.enabled.find(t => sameRef(t.ref, ref)) ?? null;
 
-    const isToggled = (item: SandboxItem): boolean => {
-        if (isInPlan(item)) {
-            // «Обратный» тумблер: ON = сидит в плане как есть ИЛИ покручен (exclude+tryOn).
-            // Покрученный элемент (excluded + enabled) остаётся визуально ВКЛ, иначе тумблер
-            // бы врал «выкл» при заданной примерке и следующий клик молча терял бы правку.
-            const excluded = state.excluded.some(e => sameRef(e, item.ref));
-            const cranked = state.enabled.some(t => sameRef(t.ref, item.ref));
-            return !excluded || cranked;
-        }
-        return state.enabled.some(t => sameRef(t.ref, item.ref));
-    };
+    /**
+     * Модель тумблера (решение Кирилла 2026-07-30):
+     * ВЫКЛ — вне примерки (состояние по умолчанию при входе);
+     * ВКЛ — участвует только в линии «с примеркой», в плане и на Dashboard НЕ виден;
+     * ВКЛ + замок — зафиксировано: в реальном плане, тумблер не переключается,
+     * выход только через «вернуть в обсуждение».
+     * Зафиксированное никогда не попадает в tryOn/exclude — оно уже в baseline.
+     */
+    const isToggled = (item: SandboxItem): boolean =>
+        isFixed(item) || state.enabled.some(t => sameRef(t.ref, item.ref));
 
     const toggle = (item: SandboxItem, next: boolean) => {
-        setState(s => {
-            if (isInPlan(item)) {
-                // Обратный тумблер: on → вернуть как есть (чистим обе коллекции);
-                // off → примерка отказа: exclude + СБРОС крутилки (иначе покрученный
-                // элемент остался бы в enabled и тумблер не погас бы — exclude+tryOn = retune).
-                return next
-                    ? { ...s, excluded: s.excluded.filter(e => !sameRef(e, item.ref)),
-                        enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) }
-                    : { ...s, excluded: [...s.excluded.filter(e => !sameRef(e, item.ref)), item.ref],
-                        enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) };
-            }
-            // OPEN / FIXED-не-в-baseline: обычный tryOn
-            return next
-                ? { ...s, enabled: [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), defaultTryOn(item)] }
-                : { ...s, enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) };
-        });
+        if (isFixed(item)) return;   // заперт: только «вернуть в обсуждение»
+        setState(s => next
+            ? { ...s, enabled: [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), defaultTryOn(item)] }
+            : { ...s, enabled: s.enabled.filter(t => !sameRef(t.ref, item.ref)) });
     };
 
     const changeParams = (item: SandboxItem, next: SandboxTryOn) => {
-        setState(s => {
-            const enabled = [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), next];
-            // Покрутить FIXED-в-плане = exclude + tryOn парой (§7)
-            const excluded = isInPlan(item)
-                ? [...s.excluded.filter(e => !sameRef(e, item.ref)), item.ref]
-                : s.excluded;
-            return { ...s, enabled, excluded };
-        });
+        if (isFixed(item)) return;   // параметры запертого меняются после возврата в обсуждение
+        setState(s => ({
+            ...s,
+            enabled: [...s.enabled.filter(t => !sameRef(t.ref, item.ref)), next],
+        }));
     };
 
     // ── фиксация / отложить ─────────────────────────────────────────────────
@@ -165,9 +157,21 @@ export default function Wishlist() {
                     .then(() => afterFix(item.ref)).catch(() => afterFix(item.ref));
             }
         } else {
-            // Копилка/кредит уже FIXED — фиксировать нечего, просто убираем из черновика
-            afterFix(item.ref);
+            // OPEN-копилка/кредит: фиксация = вернуть статус FIXED, параметры уже в фонде.
+            setFundWishlistStatus(item.ref.id, 'FIXED')
+                .then(() => afterFix(item.ref)).catch(() => afterFix(item.ref));
         }
+    };
+
+    /**
+     * «Вернуть в обсуждение»: FIXED → OPEN. Единственный выход из запертого состояния —
+     * раньше его не было вовсе, и приходилось удалять хотелку (ОС Кирилла, ANO-30).
+     * Обратимо: после возврата элемент снова свободно примеряется и фиксируется.
+     */
+    const unfix = (item: SandboxItem) => {
+        const call = item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus;
+        call(item.ref.id, 'OPEN')
+            .then(() => afterFix(item.ref)).catch(() => afterFix(item.ref));
     };
 
     const dismiss = (item: SandboxItem) => {
@@ -272,10 +276,12 @@ export default function Wishlist() {
                         key={`${item.ref.type}:${item.ref.id}`}
                         item={item}
                         enabled={isToggled(item)}
+                        locked={isFixed(item)}
                         params={enabledParams(item.ref)}
                         onToggle={next => toggle(item, next)}
                         onParamsChange={next => changeParams(item, next)}
                         onFix={() => fix(item)}
+                        onUnfix={() => unfix(item)}
                         onDismiss={() => dismiss(item)}
                     />
                 ))}
