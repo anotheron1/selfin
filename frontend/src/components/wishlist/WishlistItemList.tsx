@@ -8,7 +8,8 @@ import type { WishlistItem, WishlistStatus } from '../../types/api';
 
 export interface ItemPersistPatch {
     amount: number;
-    targetDate: string;
+    /** Отсутствует, если у элемента нет срока и его сейчас не задавали (ANO-29). */
+    targetDate?: string;
     rate?: number;
     termMonths?: number;
 }

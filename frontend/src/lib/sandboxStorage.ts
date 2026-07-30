@@ -49,23 +49,38 @@ export function forgetRef(state: SandboxState, ref: SandboxRef): SandboxState {
     };
 }
 
+/** Минимум от SandboxItem, нужный для сверки черновика. */
+export interface DraftSyncItem {
+    ref: SandboxRef;
+    wishlistStatus: string | null;
+}
+
 /**
- * Вычищает из черновика ссылки на элементы, которых сервер больше не знает
- * (удалены/сконвертированы/DISMISSED на другой странице или устройстве). Иначе
- * протухший ref вечно ронял бы примерку в 400 — см. восстановление по чистому
- * baseline в Wishlist.load. adhoc (без ref) сохраняется как есть.
+ * Сверяет черновик с тем, что реально знает сервер. Выкидывает из примерки:
+ * 1) ссылки на исчезнувшие элементы (удалены/сконвертированы/DISMISSED в другом месте);
+ * 2) ссылки на **зафиксированные** — они уже сидят в baseline, и повторная отправка
+ *    их в tryOn даёт вечный 400 «нужен парный exclude», намертво вешая примерку.
+ *
+ * adhoc (без ref) сохраняется как есть.
  */
-export function reconcile(state: SandboxState, knownKeys: Set<string>): SandboxState {
-    const alive = (ref: SandboxRef | null) => ref == null || knownKeys.has(refKey(ref));
+export function reconcile(state: SandboxState, items: DraftSyncItem[]): SandboxState {
+    const usable = new Set(
+        items.filter(i => i.wishlistStatus !== 'FIXED').map(i => refKey(i.ref)),
+    );
+    const alive = (ref: SandboxRef | null) => ref == null || usable.has(refKey(ref));
     return {
         enabled: state.enabled.filter(t => alive(t.ref)),
         adhoc: state.adhoc,
     };
 }
 
-/** Нашлось ли в reconcile что вычистить (для решения «перезагружать ли»). */
+/**
+ * Изменил ли reconcile черновик. Сравнение по длине корректно ровно потому, что
+ * reconcile только фильтрует enabled и не трогает adhoc — при изменении правила
+ * фильтрации сравнение надо усилить.
+ */
 export function differs(a: SandboxState, b: SandboxState): boolean {
-    return a.enabled.length !== b.enabled.length;
+    return a.enabled.length !== b.enabled.length || a.adhoc.length !== b.adhoc.length;
 }
 
 /** Есть ли ref среди включённых. */

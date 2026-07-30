@@ -35,7 +35,8 @@ interface Props {
     /** Параметры изменились — родитель пересчитывает delta на бэке. */
     onParamsRecompute: (req: RecomputeRequest) => void;
     /** Отпустили слайдер/изменили параметры — персист через updateEvent/updateFund. */
-    onPersist: (patch: { amount: number; targetDate: string; rate?: number; termMonths?: number }) => void;
+    /** targetDate отсутствует, если у элемента нет срока и его сейчас не задавали. */
+    onPersist: (patch: { amount: number; targetDate?: string; rate?: number; termMonths?: number }) => void;
     onFix: () => void;
     onDelete: () => void;
     onStatusChange: (status: WishlistStatus) => void;
@@ -117,9 +118,12 @@ export default function WishlistItemCard(props: Props) {
 
     const persist = (over: { amount?: number; targetDate?: string } = {}) => {
         // Значения резолвим в момент вызова (актуальный closure), отправляем по трейлинг-таймеру.
+        // Дата уходит только если она реально есть или её сейчас задали слайдером: у элемента
+        // без срока targetDate — подставной фолбэк (ANO-29), и записывать его молча нельзя.
+        const date = over.targetDate ?? (hasDate ? targetDate : undefined);
         const patch = {
             amount: over.amount ?? amount,
-            targetDate: over.targetDate ?? targetDate,
+            targetDate: date,
             rate: isCredit && rate ? Number(rate) : undefined,
             termMonths: isCredit && term ? Number(term) : undefined,
         };

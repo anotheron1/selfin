@@ -82,11 +82,14 @@ export default function SandboxItemRow({
                         )}
                         {locked && !item.inBaseline && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                                title={!item.date
-                                    ? 'Без срока нечего раскладывать по месяцам — деньги не резервируются'
-                                    : 'Цель уже накоплена или срок прошёл — деньги не резервируются'}
+                                title={item.kind === 'CREDIT'
+                                    ? 'У кредита поток начинается с покупки — платежи приходят отдельными событиями'
+                                    : !item.date
+                                        ? 'Без срока нечего раскладывать по месяцам — деньги не резервируются'
+                                        : 'Цель уже накоплена или срок прошёл — деньги не резервируются'}
                                 style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
-                                {!item.date ? 'без срока' : 'не резервируется'}
+                                {item.kind === 'CREDIT' ? 'платежи отдельно'
+                                    : !item.date ? 'без срока' : 'не резервируется'}
                             </span>
                         )}
                     </div>

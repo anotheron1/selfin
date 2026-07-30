@@ -97,8 +97,12 @@ export default function CapitalWhatIf() {
 
     const handlePersist = (item: WishlistItem, patch: ItemPersistPatch) => {
         if (item.kind === 'WISHLIST') {
+            // PUT /events требует дату. У хотелки без срока её нет, а выдумывать нельзя
+            // (ANO-29) — сохраняем только когда дату реально задали слайдером.
+            const date = patch.targetDate ?? item.targetDate;
+            if (!date) return;
             updateEvent(item.id, {
-                date: patch.targetDate,
+                date,
                 categoryId: item.categoryId ?? undefined,
                 type: 'EXPENSE',
                 priority: 'LOW',

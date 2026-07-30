@@ -59,18 +59,25 @@ describe('sandboxStorage', () => {
         expect(enabledIndex(s, EVENT)).toBe(-1);
     });
 
-    it('reconcile вычищает протухшие refs, adhoc сохраняет', () => {
+    it('reconcile вычищает исчезнувшие refs, adhoc сохраняет', () => {
         const s = state(); // enabled FUND:f1, adhoc без ref
-        const known = new Set(['FUND:other']);   // f1 сервер больше не знает
-        const r = reconcile(s, known);
+        const r = reconcile(s, [{ ref: { type: 'FUND', id: 'other' }, wishlistStatus: 'OPEN' }]);
         expect(r.enabled).toHaveLength(0);
         expect(r.adhoc).toHaveLength(1);          // adhoc не трогаем
         expect(differs(s, r)).toBe(true);
     });
 
-    it('reconcile ничего не трогает, если все refs известны', () => {
+    it('reconcile ничего не трогает, если ref жив и не зафиксирован', () => {
         const s = state();
-        expect(differs(s, reconcile(s, new Set(['FUND:f1'])))).toBe(false);
+        const r = reconcile(s, [{ ref: FUND, wishlistStatus: 'OPEN' }]);
+        expect(differs(s, r)).toBe(false);
+    });
+
+    it('reconcile выкидывает зафиксированный ref — иначе tryOn вечно 400-ит', () => {
+        const s = state();
+        const r = reconcile(s, [{ ref: FUND, wishlistStatus: 'FIXED' }]);
+        expect(r.enabled).toHaveLength(0);
+        expect(differs(s, r)).toBe(true);
     });
 
     it('старый черновик с полем excluded читается без падения (поле отбрасывается)', () => {
