@@ -24,6 +24,11 @@ export interface Category {
     priority: Priority;
     isSystem: boolean;
     forecastEnabled: boolean;
+    /**
+     * «Основной доход» — приход по этой категории задаёт горизонт кармашка «до дохода»
+     * (ANO-35). Только для INCOME. Пока не отмечена ни одна — берётся любой доход.
+     */
+    primaryIncome: boolean;
 }
 
 export interface FinancialEvent {

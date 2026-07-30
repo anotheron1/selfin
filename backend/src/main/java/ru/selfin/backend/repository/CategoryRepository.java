@@ -20,4 +20,10 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
      * Используется StrategyTimelineService для построения fan chart.
      */
     List<Category> findAllByForecastEnabledTrueAndDeletedFalse();
+
+    /**
+     * Отмечена ли хоть одна категория как «основной доход» (ANO-35). Если нет —
+     * горизонт «до дохода» считается по любому доходу, как раньше.
+     */
+    boolean existsByPrimaryIncomeTrueAndDeletedFalse();
 }

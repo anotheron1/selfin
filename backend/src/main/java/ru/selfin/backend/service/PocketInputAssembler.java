@@ -56,6 +56,7 @@ public class PocketInputAssembler {
     private final PredictionService predictionService;
     private final RecurringRuleService recurringRuleService;
     private final TargetFundRepository fundRepository;
+    private final ru.selfin.backend.repository.CategoryRepository categoryRepository;
 
     /**
      * Результат сборки: вход движка + что фактически развёрнуто в baseline
@@ -145,8 +146,11 @@ public class PocketInputAssembler {
                         && f.getConvertedToEventId() == null && f.getConvertedToFundId() == null)
                 .toList();
         if (!reservable.isEmpty()) {
+            // День взноса = первый доход месяца. Тот же фильтр «основного дохода» (ANO-35):
+            // откладывают с зарплаты, а не с случайного возврата долга.
             List<LocalDate> allIncomes = eventRepository.findPlannedIncomeDates(
-                    asOfDate, PocketEngine.trajectoryEnd(asOfDate, horizonEnd), Pageable.unpaged());
+                    asOfDate, PocketEngine.trajectoryEnd(asOfDate, horizonEnd),
+                    categoryRepository.existsByPrimaryIncomeTrueAndDeletedFalse(), Pageable.unpaged());
             for (TargetFund f : reservable) {
                 BigDecimal remaining = f.getTargetAmount().subtract(f.getCurrentBalance());
                 int n = SandboxLayout.maxStretchMonths(asOfDate, f.getTargetDate());
@@ -186,10 +190,15 @@ public class PocketInputAssembler {
         return new Assembled(input, baselineRefs);
     }
 
-    /** Две ближайшие различные даты плановых доходов в окне поиска (NEXT/SECOND_INCOME). */
+    /**
+     * Две ближайшие различные даты плановых доходов в окне поиска (NEXT/SECOND_INCOME).
+     * Если размечены категории «основной доход» — считаем только их (ANO-35): иначе
+     * возврат долга на 6 400 становился «следующим доходом» и схлопывал горизонт.
+     */
     private List<LocalDate> incomeDates(LocalDate asOfDate) {
+        boolean onlyPrimary = categoryRepository.existsByPrimaryIncomeTrueAndDeletedFalse();
         return eventRepository.findPlannedIncomeDates(
-                asOfDate, asOfDate.plusDays(NEXT_INCOME_SEARCH_DAYS), PageRequest.of(0, 2));
+                asOfDate, asOfDate.plusDays(NEXT_INCOME_SEARCH_DAYS), onlyPrimary, PageRequest.of(0, 2));
     }
 
     /**
