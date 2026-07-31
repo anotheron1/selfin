@@ -64,15 +64,17 @@ class FundPlannerServiceTest {
     void firstMonthExcludesPastPlannedIncome() {
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
-        LocalDate tomorrow = today.plusDays(1);
 
+        // Месяц-0 фильтруется как [today .. конец месяца], today входит (!isBefore(today)).
+        // Берём именно today, а не today.plusDays(1): в последний день месяца «завтра»
+        // уезжает в месяц-1 и тест падал бы по календарю, а не по логике.
         FinancialEvent past = makeEvent(yesterday, EventType.INCOME, EventStatus.PLANNED,
                 Priority.MEDIUM, new BigDecimal("10000"), null);
-        FinancialEvent future = makeEvent(tomorrow, EventType.INCOME, EventStatus.PLANNED,
+        FinancialEvent notPast = makeEvent(today, EventType.INCOME, EventStatus.PLANNED,
                 Priority.MEDIUM, new BigDecimal("5000"), null);
 
         when(eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED))
-                .thenReturn(List.of(past, future));
+                .thenReturn(List.of(past, notPast));
 
         var result = service.getPlanner();
         var month0 = result.months().get(0);
@@ -85,18 +87,17 @@ class FundPlannerServiceTest {
     void firstMonthFactExpensesIncludesPastExecuted() {
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
-        LocalDate tomorrow = today.plusDays(1);
 
         // V12: PLAN record for executed event (factAmount=null, status=EXECUTED)
         FinancialEvent pastPlan = makeEvent(yesterday, EventType.EXPENSE, EventStatus.EXECUTED,
                 Priority.MEDIUM, new BigDecimal("3000"), null);
-        // Future planned event
-        FinancialEvent futurePlanned = makeEvent(tomorrow, EventType.EXPENSE, EventStatus.PLANNED,
+        // Ещё не прошедший план: today, а не today.plusDays(1) — см. коммент выше про месяц-0
+        FinancialEvent plannedToday = makeEvent(today, EventType.EXPENSE, EventStatus.PLANNED,
                 Priority.MEDIUM, new BigDecimal("2000"), null);
 
         // Plans query returns PLAN records only
         when(eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED))
-                .thenReturn(List.of(pastPlan, futurePlanned));
+                .thenReturn(List.of(pastPlan, plannedToday));
 
         // V12: FACT record from separate query
         FinancialEvent pastFact = makeEvent(yesterday, EventType.EXPENSE, EventStatus.EXECUTED,
