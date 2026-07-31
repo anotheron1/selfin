@@ -96,6 +96,68 @@ class PocketSandboxIT {
         }
     }
 
+    /**
+     * ANO-34 §1 — плохой финал из тикета целиком: OPEN-копилка без срока, в примерке
+     * выставили растяжку, «Зафиксировать» → раньше фонд оставался без срока, не
+     * резервировался и строка читалась «в плане, но ни на что не влияет».
+     */
+    @Test
+    void fix_carriesSandboxParams_openFundWithoutDate_becomesReserved() throws Exception {
+        UUID fundId = createOpenSavingsFund("IT-фикс-копилка", 60_000, 20_000);
+        try {
+            JsonNode before = findItem(sandbox("""
+                    {"scope":"MONTHS:6","tryOn":[],"exclude":[]}
+                    """), fundId);
+            assertThat(before.get("date").isNull()).as("копилка без срока").isTrue();
+            assertThat(before.get("inBaseline").asBoolean()).as("без срока не резервируется").isFalse();
+            // В примерке показывается ОСТАТОК, а не полная цель
+            assertThat(before.get("amount").decimalValue()).isEqualByComparingTo("40000");
+
+            mockMvc.perform(post("/api/v1/wishlist/items/" + fundId + "/fix")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"sourceKind":"SAVINGS","amount":40000,"stretchMonths":2}
+                                    """))
+                    .andExpect(status().isOk());
+
+            TargetFund after = inTx(() -> fundRepo.findById(fundId).orElseThrow());
+            // Накопленные 20 000 уцелели: «докопить ещё 40 000» → цель 60 000
+            assertThat(after.getTargetAmount()).isEqualByComparingTo("60000");
+            assertThat(after.getCurrentBalance()).isEqualByComparingTo("20000");
+            // Срок выведен из ползунка, а не из пустого поля даты
+            assertThat(after.getTargetDate())
+                    .isEqualTo(ru.selfin.backend.service.SandboxLayout.stretchTargetDate(LocalDate.now(), 2));
+            assertThat(after.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+
+            JsonNode afterItem = findItem(sandbox("""
+                    {"scope":"MONTHS:6","tryOn":[],"exclude":[]}
+                    """), fundId);
+            assertThat(afterItem.get("inBaseline").asBoolean())
+                    .as("зафиксированная копилка со сроком резервируется в кармашке").isTrue();
+        } finally {
+            hardDeleteFund(fundId);
+        }
+    }
+
+    private JsonNode findItem(JsonNode response, UUID id) {
+        for (JsonNode item : response.get("items")) {
+            if (id.toString().equals(item.get("ref").get("id").asText())) return item;
+        }
+        throw new AssertionError("item " + id + " не найден в примерке");
+    }
+
+    private UUID createOpenSavingsFund(String name, long target, long balance) {
+        return inTx(() -> fundRepo.save(TargetFund.builder()
+                .name(name)
+                .targetAmount(BigDecimal.valueOf(target))
+                .currentBalance(BigDecimal.valueOf(balance))
+                .targetDate(null)
+                .purchaseType(FundPurchaseType.SAVINGS)
+                .status(FundStatus.FUNDING)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .build()).getId());
+    }
+
     private UUID createFixedSavingsFund(String name, long target, LocalDate targetDate) {
         return inTx(() -> fundRepo.save(TargetFund.builder()
                 .name(name)

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-    monthlyFor, monthsFor, refKey, sameRef, realizationScope, lastDayOfMonth,
-    stretchTargetDate, defaultTryOn,
+    monthlyFor, monthsFor, refKey, sameRef, realizationScope, defaultTryOn,
 } from './sandboxMath';
 import type { SandboxItem } from '../types/api';
 
@@ -42,26 +41,8 @@ describe('sandboxMath: realizationScope (§7 «до реализации поя�
     });
 });
 
-describe('sandboxMath: lastDayOfMonth', () => {
-    it('последний день месяца', () => {
-        expect(lastDayOfMonth('2026-08-15')).toBe('2026-08-31');
-        expect(lastDayOfMonth('2026-02-10')).toBe('2026-02-28');
-        expect(lastDayOfMonth('2026-11-02')).toBe('2026-11-30');
-    });
-});
-
-describe('sandboxMath: stretchTargetDate (§8 фиксация растянутой)', () => {
-    it('последний день месяца (today+stretch), maxStretchMonths воспроизводит stretch', () => {
-        // today 2026-07-18, stretch 3 → последний взнос в октябре → 2026-10-31
-        expect(stretchTargetDate('2026-07-18', 3)).toBe('2026-10-31');
-        // stretch 5 → декабрь → 2026-12-31
-        expect(stretchTargetDate('2026-07-18', 5)).toBe('2026-12-31');
-        // переход через год: today дек, stretch 2 → февраль след. года
-        expect(stretchTargetDate('2026-12-10', 2)).toBe('2027-02-28');
-        // stretch <= 0 трактуется как 1 (следующий месяц)
-        expect(stretchTargetDate('2026-07-18', 0)).toBe('2026-08-31');
-    });
-});
+// lastDayOfMonth / stretchTargetDate уехали на сервер вместе с ANO-34 §1
+// (SandboxLayoutStretchTargetDateTest хранит ровно эти случаи).
 
 describe('sandboxMath: defaultTryOn', () => {
     it('копилка → дефолты из серверных полей', () => {

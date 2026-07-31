@@ -35,4 +35,15 @@ public class WishlistController {
             @Valid @RequestBody ConvertWishlistRequestDto req) {
         return conversionService.convertItem(itemId, req);
     }
+
+    /**
+     * «Зафиксировать» из окна примерки: переносит подкрученные параметры в план
+     * и переводит источник в FIXED одной транзакцией (ANO-34 §1).
+     */
+    @PostMapping("/items/{itemId}/fix")
+    public ConvertWishlistResponseDto fix(
+            @PathVariable UUID itemId,
+            @Valid @RequestBody SandboxFixRequestDto req) {
+        return conversionService.applyAndFix(itemId, req);
+    }
 }

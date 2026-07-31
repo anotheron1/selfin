@@ -9,6 +9,7 @@ import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.RecurringConfigDto;
 import ru.selfin.backend.dto.wishlist.ConvertWishlistRequestDto;
 import ru.selfin.backend.dto.wishlist.ConvertWishlistResponseDto;
+import ru.selfin.backend.dto.wishlist.SandboxFixRequestDto;
 import ru.selfin.backend.dto.wishlist.WishlistItemDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Category;
@@ -28,6 +29,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.UUID;
 
@@ -56,6 +58,9 @@ public class WishlistConversionService {
     /** Имя системной категории для платежей по кредиту (recurring PMT). */
     private static final String CREDIT_CATEGORY_NAME = "Кредит";
 
+    /** Потолок растяжки при фиксации — как горизонт симуляции хотелок (60 мес). */
+    private static final int MAX_STRETCH_MONTHS = 60;
+
     /**
      * Конвертирует item в артефакт. Источник определяется по {@code sourceKind}:
      * WISHLIST → событие; SAVINGS/CREDIT → фонд.
@@ -72,6 +77,115 @@ public class WishlistConversionService {
         return fromEvent
                 ? convertFromEvent(itemId, req)
                 : convertFromFund(itemId, req);
+    }
+
+    // ====== ANO-34 §1: фиксация переносит параметры примерки ======
+
+    /**
+     * Применяет подкрученные в примерке параметры к источнику и переводит его в FIXED —
+     * одной транзакцией (ANO-34 §1).
+     *
+     * <p>Раньше «Зафиксировать» меняло только статус, и сумма/дата/растяжка оставались
+     * в клиентском черновике: примерка показывала одно, план получал другое. Логика живёт
+     * на сервере, потому что два правила клиенту знать неоткуда без риска тихой порчи данных:
+     * amount у фонда — это ОСТАТОК, а не цель, и запись через PUT /events переписала бы
+     * priority хотелки с LOW на MEDIUM, после чего она выпала бы из wishlist-выборок.
+     *
+     * @throws ResourceNotFoundException 404, если источник не найден
+     * @throws ResponseStatusException   409, если источник уже сконвертирован; 400 на параметрах
+     */
+    @Transactional
+    public ConvertWishlistResponseDto applyAndFix(UUID itemId, SandboxFixRequestDto req) {
+        return applyAndFix(itemId, req, LocalDate.now());
+    }
+
+    /** Тестовый вход с явным «сегодня»: раскладка взносов календарно-зависима. */
+    @Transactional
+    ConvertWishlistResponseDto applyAndFix(UUID itemId, SandboxFixRequestDto req, LocalDate today) {
+        int stretch = req.stretchOrZero();
+        if (stretch > MAX_STRETCH_MONTHS) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "stretchMonths must not exceed " + MAX_STRETCH_MONTHS + ": " + stretch);
+        }
+        return switch (req.sourceKind()) {
+            case "WISHLIST" -> fixWishlistEvent(itemId, req, stretch, today);
+            case "SAVINGS", "CREDIT" -> fixFund(itemId, req, stretch, today);
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unsupported sourceKind: " + req.sourceKind());
+        };
+    }
+
+    private ConvertWishlistResponseDto fixWishlistEvent(UUID itemId, SandboxFixRequestDto req,
+                                                        int stretch, LocalDate today) {
+        FinancialEvent src = eventRepository.findById(itemId)
+                .filter(e -> !e.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", itemId));
+        ensureNotConverted(src.getConvertedToEventId(), src.getConvertedToFundId());
+
+        // Параметры пишем ДО ветвления: и «остаётся хотелкой», и «растянуть в копилку»
+        // должны увидеть ровно то, что было на экране. priority/категорию/url не трогаем —
+        // событие обязано остаться LOW-хотелкой, иначе выпадет из wishlist-выборок.
+        src.setPlannedAmount(req.amount());
+        src.setDate(requireFutureDate(req.date(), today));
+        src.setWishlistStatus(WishlistStatus.FIXED);
+
+        if (stretch < 1) {
+            eventRepository.save(src);
+            return new ConvertWishlistResponseDto(itemId, "FIXED", null, "EVENT_PARAMS", null);
+        }
+
+        // Растянутая хотелка → копилка с подкрученной суммой (раньше бралась исходная).
+        TargetFund saved = fundRepository.save(buildSavingsFund(
+                src.getDescription(), req.amount(), SandboxLayout.stretchTargetDate(today, stretch)));
+        src.setConvertedToFundId(saved.getId());
+        eventRepository.save(src);
+        return new ConvertWishlistResponseDto(itemId, "FIXED",
+                new WishlistItemDto.ConvertedToDto("FUND", saved.getId()), "FUND", null);
+    }
+
+    private ConvertWishlistResponseDto fixFund(UUID itemId, SandboxFixRequestDto req,
+                                               int stretch, LocalDate today) {
+        TargetFund src = fundRepository.findById(itemId)
+                .filter(f -> !f.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("TargetFund", itemId));
+        ensureNotConverted(src.getConvertedToEventId(), src.getConvertedToFundId());
+
+        // Ловушка: в примерке amount копилки — ОСТАТОК (targetAmount − currentBalance,
+        // PocketSandboxService.buildItems), а в фонде targetAmount — полная цель.
+        // Решение Кирилла 2026-07-31: «докопить ещё столько» — накопленное сохраняется.
+        BigDecimal balance = src.getCurrentBalance() != null ? src.getCurrentBalance() : BigDecimal.ZERO;
+        src.setTargetAmount(req.amount().add(balance));
+
+        // Решение Кирилла 2026-07-31: у копилки ползунок главнее поля даты. Резерв §6 всегда
+        // размазывает остаток ровно до targetDate, поэтому «растянуть на меньше» иначе
+        // непредставимо — дата обязана выводиться из ползунка.
+        src.setTargetDate(stretch >= 1
+                ? SandboxLayout.stretchTargetDate(today, stretch)
+                : requireFutureDate(req.date(), today));
+
+        if (req.creditRate() != null) src.setCreditRate(req.creditRate());
+        if (req.creditTermMonths() != null) src.setCreditTermMonths(req.creditTermMonths());
+
+        src.setWishlistStatus(WishlistStatus.FIXED);
+        fundRepository.save(src);
+        return new ConvertWishlistResponseDto(itemId, "FIXED", null, "FUND_PARAMS", null);
+    }
+
+    /**
+     * Дата фиксации обязана быть строго в будущем: {@code PocketInputAssembler} резервирует
+     * только события с {@code date > asOfDate}, поэтому фиксация «вчерашним» числом дала бы
+     * тот же невидимый финал, ради которого задача и заведена.
+     */
+    private static LocalDate requireFutureDate(LocalDate date, LocalDate today) {
+        if (date == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "date is required when stretchMonths is not set");
+        }
+        if (!date.isAfter(today)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "date must be in the future: " + date);
+        }
+        return date;
     }
 
     // ====== WISHLIST event source ======

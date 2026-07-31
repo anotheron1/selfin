@@ -283,6 +283,23 @@ export const convertWishlistItem = (itemId: string, body: {
     fundTargetDate?: string;
 }) => post<ConvertResponse>(`/wishlist/items/${itemId}/convert`, body);
 
+/**
+ * ANO-34 §1: «Зафиксировать» из окна примерки — переносит подкрученные параметры
+ * в реальный план и ставит FIXED одной транзакцией.
+ *
+ * Две вещи считает СЕРВЕР, и повторять их здесь нельзя: `amount` у копилки — это
+ * остаток (сервер добавит уже накопленное), а дату цели при `stretchMonths` ≥ 1
+ * он выводит из ползунка сам.
+ */
+export const fixSandboxItem = (itemId: string, body: {
+    sourceKind: WishlistKind;
+    amount: number;
+    date?: string | null;
+    stretchMonths?: number;
+    creditRate?: number | null;
+    creditTermMonths?: number | null;
+}) => post<ConvertResponse>(`/wishlist/items/${itemId}/fix`, body);
+
 export const setEventWishlistStatus = (id: string, status: WishlistStatus) =>
     patch<void>(`/events/${id}/wishlist-status`, { status });
 

@@ -39,25 +39,9 @@ export function realizationScope(dates: (string | null | undefined)[]): string |
     return `DATE:${max}`;
 }
 
-/** Последний день месяца даты (для fundTargetDate конверсии растянутой хотелки, §8). */
-export function lastDayOfMonth(isoDate: string): string {
-    const [y, m] = isoDate.split('-').map(Number);
-    const last = new Date(y, m, 0).getDate(); // day 0 следующего месяца = последний текущего
-    return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
-}
-
-/**
- * Дата цели копилки при фиксации растянутой хотелки (§8): последний день месяца
- * ПОСЛЕДНЕГО взноса. Взносы §5 занимают первые `stretch` месяцев начиная со следующего,
- * значит последний взнос — в месяце `today + stretch`. Тогда резерв §6
- * `maxStretchMonths(today, target) == stretch` воспроизводит ровно ту раскладку,
- * что юзер видел в примерке (при stretch < max иначе разъехалось бы).
- */
-export function stretchTargetDate(todayIso: string, stretch: number): string {
-    const [y, m] = todayIso.split('-').map(Number);
-    const d = new Date(y, (m - 1) + Math.max(1, stretch), 1); // month 0-индексный
-    return lastDayOfMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`);
-}
+// Дата цели при фиксации растянутой примерки (§8) считается на СЕРВЕРЕ —
+// SandboxLayout.stretchTargetDate. Клиентская копия убрана вместе с ANO-34 §1:
+// два независимых правила разъехались бы, а движок всё равно верит только своему.
 
 /** Дефолтный tryOn для item (из серверных дефолтов §4). */
 export function defaultTryOn(item: SandboxItem): SandboxTryOn {
