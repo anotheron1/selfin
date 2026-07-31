@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Repeat } from 'lucide-react';
 import { fetchEvents, cycleEventPriority } from '../api';
 import type { FinancialEvent } from '../types/api';
+import { favourableDelta, deltaColor } from '../lib/planFact';
 import EditEventSheet from '../components/EditEventSheet';
 import FactCreateSheet from '../components/FactCreateSheet';
 import PriorityButton from '../components/PriorityButton';
@@ -346,9 +347,13 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                                     <span style={{
                                                                                         fontSize: '11px',
                                                                                         fontWeight: 600,
-                                                                                        color: event.linkedFactsAmount <= (event.plannedAmount ?? Infinity)
-                                                                                            ? 'var(--color-success)'
-                                                                                            : 'var(--color-danger)',
+                                                                                        // ANO-32: у дохода знак смысла обратный — зарплата
+                                                                                        // выше плана это хорошо, а не «перерасход»
+                                                                                        color: deltaColor(favourableDelta(
+                                                                                            isIncome ? 'INCOME' : 'EXPENSE',
+                                                                                            event.plannedAmount,
+                                                                                            event.linkedFactsAmount,
+                                                                                        )),
                                                                                     }}>
                                                                                         факт {fmt(event.linkedFactsAmount)}
                                                                                     </span>
