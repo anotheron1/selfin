@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchMultiMonthReport, fetchAnalyticsReport, fetchWishlist } from '../api';
 import type { AnalyticsReport, FinancialEvent, MultiMonthReport, MultiMonthRow } from '../types/api';
+import { favourableDelta, favourableFromDelta, deltaColor, deltaSign } from '../lib/planFact';
 import BudgetStructureSection from '../components/BudgetStructureSection';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Button } from '../components/ui/button';
@@ -16,10 +17,6 @@ const fmtTable = (n: number | null) =>
     n != null
         ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(n) + ' ₽'
         : '—';
-
-function deltaColor(delta: number): string {
-    return delta >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
-}
 
 function getDateRange(preset: '3m' | '6m' | '12m'): { startDate: string; endDate: string } {
     const today = new Date();
@@ -224,7 +221,7 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
     isIncome: boolean;
 }) {
     // Positive = good: for income fact>plan is good; for expenses plan>fact is good
-    const totalDelta = isIncome ? totalFact - totalPlanned : totalPlanned - totalFact;
+    const totalDelta = favourableDelta(isIncome ? 'INCOME' : 'EXPENSE', totalPlanned, totalFact);
     return (
         <div className={mt ? 'mt-4' : ''}>
             <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-muted)' }}>
@@ -249,12 +246,12 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
                             <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(row.planned)}</td>
                             <td className="py-1.5 text-right">{fmt(row.fact)}</td>
                             {(() => {
-                                // Backend returns delta = fact - plan. For expenses, invert so positive = saved (good).
-                                const displayDelta = isIncome ? row.delta : -row.delta;
+                                // Бэк отдаёт delta = факт − план; знак «в пользу пользователя» — в lib/planFact
+                                const displayDelta = favourableFromDelta(isIncome ? 'INCOME' : 'EXPENSE', row.delta);
                                 return (
                                     <td className="py-1.5 text-right font-medium"
                                         style={{ color: deltaColor(displayDelta) }}>
-                                        {displayDelta >= 0 ? '+' : ''}{fmt(Math.abs(displayDelta))}
+                                        {deltaSign(displayDelta)}{fmt(Math.abs(displayDelta))}
                                     </td>
                                 );
                             })()}
@@ -266,7 +263,7 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
                         <td className="py-1.5 text-right">{fmt(totalFact)}</td>
                         <td className="py-1.5 text-right"
                             style={{ color: deltaColor(totalDelta) }}>
-                            {totalDelta >= 0 ? '+' : ''}{fmt(Math.abs(totalDelta))}
+                            {deltaSign(totalDelta)}{fmt(Math.abs(totalDelta))}
                         </td>
                     </tr>
                 </tbody>

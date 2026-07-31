@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, TrendingUp } from 'lucide-react';
 import {
-    postPocketSandbox, convertWishlistItem, setEventWishlistStatus, setFundWishlistStatus,
+    postPocketSandbox, fixSandboxItem, setEventWishlistStatus, setFundWishlistStatus,
     createWishlistItem,
 } from '../api';
 import type {
@@ -10,7 +10,7 @@ import type {
 } from '../types/api';
 import { fmtRub } from '../lib/format';
 import {
-    defaultTryOn, realizationScope, refKey, sameRef, stretchTargetDate,
+    defaultTryOn, realizationScope, refKey, sameRef,
 } from '../lib/sandboxMath';
 import {
     loadSandbox, saveSandbox, forgetRef, reconcile, differs, type SandboxState,
@@ -149,30 +149,24 @@ export default function Wishlist() {
 
     // ── фиксация / отложить ─────────────────────────────────────────────────
 
+    /**
+     * Фиксация переносит подкрученные параметры в план (ANO-34 §1). Раньше здесь было
+     * три ветки, и все три теряли подкрутку: статус менялся, а сумма/дата/растяжка
+     * оставались в черновике — примерка показывала одно, план получал другое.
+     *
+     * Ветвление уехало на сервер целиком: только там безопасно знать, что amount копилки —
+     * это остаток, что хотелка обязана остаться LOW, и что растяжка задаёт дату цели.
+     */
     const fix = (item: SandboxItem) => {
         const p = enabledParams(item.ref);
-        const stretch = p?.stretchMonths ?? item.stretchMonthsDefault ?? 0;
-        const date = p?.date ?? item.date ?? undefined;
-        if (item.kind === 'WISHLIST') {
-            if (stretch >= 1 && date) {
-                // Растянутая хотелка → копилка; дата цели = последний день месяца
-                // ПОСЛЕДНЕГО взноса (today+stretch), чтобы резерв §6 воспроизвёл раскладку
-                // примерки при любом stretch < max (§8), а не растянул до даты покупки.
-                const t = new Date();
-                const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-                convertWishlistItem(item.ref.id, {
-                    sourceKind: 'WISHLIST', target: 'FUND',
-                    fundTargetDate: stretchTargetDate(todayIso, stretch),
-                }).then(() => afterFix(item.ref)).catch(failed);
-            } else {
-                setEventWishlistStatus(item.ref.id, 'FIXED')
-                    .then(() => afterFix(item.ref)).catch(failed);
-            }
-        } else {
-            // OPEN-копилка/кредит: фиксация = вернуть статус FIXED, параметры уже в фонде.
-            setFundWishlistStatus(item.ref.id, 'FIXED')
-                .then(() => afterFix(item.ref)).catch(failed);
-        }
+        fixSandboxItem(item.ref.id, {
+            sourceKind: item.kind,
+            amount: p?.amount ?? item.amount ?? 0,
+            date: p?.date || item.date || null,
+            stretchMonths: p?.stretchMonths ?? item.stretchMonthsDefault ?? 0,
+            creditRate: p?.creditRate ?? null,
+            creditTermMonths: p?.creditTermMonths ?? null,
+        }).then(() => afterFix(item.ref)).catch(failed);
     };
 
     /**

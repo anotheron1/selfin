@@ -35,6 +35,18 @@ public final class SandboxLayout {
     }
 
     /**
+     * Дата цели, обратная растяжке: последний день месяца ПОСЛЕДНЕГО взноса (ANO-34 §1).
+     * Обратна {@link #maxStretchMonths}: {@code maxStretchMonths(asOf, stretchTargetDate(asOf, n)) == n}
+     * при n ≥ 1, поэтому резерв §6 воспроизводит ровно ту раскладку, что была в примерке.
+     *
+     * <p>Живёт на сервере, а не на клиенте, чтобы у фиксации хотелки и фиксации копилки
+     * было одно правило: ползунок задаёт дату (решение Кирилла 2026-07-31).
+     */
+    public static LocalDate stretchTargetDate(LocalDate asOf, int stretch) {
+        return YearMonth.from(asOf).plusMonths(Math.max(1, stretch)).atEndOfMonth();
+    }
+
+    /**
      * n равных взносов amount/n (HALF_UP, последний добирает остаток копеек) в первые n
      * подряд месяцев начиная со следующего после asOf («начинаю копить сейчас»).
      * День взноса = первый плановый доход месяца из {@code incomeDates}; нет дохода → 1-е;

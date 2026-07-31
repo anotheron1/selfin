@@ -3,6 +3,7 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import ru.selfin.backend.dto.wishlist.ConvertWishlistRequestDto;
+import ru.selfin.backend.dto.wishlist.SandboxFixRequestDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.*;
 import ru.selfin.backend.model.enums.*;
@@ -199,6 +200,220 @@ class WishlistConversionServiceTest {
         when(eventRepo.findById(id)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.convertItem(id,
                 new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false)))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    // ====== ANO-34 §1: фиксация переносит параметры примерки ======
+
+    /**
+     * «Сегодня» зафиксировано на 31-е намеренно: раскладка календарно-зависима,
+     * и на последнем дне месяца ломались прежние тесты кармашка.
+     */
+    private static final LocalDate TODAY = LocalDate.of(2026, 1, 31);
+
+    private TargetFund openSavings(UUID id, String target, String balance) {
+        return TargetFund.builder()
+                .id(id).name("Горнолыжка")
+                .targetAmount(new BigDecimal(target))
+                .currentBalance(new BigDecimal(balance))
+                .targetDate(LocalDate.of(2026, 12, 31))
+                .purchaseType(FundPurchaseType.SAVINGS)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .build();
+    }
+
+    private void stubEventSave() {
+        when(eventRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+    }
+
+    private void stubFundSave() {
+        when(fundRepo.save(any())).thenAnswer(i -> {
+            TargetFund f = i.getArgument(0);
+            if (f.getId() == null) f.setId(UUID.randomUUID());
+            return f;
+        });
+    }
+
+    @Test
+    void fix_wishlistWithoutStretch_writesTweakedAmountAndDate_keepsItAWishlist() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);       // 150000, +6 месяцев
+        Category originalCategory = src.getCategory();
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        stubEventSave();
+
+        LocalDate tweaked = LocalDate.of(2026, 4, 15);
+        var resp = service.applyAndFix(id, new SandboxFixRequestDto(
+                "WISHLIST", new BigDecimal("175000"), tweaked, 0, null, null), TODAY);
+
+        assertThat(src.getPlannedAmount()).isEqualByComparingTo("175000");
+        assertThat(src.getDate()).isEqualTo(tweaked);
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        // Хотелка обязана остаться LOW-хотелкой своей категории: иначе выпадет
+        // из wishlist-выборок и следующий PATCH статуса вернёт 400.
+        assertThat(src.getPriority()).isEqualTo(Priority.LOW);
+        assertThat(src.getCategory()).isSameAs(originalCategory);
+        assertThat(resp.artifactKind()).isEqualTo("EVENT_PARAMS");
+        assertThat(resp.convertedTo()).isNull();
+        verify(fundRepo, never()).save(any());
+    }
+
+    @Test
+    void fix_wishlistWithStretch_createsFundWithTweakedAmount_andDateFromSlider() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);       // исходные 150000
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        stubEventSave();
+        stubFundSave();
+
+        var resp = service.applyAndFix(id, new SandboxFixRequestDto(
+                "WISHLIST", new BigDecimal("175000"), LocalDate.of(2026, 12, 1), 3, null, null), TODAY);
+
+        ArgumentCaptor<TargetFund> cap = ArgumentCaptor.forClass(TargetFund.class);
+        verify(fundRepo).save(cap.capture());
+        // Раньше сюда уезжала исходная сумма события, а не подкрученная в примерке
+        assertThat(cap.getValue().getTargetAmount()).isEqualByComparingTo("175000");
+        // Дата цели выводится из ползунка: последний день месяца последнего взноса
+        assertThat(cap.getValue().getTargetDate()).isEqualTo(LocalDate.of(2026, 4, 30));
+        // Обратимость правила: резерв §6 воспроизведёт ровно ту же растяжку
+        assertThat(SandboxLayout.maxStretchMonths(TODAY, cap.getValue().getTargetDate())).isEqualTo(3);
+        assertThat(resp.convertedTo().kind()).isEqualTo("FUND");
+        assertThat(src.getConvertedToFundId()).isNotNull();
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+    }
+
+    @Test
+    void fix_savings_targetAmountAddsCurrentBalance() {
+        // В примерке amount копилки — ОСТАТОК. Накопленные 20000 обязаны уцелеть:
+        // «докопить ещё 60000» → цель 80000, а не 60000 (решение Кирилла 2026-07-31).
+        UUID id = UUID.randomUUID();
+        TargetFund src = openSavings(id, "80000", "20000");
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        stubFundSave();
+
+        service.applyAndFix(id, new SandboxFixRequestDto(
+                "SAVINGS", new BigDecimal("60000"), null, 2, null, null), TODAY);
+
+        assertThat(src.getTargetAmount()).isEqualByComparingTo("80000");
+        assertThat(src.getCurrentBalance()).isEqualByComparingTo("20000");
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+    }
+
+    @Test
+    void fix_savings_sliderBeatsDateField() {
+        // Ползунок главнее поля даты: иначе «растянуть на меньше» невыразимо,
+        // потому что резерв §6 всегда размазывает остаток ровно до targetDate.
+        UUID id = UUID.randomUUID();
+        TargetFund src = openSavings(id, "80000", "20000");
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        stubFundSave();
+
+        service.applyAndFix(id, new SandboxFixRequestDto(
+                "SAVINGS", new BigDecimal("60000"), LocalDate.of(2026, 11, 20), 2, null, null), TODAY);
+
+        assertThat(src.getTargetDate()).isEqualTo(LocalDate.of(2026, 3, 31));
+        assertThat(SandboxLayout.maxStretchMonths(TODAY, src.getTargetDate())).isEqualTo(2);
+    }
+
+    @Test
+    void fix_savingsWithoutStretch_usesGivenDate() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = openSavings(id, "80000", "20000");
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        stubFundSave();
+
+        service.applyAndFix(id, new SandboxFixRequestDto(
+                "SAVINGS", new BigDecimal("60000"), LocalDate.of(2026, 11, 20), 0, null, null), TODAY);
+
+        assertThat(src.getTargetDate()).isEqualTo(LocalDate.of(2026, 11, 20));
+    }
+
+    @Test
+    void fix_creditKeepsRateAndTerm() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder()
+                .id(id).name("Машина")
+                .purchaseType(FundPurchaseType.CREDIT).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).currentBalance(BigDecimal.ZERO)
+                .targetDate(LocalDate.of(2026, 6, 30))
+                .creditRate(new BigDecimal("16.5")).creditTermMonths(60).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        stubFundSave();
+
+        service.applyAndFix(id, new SandboxFixRequestDto(
+                "CREDIT", new BigDecimal("2200000"), LocalDate.of(2026, 7, 31), 0,
+                new BigDecimal("18.0"), 48), TODAY);
+
+        assertThat(src.getTargetAmount()).isEqualByComparingTo("2200000");
+        assertThat(src.getCreditRate()).isEqualByComparingTo("18.0");
+        assertThat(src.getCreditTermMonths()).isEqualTo(48);
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+    }
+
+    @Test
+    void fix_pastOrMissingDateWithoutStretch_throws400_andSavesNothing() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+
+        // Дата в прошлом: событие не попало бы в резерв (date > asOfDate) — тот же
+        // невидимый финал, ради которого задача и заведена.
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "WISHLIST", new BigDecimal("1000"), TODAY.minusDays(1), 0, null, null), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(400));
+
+        // Сегодняшняя дата тоже не годится: нужен строго будущий день
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "WISHLIST", new BigDecimal("1000"), TODAY, 0, null, null), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "WISHLIST", new BigDecimal("1000"), null, 0, null, null), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
+        verify(eventRepo, never()).save(any());
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.OPEN);
+    }
+
+    @Test
+    void fix_alreadyConverted_throws409() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        src.setConvertedToFundId(UUID.randomUUID());
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "WISHLIST", new BigDecimal("1000"), TODAY.plusMonths(1), 0, null, null), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(409));
+    }
+
+    @Test
+    void fix_unknownSourceKindOrHugeStretch_throws400() {
+        UUID id = UUID.randomUUID();
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "NONSENSE", new BigDecimal("1000"), TODAY.plusMonths(1), 0, null, null), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(400));
+
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "SAVINGS", new BigDecimal("1000"), null, 61, null, null), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
+        verify(eventRepo, never()).save(any());
+        verify(fundRepo, never()).save(any());
+    }
+
+    @Test
+    void fix_notFound_throws404() {
+        UUID id = UUID.randomUUID();
+        when(fundRepo.findById(id)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "SAVINGS", new BigDecimal("1000"), TODAY.plusMonths(1), 0, null, null), TODAY))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 }
