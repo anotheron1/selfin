@@ -48,7 +48,7 @@ public class FinancialEventService {
      */
     public List<FinancialEventDto> findByPeriod(LocalDate start, LocalDate end) {
         List<FinancialEvent> events =
-                eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAsc(start, end);
+                eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(start, end);
 
         // Aggregate fact counts/amounts for PLAN enrichment
         List<UUID> planIds = events.stream()

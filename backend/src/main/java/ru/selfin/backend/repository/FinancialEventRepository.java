@@ -19,7 +19,20 @@ import java.util.UUID;
 
 public interface FinancialEventRepository extends JpaRepository<FinancialEvent, UUID> {
 
-    List<FinancialEvent> findAllByDeletedFalseAndDateBetweenOrderByDateAsc(
+    /**
+     * Выдача журнала за период. Порядок обязан быть детерминированным (ANO-7):
+     * одного `ORDER BY date` мало — при равных датах Postgres не гарантирует порядок,
+     * и после UPDATE строка переезжает в heap, из-за чего одинаковые по дню записи
+     * молча переставлялись между запросами.
+     *
+     * <p>Тай-брейкер по `createdAt` (момент ввода — времени операции в модели нет),
+     * затем по `id`: у пачки recurring-событий, созданных одной транзакцией,
+     * `createdAt` практически совпадает, и без `id` недетерминизм вернулся бы.
+     *
+     * <p>Направление остаётся ASC: разворот здесь журнал не починит (фронт всё равно
+     * перегруппировывает список целиком), но сломает порядок у остальных потребителей.
+     */
+    List<FinancialEvent> findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(
             LocalDate start, LocalDate end);
 
     boolean existsByCategoryIdAndDeletedFalse(UUID categoryId);

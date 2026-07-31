@@ -3,6 +3,7 @@ import { Repeat } from 'lucide-react';
 import { fetchEvents, cycleEventPriority } from '../api';
 import type { FinancialEvent } from '../types/api';
 import { favourableDelta, deltaColor } from '../lib/planFact';
+import { compareByRecency, byRecencyDesc } from '../lib/eventOrder';
 import EditEventSheet from '../components/EditEventSheet';
 import FactCreateSheet from '../components/FactCreateSheet';
 import PriorityButton from '../components/PriorityButton';
@@ -131,9 +132,12 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const totalPlannedExpense = events.filter(e => e.type === 'EXPENSE' && e.eventKind === 'PLAN').reduce((s, e) => s + (e.plannedAmount ?? 0), 0);
     const totalFactExpense = events.filter(e => e.type === 'EXPENSE' && e.eventKind === 'FACT').reduce((s, e) => s + (e.factAmount ?? 0), 0);
     const hasFactData = events.some(e => e.eventKind === 'FACT' && e.factAmount != null);
+    // ANO-7: прежний компаратор `(b.date > a.date ? 1 : -1)` никогда не возвращал 0,
+    // поэтому при нескольких фактах одного дня «последним» оказывался произвольный.
     const lastFact = events
         .filter(e => e.eventKind === 'FACT' && e.factAmount != null && e.date != null)
-        .sort((a, b) => (b.date! > a.date! ? 1 : -1))[0] ?? null;
+        .slice()
+        .sort(byRecencyDesc)[0] ?? null;
 
     return (
         <>
@@ -225,17 +229,21 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                             const { dow, dayNum } = getDayLabel(day);
                                             const dayEvts = byDay[day];
 
-                                            // Split by eventKind: PLANs first, then FACTs
+                                            // Split by eventKind: PLANs first, then FACTs.
+                                            // ANO-7: внутри дня порядок хронологический (момент ввода),
+                                            // а не алфавитный — искать последнюю внесённую запись
+                                            // по алфавиту невозможно. Связка план-факт (PLAN сверху,
+                                            // FACT под пунктиром) — визуальный контракт, он сохранён.
                                             const planEvents = dayEvts
                                                 .filter(e => e.eventKind === 'PLAN')
-                                                .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b), 'ru'));
+                                                .sort(compareByRecency);
                                             const factEvents = dayEvts
                                                 .filter(e => e.eventKind === 'FACT')
                                                 .sort((a, b) => {
                                                     const aLinked = a.parentEventId !== null ? 0 : 1;
                                                     const bLinked = b.parentEventId !== null ? 0 : 1;
                                                     if (aLinked !== bLinked) return aLinked - bLinked;
-                                                    return getDisplayName(a).localeCompare(getDisplayName(b), 'ru');
+                                                    return compareByRecency(a, b);
                                                 });
 
                                             return (
