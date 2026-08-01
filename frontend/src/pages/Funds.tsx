@@ -6,6 +6,7 @@ import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
 import { fmtRub } from '../lib/format';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
+import { AmountInput, amountValue } from "../components/ui/amount-input";
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
@@ -41,7 +42,7 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
         try {
             await createFund({
                 name: name.trim(),
-                targetAmount: target ? Number(target) : undefined,
+                targetAmount: target ? (amountValue(target) ?? undefined) : undefined,   // ANO-33
                 targetDate: targetDate || undefined,
                 purchaseType,
                 creditRate: purchaseType === 'CREDIT' && creditRate ? Number(creditRate) : undefined,
@@ -65,11 +66,10 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                         value={name}
                         onChange={e => setName(e.target.value)}
                     />
-                    <Input
-                        type="number"
+                    <AmountInput
                         placeholder="Целевая сумма, ₽ (необязательно)"
                         value={target}
-                        onChange={e => setTarget(e.target.value)}
+                        onChange={setTarget}
                     />
                     <div className="space-y-1">
                         <label className="text-xs text-muted-foreground">Срок достижения (необязательно)</label>
@@ -138,7 +138,7 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const num = Number(amount);
+        const num = amountValue(amount);   // ANO-33: сумма может быть выражением
         if (!num || num <= 0 || num > pocketBalance) return;
         setLoading(true);
         try {
@@ -156,18 +156,17 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
                     <SheetDescription>{fund.name} · доступно {fmt(pocketBalance)}</SheetDescription>
                 </SheetHeader>
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
-                    <Input
+                    <AmountInput
                         autoFocus
-                        type="number"
                         placeholder="Сумма, ₽"
-                        max={pocketBalance}
                         value={amount}
-                        onChange={e => setAmount(e.target.value)}
+                        onChange={setAmount}
                     />
                     <Button
                         type="submit"
                         className="w-full"
-                        disabled={loading || !amount || Number(amount) <= 0 || Number(amount) > pocketBalance}>
+                        disabled={loading || !amountValue(amount)
+                            || (amountValue(amount) ?? 0) > pocketBalance}>
                         {loading ? 'Переводим...' : 'Перевести'}
                     </Button>
                 </form>
@@ -205,7 +204,7 @@ function EditFundModal({ fund, onClose, onSuccess }: {
         try {
             await updateFund(fund.id, {
                 name: name.trim(),
-                targetAmount: target ? Number(target) : undefined,
+                targetAmount: target ? (amountValue(target) ?? undefined) : undefined,   // ANO-33
                 targetDate: targetDate || undefined,
                 purchaseType,
                 creditRate: purchaseType === 'CREDIT' && creditRate ? Number(creditRate) : undefined,
@@ -239,11 +238,10 @@ function EditFundModal({ fund, onClose, onSuccess }: {
                         value={name}
                         onChange={e => setName(e.target.value)}
                     />
-                    <Input
-                        type="number"
+                    <AmountInput
                         placeholder="Целевая сумма, ₽ (необязательно)"
                         value={target}
-                        onChange={e => setTarget(e.target.value)}
+                        onChange={setTarget}
                     />
                     <div className="space-y-1">
                         <label className="text-xs text-muted-foreground">Срок достижения (необязательно)</label>

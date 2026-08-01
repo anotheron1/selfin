@@ -8,6 +8,7 @@ import type { BalanceCheckpoint, BudgetSnapshot, Category, CategoryType } from '
 import PriorityButton from '../components/PriorityButton';
 import { Plus, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
+import { AmountInput, amountValue } from '../components/ui/amount-input';
 
 const inputStyle = {
     background: 'var(--color-surface-2)',
@@ -125,7 +126,7 @@ export default function Settings() {
     // --- Checkpoint handlers ---
     const handleCreateCheckpoint = async (e: React.FormEvent) => {
         e.preventDefault();
-        const amount = parseFloat(cpAmount);
+        const amount = amountValue(cpAmount) ?? NaN;   // ANO-33
         if (!cpDate || isNaN(amount) || amount < 0) return;
         await createCheckpoint({ date: cpDate, amount });
         setCpDate(today());
@@ -143,7 +144,7 @@ export default function Settings() {
     const cancelEdit = () => setEditingId(null);
 
     const handleUpdate = async (id: string) => {
-        const amount = parseFloat(editAmount);
+        const amount = amountValue(editAmount) ?? NaN;   // ANO-33
         if (!editDate || isNaN(amount) || amount < 0) return;
         await updateCheckpoint(id, { date: editDate, amount });
         setEditingId(null);
@@ -192,14 +193,11 @@ export default function Settings() {
                             className="rounded-lg px-3 py-2 text-sm"
                             style={inputStyle}
                         />
-                        <input
-                            type="number"
+                        <AmountInput
                             value={cpAmount}
-                            onChange={e => setCpAmount(e.target.value)}
+                            onChange={setCpAmount}
                             placeholder="Сумма, ₽"
-                            min="0"
-                            step="0.01"
-                            className="flex-1 rounded-lg px-3 py-2 text-sm"
+                            className="flex-1 rounded-lg px-3 py-2 text-sm h-auto border-0"
                             style={inputStyle}
                         />
                         <button type="submit"
