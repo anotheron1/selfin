@@ -114,7 +114,7 @@ public class PocketSandboxService {
         PocketInput fittedInput = new PocketInput(in.asOfDate(), in.checkpointAmount(),
                 in.checkpointDate(), fittedEvents, fittedWishlist, in.overdueEvents(),
                 in.scope(), in.horizonEnd(), in.fallbackKind(), in.bufferAmount(),
-                in.unplannedForecast(), in.forecastContributors());
+                in.unplannedForecast(), in.forecastContributors(), in.futureForecast());
         PocketResultDto fitted = PocketEngine.calculate(fittedInput);
 
         // ── дельта-векторы (§4): tryOn в порядке запроса, затем exclude ─────

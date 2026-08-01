@@ -16,6 +16,10 @@ import java.util.List;
  *                        различает «доходов нет» и «второй не найден» для правдивого label
  * @param unplannedForecast прогноз незапланированных трат текущего месяца (≥ 0)
  * @param forecastContributors имена категорий-виновников прогноза (для details)
+ * @param futureForecast прогноз СВЕРХ ПЛАНА по будущим месяцам (ANO-36): месяц → сумма ≥ 0.
+ *                       План уже сидит в {@code events}, поэтому здесь только разница
+ *                       {@code max(0, медиана − план)} — иначе трата считалась бы дважды.
+ *                       Отдельная величина, с планом не смешивается.
  */
 public record PocketInput(
         LocalDate asOfDate,
@@ -29,5 +33,11 @@ public record PocketInput(
         FallbackKind fallbackKind,
         BigDecimal bufferAmount,
         BigDecimal unplannedForecast,
-        List<String> forecastContributors
-) {}
+        List<String> forecastContributors,
+        java.util.Map<java.time.YearMonth, BigDecimal> futureForecast
+) {
+    /** Прогноз будущих месяцев, безопасный к null (старые вызовы/тесты). */
+    public java.util.Map<java.time.YearMonth, BigDecimal> futureForecastOrEmpty() {
+        return futureForecast != null ? futureForecast : java.util.Map.of();
+    }
+}

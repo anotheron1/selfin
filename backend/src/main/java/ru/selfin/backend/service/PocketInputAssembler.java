@@ -189,14 +189,75 @@ public class PocketInputAssembler {
         BigDecimal delta = forecast.netPredictionDelta().max(BigDecimal.ZERO);
         List<String> contributors = buildContributors(forecast);
 
+        // 4a. Прогноз будущих месяцев (ANO-36): план на них содержит примерно половину
+        //     реальной жизни, поэтому за пределами текущего месяца ждём медиану по истории.
+        //     План уже в events — добавляем только разницу, иначе трата считалась бы дважды.
+        Map<java.time.YearMonth, BigDecimal> futureForecast =
+                buildFutureForecast(asOfDate, horizonEnd);
+
         // 5. Буфер
         BigDecimal buffer = settingsService.getPocketSettings().bufferAmount();
 
         PocketInput input = new PocketInput(asOfDate,
                 checkpoint.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO),
                 checkpoint.map(BalanceCheckpoint::getDate).orElse(null),
-                events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors);
+                events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors,
+                futureForecast);
         return new Assembled(input, baselineRefs, allIncomes);
+    }
+
+    /** Сколько месяцев истории нужно категории, чтобы ей верить (как у fan chart §конус). */
+    private static final int MIN_HISTORY_MONTHS = 3;
+    /** Окно истории для медианы — то же, что у траектории стратегии. */
+    private static final int HISTORY_WINDOW_MONTHS = 6;
+
+    /**
+     * Прогноз «сверх плана» по будущим месяцам горизонта (ANO-36).
+     *
+     * <p>Правило: медиана категории — это ВСЯ обычная трата за месяц, а план — её часть,
+     * посчитанная заранее. Поэтому добавляем {@code max(0, медиана − план)}: сложение
+     * дало бы «Продукты 32 000 плана + 35 818 прогноза = 67 818», чего не бывает.
+     *
+     * <p>Текущий месяц сюда не входит — им занимается {@code PredictionService} по
+     * дневному темпу (§3.5), у него уже есть факты этого месяца.
+     */
+    private Map<java.time.YearMonth, BigDecimal> buildFutureForecast(
+            LocalDate asOfDate, LocalDate horizonEnd) {
+
+        java.time.YearMonth firstFuture = java.time.YearMonth.from(asOfDate).plusMonths(1);
+        java.time.YearMonth lastFuture = java.time.YearMonth.from(horizonEnd);
+        if (lastFuture.isBefore(firstFuture)) return Map.of();
+
+        List<java.time.YearMonth> months = new ArrayList<>();
+        for (java.time.YearMonth m = firstFuture; !m.isAfter(lastFuture); m = m.plusMonths(1)) {
+            months.add(m);
+        }
+
+        Map<java.util.UUID, BigDecimal> medians = new java.util.LinkedHashMap<>();
+        for (var cat : categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()) {
+            var stats = predictionService.getStatsForCategory(cat, HISTORY_WINDOW_MONTHS);
+            if (stats.monthsOfHistory() >= MIN_HISTORY_MONTHS) {
+                medians.put(cat.getId(), stats.median());
+            }
+        }
+        if (medians.isEmpty()) return Map.of();
+
+        // Планы будущих месяцев по категориям — один запрос на весь горизонт
+        Map<java.time.YearMonth, Map<java.util.UUID, BigDecimal>> plannedByMonth =
+                new java.util.LinkedHashMap<>();
+        eventRepository.findPlannedEventsByDateRange(firstFuture.atDay(1), lastFuture.atEndOfMonth())
+                .stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .filter(e -> e.getType() == ru.selfin.backend.model.enums.EventType.EXPENSE)
+                .filter(e -> e.getDate() != null && e.getCategory() != null)
+                .forEach(e -> plannedByMonth
+                        .computeIfAbsent(java.time.YearMonth.from(e.getDate()), k -> new java.util.HashMap<>())
+                        .merge(e.getCategory().getId(),
+                                e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO,
+                                BigDecimal::add));
+
+        return FutureForecastCalculator.forecastByMonth(medians, plannedByMonth, months);
     }
 
     /**
