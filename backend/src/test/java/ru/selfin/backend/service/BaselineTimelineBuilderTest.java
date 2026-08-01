@@ -172,6 +172,71 @@ class BaselineTimelineBuilderTest {
     }
 
     @Test
+    void buildFuturePoints_categoryWithPlanAndHistory_isNotCountedTwice() {
+        // ANO-41: регрессия. Прежняя формула вычитала sumMedian × k ПОВЕРХ плана,
+        // и категория с планом и историей списывалась дважды: «Продукты» с планом
+        // 32 000 и медианой 35 818 давали ожидание 67 818.
+        //
+        // Существующие тесты этого не ловили: у них плановых событий нет вовсе,
+        // а баг проявляется только на пересечении плана и истории.
+        YearMonth current = YearMonth.of(2026, 8);
+        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
+
+        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
+        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
+        statsMap.put(food, new CategoryMonthStats(food.getId(), 6,
+                new BigDecimal("35818"), new BigDecimal("30000"), new BigDecimal("40000")));
+
+        ru.selfin.backend.model.FinancialEvent plan = ru.selfin.backend.model.FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(LocalDate.of(2026, 9, 10))
+                .type(ru.selfin.backend.model.enums.EventType.EXPENSE)
+                .eventKind(ru.selfin.backend.model.EventKind.PLAN)
+                .plannedAmount(new BigDecimal("32000"))
+                .category(food)
+                .build();
+        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of(plan));
+
+        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap).get(0);
+
+        // Ключевое: ждём медиану целиком, а не план ПЛЮС медиану
+        assertThat(m1.expense())
+                .as("план 32 000 + прогноз сверх плана 3 818 = медиана 35 818, а не 67 818")
+                .isEqualByComparingTo("35818");
+        // Баланс проседает на план и на разницу, но не на медиану дважды
+        assertThat(m1.balanceConfirmed()).isEqualByComparingTo("68000");   // 100 000 − 32 000
+        assertThat(m1.balance()).isEqualByComparingTo("64182");            // 68 000 − 3 818
+    }
+
+    @Test
+    void buildFuturePoints_planAboveMedian_addsNoForecast() {
+        // «Подписки» из реальных данных: план 4 500 выше медианы 3 529 —
+        // прогноз обязан обнулиться, а не «вернуть» разницу отрицательным числом.
+        YearMonth current = YearMonth.of(2026, 8);
+        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
+
+        Category subs = Category.builder().id(UUID.randomUUID()).name("Подписки").forecastEnabled(true).build();
+        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
+        statsMap.put(subs, new CategoryMonthStats(subs.getId(), 6,
+                new BigDecimal("3529"), new BigDecimal("3000"), new BigDecimal("4000")));
+
+        ru.selfin.backend.model.FinancialEvent plan = ru.selfin.backend.model.FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(LocalDate.of(2026, 9, 5))
+                .type(ru.selfin.backend.model.enums.EventType.EXPENSE)
+                .eventKind(ru.selfin.backend.model.EventKind.PLAN)
+                .plannedAmount(new BigDecimal("4500"))
+                .category(subs)
+                .build();
+        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of(plan));
+
+        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap).get(0);
+
+        assertThat(m1.expense()).isEqualByComparingTo("4500");
+        assertThat(m1.balance()).isEqualByComparingTo("95500");
+    }
+
+    @Test
     void buildFuturePoints_uses_recurring_planned_and_predicts_with_fan_bounds() {
         YearMonth current = YearMonth.of(2026, 5);
 
