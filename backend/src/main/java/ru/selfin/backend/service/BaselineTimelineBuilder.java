@@ -226,6 +226,32 @@ public class BaselineTimelineBuilder {
         // Шаг 3: построение точек
         BigDecimal balanceConfirmed = capitalService.liquidAt(LocalDate.now());
 
+        // ANO-41: прогноз считается по тому же правилу, что и в кармашке — медиана это ВСЯ
+        // обычная трата категории, а план её часть. Раньше здесь вычиталось sumMedian × k
+        // поверх плана, и категория с планом и историей списывалась дважды: «Продукты»
+        // с планом 32 000 и медианой 35 818 давали ожидание в 67 818.
+        Map<java.util.UUID, BigDecimal> mediansByCategory = new LinkedHashMap<>();
+        for (CategoryMonthStats s : eligibleStats) {
+            mediansByCategory.put(s.categoryId(), s.median());
+        }
+        Map<YearMonth, Map<java.util.UUID, BigDecimal>> plannedExpenseByCategory = new LinkedHashMap<>();
+        plannedByMonth.forEach((ym, list) -> {
+            Map<java.util.UUID, BigDecimal> byCat = new java.util.HashMap<>();
+            for (FinancialEvent e : list) {
+                if (e.getType() != EventType.EXPENSE || e.getCategory() == null) continue;
+                byCat.merge(e.getCategory().getId(),
+                        e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO,
+                        BigDecimal::add);
+            }
+            plannedExpenseByCategory.put(ym, byCat);
+        });
+        List<YearMonth> futureMonths = new ArrayList<>();
+        for (int k = 1; k <= horizonMonths; k++) futureMonths.add(current.plusMonths(k));
+        Map<YearMonth, BigDecimal> forecastByMonth = FutureForecastCalculator.forecastByMonth(
+                mediansByCategory, plannedExpenseByCategory, futureMonths);
+
+        BigDecimal forecastCum = BigDecimal.ZERO;
+
         for (int k = 1; k <= horizonMonths; k++) {
             YearMonth ym = current.plusMonths(k);
             List<FinancialEvent> planned = plannedByMonth.getOrDefault(ym, List.of());
@@ -234,7 +260,9 @@ public class BaselineTimelineBuilder {
             BigDecimal confirmedExpense = sumPlannedByType(planned, EventType.EXPENSE);
             balanceConfirmed = balanceConfirmed.add(confirmedIncome).subtract(confirmedExpense);
 
-            BigDecimal balanceMedian = balanceConfirmed.subtract(sumMedian.multiply(BigDecimal.valueOf(k)));
+            BigDecimal monthForecast = forecastByMonth.getOrDefault(ym, BigDecimal.ZERO);
+            forecastCum = forecastCum.add(monthForecast);
+            BigDecimal balanceMedian = balanceConfirmed.subtract(forecastCum);
 
             BigDecimal balanceLow, balanceHigh;
             if (fanEnabled) {
@@ -255,8 +283,8 @@ public class BaselineTimelineBuilder {
                     StrategyPointPhase.FUTURE,
                     balanceMedian,
                     confirmedIncome,
-                    confirmedExpense.add(sumMedian),    // expense = confirmed + prediction
-                    confirmedIncome.subtract(confirmedExpense.add(sumMedian)),  // nettoFlow
+                    confirmedExpense.add(monthForecast),    // expense = план + прогноз сверх плана
+                    confirmedIncome.subtract(confirmedExpense.add(monthForecast)),  // nettoFlow
                     balanceConfirmed,
                     balanceLow,
                     balanceHigh,
@@ -386,10 +414,23 @@ public class BaselineTimelineBuilder {
         List<BreakdownItemDto> incomeItems = aggregatePlannedByCategory(planned, EventType.INCOME);
         List<BreakdownItemDto> expenseItems = aggregatePlannedByCategory(planned, EventType.EXPENSE);
 
-        // Добавляем predicted items для forecast-категорий из предвычисленного statsMap
+        // ANO-41: predicted-строка показывает трату СВЕРХ ПЛАНА, а не всю медиану —
+        // иначе рядом с планом «Продукты 32 000» стояло бы «Продукты 35 818», и разбивка
+        // читалась бы как ожидание 67 818.
+        Map<java.util.UUID, BigDecimal> plannedByCategory = new java.util.HashMap<>();
+        for (FinancialEvent e : planned) {
+            if (e.getType() != EventType.EXPENSE || e.getCategory() == null) continue;
+            plannedByCategory.merge(e.getCategory().getId(),
+                    e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO,
+                    BigDecimal::add);
+        }
         for (Map.Entry<Category, CategoryMonthStats> entry : statsMap.entrySet()) {
-            if (entry.getValue().median().compareTo(BigDecimal.ZERO) > 0) {
-                expenseItems.add(new BreakdownItemDto(entry.getKey().getName(), entry.getValue().median(), false, true));
+            BigDecimal median = entry.getValue().median();
+            if (median.compareTo(BigDecimal.ZERO) <= 0) continue;
+            BigDecimal beyondPlan = median.subtract(
+                    plannedByCategory.getOrDefault(entry.getKey().getId(), BigDecimal.ZERO));
+            if (beyondPlan.compareTo(BigDecimal.ZERO) > 0) {
+                expenseItems.add(new BreakdownItemDto(entry.getKey().getName(), beyondPlan, false, true));
             }
         }
         return new BreakdownDto(incomeItems, expenseItems);
