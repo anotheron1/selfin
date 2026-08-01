@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AmountInput, amountValue } from '../ui/amount-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { createCheckpoint } from '../../api';
 import { buildDriftPreview, buildMirrorLabel, checkpointAgeDays } from '../../lib/reanchor';
@@ -24,7 +25,8 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
 
     const t = new Date();
     const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-    const entered = amount.trim() === '' ? null : Number(amount);
+    // ANO-33: остаток можно ввести выражением («50000+12000» с двух счетов)
+    const entered = amount.trim() === '' ? null : amountValue(amount);
     const ageDays = checkpointAgeDays(checkpointDate, todayIso);
     const driftLine = buildDriftPreview(entered, currentBalance, ageDays);
     const driftColor = driftLine == null ? undefined
@@ -58,16 +60,12 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
                     <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
                         {buildMirrorLabel(checkpointDate != null, currentBalance)}
                     </p>
-                    <input
-                        type="number"
-                        inputMode="decimal"
+                    <AmountInput
                         autoFocus
-                        min="0"
-                        step="0.01"
                         value={amount}
-                        onChange={e => setAmount(e.target.value)}
+                        onChange={setAmount}
                         placeholder="Остаток из банка, ₽"
-                        className="w-full rounded-lg px-3 py-2 text-sm"
+                        className="w-full rounded-lg px-3 py-2 text-sm h-auto border-0"
                         style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
                     {driftLine && (

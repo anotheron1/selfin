@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { updateWishlistSettings } from '../../api';
 import type { WishlistThresholds } from '../../types/api';
 import { Input } from '../ui/input';
+import { AmountInput, amountValue } from '../ui/amount-input';
 import { fmtRub } from '../strategy/strategyChartUtils';
 
 interface Props {
@@ -43,7 +44,7 @@ export default function WishlistThresholdsHeader({ value, monthlyExpensesAvg, on
         }
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => {
-            const capital = capitalStr.trim() === '' ? null : Number(capitalStr);
+            const capital = capitalStr.trim() === '' ? null : amountValue(capitalStr);   // ANO-33
             const buffer = bufferStr.trim() === '' ? 0 : Number(bufferStr);
             if (capital != null && Number.isNaN(capital)) return;
             if (Number.isNaN(buffer)) return;
@@ -74,13 +75,10 @@ export default function WishlistThresholdsHeader({ value, monthlyExpensesAvg, on
                     <label className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         Мин. капитал, ₽
                     </label>
-                    <Input
-                        type="number"
-                        min="0"
-                        step="1000"
+                    <AmountInput
                         placeholder="выкл."
                         value={capitalStr}
-                        onChange={e => setCapitalStr(e.target.value)}
+                        onChange={setCapitalStr}
                         className="h-8 text-sm"
                     />
                 </div>

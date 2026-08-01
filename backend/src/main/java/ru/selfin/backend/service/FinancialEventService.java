@@ -176,6 +176,7 @@ public class FinancialEventService {
                 .priority(dto.priority() != null ? dto.priority() : category.getPriority())
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
+                .rawInput(dto.rawInput())        // ANO-33: «450+1230+890», если сумму ввели выражением
                 .build();
 
         return toDto(eventRepository.save(fact), null, null);
@@ -288,6 +289,7 @@ public class FinancialEventService {
                 .recurringRule(plan.getRecurringRule())   // inherit (null if parent is non-recurring)
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
+                .rawInput(dto.rawInput())        // ANO-33: «450+1230+890», если сумму ввели выражением
                 .build();
 
         FinancialEvent savedFact = eventRepository.save(fact);
@@ -319,6 +321,7 @@ public class FinancialEventService {
         BigDecimal oldFact = event.getFactAmount();
         event.setFactAmount(dto.factAmount());
         if (dto.description() != null) event.setDescription(dto.description());
+        if (dto.rawInput() != null) event.setRawInput(dto.rawInput());   // ANO-33
 
         if (dto.factAmount() != null && event.getStatus() == EventStatus.PLANNED)
             event.setStatus(EventStatus.EXECUTED);

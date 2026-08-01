@@ -4,6 +4,7 @@ import { fetchCapitalHistory, updateCapitalRevaluation, deleteCapitalRevaluation
 import type { CapitalRevaluation } from '../types/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { AmountInput, amountValue } from './ui/amount-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 
 const fmt = (n: number) =>
@@ -38,7 +39,7 @@ export default function CapitalRevaluationHistory({ itemId, refreshSignal, onCha
     const saveEdit = async () => {
         if (!editingId) return;
         await updateCapitalRevaluation(editingId, {
-            value: Number(editValue),
+            value: amountValue(editValue) ?? 0,   // ANO-33
             valuedAt: editDate,
         });
         setEditingId(null);
@@ -63,7 +64,7 @@ export default function CapitalRevaluationHistory({ itemId, refreshSignal, onCha
                 <li key={r.id} className="text-sm py-2 px-2 rounded hover:bg-white/5">
                     {editingId === r.id ? (
                         <div className="flex gap-1 items-center">
-                            <Input value={editValue} onChange={e => setEditValue(e.target.value)} type="number" className="w-32 h-7" />
+                            <AmountInput value={editValue} onChange={setEditValue} hidePreview className="w-32 h-7" />
                             <Input value={editDate} onChange={e => setEditDate(e.target.value)} type="date" className="w-36 h-7" />
                             <Button size="sm" onClick={saveEdit}>OK</Button>
                             <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>×</Button>

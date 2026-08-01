@@ -87,6 +87,8 @@ export interface FactCreateDto {
     factAmount: number;
     description?: string;
     priority?: Priority;
+    /** Исходный текст суммы, если её ввели выражением («450+1230+890», ANO-33). */
+    rawInput?: string;
 }
 
 export interface StandaloneFactCreateDto {
@@ -96,6 +98,8 @@ export interface StandaloneFactCreateDto {
     factAmount: number;
     description?: string;
     priority?: Priority;
+    /** Исходный текст суммы, если её ввели выражением («450+1230+890», ANO-33). */
+    rawInput?: string;
 }
 
 export interface DailyForecastPoint {

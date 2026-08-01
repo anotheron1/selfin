@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AmountInput, amountValue } from '../ui/amount-input';
 import { Plus, Save, Trash2 } from 'lucide-react';
 import type { SandboxTryOn } from '../../types/api';
 import { fmtRub } from '../../lib/format';
@@ -18,7 +19,7 @@ export default function AdhocRow({
     const [amount, setAmount] = useState('');
     const [date, setDate] = useState('');
 
-    const canAdd = Number(amount) > 0 && !!date;
+    const canAdd = (amountValue(amount) ?? 0) > 0 && !!date;   // ANO-33
 
     return (
         <div className="rounded-xl px-3 py-2.5"
@@ -46,9 +47,8 @@ export default function AdhocRow({
                 <span className="text-xs shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                     + а если трата
                 </span>
-                <input type="number" placeholder="сумма" value={amount}
-                    onChange={e => setAmount(e.target.value)}
-                    className="w-24 px-2 py-1 rounded text-right text-sm"
+                <AmountInput placeholder="сумма" value={amount} onChange={setAmount} hidePreview
+                    className="w-24 px-2 py-1 rounded text-right text-sm h-auto border-0"
                     style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }} />
                 <input type="date" value={date}
                     onChange={e => setDate(e.target.value)}
@@ -56,7 +56,7 @@ export default function AdhocRow({
                     style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }} />
                 <button
                     disabled={!canAdd}
-                    onClick={() => { onAdd(Number(amount), date); setAmount(''); setDate(''); }}
+                    onClick={() => { onAdd(amountValue(amount) ?? 0, date); setAmount(''); setDate(''); }}
                     className="p-1.5 rounded-lg disabled:opacity-40"
                     style={{ background: 'var(--color-primary)', color: 'white' }}
                     aria-label="Добавить примерку">

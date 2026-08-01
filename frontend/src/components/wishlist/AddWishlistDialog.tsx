@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { AmountInput, amountValue } from '../ui/amount-input';
 import { createWishlistItem, createFund, setFundWishlistStatus } from '../../api';
 import type { WishlistKind } from '../../types/api';
 
@@ -64,7 +65,7 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
         setCreated(null);
     }, [open]);
 
-    const amountNum = amount.trim() === '' ? NaN : Number(amount);
+    const amountNum = amount.trim() === '' ? NaN : (amountValue(amount) ?? NaN);   // ANO-33
     const canSubmit = name.trim() !== '' && !Number.isNaN(amountNum) && amountNum > 0 && targetDate !== ''
         && (kind !== 'CREDIT' || (rate.trim() !== '' && term.trim() !== ''));
 
@@ -151,12 +152,10 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
                         value={name}
                         onChange={e => setName(e.target.value)}
                     />
-                    <Input
-                        type="number"
-                        min="0"
+                    <AmountInput
                         placeholder="Сумма, ₽"
                         value={amount}
-                        onChange={e => setAmount(e.target.value)}
+                        onChange={setAmount}
                     />
                     <div>
                         <label className="text-xs" style={{ color: 'var(--color-text-muted)' }}>

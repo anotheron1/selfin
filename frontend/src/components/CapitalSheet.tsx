@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
+import { AmountInput, amountValue } from './ui/amount-input';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -69,7 +70,7 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
                 kind,
                 name: name.trim(),
                 description: description || undefined,
-                initialValue: Number(revValue),
+                initialValue: amountValue(revValue) ?? 0,   // ANO-33
                 initialValuedAt: revDate,
             });
             onChanged();
@@ -91,7 +92,7 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
         setLoading(true);
         try {
             await addCapitalRevaluation(item.id, {
-                value: Number(revValue),
+                value: amountValue(revValue) ?? 0,   // ANO-33
                 valuedAt: revDate,
                 note: revNote || undefined,
             });
@@ -174,12 +175,7 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
                     {/* Форма переоценки / создания */}
                     <div className="space-y-2">
                         <h3 className="text-sm font-medium">{isCreate ? 'Стоимость' : 'Переоценить'}</h3>
-                        <Input
-                            type="number"
-                            placeholder="Сумма, ₽"
-                            value={revValue}
-                            onChange={e => setRevValue(e.target.value)}
-                        />
+                        <AmountInput placeholder="Сумма, ₽" value={revValue} onChange={setRevValue} />
                         <Input
                             type="date"
                             value={revDate}
