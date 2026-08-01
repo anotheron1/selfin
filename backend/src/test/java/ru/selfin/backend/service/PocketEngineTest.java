@@ -84,6 +84,7 @@ class PocketEngineTest {
         BigDecimal buffer = BigDecimal.ZERO;
         BigDecimal forecast = BigDecimal.ZERO;
         List<String> contributors = List.of();
+        java.util.Map<java.time.YearMonth, BigDecimal> futureForecast = java.util.Map.of();
 
         static PocketInputBuilder create() { return new PocketInputBuilder(); }
         PocketInputBuilder events(EventSnapshot... e) { this.events = List.of(e); return this; }
@@ -94,6 +95,13 @@ class PocketEngineTest {
             this.forecast = dec(f); this.contributors = List.of(names); return this;
         }
         PocketInputBuilder horizon(LocalDate end) { this.horizonEnd = end; return this; }
+        /** Прогноз сверх плана по будущим месяцам (ANO-36). */
+        PocketInputBuilder futureForecast(java.time.YearMonth month, long amount) {
+            var m = new java.util.LinkedHashMap<>(this.futureForecast);
+            m.put(month, dec(amount));
+            this.futureForecast = m;
+            return this;
+        }
         PocketInputBuilder monthsScope(int n, LocalDate end) {
             this.scope = new PocketScope(PocketScope.Type.MONTHS, n, null); this.horizonEnd = end; return this;
         }
@@ -108,7 +116,7 @@ class PocketEngineTest {
 
         PocketInput build() {
             return new PocketInput(asOf, checkpoint, checkpointDate, events, wishlistEvents, overdue,
-                    scope, horizonEnd, fallback, buffer, forecast, contributors);
+                    scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast);
         }
     }
 
@@ -296,13 +304,40 @@ class PocketEngineTest {
     }
 
     @Test
+    @DisplayName("ANO-36: прогноз будущего месяца гнёт траекторию, а не только текущий месяц")
+    void futureForecast_bendsTrajectoryBeyondCurrentMonth() {
+        // Ловушка, на которой я сам споткнулся: траектория может РАСТИ и с прогнозом,
+        // поэтому проверять надо не «падает ли», а насколько медленнее растёт.
+        LocalDate horizon = LocalDate.of(2026, 4, 30);
+        java.time.YearMonth april = java.time.YearMonth.of(2026, 4);
+
+        PocketInput without = base().horizon(horizon)
+                .monthsScope(3, horizon).build();
+        PocketInput with = base().horizon(horizon)
+                .monthsScope(3, horizon)
+                .futureForecast(april, 30_000).build();
+
+        BigDecimal endWithout = lastBalance(PocketEngine.calculate(without));
+        BigDecimal endWith = lastBalance(PocketEngine.calculate(with));
+
+        assertThat(endWithout.subtract(endWith))
+                .as("за апрель должно уйти ровно 30 000 сверх плана")
+                .isEqualByComparingTo("30000");
+    }
+
+    private static BigDecimal lastBalance(ru.selfin.backend.dto.pocket.PocketResultDto r) {
+        var t = r.trajectory();
+        return t.get(t.size() - 1).balance();
+    }
+
+    @Test
     @DisplayName("asOfDate = последний день месяца → окно прогноза пусто, строка опущена")
     void unplannedForecast_emptyWindow() {
         LocalDate eom = LocalDate.of(2026, 3, 31);
         PocketInput in = base().forecast(5_000, "Продукты").build();
         in = new PocketInput(eom, in.checkpointAmount(), eom, in.events(), in.wishlistEvents(),
                 in.overdueEvents(), in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
-                in.bufferAmount(), in.unplannedForecast(), in.forecastContributors());
+                in.bufferAmount(), in.unplannedForecast(), in.forecastContributors(), in.futureForecast());
         PocketResultDto r = PocketEngine.calculate(in);
         assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
         assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.UNPLANNED_FORECAST);

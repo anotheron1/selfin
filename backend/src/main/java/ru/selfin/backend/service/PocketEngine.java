@@ -74,15 +74,10 @@ public final class PocketEngine {
                 .map(EventSnapshot::plannedAmount).filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 3. Окно прогноза незапланированных: asOf+1 .. min(конец месяца, горизонт) (§3.5).
-        LocalDate monthEnd = in.asOfDate().withDayOfMonth(in.asOfDate().lengthOfMonth());
-        LocalDate forecastEnd = monthEnd.isBefore(in.horizonEnd()) ? monthEnd : in.horizonEnd();
-        long forecastDays = ChronoUnit.DAYS.between(in.asOfDate(), forecastEnd); // дней в (asOf, forecastEnd]
-        BigDecimal forecastTotal = forecastDays > 0 && in.unplannedForecast() != null
-                ? in.unplannedForecast().max(BigDecimal.ZERO) : BigDecimal.ZERO;
-        BigDecimal dailyForecast = forecastDays > 0
-                ? forecastTotal.divide(BigDecimal.valueOf(forecastDays), 2, RoundingMode.HALF_UP)
-                : BigDecimal.ZERO;
+        // 3. Прогноз незапланированных по дням: текущий месяц (§3.5) + будущие месяцы (ANO-36).
+        //    Обе части — одна и та же величина «сверх плана», просто из разных источников:
+        //    текущий месяц из дневного темпа, будущие — из медианы по истории.
+        Map<LocalDate, BigDecimal> forecastByDay = buildForecastByDay(in);
 
         // 4. Плановые события будущих дней (фильтр хотелок §3.2 применён).
         //    Диапазон — до конца траектории с хвостом (§3.9), не только до горизонта.
@@ -113,7 +108,6 @@ public final class PocketEngine {
         BigDecimal forecastAtMin = BigDecimal.ZERO;
         BigDecimal contribAtMin = BigDecimal.ZERO;
         List<String> contribNamesAtMin = List.of();
-        BigDecimal forecastSpread = BigDecimal.ZERO;
 
         for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(trajEnd); d = d.plusDays(1)) {
             BigDecimal dayIncome = BigDecimal.ZERO;
@@ -142,11 +136,8 @@ public final class PocketEngine {
                     }
                 }
             }
-            if (forecastDays > 0 && !d.isAfter(forecastEnd)) {
-                BigDecimal dayForecast = d.equals(forecastEnd)
-                        ? forecastTotal.subtract(forecastSpread) // остаток на последний день — сумма сходится точно
-                        : dailyForecast;
-                forecastSpread = forecastSpread.add(dayForecast);
+            BigDecimal dayForecast = forecastByDay.getOrDefault(d, BigDecimal.ZERO);
+            if (dayForecast.signum() != 0) {
                 forecastCum = forecastCum.add(dayForecast);
                 dayExpense = dayExpense.add(dayForecast);
                 running = running.subtract(dayForecast);
@@ -277,5 +268,47 @@ public final class PocketEngine {
             case MONTHS -> in.scope().months() + " мес (до " + DD_MM.format(in.horizonEnd()) + ")";
             case DATE -> "до " + DD_MM_YYYY.format(in.horizonEnd());
         };
+    }
+
+    /**
+     * Прогноз «сверх плана» по дням (ANO-36). Две части одной величины:
+     * текущий месяц из дневного темпа (§3.5) и будущие месяцы из медианы по истории.
+     *
+     * <p>Только внутри горизонта: информационный хвост §3.9 прогнозом не нагружаем,
+     * иначе минимум искался бы по данным, которых пользователь не запрашивал.
+     */
+    private static Map<LocalDate, BigDecimal> buildForecastByDay(PocketInput in) {
+        Map<LocalDate, BigDecimal> byDay = new java.util.HashMap<>();
+        LocalDate firstDay = in.asOfDate().plusDays(1);
+
+        // Текущий месяц: asOf+1 .. min(конец месяца, горизонт)
+        LocalDate monthEnd = in.asOfDate().withDayOfMonth(in.asOfDate().lengthOfMonth());
+        LocalDate curEnd = monthEnd.isBefore(in.horizonEnd()) ? monthEnd : in.horizonEnd();
+        spreadEvenly(byDay, firstDay, curEnd, in.unplannedForecast());
+
+        // Будущие месяцы: каждый в своих границах, обрезанных горизонтом
+        for (Map.Entry<java.time.YearMonth, BigDecimal> e : in.futureForecastOrEmpty().entrySet()) {
+            LocalDate from = e.getKey().atDay(1);
+            LocalDate to = e.getKey().atEndOfMonth();
+            if (from.isBefore(firstDay)) from = firstDay;
+            if (to.isAfter(in.horizonEnd())) to = in.horizonEnd();
+            spreadEvenly(byDay, from, to, e.getValue());
+        }
+        return byDay;
+    }
+
+    /** Ровно распределяет сумму по дням [from..to]; последний день добирает остаток копеек. */
+    private static void spreadEvenly(Map<LocalDate, BigDecimal> byDay,
+                                     LocalDate from, LocalDate to, BigDecimal total) {
+        if (total == null || total.signum() <= 0 || from.isAfter(to)) return;
+        long days = ChronoUnit.DAYS.between(from, to) + 1;
+        BigDecimal daily = total.divide(BigDecimal.valueOf(days), 2, RoundingMode.HALF_UP);
+        BigDecimal spread = BigDecimal.ZERO;
+        LocalDate d = from;
+        for (long i = 0; i < days; i++, d = d.plusDays(1)) {
+            BigDecimal amount = (i == days - 1) ? total.subtract(spread) : daily;
+            spread = spread.add(amount);
+            byDay.merge(d, amount, BigDecimal::add);
+        }
     }
 }
