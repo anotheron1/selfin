@@ -4,6 +4,7 @@ import { createEvent, createLinkedFact, createStandaloneFact, fetchCategories, f
 import type { Category, FinancialEventCreateDto, RecurringConfig, TargetFund } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
+import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import RecurringFields from './RecurringFields';
@@ -19,6 +20,9 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         type: 'EXPENSE',
         priority: 'MEDIUM',
     });
+    // ANO-33: суммы держим сырым текстом — в них может быть выражение,
+    // а число выводим парсером в момент отправки.
+    const [plannedAmountLocal, setPlannedAmountLocal] = useState<string>('');
     const [factAmountLocal, setFactAmountLocal] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -71,8 +75,9 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                 if (selectedCategory?.priority === 'HIGH') return 'HIGH';
                 return form.priority ?? 'MEDIUM';
             })();
-            const factAmount = factAmountLocal ? parseFloat(factAmountLocal) : null;
-            const hasFactAmount = factAmount != null && !isNaN(factAmount);
+            // ANO-33: parseFloat на «450+abc» молча вернул бы 450 — считаем парсером
+            const factAmount = amountValue(factAmountLocal);
+            const hasFactAmount = factAmount != null;
             const hasPlanAmount = !!form.plannedAmount;
 
             if (hasFactAmount && !hasPlanAmount && !isFundTransfer) {
@@ -84,6 +89,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                     factAmount,
                     description: form.description || undefined,
                     priority: effectivePriority,
+                    rawInput: amountRawInput(factAmountLocal),
                 });
             } else {
                 // Плановая транзакция (с планом или FUND_TRANSFER)
@@ -93,7 +99,11 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                     recurring: recurringEnabled ? { ...recurring, startDate: form.date } : null,
                 });
                 if (hasFactAmount && !isFundTransfer) {
-                    await createLinkedFact(plan.id, { date: form.date!, factAmount: factAmount!, description: form.description || undefined });
+                    await createLinkedFact(plan.id, {
+                        date: form.date!, factAmount: factAmount!,
+                        description: form.description || undefined,
+                        rawInput: amountRawInput(factAmountLocal),
+                    });
                 }
             }
             onSuccess();
@@ -186,19 +196,20 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                     )}
 
                     {/* Плановая сумма */}
-                    <Input
-                        type="number"
+                    <AmountInput
                         placeholder="Сумма (план), ₽"
-                        value={form.plannedAmount ?? ''}
-                        onChange={e => setForm(f => ({ ...f, plannedAmount: Number(e.target.value) }))}
+                        value={plannedAmountLocal}
+                        onChange={raw => {
+                            setPlannedAmountLocal(raw);
+                            setForm(f => ({ ...f, plannedAmount: amountValue(raw) ?? undefined }));
+                        }}
                     />
 
                     {/* Фактическая сумма */}
-                    <Input
-                        type="number"
+                    <AmountInput
                         placeholder={isFundTransfer ? 'Сумма (если уже перевёл), ₽' : 'Сумма (факт, если уже произошло), ₽'}
                         value={factAmountLocal}
-                        onChange={e => setFactAmountLocal(e.target.value)}
+                        onChange={setFactAmountLocal}
                     />
 
                     {/* Дата */}

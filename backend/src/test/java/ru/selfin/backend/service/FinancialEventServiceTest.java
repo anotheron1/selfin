@@ -53,7 +53,7 @@ class FinancialEventServiceTest {
 
         assertThatThrownBy(() ->
                 service.createLinkedFact(UUID.randomUUID(),
-                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null)))
+                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null, null)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -66,7 +66,7 @@ class FinancialEventServiceTest {
 
         assertThatThrownBy(() ->
                 service.createLinkedFact(factId,
-                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null)))
+                        new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null, null)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -95,7 +95,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
 
         FinancialEventDto result = service.createLinkedFact(planId,
-                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, "оплатил", null));
+                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, "оплатил", null, null));
 
         assertThat(result.eventKind()).isEqualTo(EventKind.FACT);
         assertThat(result.parentEventId()).isEqualTo(planId);
@@ -123,7 +123,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
 
         service.createLinkedFact(planId,
-                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null));
+                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null, null));
 
         assertThat(saved[0].getPriority()).isEqualTo(Priority.HIGH);
     }
@@ -147,7 +147,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
 
         service.createLinkedFact(planId,
-                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, Priority.LOW));
+                new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, Priority.LOW, null));
 
         assertThat(saved[0].getPriority()).isEqualTo(Priority.LOW);
     }
@@ -222,7 +222,7 @@ class FinancialEventServiceTest {
         when(targetFundRepository.findById(any())).thenReturn(java.util.Optional.empty());
 
         var factDto = new ru.selfin.backend.dto.FactCreateDto(
-                LocalDate.now(), new BigDecimal("90000"), "Оплачено", null);
+                LocalDate.now(), new BigDecimal("90000"), "Оплачено", null, null);
 
         service.createLinkedFact(planId, factDto);
 

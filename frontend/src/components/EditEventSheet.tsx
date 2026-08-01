@@ -3,6 +3,7 @@ import { updateEvent, deleteEvent, fetchCategories, patchEventFact } from '../ap
 import type { Category, FinancialEvent, FinancialEventCreateDto, EventType, Priority, ScopeEnum } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
+import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import EditEventScopePicker from './EditEventScopePicker';
@@ -41,13 +42,19 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         try {
             if (event.eventKind === 'FACT') {
                 // FACT records are updated via PATCH /events/{id}/fact
-                await patchEventFact(event.id, factAmount !== '' ? Number(factAmount) : undefined, description || undefined);
+                // ANO-33: сумма может быть выражением — Number() дал бы NaN
+                await patchEventFact(
+                    event.id,
+                    factAmount !== '' ? (amountValue(factAmount) ?? undefined) : undefined,
+                    description || undefined,
+                    amountRawInput(factAmount),
+                );
             } else {
                 const dto: FinancialEventCreateDto = {
                     date: date || (event.date ?? ''),
                     categoryId: categoryId || undefined,
                     type,
-                    plannedAmount: plannedAmount !== '' ? Number(plannedAmount) : undefined,
+                    plannedAmount: plannedAmount !== '' ? (amountValue(plannedAmount) ?? undefined) : undefined,
                     priority,
                     mandatory: event.mandatory,
                     description: description || undefined,
@@ -105,11 +112,10 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             <label className="text-xs text-muted-foreground block mb-1">
                                 Плановая сумма, ₽
                             </label>
-                            <Input
-                                type="number"
-                                placeholder="0"
+                            <AmountInput
+                                placeholder="0 или 450+1230+890"
                                 value={plannedAmount}
-                                onChange={e => setPlannedAmount(e.target.value)}
+                                onChange={setPlannedAmount}
                             />
                         </div>
                     )}
@@ -118,11 +124,10 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                             <label className="text-xs text-muted-foreground block mb-1">
                                 Фактическая сумма, ₽
                             </label>
-                            <Input
-                                type="number"
+                            <AmountInput
                                 placeholder={`Факт: ${event.factAmount ?? '—'}`}
                                 value={factAmount}
-                                onChange={e => setFactAmount(e.target.value)}
+                                onChange={setFactAmount}
                             />
                         </div>
                     )}

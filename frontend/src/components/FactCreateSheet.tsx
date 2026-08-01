@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
+import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { createLinkedFact } from '../api';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../lib/priority';
@@ -41,14 +42,18 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        if (!amount) return;
+        // ANO-33: сумма может быть выражением, поэтому parseFloat нельзя —
+        // на «450+abc» он молча вернул бы 450. null = вводу верить нельзя.
+        const value = amountValue(amount);
+        if (value == null) return;
         setLoading(true);
         try {
             const dto: FactCreateDto = {
                 date,
-                factAmount: parseFloat(amount),
+                factAmount: value,
                 description: description || undefined,
                 priority,
+                rawInput: amountRawInput(amount),
             };
             await createLinkedFact(planId, dto);
             onCreated();
@@ -74,13 +79,10 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
                     </div>
                     <div>
                         <label className="text-xs text-muted-foreground block mb-1">Фактическая сумма, ₽</label>
-                        <Input
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            placeholder="0"
+                        <AmountInput
+                            placeholder="0 или 450+1230+890"
                             value={amount}
-                            onChange={e => setAmount(e.target.value)}
+                            onChange={setAmount}
                             required
                         />
                     </div>

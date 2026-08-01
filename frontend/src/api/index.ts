@@ -90,9 +90,11 @@ export const updateEvent = (id: string, dto: FinancialEventCreateDto, scope: Sco
  * @param id         идентификатор события
  * @param factAmount фактическая сумма; `undefined` — снять отметку об исполнении
  * @param description необязательный комментарий
+ * @param rawInput исходный текст суммы, если её ввели выражением (ANO-33)
  */
-export const patchEventFact = (id: string, factAmount: number | undefined, description?: string) =>
-    patch<FinancialEvent>(`/events/${id}/fact`, { factAmount, description });
+export const patchEventFact = (
+    id: string, factAmount: number | undefined, description?: string, rawInput?: string,
+) => patch<FinancialEvent>(`/events/${id}/fact`, { factAmount, description, rawInput });
 
 /** Циклически меняет приоритет события (HIGH → MEDIUM → LOW → HIGH). */
 export const cycleEventPriority = (id: string) => patch<FinancialEvent>(`/events/${id}/priority`);

@@ -11,8 +11,11 @@ import java.math.BigDecimal;
  *
  * @param factAmount фактическая сумма; {@code null} — снять отметку об исполнении
  * @param description произвольный комментарий пользователя; {@code null} — без изменений
+ * @param rawInput исходный текст суммы, если её ввели выражением («450+1230+890», ANO-33);
+ *                 {@code null} — без изменений
  */
 public record FinancialEventUpdateFactDto(
         @PositiveOrZero BigDecimal factAmount,
-        String description) {
+        String description,
+        String rawInput) {
 }

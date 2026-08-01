@@ -9,11 +9,15 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
+/**
+ * @param rawInput исходный текст суммы, если её ввели выражением («450+1230+890», ANO-33).
+ */
 public record StandaloneFactCreateDto(
         @NotNull LocalDate date,
         @NotNull UUID categoryId,
         @NotNull EventType type,
         @NotNull @Positive BigDecimal factAmount,
         String description,
-        Priority priority) {
+        Priority priority,
+        String rawInput) {
 }
