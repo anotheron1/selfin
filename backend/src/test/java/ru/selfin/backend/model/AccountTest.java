@@ -3,8 +3,7 @@ package ru.selfin.backend.model;
 import org.junit.jupiter.api.Test;
 import ru.selfin.backend.model.enums.AccountKind;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class AccountTest {
 
@@ -14,46 +13,56 @@ class AccountTest {
 
     @Test
     void debitWithTrackingCountsAsFreeMoney() {
-        assertTrue(of(AccountKind.DEBIT, true).countsAsFreeMoney());
+        assertThat(of(AccountKind.DEBIT, true).countsAsFreeMoney()).isTrue();
+    }
+
+    @Test
+    void cashWithTrackingCountsAsFreeMoney() {
+        assertThat(of(AccountKind.CASH, true).countsAsFreeMoney()).isTrue();
     }
 
     @Test
     void envelopeWithoutTrackingDoesNotCount() {
         // Конверт: за остатком не следим, значит посчитать его нечем (спека §4.1)
-        assertFalse(of(AccountKind.DEBIT, false).countsAsFreeMoney());
+        assertThat(of(AccountKind.DEBIT, false).countsAsFreeMoney()).isFalse();
     }
 
     @Test
     void creditNeverCountsAsFreeMoney() {
-        assertFalse(of(AccountKind.CREDIT, true).countsAsFreeMoney());
+        assertThat(of(AccountKind.CREDIT, true).countsAsFreeMoney()).isFalse();
     }
 
     @Test
     void depositIsSemiLiquidNotFreeMoney() {
-        assertFalse(of(AccountKind.DEPOSIT, true).countsAsFreeMoney());
+        assertThat(of(AccountKind.DEPOSIT, true).countsAsFreeMoney()).isFalse();
     }
 
     @Test
     void deletedAccountDropsOut() {
         Account a = of(AccountKind.DEBIT, true);
         a.setDeleted(true);
-        assertFalse(a.countsAsFreeMoney());
+        assertThat(a.countsAsFreeMoney()).isFalse();
     }
 
     @Test
     void depositWithTrackingIsSemiLiquid() {
-        assertTrue(of(AccountKind.DEPOSIT, true).isSemiLiquid());
+        assertThat(of(AccountKind.DEPOSIT, true).isSemiLiquid()).isTrue();
     }
 
     @Test
     void debitIsNotSemiLiquid() {
-        assertFalse(of(AccountKind.DEBIT, true).isSemiLiquid());
+        assertThat(of(AccountKind.DEBIT, true).isSemiLiquid()).isFalse();
+    }
+
+    @Test
+    void cashIsNotSemiLiquid() {
+        assertThat(of(AccountKind.CASH, true).isSemiLiquid()).isFalse();
     }
 
     @Test
     void deletedDepositIsNotSemiLiquid() {
         Account a = of(AccountKind.DEPOSIT, true);
         a.setDeleted(true);
-        assertFalse(a.isSemiLiquid());
+        assertThat(a.isSemiLiquid()).isFalse();
     }
 }
