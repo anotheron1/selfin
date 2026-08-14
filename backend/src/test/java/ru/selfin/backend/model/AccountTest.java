@@ -60,6 +60,11 @@ class AccountTest {
     }
 
     @Test
+    void creditIsNotSemiLiquid() {
+        assertThat(of(AccountKind.CREDIT, true).isSemiLiquid()).isFalse();
+    }
+
+    @Test
     void deletedDepositIsNotSemiLiquid() {
         Account a = of(AccountKind.DEPOSIT, true);
         a.setDeleted(true);
