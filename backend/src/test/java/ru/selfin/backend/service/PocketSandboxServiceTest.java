@@ -62,7 +62,12 @@ class PocketSandboxServiceTest {
         eventRepository = mock(FinancialEventRepository.class);
         fundRepository = mock(TargetFundRepository.class);
         when(fundRepository.findAllWishlistFunds()).thenReturn(List.of());
-        service = new PocketSandboxService(assembler, eventRepository, fundRepository);
+        // Настоящий AccountBalanceService поверх моков: копилка со счётом берёт накопленное
+        // с остатка счёта (ANO-9 §3.3), и подменять это правило моком значит не проверять его.
+        service = new PocketSandboxService(assembler, eventRepository, fundRepository,
+                new AccountBalanceService(mock(ru.selfin.backend.repository.AccountRepository.class),
+                        mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class),
+                        eventRepository));
     }
 
     // ── фикстуры ────────────────────────────────────────────────────────────

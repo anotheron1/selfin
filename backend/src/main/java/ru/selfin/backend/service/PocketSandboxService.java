@@ -53,6 +53,7 @@ public class PocketSandboxService {
     private final PocketInputAssembler assembler;
     private final FinancialEventRepository eventRepository;
     private final TargetFundRepository fundRepository;
+    private final AccountBalanceService accountBalanceService;
 
     public SandboxResponseDto simulate(SandboxRequestDto req, LocalDate asOfDate) {
         PocketScope scope;
@@ -244,7 +245,8 @@ public class PocketSandboxService {
             SandboxRef ref = SandboxRef.fund(f.getId());
             boolean credit = f.getPurchaseType() == FundPurchaseType.CREDIT;
             BigDecimal remaining = f.getTargetAmount() != null
-                    ? f.getTargetAmount().subtract(f.getCurrentBalance()) : null;
+                    ? f.getTargetAmount().subtract(accountBalanceService.fundBalanceAt(f, asOfDate))
+                    : null;
             Integer max = f.getTargetDate() != null
                     ? Math.max(SandboxLayout.maxStretchMonths(asOfDate, f.getTargetDate()), 0) : null;
             items.add(new SandboxItemDto(ref, credit ? "CREDIT" : "SAVINGS",

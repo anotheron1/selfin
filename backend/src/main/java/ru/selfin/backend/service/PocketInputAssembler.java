@@ -177,7 +177,11 @@ public class PocketInputAssembler {
                 asOfDate, PocketEngine.trajectoryEnd(asOfDate, horizonEnd),
                 onlyPrimary, Pageable.unpaged());
         for (TargetFund f : reservable) {
-            BigDecimal remaining = f.getTargetAmount().subtract(f.getCurrentBalance());
+            // fundBalanceAt, а не getCurrentBalance(): у копилки со счётом накопленное лежит
+            // на счёте, и её собственное поле навсегда осталось бы нулём (§3.3) — резервировали
+            // бы взносы на всю цель поверх уже отложенных денег.
+            BigDecimal remaining = f.getTargetAmount()
+                    .subtract(accountBalanceService.fundBalanceAt(f, asOfDate));
             int n = SandboxLayout.maxStretchMonths(asOfDate, f.getTargetDate());
             if (remaining.signum() <= 0 || n <= 0) continue; // края §6: тотально, без 400
             List<EventSnapshot> contribs = SandboxLayout.layoutSavings(f.getName(), remaining,

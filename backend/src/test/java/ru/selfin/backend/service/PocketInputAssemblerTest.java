@@ -68,6 +68,12 @@ class PocketInputAssemblerTest {
         // копилок и горизонт, а не про счета (ANO-9 Task 2.2 покрыта отдельно).
         when(accountBalanceService.snapshot(any(), any()))
                 .thenReturn(new AccountBalanceService.Snapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        // Все копилки этого класса — виртуальные конверты (accountId == null), у них накопленное
+        // и есть собственное поле. Правило «копилка на счёте берёт остаток счёта» (§3.3) живёт
+        // в AccountBalanceService.fundBalanceAt и покрыто TargetFundAccountTest; здесь мок
+        // повторяет только ветку конверта, чтобы не подменять проверяемое поведение.
+        when(accountBalanceService.fundBalanceAt(any(), any()))
+                .thenAnswer(inv -> ((TargetFund) inv.getArgument(0)).getCurrentBalance());
 
         assembler = new PocketInputAssembler(eventRepository,
                 settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository,

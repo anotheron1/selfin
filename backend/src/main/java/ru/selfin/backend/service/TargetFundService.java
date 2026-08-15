@@ -19,6 +19,9 @@ import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
 import ru.selfin.backend.model.enums.WishlistStatus;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
@@ -50,6 +53,8 @@ public class TargetFundService {
     private final FundTransactionRepository transactionRepository;
     private final FinancialEventRepository eventRepository;
     private final CategoryRepository categoryRepository;
+    private final AccountRepository accountRepository;
+    private final AccountBalanceService accountBalanceService;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -85,6 +90,7 @@ public class TargetFundService {
                 .purchaseType(dto.purchaseType() != null ? dto.purchaseType() : FundPurchaseType.SAVINGS)
                 .creditRate(dto.creditRate())
                 .creditTermMonths(dto.creditTermMonths())
+                .accountId(validateAccountLink(dto.accountId(), null))
                 .build();
         return toDto(fundRepository.save(fund));
     }
@@ -109,7 +115,33 @@ public class TargetFundService {
         if (dto.purchaseType() != null) fund.setPurchaseType(dto.purchaseType());
         fund.setCreditRate(dto.creditRate());
         fund.setCreditTermMonths(dto.creditTermMonths());
+        fund.setAccountId(validateAccountLink(dto.accountId(), fund.getId()));
         return toDto(fundRepository.save(fund));
+    }
+
+    /**
+     * Проверяет ссылку копилки на счёт (§3.3): счёт обязан существовать и быть живым, и на
+     * одном счёте живёт не более одной цели. Уникальный индекс {@code uq_funds_one_per_account}
+     * стережёт то же самое в базе, но пользователю нужен 409 с объяснением, а не 500.
+     *
+     * <p>Две цели на одной карте потребовали бы делить остаток между ними, то есть виртуальных
+     * подконвертов внутри счёта — сознательно не делаем; кому нужны две, оставляет их
+     * виртуальными конвертами.
+     */
+    private UUID validateAccountLink(UUID accountId, UUID selfId) {
+        if (accountId == null) return null;
+        accountRepository.findById(accountId)
+                .filter(a -> !a.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Account", accountId));
+        fundRepository.findAllByDeletedFalseOrderByPriorityAsc().stream()
+                .filter(f -> accountId.equals(f.getAccountId()))
+                .filter(f -> !f.getId().equals(selfId))
+                .findAny()
+                .ifPresent(f -> {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "Account already holds the goal \"" + f.getName() + "\"");
+                });
+        return accountId;
     }
 
     /**
@@ -179,6 +211,7 @@ public class TargetFundService {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
+        rejectTransferToAccountBackedFund(fund);
 
         BigDecimal oldBalance = fund.getCurrentBalance();
         BigDecimal newBalance = oldBalance.add(amount);
@@ -234,6 +267,7 @@ public class TargetFundService {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
+        rejectTransferToAccountBackedFund(fund);
 
         BigDecimal newBalance = fund.getCurrentBalance().add(amount);
         fund.setCurrentBalance(newBalance);
@@ -276,11 +310,25 @@ public class TargetFundService {
      * @see #calcEstimatedCompletion(TargetFund)
      */
     public TargetFundDto toDto(TargetFund f) {
+        BigDecimal balance = accountBalanceService.fundBalanceAt(f, LocalDate.now());
         return new TargetFundDto(
                 f.getId(), f.getName(), f.getTargetAmount(),
-                f.getCurrentBalance(), f.getStatus(), f.getPriority(),
-                f.getTargetDate(), calcEstimatedCompletion(f),
+                balance, f.getAccountId(), f.getStatus(), f.getPriority(),
+                f.getTargetDate(), calcEstimatedCompletion(f, balance),
                 f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths());
+    }
+
+    /**
+     * Перевод в копилку, лежащую на счёте, запрещён (§3.3): деньги двигаются на самом счёте,
+     * а перевод создал бы вторую запись за те же рубли — ровно то задвоение, ради защиты от
+     * которого копилка со счётом и теряет собственный баланс.
+     */
+    private static void rejectTransferToAccountBackedFund(TargetFund fund) {
+        if (fund.getAccountId() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "This goal lives on an account: move the money on the account itself "
+                            + "and re-anchor its balance, do not transfer into the goal");
+        }
     }
 
     /**
@@ -299,11 +347,11 @@ public class TargetFundService {
      * @param fund entity фонда
      * @return ориентировочная дата достижения цели или {@code null}
      */
-    private LocalDate calcEstimatedCompletion(TargetFund fund) {
+    private LocalDate calcEstimatedCompletion(TargetFund fund, BigDecimal balance) {
         if (fund.getTargetAmount() == null || fund.getStatus() != FundStatus.FUNDING) {
             return null;
         }
-        BigDecimal remaining = fund.getTargetAmount().subtract(fund.getCurrentBalance());
+        BigDecimal remaining = fund.getTargetAmount().subtract(balance);
         if (remaining.compareTo(BigDecimal.ZERO) <= 0)
             return null;
 

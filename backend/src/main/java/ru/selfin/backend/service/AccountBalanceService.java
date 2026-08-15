@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.AccountRepository;
@@ -99,6 +100,30 @@ public class AccountBalanceService {
                 .filter(Account::countsAsFreeMoney)
                 .map(a -> balanceAt(a, t))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Сколько на копилке на самом деле (§3.3). У копилки С {@code accountId} это остаток
+     * СЧЁТА, а не собственное поле {@code currentBalance}: держать два числа за одни деньги
+     * значит гарантированно их разъехать. Копилка со счётом становится целью и датой поверх
+     * чужого остатка, а не отдельным кошельком.
+     *
+     * <p>Счёт без чекпоинта даёт ноль (§8: «Копилка ссылается на счёт, у которого нет
+     * чекпоинта → баланс копилки = 0, прогресс не показывается»). Удалённый счёт — тоже ноль:
+     * денег на нём для нас больше нет.
+     *
+     * <p>Живёт здесь, а не в {@code TargetFundService}, потому что потребителей правила трое
+     * ({@code TargetFundService}, {@code PocketInputAssembler}, {@code PocketSandboxService}),
+     * и разъехавшись, они дали бы три разных ответа на «сколько уже накоплено».
+     */
+    public BigDecimal fundBalanceAt(TargetFund f, LocalDate t) {
+        if (f.getAccountId() == null) {
+            return f.getCurrentBalance() != null ? f.getCurrentBalance() : BigDecimal.ZERO;
+        }
+        return accountRepository.findById(f.getAccountId())
+                .filter(a -> !a.isDeleted())
+                .map(a -> balanceAt(a, t))
+                .orElse(BigDecimal.ZERO);
     }
 
     /** Полу-ликвид: вклады (§4.3). */
