@@ -29,11 +29,6 @@ public class BalanceCheckpointService {
     private final FinancialEventRepository eventRepository;
     private final AccountRepository accountRepository;
 
-    /** Самый свежий чекпоинт — точка отсчёта для всех балансовых расчётов. */
-    public Optional<BalanceCheckpoint> findLatest() {
-        return repository.findTopByOrderByDateDesc();
-    }
-
     /**
      * История чекпоинтов, от свежих к старым, с дрейфом каждого интервала (ANO-15 §4):
      * computedBalance = prev.amount + знаковые факты в (prev.date, cur.date]

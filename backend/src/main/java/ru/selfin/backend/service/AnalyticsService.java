@@ -14,7 +14,6 @@ import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
-import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
@@ -43,7 +42,7 @@ import java.util.stream.Collectors;
 public class AnalyticsService {
 
     private final FinancialEventRepository eventRepository;
-    private final BalanceCheckpointRepository checkpointRepository;
+    private final AccountBalanceService accountBalanceService;
 
     /** Горизонт кассового календаря: количество дней вперёд от текущей даты. */
     private static final int CASH_FLOW_HORIZON_DAYS = 14;
@@ -82,7 +81,7 @@ public class AnalyticsService {
             cashFlowEvents = monthEvents;
         }
 
-        BigDecimal initialBalance = calcStartBalance(monthStart);
+        BigDecimal initialBalance = calcStartBalance(monthStart, asOfDate);
 
         return new AnalyticsReportDto(
                 buildCashFlow(cashFlowEvents, monthStart, calendarEnd, asOfDate, initialBalance),
@@ -279,21 +278,32 @@ public class AnalyticsService {
 
     /**
      * Вычисляет начальный баланс на начало месяца {@code monthStart}
-     * на основе последнего {@code BalanceCheckpoint}.
+     * на основе последнего {@code BalanceCheckpoint} ДЕФОЛТНОГО счёта.
+     * <p>
+     * Якорь берётся через {@code accountBalanceService.anchorAt(defaultAccount, asOfDate)}, а
+     * не как раньше — {@code checkpointRepository.findTopByOrderByDateDesc()}, глобально
+     * последний чекпоинт по ВСЕЙ таблице без учёта счёта и без ограничения по дате (ANO-9,
+     * Task 2.2а). Победивший чекпоинт мог принадлежать вкладу или кредитке — их остаток/доступный
+     * лимит молча становился стартовым балансом месяца, как только счетов стало больше одного
+     * (тот же класс дефекта, что был найден в {@link PocketInputAssembler}, см. его комментарий
+     * у вызова {@code accountBalanceService.anchorAt}). Ограничение {@code date ≤ asOfDate} —
+     * тот же принцип: чекпоинт из будущего не должен побеждать.
      * <p>
      * Алгоритм:
      * <ol>
-     *   <li>Если чекпоинт отсутствует — возвращает ноль (обратная совместимость).</li>
+     *   <li>Если чекпоинта нет — возвращает ноль (обратная совместимость).</li>
      *   <li>Если чекпоинт за текущий или более поздний месяц — возвращает сумму чекпоинта как есть.</li>
      *   <li>Если чекпоинт из прошлого месяца — суммирует «мостик» событий
      *       от даты чекпоинта до последнего дня предыдущего месяца включительно.</li>
      * </ol>
      *
      * @param monthStart первый день целевого месяца
+     * @param asOfDate   опорная дата отчёта — верхняя граница поиска якоря
      * @return накопленный баланс на начало месяца
      */
-    private BigDecimal calcStartBalance(LocalDate monthStart) {
-        Optional<BalanceCheckpoint> latestCheckpoint = checkpointRepository.findTopByOrderByDateDesc();
+    private BigDecimal calcStartBalance(LocalDate monthStart, LocalDate asOfDate) {
+        Optional<BalanceCheckpoint> latestCheckpoint = accountBalanceService.defaultAccount()
+                .flatMap(a -> accountBalanceService.anchorAt(a, asOfDate));
         if (latestCheckpoint.isEmpty()) return BigDecimal.ZERO;
 
         BalanceCheckpoint cp = latestCheckpoint.get();

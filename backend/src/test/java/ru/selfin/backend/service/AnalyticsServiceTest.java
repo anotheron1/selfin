@@ -6,16 +6,20 @@ import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.MultiMonthReportDto;
 import ru.selfin.backend.dto.MultiMonthReportDto.*;
+import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -29,6 +33,7 @@ import static org.mockito.Mockito.*;
 class AnalyticsServiceTest {
 
     private FinancialEventRepository eventRepository;
+    private AccountRepository accountRepository;
     private BalanceCheckpointRepository checkpointRepository;
     private AnalyticsService service;
 
@@ -37,9 +42,28 @@ class AnalyticsServiceTest {
     @BeforeEach
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
+        accountRepository = mock(AccountRepository.class);
         checkpointRepository = mock(BalanceCheckpointRepository.class);
-        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
-        service = new AnalyticsService(eventRepository, checkpointRepository);
+        // Реальный AccountBalanceService поверх замоканных репозиториев — иначе подмена
+        // якоря в calcStartBalance (ANO-9 Task 2.2а) не проверяется, только её обвязка
+        // (тот же приём, что в PocketInputAssemblerOwnerScenarioTest).
+        AccountBalanceService accountBalanceService =
+                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository);
+        service = new AnalyticsService(eventRepository, accountBalanceService);
+        // По умолчанию — дефолтного счёта нет (Mockito отдаёt Optional.empty() на незастабленный
+        // Optional-метод), т.е. "чекпоинта нет вовсе" — старое поведение по умолчанию.
+    }
+
+    private static BalanceCheckpoint checkpoint(Account account, LocalDate date, long amount) {
+        return BalanceCheckpoint.builder()
+                .id(UUID.randomUUID()).date(date).amount(BigDecimal.valueOf(amount)).account(account)
+                .build();
+    }
+
+    private void anchorDefaultAccountAt(Account defaultAccount, LocalDate date, long amount, LocalDate asOfDate) {
+        when(accountRepository.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.of(defaultAccount));
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), asOfDate))
+                .thenReturn(Optional.of(checkpoint(defaultAccount, date, amount)));
     }
 
     // ─── buildPlanFact sort (via getReport) ───────────────────────────────────
@@ -162,7 +186,6 @@ class AnalyticsServiceTest {
 
     @Test
     void getReport_noCheckpoint_startBalanceIsZero() {
-        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
 
         AnalyticsReportDto report = service.getReport(LocalDate.of(2026, 4, 9));
@@ -174,16 +197,15 @@ class AnalyticsServiceTest {
 
     @Test
     void getReport_checkpointInCurrentMonth_nobridge() {
+        LocalDate asOfDate = LocalDate.of(2026, 4, 9);
         LocalDate checkpointDate = LocalDate.of(2026, 4, 5);
-        BalanceCheckpoint cp = new BalanceCheckpoint();
-        cp.setDate(checkpointDate);
-        cp.setAmount(BigDecimal.valueOf(50000));
-        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        anchorDefaultAccountAt(defaultAccount, checkpointDate, 50000, asOfDate);
         // Stub the main-month query explicitly so the verify below is unambiguous
         when(eventRepository.findAllByDeletedFalseAndDateBetween(
                 eq(LocalDate.of(2026, 4, 1)), eq(LocalDate.of(2026, 4, 30)))).thenReturn(List.of());
 
-        AnalyticsReportDto report = service.getReport(LocalDate.of(2026, 4, 9));
+        AnalyticsReportDto report = service.getReport(asOfDate);
 
         // Checkpoint in same month → startBalance = checkpoint amount, no bridge call
         assertThat(report.cashFlow()).isNotNull();
@@ -195,14 +217,13 @@ class AnalyticsServiceTest {
 
     @Test
     void getReport_checkpointInPreviousMonth_bridgeEventsApplied() {
+        LocalDate asOfDate = LocalDate.of(2026, 4, 9);
         LocalDate checkpointDate = LocalDate.of(2026, 3, 20);
-        BalanceCheckpoint cp = new BalanceCheckpoint();
-        cp.setDate(checkpointDate);
-        cp.setAmount(BigDecimal.valueOf(30000));
-        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        anchorDefaultAccountAt(defaultAccount, checkpointDate, 30000, asOfDate);
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
 
-        service.getReport(LocalDate.of(2026, 4, 9));
+        service.getReport(asOfDate);
 
         // Bridge called for [checkpointDate, March 31]
         verify(eventRepository).findAllByDeletedFalseAndDateBetween(
@@ -211,18 +232,45 @@ class AnalyticsServiceTest {
 
     @Test
     void getReport_checkpointTwoMonthsAgo_bridgeEventsApplied() {
+        LocalDate asOfDate = LocalDate.of(2026, 4, 9);
         LocalDate checkpointDate = LocalDate.of(2026, 2, 15);
-        BalanceCheckpoint cp = new BalanceCheckpoint();
-        cp.setDate(checkpointDate);
-        cp.setAmount(BigDecimal.valueOf(20000));
-        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.of(cp));
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        anchorDefaultAccountAt(defaultAccount, checkpointDate, 20000, asOfDate);
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
 
-        service.getReport(LocalDate.of(2026, 4, 9));
+        service.getReport(asOfDate);
 
         // Bridge called for [checkpointDate, March 31] (day before April 1)
         verify(eventRepository).findAllByDeletedFalseAndDateBetween(
                 eq(checkpointDate), eq(LocalDate.of(2026, 3, 31)));
+    }
+
+    @Test
+    @DisplayName("ANO-9 Task 2.2а: вклад, переякоренный ПОЗЖЕ основной карты, не становится "
+            + "стартовым балансом месяца (было: побеждал глобально самый свежий чекпоинт "
+            + "checkpointRepository.findTopByOrderByDateDesc(), слепой к счёту)")
+    void getReport_depositWithFresherCheckpoint_doesNotBecomeStartBalance() {
+        LocalDate asOfDate = LocalDate.of(2026, 3, 15);
+        LocalDate monthStart = asOfDate.withDayOfMonth(1); // 2026-03-01
+
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+
+        // Дефолтная карта: чекпоинт РОВНО на monthStart — сумма чекпоинта возвращается как есть,
+        // без моста (cp.date не before monthStart), детерминированно без доп. стабов на bridge.
+        when(accountRepository.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.of(defaultAccount));
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), asOfDate))
+                .thenReturn(Optional.of(checkpoint(defaultAccount, monthStart, 50_000)));
+        // Вклад переякорен ПОЗЖЕ карты (12 марта > 1 марта) — старый слепой к счёту запрос
+        // выбрал бы именно его как "глобально самый свежий чекпоинт".
+        when(checkpointRepository.findLatestForAccountAt(deposit.getId(), asOfDate))
+                .thenReturn(Optional.of(checkpoint(deposit, LocalDate.of(2026, 3, 12), 300_000)));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        AnalyticsReportDto report = service.getReport(asOfDate);
+
+        // 50 000 (якорь ДЕФОЛТНОЙ карты), а не 300 000 (остаток вклада).
+        assertThat(report.cashFlow().get(0).runningBalance()).isEqualByComparingTo(BigDecimal.valueOf(50_000));
     }
 
     // ─── buildPriorityBreakdown ───────────────────────────────────────────────
@@ -238,7 +286,6 @@ class AnalyticsServiceTest {
         FinancialEvent incFact = makeEvent(EventKind.FACT, Priority.MEDIUM, CategoryType.INCOME,
                 null, BigDecimal.valueOf(80000));
 
-        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any()))
                 .thenReturn(List.of(highPlan, highFact, medPlan, incFact));
 
