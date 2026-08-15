@@ -205,4 +205,84 @@ class BalanceCheckpointServiceTest {
                         service.create(new BalanceCheckpointCreateDto(LocalDate.of(2026, 8, 15), BigDecimal.valueOf(50_000))))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    @DisplayName("Task 3.3: явный accountId кладёт якорь на указанный счёт, а не на дефолтный")
+    void create_withExplicitAccountId_usesThatAccount() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepository.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(repository.save(any(BalanceCheckpoint.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        BalanceCheckpointDto out = service.create(new BalanceCheckpointCreateDto(
+                LocalDate.of(2026, 8, 15), BigDecimal.valueOf(300_000), deposit.getId()));
+
+        ArgumentCaptor<BalanceCheckpoint> captor = ArgumentCaptor.forClass(BalanceCheckpoint.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getAccount()).isEqualTo(deposit);
+        assertThat(out.accountId()).isEqualTo(deposit.getId());
+        assertThat(out.accountName()).isEqualTo(deposit.getName());
+        // дефолтный счёт при явном выборе вообще не запрашивается
+        verify(accountRepository, never()).findByDefaultAccountTrueAndDeletedFalse();
+    }
+
+    @Test
+    @DisplayName("Task 3.3: якорь на несуществующий счёт — 404, а не тихая посадка на дефолтный")
+    void create_withUnknownAccountId_throwsNotFound() {
+        UUID unknown = UUID.randomUUID();
+        when(accountRepository.findById(unknown)).thenReturn(Optional.empty());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.create(
+                        new BalanceCheckpointCreateDto(LocalDate.of(2026, 8, 15), BigDecimal.valueOf(1000), unknown)))
+                .isInstanceOf(ru.selfin.backend.exception.ResourceNotFoundException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Task 3.3: якорь на удалённый счёт — 404")
+    void create_withDeletedAccountId_throwsNotFound() {
+        Account deleted = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        deleted.setDeleted(true);
+        when(accountRepository.findById(deleted.getId())).thenReturn(Optional.of(deleted));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.create(
+                        new BalanceCheckpointCreateDto(LocalDate.of(2026, 8, 15), BigDecimal.valueOf(1000), deleted.getId())))
+                .isInstanceOf(ru.selfin.backend.exception.ResourceNotFoundException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Task 3.3: правка суммы без accountId не переносит чужой якорь на счёт-приёмник")
+    void update_withoutAccountId_keepsOriginalAccount() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        BalanceCheckpoint existing = cp(LocalDate.of(2026, 8, 1), 300_000,
+                LocalDateTime.of(2026, 8, 1, 12, 0), deposit);
+        when(repository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(repository.save(any(BalanceCheckpoint.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        BalanceCheckpointDto out = service.update(existing.getId(),
+                new BalanceCheckpointCreateDto(LocalDate.of(2026, 8, 1), BigDecimal.valueOf(310_000)));
+
+        assertThat(existing.getAccount()).isEqualTo(deposit);
+        assertThat(out.accountId()).isEqualTo(deposit.getId());
+        assertThat(out.amount()).isEqualByComparingTo("310000");
+        verify(accountRepository, never()).findByDefaultAccountTrueAndDeletedFalse();
+    }
+
+    @Test
+    @DisplayName("Task 3.3: явный accountId в PUT переносит якорь на другой счёт (правка ошибки ввода)")
+    void update_withAccountId_movesCheckpoint() {
+        Account from = AccountFixtures.defaultAccount();
+        Account to = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        BalanceCheckpoint existing = cp(LocalDate.of(2026, 8, 1), 300_000,
+                LocalDateTime.of(2026, 8, 1, 12, 0), from);
+        when(repository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(accountRepository.findById(to.getId())).thenReturn(Optional.of(to));
+        when(repository.save(any(BalanceCheckpoint.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        BalanceCheckpointDto out = service.update(existing.getId(), new BalanceCheckpointCreateDto(
+                LocalDate.of(2026, 8, 1), BigDecimal.valueOf(300_000), to.getId()));
+
+        assertThat(existing.getAccount()).isEqualTo(to);
+        assertThat(out.accountId()).isEqualTo(to.getId());
+    }
 }

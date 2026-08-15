@@ -200,6 +200,68 @@ class BalanceCheckpointControllerIT {
     }
 
     @Test
+    void create_withoutAccountId_landsOnDefaultAccount() throws Exception {
+        // Task 3.3: счёт в теле необязателен — «ввёл остаток» днём 1 остаётся однокликовым,
+        // и старый фронт, не знающий про счета, продолжает работать без правок.
+        String id = createCp("2020-03-01", 12_345);
+        try {
+            com.fasterxml.jackson.databind.JsonNode cp = findById(
+                    mockMvc.perform(get("/api/v1/balance-checkpoints"))
+                            .andReturn().getResponse().getContentAsString(), id);
+            org.assertj.core.api.Assertions.assertThat(cp.get("accountName").asText())
+                    .isEqualTo("Основная карта");
+            org.assertj.core.api.Assertions.assertThat(cp.get("accountId").isNull()).isFalse();
+        } finally {
+            deleteCp(id);
+        }
+    }
+
+    @Test
+    void create_withExplicitAccountId_anchorsThatAccountOnly() throws Exception {
+        // Ре-якорь — единственное место в ежедневном цикле, где счёт вообще виден (§5.1).
+        String accountBody = mockMvc.perform(post("/api/v1/accounts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Вклад на квартиру","kind":"DEPOSIT"}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String accountId = objectMapper.readTree(accountBody).get("id").asText();
+        String cpId = null;
+        try {
+            String created = mockMvc.perform(post("/api/v1/balance-checkpoints")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"date":"2020-04-01","amount":300000,"accountId":"%s"}
+                                    """.formatted(accountId)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.accountId").value(accountId))
+                    .andExpect(jsonPath("$.accountName").value("Вклад на квартиру"))
+                    .andReturn().getResponse().getContentAsString();
+            cpId = objectMapper.readTree(created).get("id").asText();
+
+            // Счёт увидел свой остаток; на кармашек это не влияет — вклад не свободные деньги (§4.3)
+            mockMvc.perform(get("/api/v1/accounts/" + accountId))
+                    .andExpect(jsonPath("$.balance").value(300000.00))
+                    .andExpect(jsonPath("$.balanceDate").value("2020-04-01"));
+        } finally {
+            if (cpId != null) deleteCp(cpId);
+            mockMvc.perform(delete("/api/v1/accounts/" + accountId))
+                    .andExpect(status().isNoContent());
+        }
+    }
+
+    @Test
+    void create_withUnknownAccountId_returns404() throws Exception {
+        mockMvc.perform(post("/api/v1/balance-checkpoints")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"2020-05-01","amount":1000,"accountId":"11111111-1111-1111-1111-111111111111"}
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void pocket_currentBalance_includesCheckpointAmount() throws Exception {
         // Дата чекпоинта обязана быть @PastOrPresent (будущее — 400), поэтому «сегодня».
         // После ANO-13/14 дашборд отдаёт только progressBars; единая истина по балансу —
