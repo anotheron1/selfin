@@ -12,26 +12,8 @@ import java.util.UUID;
 
 public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckpoint, UUID> {
 
-    /**
-     * Самый свежий чекпоинт: по дате, при равных датах — по created_at (поздний побеждает).
-     * Tiebreak обязателен (ANO-15 §4): ре-якорь дважды за день — типовой кейс «исправил
-     * опечатку», без него якорь недетерминирован. НЕ заменять на derived-имя без ORDER BY!
-     *
-     * <p>Допущение одного счёта: запрос слеп к {@code account}, что корректно ровно пока
-     * счёт один (инвариант V20). Снимается в Task 2.4.
-     */
-    @Query("SELECT cp FROM BalanceCheckpoint cp ORDER BY cp.date DESC, cp.createdAt DESC LIMIT 1")
-    Optional<BalanceCheckpoint> findTopByOrderByDateDesc();
-
     /** Самый ранний чекпоинт — используется как нижняя граница в траектории капитала. */
     Optional<BalanceCheckpoint> findTopByOrderByDateAsc();
-
-    /** Последний чекпоинт с {@code date ≤ asOfDate} (капитал на дату); tiebreak как выше. */
-    @Query("""
-        SELECT cp FROM BalanceCheckpoint cp WHERE cp.date <= :date
-        ORDER BY cp.date DESC, cp.createdAt DESC LIMIT 1
-        """)
-    Optional<BalanceCheckpoint> findTopByDateLessThanEqualOrderByDateDesc(@Param("date") LocalDate date);
 
     /** Вся история чекпоинтов, от свежих к старым; tiebreak created_at (порядок drift-цепочки). */
     @Query("SELECT cp FROM BalanceCheckpoint cp ORDER BY cp.date DESC, cp.createdAt DESC")
@@ -40,4 +22,27 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
     /** Самая ранняя дата чекпоинта. Используется StrategyTimelineService.firstActivityMonth(). */
     @Query("SELECT MIN(b.date) FROM BalanceCheckpoint b")
     Optional<LocalDate> findEarliestCheckpointDate();
+
+    /**
+     * Последний чекпоинт счёта с {@code date ≤ t}; tiebreak created_at (ре-якорь дважды за день).
+     *
+     * <p>{@code JOIN FETCH cp.account} — НЕ для этого метода и НЕ для {@link
+     * ru.selfin.backend.service.AccountBalanceService}: тот получает {@code kind}/{@code trackBalance}
+     * из параметра {@code Account a}, а не через {@code checkpoint.getAccount()}, и это поле
+     * здесь вообще не разыменовывает. Fetch остался как задел с Task 2.1 (тогда планировалось,
+     * что Task 2.4 будет читать счёт с чекпоинта именно этим методом); Task 2.4 в итоге пошла
+     * другим путём (см. {@link #findAllByOrderByDateDesc}), но fetch по-прежнему безвреден и
+     * оставлен.
+     *
+     * <p>Fetch join безопасен вместе с {@code LIMIT 1}: ассоциация {@code @ManyToOne}, не коллекция —
+     * Hibernate не переключается на постраничную выборку в памяти (это ограничение касается только
+     * fetch join коллекций), запрос уходит в БД одним SQL с {@code JOIN ... LIMIT 1}.
+     */
+    @Query("""
+        SELECT cp FROM BalanceCheckpoint cp JOIN FETCH cp.account
+        WHERE cp.account.id = :accountId AND cp.date <= :date
+        ORDER BY cp.date DESC, cp.createdAt DESC LIMIT 1
+        """)
+    Optional<BalanceCheckpoint> findLatestForAccountAt(@Param("accountId") UUID accountId,
+                                                        @Param("date") LocalDate date);
 }

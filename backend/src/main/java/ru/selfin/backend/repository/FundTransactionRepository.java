@@ -18,11 +18,20 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
 
     List<FundTransaction> findByFundIdAndDeletedFalseAndTransactionDateAfter(UUID fundId, LocalDate since);
 
-    /** Суммарный баланс всех копилок на дату {@code date} — используется в расчёте капитала. */
+    /**
+     * Суммарный баланс копилок БЕЗ привязки к счёту на дату {@code date} — используется в
+     * расчёте капитала ({@code CapitalService.liquidAt}, спека §4.4).
+     *
+     * <p>{@code fund.accountId IS NULL} — копилки, У КОТОРЫХ ЗАДАН {@code accountId}, сюда
+     * сознательно не попадают: их деньги уже лежат внутри баланса своего счёта (учтён через
+     * {@code AccountBalanceService.freeMoneyAt}/{@code semiLiquidAt}), и повторное сложение
+     * дало бы задвоение (ANO-9 Task 2.3, спека §3.3/§4.4).
+     */
     @Query("""
             SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
             WHERE t.deleted = false
               AND t.transactionDate <= :date
+              AND t.fund.accountId IS NULL
             """)
-    BigDecimal sumByTransactionDateLessThanEqual(@Param("date") LocalDate date);
+    BigDecimal sumEnvelopeFundsByTransactionDateLessThanEqual(@Param("date") LocalDate date);
 }

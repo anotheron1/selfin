@@ -9,7 +9,6 @@ import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.pocket.PocketResultDto;
 import ru.selfin.backend.dto.pocket.PocketScope;
 import ru.selfin.backend.dto.pocket.PocketSettingsDto;
-import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
@@ -17,7 +16,6 @@ import ru.selfin.backend.repository.TargetFundRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,7 +31,6 @@ import static org.mockito.Mockito.*;
 class PocketServiceTest {
 
     private FinancialEventRepository eventRepository;
-    private BalanceCheckpointRepository checkpointRepository;
     private UserSettingsService settingsService;
     private PredictionService predictionService;
     private RecurringRuleService recurringRuleService;
@@ -44,12 +41,12 @@ class PocketServiceTest {
     @BeforeEach
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
-        checkpointRepository = mock(BalanceCheckpointRepository.class);
         settingsService = mock(UserSettingsService.class);
         predictionService = mock(PredictionService.class);
         recurringRuleService = mock(RecurringRuleService.class);
 
-        when(checkpointRepository.findTopByOrderByDateDesc()).thenReturn(Optional.empty());
+        // Дефолтного счёта нет (Mockito отдаёт Optional.empty() на незастабленный
+        // Optional-метод) — эквивалент прежнего пустого checkpointRepository: чекпоинта нет.
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
         when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
@@ -60,10 +57,13 @@ class PocketServiceTest {
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
         when(fundRepository.findByWishlistStatusAndDeletedFalse(any())).thenReturn(List.of());
         CategoryRepository categoryRepository = mock(CategoryRepository.class);
+        AccountBalanceService accountBalanceService = mock(AccountBalanceService.class);
+        when(accountBalanceService.snapshot(any(), any()))
+                .thenReturn(new AccountBalanceService.Snapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
 
         pocketService = new PocketService(new PocketInputAssembler(eventRepository,
-                checkpointRepository, settingsService, predictionService, recurringRuleService,
-                fundRepository, categoryRepository));
+                settingsService, predictionService, recurringRuleService,
+                fundRepository, categoryRepository, accountBalanceService));
     }
 
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */

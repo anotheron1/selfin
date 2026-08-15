@@ -54,6 +54,9 @@ public final class PocketEngine {
         // 1. Текущий баланс: checkpoint + факты (правило §3.2) СТРОГО ПОСЛЕ даты чекпоинта
         //    по asOfDate: сумма якоря — «число из банка на конец его дня», операции дня
         //    чекпоинта уже внутри (ANO-15 §5, закрывает задвоение из §3.3).
+        //    Это правило зеркалено (ANO-23, править синхронно при изменении любого):
+        //    AccountBalanceService.factsDelta, BalanceCheckpointService.findAll() (дрейф),
+        //    CapitalService.liquidAt.
         BigDecimal currentBalance = in.checkpointAmount();
         for (EventSnapshot e : in.events()) {
             if (e.wishlistStatus() != null || e.factAmount() == null || e.date() == null) continue;
@@ -61,6 +64,9 @@ public final class PocketEngine {
             if (in.checkpointDate() != null && !e.date().isAfter(in.checkpointDate())) continue;
             currentBalance = currentBalance.add(signed(e.type(), e.factAmount()));
         }
+        // Прочие счета (спека §4.1): их остатки уже посчитаны сборщиком входа,
+        // безадресные факты к ним не применяются — они относятся к дефолтному счёту.
+        currentBalance = currentBalance.add(in.otherAccountsBalanceOrZero());
 
         // 2. День 0: − резерв просрочки − плановые расходы сегодняшнего дня.
         //    Плановые доходы с датой ≤ asOfDate НЕ учитываются (консервативная асимметрия §3.3.2).

@@ -111,10 +111,16 @@ public class PocketSandboxService {
                 .toList();
 
         PocketInput in = base.input();
+        // Счета (ANO-9 Task 2.2) проносятся из baseline-входа как есть: примерка меняет
+        // только события/хотелки, а остатки прочих счетов и резервы от выбора сценария
+        // не зависят. Если бы здесь остался старый 13-арный конструктор, otherAccountsBalance
+        // и остальные два поля молча схлопнулись бы в null → 0 — и «свободно» из
+        // POST /pocket/sandbox разошлось бы с GET /pocket ровно на сумму прочих счетов.
         PocketInput fittedInput = new PocketInput(in.asOfDate(), in.checkpointAmount(),
                 in.checkpointDate(), fittedEvents, fittedWishlist, in.overdueEvents(),
                 in.scope(), in.horizonEnd(), in.fallbackKind(), in.bufferAmount(),
-                in.unplannedForecast(), in.forecastContributors(), in.futureForecast());
+                in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
+                in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());
         PocketResultDto fitted = PocketEngine.calculate(fittedInput);
 
         // ── дельта-векторы (§4): tryOn в порядке запроса, затем exclude ─────

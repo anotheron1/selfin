@@ -22,7 +22,6 @@ import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.WishlistStatus;
-import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
@@ -34,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Сборка входа движка кармашка: lazy-extend recurring, резолюция горизонта, выборки,
@@ -53,12 +53,12 @@ public class PocketInputAssembler {
     private static final LocalDate EPOCH = LocalDate.of(2000, 1, 1);
 
     private final FinancialEventRepository eventRepository;
-    private final BalanceCheckpointRepository checkpointRepository;
     private final UserSettingsService settingsService;
     private final PredictionService predictionService;
     private final RecurringRuleService recurringRuleService;
     private final TargetFundRepository fundRepository;
     private final ru.selfin.backend.repository.CategoryRepository categoryRepository;
+    private final AccountBalanceService accountBalanceService;
 
     /**
      * Результат сборки: вход движка + что фактически развёрнуто в baseline
@@ -128,8 +128,21 @@ public class PocketInputAssembler {
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown scope");
         }
 
-        // 2. Чекпоинт и события (баланс + траектория; диапазон — до конца хвоста §3.9)
-        Optional<BalanceCheckpoint> checkpoint = checkpointRepository.findTopByOrderByDateDesc();
+        // 2. Чекпоинт и события (баланс + траектория; диапазон — до конца хвоста §3.9).
+        //    Якорь берётся у ДЕФОЛТНОГО СЧЁТА (accountBalanceService.anchorAt), а не как
+        //    раньше — «глобально последний чекпоинт по всей таблице». Прежний
+        //    checkpointRepository.findTopByOrderByDateDesc() не фильтровал ни по природе
+        //    счёта, ни по track_balance, ни по удалению: победивший чекпоинт мог принадлежать
+        //    вкладу, кредитке или конверту без слежения, и их остаток молча становился
+        //    currentBalance движка (найдено ревью на реальных данных: вклад, переякоренный
+        //    позже карты, поднимал «свободные деньги» с 38 000 до 338 000 — не экзотика,
+        //    а конфигурация владельца из спеки §6, основная карта + конверты + вклад).
+        //    Отсутствие чекпоинта — ОТДЕЛЬНЫЙ, сознательно сохранённый случай (ANO-28): ниже
+        //    события выбираются от EPOCH на нулевую базу, чтобы у пользователя без единого
+        //    введённого остатка вся история фактов не исчезла из числа. Это поведение
+        //    зафиксировано PocketInputAssemblerAnchorRegressionTest и НЕ меняется этой правкой.
+        Optional<BalanceCheckpoint> checkpoint = accountBalanceService.defaultAccount()
+                .flatMap(a -> accountBalanceService.anchorAt(a, asOfDate));
         LocalDate from = checkpoint.map(BalanceCheckpoint::getDate).orElse(EPOCH);
         List<EventSnapshot> events = new ArrayList<>(eventRepository
                 .findAllByDeletedFalseAndDateBetween(from, PocketEngine.trajectoryEnd(asOfDate, horizonEnd))
@@ -200,11 +213,20 @@ public class PocketInputAssembler {
         // 5. Буфер
         BigDecimal buffer = settingsService.getPocketSettings().bufferAmount();
 
+        // 6. Счета (спека §4.1–§4.3). Якорь currentBalance теперь ВСЕГДА чекпоинт дефолтного
+        //    счёта (см. выше), поэтому "счёт того чекпоинта, что стал якорём" и "дефолтный
+        //    счёт" — один и тот же id. Передаём id явно, а не полагаемся на то, что
+        //    snapshot() сам знает про дефолтность — исключаемый счёт остаётся ответственностью
+        //    вызывающего (см. AccountBalanceService.snapshot).
+        UUID anchorAccountId = checkpoint.map(cp -> cp.getAccount().getId()).orElse(null);
+        AccountBalanceService.Snapshot accounts = accountBalanceService.snapshot(asOfDate, anchorAccountId);
+
         PocketInput input = new PocketInput(asOfDate,
                 checkpoint.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO),
                 checkpoint.map(BalanceCheckpoint::getDate).orElse(null),
                 events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors,
-                futureForecast);
+                futureForecast,
+                accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance());
         return new Assembled(input, baselineRefs, allIncomes);
     }
 

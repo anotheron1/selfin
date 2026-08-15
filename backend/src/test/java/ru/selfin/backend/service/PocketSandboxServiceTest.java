@@ -160,6 +160,25 @@ class PocketSandboxServiceTest {
     }
 
     @Test
+    @DisplayName("ANO-9: свободные деньги прочих счетов пробрасываются в fitted — иначе POST /pocket/sandbox "
+            + "расходится с GET /pocket ровно на otherAccountsBalance")
+    void otherAccountsBalance_propagatesToFittedInput() {
+        // PocketSandboxService пересобирает PocketInput из baseline-входа руками (не через
+        // AccountBalanceService) — если бы он забыл один из трёх новых аргументов канонического
+        // конструктора, otherAccountsBalance молча схлопнулся бы в null → 0 именно здесь.
+        assembled(base().otherAccountsBalance(20_000).build(), Map.of());
+
+        SandboxResponseDto r = service.simulate(req(List.of(), List.of()), TODAY);
+
+        // Пустая примерка (нет tryOn/exclude) — fitted обязан совпасть с baseline НАЧИСТО,
+        // включая вклад прочих счетов.
+        assertThat(r.fitted().currentBalance()).isEqualByComparingTo(r.baseline().currentBalance());
+        assertThat(r.fitted().pocket()).isEqualByComparingTo(r.baseline().pocket());
+        // Явное число, не только равенство: чекпоинт дефолтного билдера (10 000) + прочие 20 000.
+        assertThat(r.baseline().currentBalance()).isEqualByComparingTo("30000");
+    }
+
+    @Test
     @DisplayName("Ad-hoc разовая внутри горизонта: fitted.pocket = baseline − сумма; дельта разреженная")
     void adhocOneOff_cutsPocket() {
         assembled(base().build(), Map.of());

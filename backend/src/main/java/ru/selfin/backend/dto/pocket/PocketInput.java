@@ -20,6 +20,14 @@ import java.util.List;
  *                       План уже сидит в {@code events}, поэтому здесь только разница
  *                       {@code max(0, медиана − план)} — иначе трата считалась бы дважды.
  *                       Отдельная величина, с планом не смешивается.
+ * @param otherAccountsBalance свободные деньги с прочих счетов, кроме дефолтного (спека §4.1,
+ *                       ANO-9 Task 2.2). Дефолтный считает сам движок через
+ *                       {@code checkpointAmount}/{@code events} — суммировать его здесь ещё
+ *                       раз значит задвоение.
+ * @param creditRestoreReserve резерв возврата кредитных карт к планке (§4.2). Используется
+ *                       в Task 4.1, здесь только проносится через вход.
+ * @param semiLiquidBalance полу-ликвид: вклады, для третьего числа кармашка (§4.3).
+ *                       Используется в Task 4.1.
  */
 public record PocketInput(
         LocalDate asOfDate,
@@ -34,10 +42,19 @@ public record PocketInput(
         BigDecimal bufferAmount,
         BigDecimal unplannedForecast,
         List<String> forecastContributors,
-        java.util.Map<java.time.YearMonth, BigDecimal> futureForecast
+        java.util.Map<java.time.YearMonth, BigDecimal> futureForecast,
+        BigDecimal otherAccountsBalance,
+        BigDecimal creditRestoreReserve,
+        BigDecimal semiLiquidBalance
 ) {
     /** Прогноз будущих месяцев, безопасный к null (старые вызовы/тесты). */
     public java.util.Map<java.time.YearMonth, BigDecimal> futureForecastOrEmpty() {
         return futureForecast != null ? futureForecast : java.util.Map.of();
     }
+
+    public BigDecimal otherAccountsBalanceOrZero() { return orZero(otherAccountsBalance); }
+    public BigDecimal creditRestoreReserveOrZero() { return orZero(creditRestoreReserve); }
+    public BigDecimal semiLiquidBalanceOrZero() { return orZero(semiLiquidBalance); }
+
+    private static BigDecimal orZero(BigDecimal v) { return v != null ? v : BigDecimal.ZERO; }
 }

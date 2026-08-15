@@ -85,6 +85,7 @@ class PocketEngineTest {
         BigDecimal forecast = BigDecimal.ZERO;
         List<String> contributors = List.of();
         java.util.Map<java.time.YearMonth, BigDecimal> futureForecast = java.util.Map.of();
+        BigDecimal otherAccountsBalance = null;
 
         static PocketInputBuilder create() { return new PocketInputBuilder(); }
         PocketInputBuilder events(EventSnapshot... e) { this.events = List.of(e); return this; }
@@ -113,10 +114,13 @@ class PocketEngineTest {
             this.scope = new PocketScope(PocketScope.Type.SECOND_INCOME, null, null);
             this.horizonEnd = end; return this;
         }
+        /** Свободные деньги прочих счетов (ANO-9 §4.1) — по умолчанию null (счетов, кроме дефолтного, нет). */
+        PocketInputBuilder otherAccountsBalance(long v) { this.otherAccountsBalance = dec(v); return this; }
 
         PocketInput build() {
             return new PocketInput(asOf, checkpoint, checkpointDate, events, wishlistEvents, overdue,
-                    scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast);
+                    scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast,
+                    otherAccountsBalance, null, null);
         }
     }
 
@@ -337,7 +341,8 @@ class PocketEngineTest {
         PocketInput in = base().forecast(5_000, "Продукты").build();
         in = new PocketInput(eom, in.checkpointAmount(), eom, in.events(), in.wishlistEvents(),
                 in.overdueEvents(), in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
-                in.bufferAmount(), in.unplannedForecast(), in.forecastContributors(), in.futureForecast());
+                in.bufferAmount(), in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
+                in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());
         PocketResultDto r = PocketEngine.calculate(in);
         assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
         assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.UNPLANNED_FORECAST);

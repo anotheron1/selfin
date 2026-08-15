@@ -16,9 +16,11 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -29,20 +31,32 @@ public class BalanceCheckpointService {
     private final FinancialEventRepository eventRepository;
     private final AccountRepository accountRepository;
 
-    /** Самый свежий чекпоинт — точка отсчёта для всех балансовых расчётов. */
-    public Optional<BalanceCheckpoint> findLatest() {
-        return repository.findTopByOrderByDateDesc();
-    }
-
     /**
      * История чекпоинтов, от свежих к старым, с дрейфом каждого интервала (ANO-15 §4):
      * computedBalance = prev.amount + знаковые факты в (prev.date, cur.date]
      * (правило фактов = PocketEngine.currentBalance: factAmount != null, не-wishlist);
-     * drift = amount − computedBalance. Один range-запрос на всю цепочку.
+     * drift = amount − computedBalance. Один range-запрос фактов на всю историю.
      *
-     * <p><b>Допущение одного счёта.</b> Цепочка строится по всем чекпоинтам без учёта
-     * {@code account}, что корректно ровно пока в системе один счёт (инвариант миграции
-     * V20). Снимается в Task 2.4 — цепочка должна группироваться по счёту.
+     * <p><b>Цепочка группируется по счёту (Task 2.4).</b> Дрейф второго и последующих
+     * чекпоинтов каждого счёта считается от ПРЕДЫДУЩЕГО чекпоинта ТОГО ЖЕ счёта, а не
+     * от соседнего по дате чекпоинта чужого счёта — иначе при нескольких счетах дрейф
+     * сравнивал бы, например, остаток вклада с остатком карты.
+     *
+     * <p>Дрейф вычисляется ТОЛЬКО для дефолтного счёта. Безадресные факты применяются
+     * исключительно к нему ({@link AccountBalanceService} — «Безадресные факты…»),
+     * поэтому между двумя чекпоинтами прочего счёта журнал в принципе не двигает остаток:
+     * там «дрейф» всегда равнялся бы полной разнице между соседними якорями и не был бы
+     * диагностикой рассинхрона, а был бы просто перепечаткой этой разницы. Прочим счетам
+     * возвращается {@code null} — как самому раннему чекпоинту в цепочке.
+     *
+     * <p>Группировка — в памяти по одному запросу {@link
+     * BalanceCheckpointRepository#findAllByOrderByDateDesc()}, а не по запросу на счёт
+     * (такой метод, {@code findAllForAccountOrderByDateDesc}, был добавлен в Task 2.1 как
+     * задел и здесь сознательно не используется — удалён как мёртвый): чекпоинтов в системе
+     * за всю историю немного, а счетов может быть несколько — один range-запрос дешевле, чем
+     * N запросов на N счетов. {@code cp.getAccount().getId()} читается с ленивого прокси без
+     * обращения к БД (Hibernate знает id ассоциации из FK), поэтому группировка сама по себе
+     * не стоит ни одного лишнего запроса.
      */
     public List<BalanceCheckpointDto> findAll() {
         List<BalanceCheckpoint> chain = repository.findAllByOrderByDateDesc();
@@ -58,20 +72,34 @@ public class BalanceCheckpointService {
                 .filter(e -> e.getFactAmount() != null && e.getWishlistStatus() == null)
                 .toList();
 
-        return java.util.stream.IntStream.range(0, chain.size())
-                .mapToObj(i -> {
-                    BalanceCheckpoint cur = chain.get(i);
-                    if (i == chain.size() - 1) return toDto(cur, null, null); // самый ранний
-                    BalanceCheckpoint prev = chain.get(i + 1);
-                    BigDecimal delta = facts.stream()
-                            .filter(e -> e.getDate().isAfter(prev.getDate())
-                                    && !e.getDate().isAfter(cur.getDate()))
-                            .map(e -> signed(e.getType(), e.getFactAmount()))
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-                    BigDecimal computed = prev.getAmount().add(delta);
-                    return toDto(cur, computed, cur.getAmount().subtract(computed));
-                })
-                .toList();
+        // LinkedHashMap/toList — чтобы относительный порядок чекпоинтов внутри группы
+        // остался тем же, что и в исходной цепочке (date DESC, createdAt DESC).
+        Map<UUID, List<BalanceCheckpoint>> byAccount = chain.stream()
+                .collect(Collectors.groupingBy(cp -> cp.getAccount().getId(),
+                        LinkedHashMap::new, Collectors.toList()));
+
+        Map<UUID, BalanceCheckpointDto> byId = new LinkedHashMap<>();
+        for (List<BalanceCheckpoint> group : byAccount.values()) {
+            boolean isDefault = group.get(0).getAccount().isDefaultAccount();
+            for (int i = 0; i < group.size(); i++) {
+                BalanceCheckpoint cur = group.get(i);
+                if (i == group.size() - 1 || !isDefault) {
+                    byId.put(cur.getId(), toDto(cur, null, null)); // самый ранний своего счёта, либо не-дефолтный счёт
+                    continue;
+                }
+                BalanceCheckpoint prev = group.get(i + 1);
+                BigDecimal delta = facts.stream()
+                        .filter(e -> e.getDate().isAfter(prev.getDate())
+                                && !e.getDate().isAfter(cur.getDate()))
+                        .map(e -> signed(e.getType(), e.getFactAmount()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal computed = prev.getAmount().add(delta);
+                byId.put(cur.getId(), toDto(cur, computed, cur.getAmount().subtract(computed)));
+            }
+        }
+
+        // Порядок ответа — исходный (date DESC по всей системе, не по группе).
+        return chain.stream().map(cp -> byId.get(cp.getId())).toList();
     }
 
     @Transactional
