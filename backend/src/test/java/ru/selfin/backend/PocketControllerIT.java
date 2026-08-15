@@ -28,6 +28,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import java.util.function.Supplier;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -283,7 +284,13 @@ class PocketControllerIT {
                 .andExpect(jsonPath("$.minPoint.date").exists())
                 .andExpect(jsonPath("$.breakdown").isArray())
                 .andExpect(jsonPath("$.trajectory").isArray())
-                .andExpect(jsonPath("$.wishlistCandidates").isArray());
+                .andExpect(jsonPath("$.wishlistCandidates").isArray())
+                // ANO-9 §4.2-§4.3: ключи присутствуют всегда, значение null — «оговаривать
+                // нечего». В этой базе ни кредиток с планкой, ни вкладов нет, поэтому оба null.
+                .andExpect(jsonPath("$.pocketAfterCreditRestore").hasJsonPath())
+                .andExpect(jsonPath("$.pocketWithDeposits").hasJsonPath())
+                .andExpect(jsonPath("$.pocketAfterCreditRestore").value(nullValue()))
+                .andExpect(jsonPath("$.pocketWithDeposits").value(nullValue()));
     }
 
     @Test
