@@ -65,8 +65,8 @@ class AccountsMigrationIT {
             assertThat(reloaded.getAccount()).isNotNull();
             assertThat(reloaded.getAccount().getId()).isEqualTo(defaultAccount.getId());
         } finally {
-            // Класс — регрессия миграции; Task 2.4 добавит сюда проверку цепочки дрейфа,
-            // и лишняя строка выстрелит, если не убрать её здесь.
+            // Контейнер общий на класс, не на метод (см. javadoc выше) — не оставляем
+            // чекпоинт висеть, чтобы он не просочился в другой тест этого класса.
             checkpointRepository.deleteById(saved.getId());
         }
     }

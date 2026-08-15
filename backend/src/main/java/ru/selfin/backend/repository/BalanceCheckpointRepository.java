@@ -29,12 +29,10 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
      * <p>{@code JOIN FETCH cp.account} — НЕ для этого метода и НЕ для {@link
      * ru.selfin.backend.service.AccountBalanceService}: тот получает {@code kind}/{@code trackBalance}
      * из параметра {@code Account a}, а не через {@code checkpoint.getAccount()}, и это поле
-     * здесь вообще не разыменовывает. Fetch — задел под Task 2.4: {@code
-     * BalanceCheckpointService.findAll()} будет группировать историю по {@code
-     * checkpoint.getAccount().getId()} и читать счёт напрямую с чекпоинта, а поле ленивое и
-     * вне транзакции кидает {@code LazyInitializationException} (см. Javadoc {@link
-     * ru.selfin.backend.model.BalanceCheckpoint#getAccount()}). Если Task 2.4 в итоге пойдёт
-     * другим путём и это подготовка не понадобится — fetch можно снять.
+     * здесь вообще не разыменовывает. Fetch остался как задел с Task 2.1 (тогда планировалось,
+     * что Task 2.4 будет читать счёт с чекпоинта именно этим методом); Task 2.4 в итоге пошла
+     * другим путём (см. {@link #findAllByOrderByDateDesc}), но fetch по-прежнему безвреден и
+     * оставлен.
      *
      * <p>Fetch join безопасен вместе с {@code LIMIT 1}: ассоциация {@code @ManyToOne}, не коллекция —
      * Hibernate не переключается на постраничную выборку в памяти (это ограничение касается только
@@ -47,18 +45,4 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
         """)
     Optional<BalanceCheckpoint> findLatestForAccountAt(@Param("accountId") UUID accountId,
                                                         @Param("date") LocalDate date);
-
-    /**
-     * История чекпоинтов одного счёта, от свежих к старым (цепочка дрейфа считается внутри
-     * счёта). Пока не вызывается никем — задел под Task 2.4, где {@code
-     * BalanceCheckpointService.findAll()} будет строить цепочку дрейфа per-счёт вместо
-     * сегодняшнего допущения «счёт один». {@code JOIN FETCH} — по той же причине, что у
-     * {@link #findLatestForAccountAt}: будущий вызывающий читает {@code cp.getAccount()} напрямую.
-     */
-    @Query("""
-        SELECT cp FROM BalanceCheckpoint cp JOIN FETCH cp.account
-        WHERE cp.account.id = :accountId
-        ORDER BY cp.date DESC, cp.createdAt DESC
-        """)
-    List<BalanceCheckpoint> findAllForAccountOrderByDateDesc(@Param("accountId") UUID accountId);
 }

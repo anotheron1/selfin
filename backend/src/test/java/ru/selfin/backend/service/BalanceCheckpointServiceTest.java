@@ -10,6 +10,7 @@ import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
@@ -51,11 +52,19 @@ class BalanceCheckpointServiceTest {
     }
 
     private static BalanceCheckpoint cp(LocalDate date, long amount, LocalDateTime createdAt) {
+        return cp(date, amount, createdAt, AccountFixtures.defaultAccount());
+    }
+
+    private static BalanceCheckpoint cp(LocalDate date, long amount, LocalDateTime createdAt, Account account) {
         return BalanceCheckpoint.builder()
                 .id(UUID.randomUUID()).date(date).amount(BigDecimal.valueOf(amount))
-                .account(AccountFixtures.defaultAccount())
+                .account(account)
                 .createdAt(createdAt).updatedAt(createdAt)
                 .build();
+    }
+
+    private static BalanceCheckpointDto find(List<BalanceCheckpointDto> dtos, UUID id) {
+        return dtos.stream().filter(d -> d.id().equals(id)).findFirst().orElseThrow();
     }
 
     private static FinancialEvent fact(LocalDate date, EventType type, long amount) {
@@ -103,6 +112,43 @@ class BalanceCheckpointServiceTest {
         assertThat(d3.drift()).isEqualByComparingTo(BigDecimal.valueOf(-1_000));
         assertThat(d1.computedBalance()).isNull();
         assertThat(d1.drift()).isNull();
+    }
+
+    @Test
+    @DisplayName("ANO-9 Task 2.4: дрейф считается внутри счёта, а не по глобальной цепочке чекпоинтов")
+    void driftIsScopedPerAccount_notGlobalChain() {
+        LocalDateTime t = LocalDateTime.of(2026, 4, 1, 12, 0);
+        Account accountA = AccountFixtures.defaultAccount();
+        Account accountB = AccountFixtures.account(AccountKind.DEPOSIT, true).name("Вклад").build();
+
+        // Даты чередуются между счетами: A, B, A, B
+        BalanceCheckpoint a1 = cp(LocalDate.of(2026, 3, 1), 10_000, t.minusDays(30), accountA);
+        BalanceCheckpoint b1 = cp(LocalDate.of(2026, 3, 5), 5_000, t.minusDays(26), accountB);
+        BalanceCheckpoint a2 = cp(LocalDate.of(2026, 3, 15), 12_000, t.minusDays(16), accountA);
+        BalanceCheckpoint b2 = cp(LocalDate.of(2026, 3, 20), 5_500, t.minusDays(11), accountB);
+        // Порядок репозитория: date DESC — единая цепочка, счета вперемешку
+        when(repository.findAllByOrderByDateDesc()).thenReturn(List.of(b2, a2, b1, a1));
+
+        List<BalanceCheckpointDto> dtos = service.findAll();
+
+        // A2 — второй чекпоинт счёта A: дрейф обязан считаться от A1 (10 000),
+        // а НЕ от B1 (5 000) — того, что просто ближе по дате в общей цепочке.
+        BalanceCheckpointDto dA2 = find(dtos, a2.getId());
+        assertThat(dA2.computedBalance()).isEqualByComparingTo(BigDecimal.valueOf(10_000));
+        assertThat(dA2.drift()).isEqualByComparingTo(BigDecimal.valueOf(2_000)); // 12 000 − 10 000
+
+        // A1 — самый ранний чекпоинт счёта A.
+        BalanceCheckpointDto dA1 = find(dtos, a1.getId());
+        assertThat(dA1.computedBalance()).isNull();
+        assertThat(dA1.drift()).isNull();
+
+        // Счёт B не дефолтный — журнал к нему не привязан, дрейф для него не диагностика.
+        BalanceCheckpointDto dB1 = find(dtos, b1.getId());
+        BalanceCheckpointDto dB2 = find(dtos, b2.getId());
+        assertThat(dB1.computedBalance()).isNull();
+        assertThat(dB1.drift()).isNull();
+        assertThat(dB2.computedBalance()).isNull();
+        assertThat(dB2.drift()).isNull();
     }
 
     @Test
