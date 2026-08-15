@@ -155,7 +155,9 @@ export type PocketScopeType = 'NEXT_INCOME' | 'SECOND_INCOME' | 'MONTHS' | 'DATE
 export type BreakdownType =
     | 'STARTING_BALANCE' | 'OVERDUE_RESERVE' | 'PLANNED_EXPENSES' | 'SAVINGS_CONTRIBUTIONS'
     | 'PLANNED_INCOME'
-    | 'UNPLANNED_FORECAST' | 'TRAJECTORY_MIN' | 'BUFFER' | 'POCKET' | 'WISHLIST_INFO';
+    | 'UNPLANNED_FORECAST' | 'TRAJECTORY_MIN' | 'BUFFER' | 'POCKET'
+    // После POCKET — информационные строки: в инвариант кармашка не входят.
+    | 'CREDIT_RESTORE' | 'WISHLIST_INFO';
 
 export interface PocketResponse {
     pocket: number;
@@ -171,6 +173,17 @@ export interface PocketResponse {
         id: string; description: string | null;
         plannedAmount: number | null; date: string | null; fixed: boolean;
     }[];
+    /**
+     * «Свободно, если вернуть карты к планке» (ANO-9 §4.2) = pocket − резерв возврата.
+     * null — возвращать нечего: планок нет либо доступное уже выше них. Может быть
+     * отрицательным: если на возврат не хватает, это и есть ответ.
+     */
+    pocketAfterCreditRestore: number | null;
+    /**
+     * «Свободно, если распечатать вклад» (ANO-9 §4.3) = pocket + полу-ликвид.
+     * null — вкладов нет. Мелким шрифтом: это сноска, а не третий равноправный ответ.
+     */
+    pocketWithDeposits: number | null;
 }
 
 // ── Pocket sandbox (ANO-16) ──────────────────────────────────────────────────

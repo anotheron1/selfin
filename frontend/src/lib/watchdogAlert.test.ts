@@ -13,6 +13,8 @@ function watchdog(minBalance: number, minDate = '2026-07-22'): PocketResponse {
         breakdown: [],
         trajectory: [],
         wishlistCandidates: [],
+        pocketAfterCreditRestore: null,
+        pocketWithDeposits: null,
     };
 }
 

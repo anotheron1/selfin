@@ -62,6 +62,24 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                     {data && (
                         <>
                             <p className="text-3xl font-bold text-white">{fmtC(data.pocket)}</p>
+                            {/*
+                              Второе и третье числа (ANO-9 §4.2–§4.3). Иерархия размеров —
+                              часть смысла: это не три равноправных ответа, а один ответ и две
+                              оговорки. Карты возвращают к планке, потому что так меряется
+                              обязательство; вклад распечатывают в трудный момент, а не
+                              планируют им жить. Оба null, когда оговаривать нечего.
+                            */}
+                            {data.pocketAfterCreditRestore != null && (
+                                <p className="text-sm text-white/85 mt-0.5">
+                                    {fmtC(data.pocketAfterCreditRestore)}
+                                    <span className="text-white/60"> — если вернуть карты к планке</span>
+                                </p>
+                            )}
+                            {data.pocketWithDeposits != null && (
+                                <p className="text-[11px] text-white/55 mt-0.5">
+                                    {fmtC(data.pocketWithDeposits)} — если распечатать вклад
+                                </p>
+                            )}
                             {/* Ре-якорь (ANO-15): тап по остатку → шторка с одним полем */}
                             <button onClick={() => setShowReanchor(true)}
                                 className="text-xs text-white/60 mt-0.5 flex items-center gap-1 hover:text-white/90 transition-colors"
@@ -115,6 +133,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                                     {line.amount > 0 && line.type !== 'STARTING_BALANCE'
                                                         && line.type !== 'TRAJECTORY_MIN'
                                                         && line.type !== 'POCKET'
+                                                        && line.type !== 'CREDIT_RESTORE'
                                                         && line.type !== 'WISHLIST_INFO' ? '+' : ''}
                                                     {fmtC(line.amount)}
                                                 </span>
