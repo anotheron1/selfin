@@ -22,7 +22,6 @@ import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.WishlistStatus;
-import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
@@ -54,7 +53,6 @@ public class PocketInputAssembler {
     private static final LocalDate EPOCH = LocalDate.of(2000, 1, 1);
 
     private final FinancialEventRepository eventRepository;
-    private final BalanceCheckpointRepository checkpointRepository;
     private final UserSettingsService settingsService;
     private final PredictionService predictionService;
     private final RecurringRuleService recurringRuleService;
@@ -131,14 +129,20 @@ public class PocketInputAssembler {
         }
 
         // 2. Чекпоинт и события (баланс + траектория; диапазон — до конца хвоста §3.9).
-        //    Источник ЯКОРЯ сознательно НЕ заменён на accountBalanceService.anchorAt(default, t)
-        //    (ANO-9 Task 2.2, «Поправки после ревью Task 2.1» п.1): этот legacy-запрос не
-        //    ограничен датой (чекпоинт из будущего становится якорём) и при полном отсутствии
-        //    чекпоинта ниже событий выбираются от EPOCH на нулевую базу — оба поведения
-        //    зафиксированы PocketInputAssemblerAnchorRegressionTest и сохраняются НЕИЗМЕННЫМИ:
-        //    задача обязана быть неотличимой снаружи при одном счёте, а смена семантики якоря —
-        //    отдельное осознанное решение, не попутное этой задаче.
-        Optional<BalanceCheckpoint> checkpoint = checkpointRepository.findTopByOrderByDateDesc();
+        //    Якорь берётся у ДЕФОЛТНОГО СЧЁТА (accountBalanceService.anchorAt), а не как
+        //    раньше — «глобально последний чекпоинт по всей таблице». Прежний
+        //    checkpointRepository.findTopByOrderByDateDesc() не фильтровал ни по природе
+        //    счёта, ни по track_balance, ни по удалению: победивший чекпоинт мог принадлежать
+        //    вкладу, кредитке или конверту без слежения, и их остаток молча становился
+        //    currentBalance движка (найдено ревью на реальных данных: вклад, переякоренный
+        //    позже карты, поднимал «свободные деньги» с 38 000 до 338 000 — не экзотика,
+        //    а конфигурация владельца из спеки §6, основная карта + конверты + вклад).
+        //    Отсутствие чекпоинта — ОТДЕЛЬНЫЙ, сознательно сохранённый случай (ANO-28): ниже
+        //    события выбираются от EPOCH на нулевую базу, чтобы у пользователя без единого
+        //    введённого остатка вся история фактов не исчезла из числа. Это поведение
+        //    зафиксировано PocketInputAssemblerAnchorRegressionTest и НЕ меняется этой правкой.
+        Optional<BalanceCheckpoint> checkpoint = accountBalanceService.defaultAccount()
+                .flatMap(a -> accountBalanceService.anchorAt(a, asOfDate));
         LocalDate from = checkpoint.map(BalanceCheckpoint::getDate).orElse(EPOCH);
         List<EventSnapshot> events = new ArrayList<>(eventRepository
                 .findAllByDeletedFalseAndDateBetween(from, PocketEngine.trajectoryEnd(asOfDate, horizonEnd))
@@ -209,13 +213,11 @@ public class PocketInputAssembler {
         // 5. Буфер
         BigDecimal buffer = settingsService.getPocketSettings().bufferAmount();
 
-        // 6. Счета (спека §4.1–§4.3). Дыра двойного счёта (Task 2.1 «Поправки», п.2): если
-        //    исключать «дефолтный» по флагу, а якорь currentBalance (см. выше) в вырожденном
-        //    состоянии данных окажется чекпоинтом ДРУГОГО отслеживаемого счёта, этот счёт
-        //    задвоится — раз как currentBalance, второй раз внутри otherAccountsBalance.
-        //    Поэтому исключаем не «дефолтный», а буквально СЧЁТ ТОГО ЧЕКПОИНТА, что стал
-        //    якорём — корректно при любом состоянии данных, не только пока счёт один
-        //    (см. AccountBalanceService.snapshot, AccountBalanceServiceTest, PocketInputAssemblerTest).
+        // 6. Счета (спека §4.1–§4.3). Якорь currentBalance теперь ВСЕГДА чекпоинт дефолтного
+        //    счёта (см. выше), поэтому "счёт того чекпоинта, что стал якорём" и "дефолтный
+        //    счёт" — один и тот же id. Передаём id явно, а не полагаемся на то, что
+        //    snapshot() сам знает про дефолтность — исключаемый счёт остаётся ответственностью
+        //    вызывающего (см. AccountBalanceService.snapshot).
         UUID anchorAccountId = checkpoint.map(cp -> cp.getAccount().getId()).orElse(null);
         AccountBalanceService.Snapshot accounts = accountBalanceService.snapshot(asOfDate, anchorAccountId);
 

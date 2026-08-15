@@ -124,7 +124,11 @@ class PocketMigrationRegressionTest {
                 HORIZON_END, FallbackKind.NONE,
                 dec(5_000),
                 dec(1_800), List.of("Продукты"),
-                java.util.Map.of());
+                java.util.Map.of(),
+                // Один счёт — сценарий этого эталона (ANO-9): прочих счетов, резерва
+                // возврата и вкладов нет, механическое null не меняет ни одно из
+                // зафиксированных ниже чисел.
+                null, null, null);
     }
 
     private static PocketResultDto.BreakdownLine line(PocketResultDto r, BreakdownType t) {

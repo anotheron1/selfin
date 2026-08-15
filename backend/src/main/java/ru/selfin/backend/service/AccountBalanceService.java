@@ -14,6 +14,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -112,36 +113,27 @@ public class AccountBalanceService {
      *
      * @param excludedAccountId счёт, чей остаток уже учтён отдельно как {@code currentBalance}
      *        движка, и его нельзя засчитать ещё раз внутри {@code otherAccountsBalance}.
-     *        <b>Не «дефолтный счёт» по имени, а конкретный id.</b> currentBalance движка
-     *        сегодня определяется legacy-запросом без учёта счёта
-     *        ({@code checkpointRepository.findTopByOrderByDateDesc()}, сознательно не
-     *        заменённым на {@code anchorAt(defaultAccount, t)} — это изменило бы наблюдаемое
-     *        поведение при переходе на счета, см. {@code PocketInputAssemblerAnchorRegressionTest}).
-     *        В вырожденном состоянии данных (несколько счетов с чекпоинтами, дефолтного нет
-     *        или он не самый свежий) этот запрос вернёт чекпоинт НЕ дефолтного счёта — тогда
-     *        исключать из суммы нужно именно его, иначе тот же остаток задвоится: один раз
-     *        как currentBalance, второй раз внутри otherAccountsBalance. {@code null} —
-     *        не исключать никого; легитимно, когда якоря вообще нет (тогда у каждого счёта
-     *        {@link #balanceAt} и так вернёт ноль, exclusion результат не меняет).
+     *        В текущем и единственном вызывающем ({@link PocketInputAssembler}) это всегда id
+     *        дефолтного счёта — currentBalance движка с этой правки (ANO-9, ревью Task 2.2)
+     *        считается строго от {@code accountBalanceService.anchorAt(defaultAccount, t)}, а
+     *        не от глобально последнего чекпоинта по всей таблице, как было раньше. Параметр
+     *        остаётся явным id, а не жёсткой проверкой на {@code isDefaultAccount()} внутри
+     *        метода: какой именно счёт уже учтён отдельно — знание вызывающего, а не этого
+     *        сервиса. {@code null} — не исключать никого; используется, когда якоря вообще нет
+     *        (тогда у каждого счёта {@link #balanceAt} и так вернёт ноль).
      */
     public Snapshot snapshot(LocalDate t, UUID excludedAccountId) {
         BigDecimal other = BigDecimal.ZERO;
         BigDecimal semiLiquid = BigDecimal.ZERO;
         BigDecimal creditReserve = BigDecimal.ZERO;
         for (Account a : active()) {
-            if (a.countsAsFreeMoney() && !a.getId().equals(excludedAccountId)) {
+            if (a.countsAsFreeMoney() && !Objects.equals(a.getId(), excludedAccountId)) {
                 other = other.add(balanceAt(a, t));
             }
             if (a.isSemiLiquid()) {
                 semiLiquid = semiLiquid.add(balanceAt(a, t));
             }
-            if (a.getKind() == AccountKind.CREDIT && a.getAvailableFloor() != null) {
-                Optional<BalanceCheckpoint> anchor = anchorAt(a, t);
-                if (anchor.isPresent()) {
-                    BigDecimal gap = a.getAvailableFloor().subtract(anchor.get().getAmount());
-                    if (gap.signum() > 0) creditReserve = creditReserve.add(gap);
-                }
-            }
+            creditReserve = creditReserve.add(creditGapFor(a, t, Account::getAvailableFloor));
         }
         return new Snapshot(other, creditReserve, semiLiquid);
     }
@@ -153,15 +145,26 @@ public class AccountBalanceService {
     private BigDecimal creditGap(LocalDate t, java.util.function.Function<Account, BigDecimal> level) {
         BigDecimal sum = BigDecimal.ZERO;
         for (Account a : active()) {
-            if (a.getKind() != AccountKind.CREDIT) continue;
-            BigDecimal target = level.apply(a);
-            if (target == null) continue;
-            Optional<BalanceCheckpoint> anchor = anchorAt(a, t);
-            if (anchor.isEmpty()) continue; // нет остатка — счёт молчит, а не считает ноль
-            BigDecimal gap = target.subtract(anchor.get().getAmount());
-            if (gap.signum() > 0) sum = sum.add(gap);
+            sum = sum.add(creditGapFor(a, t, level));
         }
         return sum;
+    }
+
+    /**
+     * Разрыв «цель − доступно» для ОДНОГО кредитного счёта (0, если счёт не CREDIT, цель
+     * не задана или чекпоинта нет). Общая точка для {@link #creditGap} (используется
+     * {@link #creditRestoreReserveAt}/{@link #creditDebtAt}) и {@link #snapshot} — раньше
+     * {@code snapshot} держал вторую копию этого правила инлайн, и они были обязаны меняться
+     * синхронно, что легко упустить при следующей правке.
+     */
+    private BigDecimal creditGapFor(Account a, LocalDate t, java.util.function.Function<Account, BigDecimal> level) {
+        if (a.getKind() != AccountKind.CREDIT) return BigDecimal.ZERO;
+        BigDecimal target = level.apply(a);
+        if (target == null) return BigDecimal.ZERO;
+        Optional<BalanceCheckpoint> anchor = anchorAt(a, t);
+        if (anchor.isEmpty()) return BigDecimal.ZERO; // нет остатка — счёт молчит, а не считает ноль
+        BigDecimal gap = target.subtract(anchor.get().getAmount());
+        return gap.signum() > 0 ? gap : BigDecimal.ZERO;
     }
 
     /**

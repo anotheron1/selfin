@@ -47,28 +47,6 @@ public record PocketInput(
         BigDecimal creditRestoreReserve,
         BigDecimal semiLiquidBalance
 ) {
-    /**
-     * Совместимость со старыми вызовами (до ANO-9 Task 2.2, до появления счетов): тот же
-     * 13-арный список полей, что был каноническим конструктором до этой задачи. Новые три
-     * поля молча становятся {@code null} → 0 через {@code *OrZero()} ниже — тот же приём,
-     * что уже применён для {@code futureForecast} в {@link #futureForecastOrEmpty()}.
-     *
-     * <p><b>Не удалять и не менять сигнатуру.</b> На неё опирается контракт
-     * {@code PocketMigrationRegressionTest} («эталон обязан пройти без единой правки») и
-     * старые вызовы вроде {@code PocketEngineTest}, которые ничего не знают про счета —
-     * без этого конструктора любой из них перестал бы компилироваться при добавлении
-     * новых полей записи.
-     */
-    public PocketInput(LocalDate asOfDate, BigDecimal checkpointAmount, LocalDate checkpointDate,
-            List<EventSnapshot> events, List<EventSnapshot> wishlistEvents, List<EventSnapshot> overdueEvents,
-            PocketScope scope, LocalDate horizonEnd, FallbackKind fallbackKind, BigDecimal bufferAmount,
-            BigDecimal unplannedForecast, List<String> forecastContributors,
-            java.util.Map<java.time.YearMonth, BigDecimal> futureForecast) {
-        this(asOfDate, checkpointAmount, checkpointDate, events, wishlistEvents, overdueEvents, scope,
-                horizonEnd, fallbackKind, bufferAmount, unplannedForecast, forecastContributors, futureForecast,
-                null, null, null);
-    }
-
     /** Прогноз будущих месяцев, безопасный к null (старые вызовы/тесты). */
     public java.util.Map<java.time.YearMonth, BigDecimal> futureForecastOrEmpty() {
         return futureForecast != null ? futureForecast : java.util.Map.of();

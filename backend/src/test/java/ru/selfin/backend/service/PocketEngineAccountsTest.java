@@ -76,17 +76,18 @@ class PocketEngineAccountsTest {
     }
 
     @Test
-    @DisplayName("null в otherAccountsBalance/creditRestoreReserve/semiLiquidBalance эквивалентен нулю — старый (13-арный) способ сборки входа работает")
+    @DisplayName("null в otherAccountsBalance/creditRestoreReserve/semiLiquidBalance эквивалентен нулю")
     void nullNewFieldsBehaveAsZero() {
-        // Легаси-конструктор (13 аргументов, до появления счетов в ANO-9) — компилируется
-        // благодаря конструктору совместимости в PocketInput; новые поля молча null → 0
-        // (тот же приём, что уже применён для futureForecast, ANO-36).
-        PocketInput legacy = new PocketInput(TODAY, dec(50_000), CHECKPOINT_DATE,
+        // Явный null в трёх новых полях (нет ни прочих счетов, ни резерва, ни вклада) —
+        // *OrZero() геттеры обязаны трактовать его как ноль, не кидать NPE (тот же приём,
+        // что уже применён для futureForecast, ANO-36).
+        PocketInput withNulls = new PocketInput(TODAY, dec(50_000), CHECKPOINT_DATE,
                 List.of(), List.of(), List.of(),
                 MONTHS_1, HORIZON_END, FallbackKind.NONE,
-                BigDecimal.ZERO, BigDecimal.ZERO, List.of(), java.util.Map.of());
+                BigDecimal.ZERO, BigDecimal.ZERO, List.of(), java.util.Map.of(),
+                null, null, null);
 
-        PocketResultDto r = PocketEngine.calculate(legacy);
+        PocketResultDto r = PocketEngine.calculate(withNulls);
 
         assertThat(r.currentBalance()).isEqualByComparingTo(dec(50_000));
     }
