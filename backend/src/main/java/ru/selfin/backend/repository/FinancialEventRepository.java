@@ -7,7 +7,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
-import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
@@ -74,24 +73,6 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         GROUP BY e.parentEventId
         """)
     List<FactAggregateProjection> findFactAggregatesByPlanIds(@Param("planIds") List<UUID> planIds);
-
-    /**
-     * Сумма фактически случившихся (любых записей с factAmount, включая PLAN-FUND_TRANSFER)
-     * по типу в диапазоне дат {@code (from..to]} — from СТРОГО исключён (ANO-15 §5:
-     * from = дата чекпоинта, операции этого дня уже в сумме якоря). Единственный
-     * потребитель — CapitalService; граница движется синхронно с PocketEngine.
-     */
-    @Query("""
-        SELECT COALESCE(SUM(e.factAmount), 0) FROM FinancialEvent e
-        WHERE e.type = :type
-          AND e.factAmount IS NOT NULL
-          AND e.deleted = false
-          AND e.date > :from
-          AND e.date <= :to
-        """)
-    BigDecimal sumFactByTypeBetween(@Param("type") EventType type,
-                                    @Param("from") LocalDate from,
-                                    @Param("to") LocalDate to);
 
     /**
      * FACT-записи в диапазоне дат (для FundPlannerService).

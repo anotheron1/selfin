@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -166,14 +167,15 @@ class AccountBalanceServiceTest {
         assertThat(balance).isEqualByComparingTo(BigDecimal.valueOf(9_000)); // 10 000 − 1 000
     }
 
-    // ── 4. otherFreeMoneyAt ──────────────────────────────────────────────────
+    // ── 4. freeMoneyAt ───────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("otherFreeMoneyAt не включает дефолтный, конверт без слежения, кредитку, вклад")
-    void otherFreeMoneyAt_excludesDefaultEnvelopeCreditAndDeposit() {
+    @DisplayName("freeMoneyAt: полная сумма свободных денег, ВКЛЮЧАЯ дефолтный счёт; "
+            + "конверт без слежения, кредитка и вклад не участвуют (ANO-9 Task 2.3, для CapitalService)")
+    void freeMoneyAt_includesDefault_excludesEnvelopeCreditAndDeposit() {
         LocalDate t = LocalDate.of(2026, 3, 20);
 
-        Account defaultAccount = AccountFixtures.defaultAccount(); // исключён явно сервисом
+        Account defaultAccount = AccountFixtures.defaultAccount(); // считается (в отличие от otherFreeMoneyAt)
         Account otherTracked = AccountFixtures.account(AccountKind.DEBIT, true).build(); // считается
         Account envelope = AccountFixtures.account(AccountKind.DEBIT, false).build(); // не считается
         Account credit = AccountFixtures.account(AccountKind.CREDIT, true).build(); // не считается
@@ -181,12 +183,13 @@ class AccountBalanceServiceTest {
 
         when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
                 .thenReturn(List.of(defaultAccount, otherTracked, envelope, credit, deposit));
-        // ВАЖНО: у ВСЕХ пяти счетов — ненулевой якорь, включая четыре, которые тест исключает.
-        // Без этого тест зеленеет и с вырезанными фильтрами countsAsFreeMoney/!isDefaultAccount:
-        // незастабленный findLatestForAccountAt тихо отдаёт Optional.empty(), balanceAt — ноль,
-        // и «исключённый» счёт вносит ноль вне зависимости от того, работает фильтр или нет
-        // (найдено ревью мутацией, ANO-9 Task 2.1). Суммы разные и не равны 20 000 — любая
-        // утечка любого из четырёх счетов в сумму сдвинет итог и провалит assertEquals ниже.
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+        // ВАЖНО: у ВСЕХ пяти счетов — ненулевой якорь, включая три, которые тест исключает.
+        // Без этого тест зеленеет и с вырезанным фильтром countsAsFreeMoney: незастабленный
+        // findLatestForAccountAt тихо отдаёт Optional.empty(), balanceAt — ноль, и «исключённый»
+        // счёт вносит ноль вне зависимости от того, работает фильтр или нет (найдено ревью
+        // мутацией, ANO-9 Task 2.1). Суммы разные и не равны 520 000 — любая утечка любого из
+        // трёх счетов в сумму сдвинет итог и провалит assertEquals ниже.
         when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), t))
                 .thenReturn(Optional.of(anchor(defaultAccount, LocalDate.of(2026, 3, 1), 500_000)));
         when(checkpointRepository.findLatestForAccountAt(otherTracked.getId(), t))
@@ -198,9 +201,10 @@ class AccountBalanceServiceTest {
         when(checkpointRepository.findLatestForAccountAt(deposit.getId(), t))
                 .thenReturn(Optional.of(anchor(deposit, LocalDate.of(2026, 3, 1), 62_500)));
 
-        BigDecimal result = service.otherFreeMoneyAt(t);
+        BigDecimal result = service.freeMoneyAt(t);
 
-        assertThat(result).isEqualByComparingTo(BigDecimal.valueOf(20_000));
+        // 500 000 (дефолтный, без фактов после якоря) + 20 000 (прочий отслеживаемый) = 520 000
+        assertThat(result).isEqualByComparingTo(BigDecimal.valueOf(520_000));
     }
 
     // ── 5. semiLiquidAt ──────────────────────────────────────────────────────
@@ -231,18 +235,21 @@ class AccountBalanceServiceTest {
         assertThat(result).isEqualByComparingTo(BigDecimal.valueOf(150_000));
     }
 
-    // ── 6. creditRestoreReserveAt ────────────────────────────────────────────
+    // ── 6. резерв возврата к планке (§4.2) — теперь только через snapshot(), публичного
+    //      creditRestoreReserveAt больше нет (был без вызывающих в production, убран
+    //      ANO-9 Task 2.3: единственный потребитель этого расчёта — PocketInputAssembler
+    //      через snapshot()) ──────────────────────────────────────────────────
 
     @Test
-    @DisplayName("creditRestoreReserveAt = сумма max(0, планка − доступно) по кредиткам с планкой; счета не-CREDIT не участвуют")
-    void creditRestoreReserveAt_sumsMaxZeroFloorMinusAvailable() {
+    @DisplayName("snapshot().creditRestoreReserve() = сумма max(0, планка − доступно) по кредиткам с планкой; счета не-CREDIT не участвуют")
+    void snapshotCreditRestoreReserve_sumsMaxZeroFloorMinusAvailable() {
         LocalDate t = LocalDate.of(2026, 3, 20);
         Account credit = AccountFixtures.account(AccountKind.CREDIT, true)
                 .availableFloor(BigDecimal.valueOf(150_000)).creditLimit(BigDecimal.valueOf(200_000)).build();
         // Не-CREDIT счёт в том же списке — С НЕНУЛЕВЫМ availableFloor и ненулевым якорем,
         // иначе `if (target == null) continue;` вывел бы его из суммы независимо от того,
         // работает ли фильтр `kind == CREDIT`, и мутация этого фильтра осталась бы незамеченной
-        // (та же ловушка, что в тестах otherFreeMoneyAt/semiLiquidAt — see ANO-9 Task 2.1).
+        // (та же ловушка, что в тестах freeMoneyAt/semiLiquidAt — see ANO-9 Task 2.1).
         // Реальный DEBIT-счёт так не заполняется (валидация в Task 3.1), это моделирует именно
         // «что если бы фильтр по kind пропустил этот объект».
         Account debit = AccountFixtures.account(AccountKind.DEBIT, true)
@@ -254,8 +261,9 @@ class AccountBalanceServiceTest {
                 .thenReturn(Optional.of(anchor(credit, LocalDate.of(2026, 3, 1), 100_000)));
         when(checkpointRepository.findLatestForAccountAt(debit.getId(), t))
                 .thenReturn(Optional.of(anchor(debit, LocalDate.of(2026, 3, 1), 100_000)));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
 
-        BigDecimal reserve = service.creditRestoreReserveAt(t);
+        BigDecimal reserve = service.snapshot(t, null).creditRestoreReserve();
 
         // max(0, 150 000 − 100 000) = 50 000; debit (даже с планкой 500 000 − 100 000 = 400 000
         // потенциального «резерва») не участвует вообще, потому что не CREDIT
@@ -263,8 +271,8 @@ class AccountBalanceServiceTest {
     }
 
     @Test
-    @DisplayName("creditRestoreReserveAt: кредитка без планки в резерв не входит (даёт ноль)")
-    void creditRestoreReserveAt_creditWithoutFloor_givesZero() {
+    @DisplayName("snapshot().creditRestoreReserve(): кредитка без планки в резерв не входит (даёт ноль)")
+    void snapshotCreditRestoreReserve_creditWithoutFloor_givesZero() {
         LocalDate t = LocalDate.of(2026, 3, 20);
         Account credit = AccountFixtures.account(AccountKind.CREDIT, true)
                 .creditLimit(BigDecimal.valueOf(200_000)).build(); // availableFloor не задан
@@ -272,7 +280,7 @@ class AccountBalanceServiceTest {
         when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
                 .thenReturn(List.of(credit));
 
-        BigDecimal reserve = service.creditRestoreReserveAt(t);
+        BigDecimal reserve = service.snapshot(t, null).creditRestoreReserve();
 
         assertThat(reserve).isEqualByComparingTo(BigDecimal.ZERO);
         // Без планки счёт даже не пытается узнать остаток — сравнивать не с чем.
@@ -280,8 +288,8 @@ class AccountBalanceServiceTest {
     }
 
     @Test
-    @DisplayName("creditRestoreReserveAt: доступно выше планки даёт ноль резерва")
-    void creditRestoreReserveAt_availableAboveFloor_givesZero() {
+    @DisplayName("snapshot().creditRestoreReserve(): доступно выше планки даёт ноль резерва")
+    void snapshotCreditRestoreReserve_availableAboveFloor_givesZero() {
         LocalDate t = LocalDate.of(2026, 3, 20);
         Account credit = AccountFixtures.account(AccountKind.CREDIT, true)
                 .availableFloor(BigDecimal.valueOf(100_000)).creditLimit(BigDecimal.valueOf(200_000)).build();
@@ -291,7 +299,7 @@ class AccountBalanceServiceTest {
         when(checkpointRepository.findLatestForAccountAt(credit.getId(), t))
                 .thenReturn(Optional.of(anchor(credit, LocalDate.of(2026, 3, 1), 160_000)));
 
-        BigDecimal reserve = service.creditRestoreReserveAt(t);
+        BigDecimal reserve = service.snapshot(t, null).creditRestoreReserve();
 
         // max(0, 100 000 − 160 000) = 0
         assertThat(reserve).isEqualByComparingTo(BigDecimal.ZERO);
@@ -349,7 +357,7 @@ class AccountBalanceServiceTest {
     // ── 8. snapshot (ANO-9 Task 2.2) ─────────────────────────────────────────
 
     @Test
-    @DisplayName("snapshot: три суммы за один проход совпадают с otherFreeMoneyAt/creditRestoreReserveAt/semiLiquidAt")
+    @DisplayName("snapshot: три суммы за один проход (прочие свободные счета, резерв возврата, полу-ликвид)")
     void snapshot_matchesIndividualMethods_whenExcludingDefault() {
         LocalDate t = LocalDate.of(2026, 3, 20);
         Account defaultAccount = AccountFixtures.defaultAccount();

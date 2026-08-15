@@ -12,7 +12,6 @@ import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.CapitalItem;
 import ru.selfin.backend.model.CapitalRevaluation;
 import ru.selfin.backend.model.enums.CapitalItemKind;
-import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.*;
 
 import java.math.BigDecimal;
@@ -32,23 +31,22 @@ import java.util.UUID;
  * <p>Все мутации (CRUD по items и revaluations) — {@code @Transactional}.
  * Чтения (summary, trajectory, list, history) — readOnly на классе.
  *
- * <p>{@code liquidAt(date)} — публичный метод (используется также StrategyTimelineService):
- * переиспользует существующие репозитории. Формула «безопасная», без зависимости от инварианта
- * FUND_TRANSFER ↔ FundTransaction 1:1:
+ * <p>{@code liquidAt(date)} — публичный метод (используется также StrategyTimelineService,
+ * BaselineTimelineBuilder, WishlistSimulationService). Формула построена на счетах (спека
+ * 2026-08-12-accounts-skeleton-design.md §4.4, ANO-9 Task 2.3):
  * <pre>
- *   liquid(t) = AccountBalance(t) + Σ FundBalance(t)
- *   AccountBalance(t) = checkpoint(≤t).amount
- *                     + Σ INCOME факт events ∈ (checkpoint.date, t]
- *                     − Σ EXPENSE факт events ∈ (checkpoint.date, t]
- *                     − Σ FUND_TRANSFER факт events ∈ (checkpoint.date, t]
- *   Σ FundBalance(t) = Σ FundTransaction.amount, transaction_date ≤ t, не deleted
+ *   ликвид(t)        = freeMoneyAt(t) + semiLiquidAt(t) + Σ балансов копилок БЕЗ account_id
+ *   обязательства(t) = creditDebtAt(t) + Σ CapitalItem(LIABILITY)
  * </pre>
+ * {@code freeMoneyAt}/{@code semiLiquidAt}/{@code creditDebtAt} — {@link AccountBalanceService},
+ * единственное место правила «остаток счёта на дату». {@code CapitalService} больше НЕ дублирует
+ * это правило инлайн (раньше дублировал — через {@code sumFactByTypeBetween}, у которого не
+ * было фильтра {@code wishlistStatus}, см. историю в Javadoc {@link #liquidAt}).
  *
- * <p>Диапазон событий начинается СТРОГО ПОСЛЕ {@code checkpoint.date} (ANO-15 §5:
- * сумма якоря — «число из банка на конец его дня», операции дня чекпоинта уже внутри) —
- * это соответствует конвенции расчёта баланса в {@link PocketEngine} и гарантирует,
- * что Capital и кармашек показывают одно и то же значение жидкой части.
- * Граница живёт в запросе {@code sumFactByTypeBetween} ({@code date > :from}).
+ * <p>Копилки С {@code account_id} в ликвид отдельно не добавляются: их деньги уже внутри баланса
+ * своего счёта (учтены через {@code freeMoneyAt}/{@code semiLiquidAt}) — прибавить их ещё раз
+ * значило бы задвоить (спека §3.3, §4.4). Фильтр {@code fund.account_id IS NULL} живёт в запросе
+ * {@link FundTransactionRepository#sumByTransactionDateLessThanEqual}.
  */
 @Service
 @RequiredArgsConstructor
@@ -56,14 +54,11 @@ import java.util.UUID;
 @Slf4j
 public class CapitalService {
 
-    /** Безопасная нижняя граница для JPA date binding, когда checkpoint'а нет. */
-    private static final LocalDate EPOCH_SENTINEL = LocalDate.of(1970, 1, 1);
-
     private final CapitalItemRepository itemRepo;
     private final CapitalRevaluationRepository revRepo;
     private final BalanceCheckpointRepository checkpointRepo;
-    private final FinancialEventRepository eventRepo;
     private final FundTransactionRepository fundTxRepo;
+    private final AccountBalanceService accountBalanceService;
 
     // === CRUD: items ===
 
@@ -164,7 +159,7 @@ public class CapitalService {
         BigDecimal liquid = liquidAt(today);
         Map<CapitalItemKind, BigDecimal> sums = sumByKindAt(today);
         BigDecimal assetsTotal = sums.getOrDefault(CapitalItemKind.ASSET, BigDecimal.ZERO);
-        BigDecimal liabilitiesTotal = sums.getOrDefault(CapitalItemKind.LIABILITY, BigDecimal.ZERO);
+        BigDecimal liabilitiesTotal = liabilitiesAt(today, sums);
         BigDecimal total = liquid.add(assetsTotal).subtract(liabilitiesTotal);
 
         List<CapitalItemDto> items = list(null, true); // все, включая архивные — UI решит
@@ -204,7 +199,7 @@ public class CapitalService {
             BigDecimal liquid = liquidAt(t);
             Map<CapitalItemKind, BigDecimal> sums = sumByKindAt(t);
             BigDecimal assets = sums.getOrDefault(CapitalItemKind.ASSET, BigDecimal.ZERO);
-            BigDecimal liabilities = sums.getOrDefault(CapitalItemKind.LIABILITY, BigDecimal.ZERO);
+            BigDecimal liabilities = liabilitiesAt(t, sums);
             result.add(new CapitalTrajectoryDto.Point(
                     t, liquid.add(assets).subtract(liabilities), liquid, assets, liabilities));
         }
@@ -225,7 +220,7 @@ public class CapitalService {
         BigDecimal liquid = liquidAt(t);
         Map<CapitalItemKind, BigDecimal> sums = sumByKindAt(t);
         BigDecimal assets = sums.getOrDefault(CapitalItemKind.ASSET, BigDecimal.ZERO);
-        BigDecimal liabilities = sums.getOrDefault(CapitalItemKind.LIABILITY, BigDecimal.ZERO);
+        BigDecimal liabilities = liabilitiesAt(t, sums);
         return liquid.add(assets).subtract(liabilities);
     }
 
@@ -238,25 +233,41 @@ public class CapitalService {
     }
 
     /**
-     * Жидкий баланс на дату {@code t} = баланс расчётного счёта (по чекпоинтам и фактам)
-     * + сумма балансов всех копилок. Публичный API для согласования с другими сервисами
-     * (например, StrategyTimelineService использует этот метод для seed {@code balanceConfirmed}).
+     * Обязательства на дату {@code t} = ручные {@code CapitalItem(LIABILITY)} + долг по
+     * кредитным счетам, посчитанный от лимита и доступного (спека §4.4). Единая точка для
+     * {@code summary}/{@code capitalAt}/{@code trajectory} — обе части обязаны считаться
+     * согласованно во всех трёх местах, а не разъезжаться.
+     */
+    private BigDecimal liabilitiesAt(LocalDate t, Map<CapitalItemKind, BigDecimal> sums) {
+        return sums.getOrDefault(CapitalItemKind.LIABILITY, BigDecimal.ZERO)
+                .add(accountBalanceService.creditDebtAt(t));
+    }
+
+    /**
+     * Жидкий баланс на дату {@code t} (спека §4.4, ANO-9 Task 2.3):
+     * <pre>
+     *   ликвид(t) = freeMoneyAt(t) + semiLiquidAt(t) + Σ балансов копилок БЕЗ account_id
+     * </pre>
+     * Публичный API для согласования с другими сервисами (например, StrategyTimelineService
+     * использует этот метод для seed {@code balanceConfirmed}).
+     *
+     * <p><b>История правки.</b> До ANO-9 Task 2.3 счёт считался инлайн через
+     * {@code checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(t)} +
+     * {@code eventRepo.sumFactByTypeBetween(...)} — второй запрос НЕ фильтровал
+     * {@code wishlistStatus}, в отличие от {@link AccountBalanceService#balanceAt} /
+     * {@link PocketEngine#calculate}, которые факты по хотелкам из баланса исключают
+     * сознательно. Из-за этого факт по хотелке (нечастый, но реальный случай — см.
+     * {@code FinancialEventService}, хотелки конвертируются с сохранением факта) молча
+     * уменьшал/увеличивал ликвид капитала, хотя кармашек его игнорировал — капитал и кармашек
+     * показывали разную ликвидность на одних и тех же данных. Переход на
+     * {@code accountBalanceService.freeMoneyAt} убирает дублирование правила отбора фактов
+     * (теперь оно живёт только в {@link AccountBalanceService#factsDelta}) и синхронизирует
+     * это поведение с кармашком.
      */
     public BigDecimal liquidAt(LocalDate t) {
-        Optional<BalanceCheckpoint> latest = checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(t);
-        BigDecimal start = latest.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO);
-        // Конвенция: события включаются начиная с даты чекпоинта (см. Javadoc класса
-        // и PocketEngine.calculate — обе формулы должны двигаться вместе).
-        LocalDate fromDate = latest.map(BalanceCheckpoint::getDate).orElse(EPOCH_SENTINEL);
-
-        BigDecimal income       = eventRepo.sumFactByTypeBetween(EventType.INCOME,        fromDate, t);
-        BigDecimal expense      = eventRepo.sumFactByTypeBetween(EventType.EXPENSE,       fromDate, t);
-        BigDecimal fundTransfer = eventRepo.sumFactByTypeBetween(EventType.FUND_TRANSFER, fromDate, t);
-        BigDecimal accountBalance = start.add(income).subtract(expense).subtract(fundTransfer);
-
+        BigDecimal accountsLiquid = accountBalanceService.freeMoneyAt(t).add(accountBalanceService.semiLiquidAt(t));
         BigDecimal pocketBalance = fundTxRepo.sumByTransactionDateLessThanEqual(t);
-
-        return accountBalance.add(pocketBalance);
+        return accountsLiquid.add(pocketBalance);
     }
 
     private List<LocalDate> buildMonthEndPoints(LocalDate from, LocalDate to) {

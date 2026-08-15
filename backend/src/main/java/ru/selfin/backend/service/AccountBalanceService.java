@@ -66,7 +66,7 @@ public class AccountBalanceService {
      * если {@code a.isTrackBalance() == false} (конверт без слежения, §5.2 — там пополнение
      * считается потраченным, а не остатком на счёте). Класс — единственное место правила
      * «остаток на дату», но фильтр по трекингу — ответственность вызывающего (см.
-     * {@link #otherFreeMoneyAt}, {@link #semiLiquidAt}: оба фильтруют счета ДО вызова этого
+     * {@link #freeMoneyAt}, {@link #semiLiquidAt}: оба фильтруют счета ДО вызова этого
      * метода). Станет ли это guard'ом внутри метода или так и останется контрактом
      * вызывающего — решается в Task 3.1.
      */
@@ -78,11 +78,15 @@ public class AccountBalanceService {
         return base.add(factsDelta(anchor.get().getDate(), t));
     }
 
-    /** Свободные деньги со счетов, КРОМЕ дефолтного: его считает движок кармашка сам. */
-    public BigDecimal otherFreeMoneyAt(LocalDate t) {
+    /**
+     * Полная сумма свободных денег по ВСЕМ участвующим счетам, ВКЛЮЧАЯ дефолтный (§4.1, §4.4).
+     * Нужна капиталу ({@link CapitalService#liquidAt}), которому — в отличие от движка
+     * кармашка — никто не даёт остаток дефолтного счёта отдельно как {@code currentBalance}
+     * (Task 2.1 «Поправки после ревью», добавлено в Task 2.3).
+     */
+    public BigDecimal freeMoneyAt(LocalDate t) {
         return active().stream()
                 .filter(Account::countsAsFreeMoney)
-                .filter(a -> !a.isDefaultAccount())
                 .map(a -> balanceAt(a, t))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
@@ -93,11 +97,6 @@ public class AccountBalanceService {
                 .filter(Account::isSemiLiquid)
                 .map(a -> balanceAt(a, t))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    /** Резерв возврата карт к планке (§4.2). Счёт без планки в резерв не входит. */
-    public BigDecimal creditRestoreReserveAt(LocalDate t) {
-        return creditGap(t, Account::getAvailableFloor);
     }
 
     /** Долг по кредиткам для капитала (§4.4). Считается от лимита, а не от планки. */
@@ -153,9 +152,9 @@ public class AccountBalanceService {
     /**
      * Разрыв «цель − доступно» для ОДНОГО кредитного счёта (0, если счёт не CREDIT, цель
      * не задана или чекпоинта нет). Общая точка для {@link #creditGap} (используется
-     * {@link #creditRestoreReserveAt}/{@link #creditDebtAt}) и {@link #snapshot} — раньше
-     * {@code snapshot} держал вторую копию этого правила инлайн, и они были обязаны меняться
-     * синхронно, что легко упустить при следующей правке.
+     * {@link #creditDebtAt}) и {@link #snapshot} (резерв возврата к планке §4.2, инлайн) —
+     * раньше {@code snapshot} держал вторую копию этого правила инлайн, и они были обязаны
+     * меняться синхронно, что легко упустить при следующей правке.
      */
     private BigDecimal creditGapFor(Account a, LocalDate t, java.util.function.Function<Account, BigDecimal> level) {
         if (a.getKind() != AccountKind.CREDIT) return BigDecimal.ZERO;
