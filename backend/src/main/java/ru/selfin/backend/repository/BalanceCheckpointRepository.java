@@ -40,4 +40,30 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
     /** Самая ранняя дата чекпоинта. Используется StrategyTimelineService.firstActivityMonth(). */
     @Query("SELECT MIN(b.date) FROM BalanceCheckpoint b")
     Optional<LocalDate> findEarliestCheckpointDate();
+
+    /**
+     * Последний чекпоинт счёта с {@code date ≤ t}; tiebreak created_at (ре-якорь дважды за день).
+     * {@code JOIN FETCH cp.account} — счёт нужен сразу вызывающему
+     * ({@link ru.selfin.backend.service.AccountBalanceService} читает {@code kind}/
+     * {@code trackBalance} с него), а поле ленивое и вне транзакции кидает
+     * {@code LazyInitializationException} (см. Javadoc {@link ru.selfin.backend.model.BalanceCheckpoint#getAccount()}).
+     * Fetch join безопасен вместе с {@code LIMIT 1}: ассоциация {@code @ManyToOne}, не коллекция —
+     * Hibernate не переключается на постраничную выборку в памяти (это ограничение касается только
+     * fetch join коллекций), запрос уходит в БД одним SQL с {@code JOIN ... LIMIT 1}.
+     */
+    @Query("""
+        SELECT cp FROM BalanceCheckpoint cp JOIN FETCH cp.account
+        WHERE cp.account.id = :accountId AND cp.date <= :date
+        ORDER BY cp.date DESC, cp.createdAt DESC LIMIT 1
+        """)
+    Optional<BalanceCheckpoint> findLatestForAccountAt(@Param("accountId") UUID accountId,
+                                                        @Param("date") LocalDate date);
+
+    /** История чекпоинтов одного счёта, от свежих к старым (цепочка дрейфа считается внутри счёта). */
+    @Query("""
+        SELECT cp FROM BalanceCheckpoint cp JOIN FETCH cp.account
+        WHERE cp.account.id = :accountId
+        ORDER BY cp.date DESC, cp.createdAt DESC
+        """)
+    List<BalanceCheckpoint> findAllForAccountOrderByDateDesc(@Param("accountId") UUID accountId);
 }
