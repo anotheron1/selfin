@@ -3,9 +3,11 @@ import {
     fetchCategories, createCategory, updateCategory, deleteCategory, cycleCategoryPriority,
     fetchSnapshots, createSnapshot,
     fetchCheckpoints, createCheckpoint, updateCheckpoint, deleteCheckpoint,
+    fetchAccounts,
 } from '../api';
-import type { BalanceCheckpoint, BudgetSnapshot, Category, CategoryType } from '../types/api';
+import type { Account, BalanceCheckpoint, BudgetSnapshot, Category, CategoryType } from '../types/api';
 import PriorityButton from '../components/PriorityButton';
+import AccountsSection from '../components/accounts/AccountsSection';
 import { Plus, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { AmountInput, amountValue } from '../components/ui/amount-input';
@@ -34,10 +36,14 @@ export default function Settings() {
     const [snapshots, setSnapshots] = useState<BudgetSnapshot[]>([]);
     const [snapshotLoading, setSnapshotLoading] = useState(false);
 
+    // --- Accounts (ANO-9) ---
+    const [accounts, setAccounts] = useState<Account[]>([]);
+
     // --- Balance Checkpoints ---
     const [checkpoints, setCheckpoints] = useState<BalanceCheckpoint[]>([]);
     const [cpDate, setCpDate] = useState(today());
     const [cpAmount, setCpAmount] = useState('');
+    const [cpAccountId, setCpAccountId] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editDate, setEditDate] = useState('');
     const [editAmount, setEditAmount] = useState('');
@@ -52,8 +58,15 @@ export default function Settings() {
     const load = () => fetchCategories().then(setCategories);
     const loadSnapshots = () => fetchSnapshots().then(setSnapshots);
     const loadCheckpoints = () => fetchCheckpoints().then(setCheckpoints);
+    const loadAccounts = () => fetchAccounts().then(setAccounts);
 
-    useEffect(() => { load(); loadSnapshots(); loadCheckpoints(); }, []);
+    useEffect(() => { load(); loadSnapshots(); loadCheckpoints(); loadAccounts(); }, []);
+
+    /**
+     * Правка счетов меняет и историю остатков: удалённый счёт уходит из выбора, переименованный
+     * меняет подпись у своих записей. Поэтому после любой правки перечитываются оба списка.
+     */
+    const reloadAccounts = async () => { await loadAccounts(); await loadCheckpoints(); };
 
     // --- Snapshot handlers ---
     const handleSnapshot = async () => {
@@ -128,7 +141,8 @@ export default function Settings() {
         e.preventDefault();
         const amount = amountValue(cpAmount) ?? NaN;   // ANO-33
         if (!cpDate || isNaN(amount) || amount < 0) return;
-        await createCheckpoint({ date: cpDate, amount });
+        // Пустой cpAccountId уходит как undefined: бэкенд посадит остаток на счёт-приёмник.
+        await createCheckpoint({ date: cpDate, amount, accountId: cpAccountId || undefined });
         setCpDate(today());
         setCpAmount('');
         loadCheckpoints();
@@ -175,6 +189,13 @@ export default function Settings() {
             <div className="pl-4 pr-5 py-6 space-y-6">
                 <h1 className="text-xl font-bold">Настройки</h1>
 
+                <AccountsSection
+                    accounts={accounts}
+                    categories={categories}
+                    onChanged={reloadAccounts}
+                    showToast={showToast}
+                />
+
                 {/* Баланс счёта */}
                 <div className="rounded-2xl p-5 space-y-4"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
@@ -184,27 +205,45 @@ export default function Settings() {
                     </p>
 
                     {/* Форма добавления */}
-                    <form onSubmit={handleCreateCheckpoint} className="flex gap-2">
-                        <input
-                            type="date"
-                            value={cpDate}
-                            onChange={e => setCpDate(e.target.value)}
-                            max={today()}
-                            className="rounded-lg px-3 py-2 text-sm"
-                            style={inputStyle}
-                        />
-                        <AmountInput
-                            value={cpAmount}
-                            onChange={setCpAmount}
-                            placeholder="Сумма, ₽"
-                            className="flex-1 rounded-lg px-3 py-2 text-sm h-auto border-0"
-                            style={inputStyle}
-                        />
-                        <button type="submit"
-                            className="rounded-lg px-3 py-2"
-                            style={{ background: 'var(--color-accent)', color: '#fff' }}>
-                            <Plus size={18} />
-                        </button>
+                    <form onSubmit={handleCreateCheckpoint} className="space-y-2">
+                        <div className="flex gap-2">
+                            <input
+                                type="date"
+                                value={cpDate}
+                                onChange={e => setCpDate(e.target.value)}
+                                max={today()}
+                                className="rounded-lg px-3 py-2 text-sm"
+                                style={inputStyle}
+                            />
+                            <AmountInput
+                                value={cpAmount}
+                                onChange={setCpAmount}
+                                placeholder="Сумма, ₽"
+                                className="flex-1 rounded-lg px-3 py-2 text-sm h-auto border-0"
+                                style={inputStyle}
+                            />
+                            <button type="submit"
+                                className="rounded-lg px-3 py-2"
+                                style={{ background: 'var(--color-accent)', color: '#fff' }}>
+                                <Plus size={18} />
+                            </button>
+                        </div>
+                        {/* Счёт спрашиваем только когда их больше одного: с одним выбирать нечего,
+                            и лишнее поле сломало бы обещание «ввод остатка — один клик». */}
+                        {accounts.length > 1 && (
+                            <select
+                                value={cpAccountId}
+                                onChange={e => setCpAccountId(e.target.value)}
+                                className="w-full rounded-lg px-3 py-2 text-sm"
+                                style={inputStyle}>
+                                <option value="">Счёт по умолчанию</option>
+                                {accounts.map(a => (
+                                    <option key={a.id} value={a.id}>
+                                        {a.name}{a.kind === 'CREDIT' ? ' — доступный остаток' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                     </form>
 
                     {/* История */}
@@ -256,6 +295,13 @@ export default function Settings() {
                                         <span className="text-xs ml-2" style={{ color: 'var(--color-text-muted)' }}>
                                             на {fmtDate(cp.date)}
                                         </span>
+                                        {/* Имя счёта — только когда счетов больше одного:
+                                            иначе это шум, повторяющий одно и то же в каждой строке. */}
+                                        {accounts.length > 1 && (
+                                            <span className="text-xs ml-2" style={{ color: 'var(--color-text-muted)' }}>
+                                                · {cp.accountName}
+                                            </span>
+                                        )}
                                         {/* Дрейф интервала (ANO-15): незаписанные потоки с прошлого якоря */}
                                         {cp.drift != null && (
                                             <span className="text-xs ml-2 px-1.5 py-0.5 rounded-full"

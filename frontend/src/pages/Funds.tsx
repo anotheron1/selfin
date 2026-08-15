@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { fetchFunds, createFund, updateFund, deleteFund, transferToFund } from '../api';
-import type { FundsOverview, TargetFund, PocketResponse } from '../types/api';
+import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
+import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
 import { fmtRub } from '../lib/format';
@@ -17,16 +17,60 @@ import type { PurchaseType } from '../types/api';
 
 const fmt = (n: number | null) => (n != null ? fmtRub(n) : '∞');
 
+/**
+ * Выбор счёта, на котором физически лежат деньги цели (ANO-9 §3.3). Пусто — виртуальный
+ * конверт, как раньше: свой баланс, пополняется переводом. Выбран счёт — копилка становится
+ * целью и датой поверх чужого остатка: собственный баланс перестаёт быть источником правды,
+ * а перевод в неё запрещён, потому что деньги двигаются на самом счёте.
+ *
+ * <p>Показывается, только когда счетов больше одного: с единственным счётом выбирать нечего,
+ * а лишнее поле в форме — плата за возможность, которой ещё нет.
+ */
+function FundAccountPicker({ accounts, value, onChange }: {
+    accounts: Account[];
+    value: string;
+    onChange: (v: string) => void;
+}) {
+    if (accounts.length <= 1) return null;
+    return (
+        <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Деньги лежат на счёте</label>
+            <Select value={value || 'NONE'} onValueChange={v => onChange(v === 'NONE' ? '' : v)}>
+                <SelectTrigger>
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="NONE">Виртуальный конверт</SelectItem>
+                    {accounts.map(a => (
+                        <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+                {value
+                    ? 'Накопленное берётся с остатка счёта. Пополнять переводом нельзя — двигай деньги на счёте и обновляй его остаток.'
+                    : 'Копилка держит свой баланс и пополняется переводом из кармашка.'}
+            </p>
+        </div>
+    );
+}
+
 // ─── Диалог создания фонда ───────────────────────────────────────────────────
 
-function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function CreateFundModal({ accounts, onClose, onSuccess }: {
+    accounts: Account[];
+    onClose: () => void;
+    onSuccess: () => void;
+}) {
     const [name, setName] = useState('');
     const [target, setTarget] = useState('');
     const [targetDate, setTargetDate] = useState('');
     const [purchaseType, setPurchaseType] = useState<PurchaseType>('SAVINGS');
     const [creditRate, setCreditRate] = useState('');
     const [creditTermMonths, setCreditTermMonths] = useState('');
+    const [accountId, setAccountId] = useState('');
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (purchaseType !== 'CREDIT') {
@@ -39,6 +83,7 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
         e.preventDefault();
         if (!name.trim()) return;
         setLoading(true);
+        setError(null);
         try {
             await createFund({
                 name: name.trim(),
@@ -47,9 +92,12 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                 purchaseType,
                 creditRate: purchaseType === 'CREDIT' && creditRate ? Number(creditRate) : undefined,
                 creditTermMonths: purchaseType === 'CREDIT' && creditTermMonths ? Number(creditTermMonths) : undefined,
+                accountId: accountId || null,
             });
             onSuccess();
             onClose();
+        } catch (err) {
+            setError((err as Error).message);
         } finally { setLoading(false); }
     };
 
@@ -113,6 +161,8 @@ function CreateFundModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                             />
                         </>
                     )}
+                    <FundAccountPicker accounts={accounts} value={accountId} onChange={setAccountId} />
+                    {error && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
                     <Button
                         type="submit"
                         className="w-full"
@@ -177,8 +227,9 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
 
 // ─── Диалог редактирования фонда ─────────────────────────────────────────────
 
-function EditFundModal({ fund, onClose, onSuccess }: {
+function EditFundModal({ fund, accounts, onClose, onSuccess }: {
     fund: TargetFund;
+    accounts: Account[];
     onClose: () => void;
     onSuccess: () => void;
 }) {
@@ -188,7 +239,9 @@ function EditFundModal({ fund, onClose, onSuccess }: {
     const [purchaseType, setPurchaseType] = useState<PurchaseType>(fund.purchaseType ?? 'SAVINGS');
     const [creditRate, setCreditRate] = useState(fund.creditRate != null ? String(fund.creditRate) : '');
     const [creditTermMonths, setCreditTermMonths] = useState(fund.creditTermMonths != null ? String(fund.creditTermMonths) : '');
+    const [accountId, setAccountId] = useState(fund.accountId ?? '');
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (purchaseType !== 'CREDIT') {
@@ -201,6 +254,7 @@ function EditFundModal({ fund, onClose, onSuccess }: {
         e.preventDefault();
         if (!name.trim()) return;
         setLoading(true);
+        setError(null);
         try {
             await updateFund(fund.id, {
                 name: name.trim(),
@@ -209,9 +263,12 @@ function EditFundModal({ fund, onClose, onSuccess }: {
                 purchaseType,
                 creditRate: purchaseType === 'CREDIT' && creditRate ? Number(creditRate) : undefined,
                 creditTermMonths: purchaseType === 'CREDIT' && creditTermMonths ? Number(creditTermMonths) : undefined,
+                accountId: accountId || null,
             });
             onSuccess();
             onClose();
+        } catch (err) {
+            setError((err as Error).message);
         } finally { setLoading(false); }
     };
 
@@ -285,6 +342,8 @@ function EditFundModal({ fund, onClose, onSuccess }: {
                             />
                         </>
                     )}
+                    <FundAccountPicker accounts={accounts} value={accountId} onChange={setAccountId} />
+                    {error && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
                     <Button
                         type="submit"
                         className="w-full"
@@ -306,9 +365,11 @@ function EditFundModal({ fund, onClose, onSuccess }: {
 
 // ─── Карточка фонда ──────────────────────────────────────────────────────────
 
-function FundCard({ fund, pocketBalance, onTransfer, onEdit }: {
+function FundCard({ fund, pocketBalance, accountName, onTransfer, onEdit }: {
     fund: TargetFund;
     pocketBalance: number;
+    /** Имя счёта, если копилка лежит на нём; null — виртуальный конверт (ANO-9 §3.3). */
+    accountName: string | null;
     onTransfer: (f: TargetFund) => void;
     onEdit: (f: TargetFund) => void;
 }) {
@@ -325,10 +386,17 @@ function FundCard({ fund, pocketBalance, onTransfer, onEdit }: {
                     {reached && (
                         <Badge variant="outline" className="text-xs border-green-500/60 text-green-500">Цель достигнута</Badge>
                     )}
+                    {fund.accountId && (
+                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                            Лежит на счёте{accountName ? `: ${accountName}` : ''}
+                        </p>
+                    )}
                 </div>
                 <div className="flex items-center gap-1.5">
                     <span className="text-2xl font-bold" style={{ color: 'var(--color-accent)' }}>{pct}%</span>
-                    {!reached && pocketBalance > 0 && (
+                    {/* У копилки на счёте перевода нет: деньги двигаются на самом счёте, а
+                        перевод создал бы вторую запись за те же рубли (бэкенд вернёт 400). */}
+                    {!reached && !fund.accountId && pocketBalance > 0 && (
                         <Button
                             size="sm"
                             variant="outline"
@@ -382,12 +450,16 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
     // Локальный инкремент для перезагрузки PocketCard после перевода в копилку
     const [pocketBump, setPocketBump] = useState(0);
     const [showFunds, setShowFunds] = useState(true);
+    const [accounts, setAccounts] = useState<Account[]>([]);
 
     const load = useCallback(() => {
         setError(null);
         return fetchFunds().then(setData).catch((err: Error) => setError(err.message));
     }, []);
     useEffect(() => { load(); }, [load]);
+    // Счета нужны, только чтобы предложить копилке лечь на реальный счёт (§3.3) и
+    // подписать её карточку — страница без них работает, поэтому сбой не ломает экран.
+    useEffect(() => { fetchAccounts().then(setAccounts).catch(() => setAccounts([])); }, []);
 
     // Фоновое обновление при добавлении через FAB
     useEffect(() => {
@@ -436,6 +508,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                             key={fund.id}
                             fund={fund}
                             pocketBalance={availableNow}
+                            accountName={accounts.find(a => a.id === fund.accountId)?.name ?? null}
                             onTransfer={setTransferFund}
                             onEdit={setEditFund}
                         />
@@ -447,6 +520,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
 
             {showCreate && (
                 <CreateFundModal
+                    accounts={accounts}
                     onClose={() => setShowCreate(false)}
                     onSuccess={() => { setShowCreate(false); load(); }}
                 />
@@ -464,6 +538,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
             {editFund && (
                 <EditFundModal
                     fund={editFund}
+                    accounts={accounts}
                     onClose={() => setEditFund(null)}
                     onSuccess={() => { setEditFund(null); load(); }}
                 />

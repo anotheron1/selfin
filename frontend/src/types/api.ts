@@ -133,7 +133,10 @@ export interface TargetFund {
     id: string;
     name: string;
     targetAmount: number | null;
+    /** У копилки с accountId это остаток СЧЁТА, а не собственное поле копилки (ANO-9 §3.3). */
     currentBalance: number;
+    /** Счёт, на котором лежат деньги цели; null — виртуальный конверт. */
+    accountId: string | null;
     status: FundStatus;
     priority: number;
     targetDate: string | null;
@@ -319,6 +322,9 @@ export interface BalanceCheckpoint {
     id: string;
     date: string;        // YYYY-MM-DD
     amount: number;
+    /** Чей остаток зафиксирован (ANO-9): история всех счетов лежит одним списком. */
+    accountId: string;
+    accountName: string;
     createdAt: string;
     /** Что selfin насчитал на эту дату от предыдущего якоря; null у самого раннего (ANO-15). */
     computedBalance: number | null;
@@ -329,6 +335,51 @@ export interface BalanceCheckpoint {
 export interface BalanceCheckpointCreateDto {
     date: string;
     amount: number;
+    /** Необязательный: без него остаток садится на счёт-приёмник (ANO-9 Task 3.3). */
+    accountId?: string;
+}
+
+// --- Счета (ANO-9) ---
+// Рабочее слово на экране — «Счета». Продуктовое название ещё обсуждается (спека §10),
+// поэтому все видимые строки собраны в accountsCopy.ts: смена слова = правка одного файла.
+
+export type AccountKind = 'DEBIT' | 'CREDIT' | 'DEPOSIT' | 'CASH';
+
+export interface Account {
+    id: string;
+    name: string;
+    kind: AccountKind;
+    /** Главный тумблер: решает и участие в свободных деньгах, и смысл пополнения (§5.2). */
+    trackBalance: boolean;
+    purposeCategoryId: string | null;
+    purposeCategoryName: string | null;
+    creditLimit: number | null;
+    /** Планка возврата: уровень доступного, к которому возвращаешься (§4.2). */
+    availableFloor: number | null;
+    isDefault: boolean;
+    sortOrder: number;
+    /**
+     * Остаток на сегодня. Для CREDIT — ДОСТУПНЫЙ остаток, не долг (§3.2).
+     * null — за остатком не следят либо чекпоинтов нет: ноль читался бы как «денег нет».
+     */
+    balance: number | null;
+    balanceDate: string | null;
+    /** creditLimit − доступно; null для некредитных, без лимита или без чекпоинта. */
+    debt: number | null;
+    /** «Выделено за месяц» по категории-зоне — только у счетов БЕЗ слежения (§5.3). */
+    allocatedThisMonth: number | null;
+    /** Доступное выше планки — предложить поднять планку до этого уровня (§4.2). */
+    floorSuggestion: number | null;
+}
+
+export interface AccountCreateDto {
+    name: string;
+    kind: AccountKind;
+    trackBalance?: boolean | null;
+    purposeCategoryId?: string | null;
+    creditLimit?: number | null;
+    availableFloor?: number | null;
+    sortOrder?: number | null;
 }
 
 // --- Fund Planner ---
