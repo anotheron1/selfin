@@ -4,7 +4,14 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-/** Ответ GET /api/v1/pocket (спека §3.6, §6). Один ответ кормит все представления. */
+/**
+ * Ответ GET /api/v1/pocket (спека §3.6, §6). Один ответ кормит все представления.
+ *
+ * <p>Чисел «свободно» три, и они не равноправны (ANO-9 §4.2–§4.3). {@code pocket} — ответ на
+ * вопрос «сколько можно тратить»; два других — оговорки к нему, и оба {@code null}, когда
+ * оговаривать нечего. Порядок на экране: {@code pocket} крупно, {@code pocketAfterCreditRestore}
+ * обычным, {@code pocketWithDeposits} мелким.
+ */
 public record PocketResultDto(
         BigDecimal pocket,
         BigDecimal currentBalance,
@@ -15,7 +22,19 @@ public record PocketResultDto(
         MinPoint minPoint,
         List<BreakdownLine> breakdown,
         List<TrajectoryPoint> trajectory,
-        List<WishlistCandidate> wishlistCandidates
+        List<WishlistCandidate> wishlistCandidates,
+        /**
+         * «Свободно, если вернуть карты к планке» (§4.2) = {@code pocket − резерв возврата}.
+         * {@code null}, когда возвращать нечего: планок нет либо доступное уже выше них.
+         * Может быть отрицательным — если на возврат не хватает, это и есть ответ.
+         */
+        BigDecimal pocketAfterCreditRestore,
+        /**
+         * «Свободно, если распечатать вклад» (§4.3) = {@code pocket + полу-ликвид}.
+         * {@code null}, когда вкладов нет. Показывать мелким: вклад распечатывают в трудный
+         * момент, а не планируют им жить, поэтому это сноска, а не третий равноправный ответ.
+         */
+        BigDecimal pocketWithDeposits
 ) {
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}
     /**

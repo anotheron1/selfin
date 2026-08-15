@@ -165,6 +165,16 @@ public final class PocketEngine {
         BigDecimal buffer = in.bufferAmount() != null ? in.bufferAmount() : BigDecimal.ZERO;
         BigDecimal pocket = minBalance.subtract(buffer);
 
+        // 5а. Второе и третье числа (ANO-9 §4.2, §4.3). Оба — оговорки к кармашку, а не
+        //     части его вычисления: pocket выше уже посчитан и ниже не меняется.
+        //     null вместо нуля осознанно: «оговаривать нечего» и «оговорка равна нулю» — для
+        //     экрана одно и то же, а null избавляет фронт от решения, показывать ли строку.
+        BigDecimal creditReserve = in.creditRestoreReserveOrZero();
+        BigDecimal pocketAfterCreditRestore = creditReserve.signum() > 0
+                ? pocket.subtract(creditReserve) : null;
+        BigDecimal semiLiquid = in.semiLiquidBalanceOrZero();
+        BigDecimal pocketWithDeposits = semiLiquid.signum() > 0 ? pocket.add(semiLiquid) : null;
+
         // 6. Кандидаты-хотелки — ТОЛЬКО из отдельной выборки (§3.1): OPEN любые
         //    + FIXED-неконвертированные без даты. Датированные FIXED уже в траектории из events.
         List<PocketResultDto.WishlistCandidate> candidates = in.wishlistEvents().stream()
@@ -176,13 +186,14 @@ public final class PocketEngine {
 
         List<PocketResultDto.BreakdownLine> breakdown = buildBreakdown(in, currentBalance, overdue,
                 expensesAtMin, incomeAtMin, forecastAtMin, contribAtMin, contribNamesAtMin,
-                minBalance, minDate, buffer, pocket, candidates);
+                minBalance, minDate, buffer, pocket, candidates, creditReserve);
 
         return new PocketResultDto(pocket, currentBalance, buffer, in.checkpointDate(),
                 new PocketResultDto.Horizon(in.scope().type(), in.horizonEnd(),
                         horizonLabel(in), in.fallbackKind() != FallbackKind.NONE),
                 new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),
-                breakdown, trajectory, candidates);
+                breakdown, trajectory, candidates,
+                pocketAfterCreditRestore, pocketWithDeposits);
     }
 
     // ── правила фильтрации (спека §3.2) ─────────────────────────────────────
@@ -210,7 +221,7 @@ public final class PocketEngine {
             BigDecimal expensesAtMin, BigDecimal incomeAtMin, BigDecimal forecastAtMin,
             BigDecimal contribAtMin, List<String> contribNames,
             BigDecimal minBalance, LocalDate minDate, BigDecimal buffer, BigDecimal pocket,
-            List<PocketResultDto.WishlistCandidate> candidates) {
+            List<PocketResultDto.WishlistCandidate> candidates, BigDecimal creditReserve) {
 
         List<PocketResultDto.BreakdownLine> lines = new ArrayList<>();
         String minDateLabel = DD_MM.format(minDate);
@@ -252,6 +263,14 @@ public final class PocketEngine {
                     "Буфер (настройка)", buffer.negate(), List.of()));
         }
         lines.add(new PocketResultDto.BreakdownLine(BreakdownType.POCKET, "Кармашек", pocket, List.of()));
+
+        // ПОСЛЕ POCKET, рядом с WISHLIST_INFO: строка информационная и в инвариант не входит.
+        // Порядок здесь — не про рендер, а про смысл: всё до кармашка объясняет, из чего он
+        // сложился; всё после — оговорки, которые пользователь может учесть, а может нет.
+        if (creditReserve.signum() > 0) {
+            lines.add(new PocketResultDto.BreakdownLine(BreakdownType.CREDIT_RESTORE,
+                    "Вернуть карты к планке", creditReserve.negate(), List.of()));
+        }
 
         BigDecimal wishlistSum = candidates.stream()
                 .map(PocketResultDto.WishlistCandidate::plannedAmount).filter(Objects::nonNull)

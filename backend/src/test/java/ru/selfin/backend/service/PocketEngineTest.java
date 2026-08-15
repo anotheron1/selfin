@@ -28,7 +28,7 @@ class PocketEngineTest {
 
     // ── хелперы ──────────────────────────────────────────────────────────────
 
-    private static EventSnapshot plan(EventType type, LocalDate date, long amount, Priority prio) {
+    static EventSnapshot plan(EventType type, LocalDate date, long amount, Priority prio) {
         return new EventSnapshot(UUID.randomUUID(), date, type, EventKind.PLAN, EventStatus.PLANNED,
                 prio, dec(amount), null, null, false, "plan");
     }
@@ -86,6 +86,8 @@ class PocketEngineTest {
         List<String> contributors = List.of();
         java.util.Map<java.time.YearMonth, BigDecimal> futureForecast = java.util.Map.of();
         BigDecimal otherAccountsBalance = null;
+        BigDecimal creditRestoreReserve = null;
+        BigDecimal semiLiquidBalance = null;
 
         static PocketInputBuilder create() { return new PocketInputBuilder(); }
         PocketInputBuilder events(EventSnapshot... e) { this.events = List.of(e); return this; }
@@ -116,11 +118,15 @@ class PocketEngineTest {
         }
         /** Свободные деньги прочих счетов (ANO-9 §4.1) — по умолчанию null (счетов, кроме дефолтного, нет). */
         PocketInputBuilder otherAccountsBalance(long v) { this.otherAccountsBalance = dec(v); return this; }
+        /** Резерв возврата кредиток к планке (ANO-9 §4.2) — по умолчанию null (планок нет). */
+        PocketInputBuilder creditRestoreReserve(long v) { this.creditRestoreReserve = dec(v); return this; }
+        /** Полу-ликвид: вклады (ANO-9 §4.3) — по умолчанию null (вкладов нет). */
+        PocketInputBuilder semiLiquidBalance(long v) { this.semiLiquidBalance = dec(v); return this; }
 
         PocketInput build() {
             return new PocketInput(asOf, checkpoint, checkpointDate, events, wishlistEvents, overdue,
                     scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast,
-                    otherAccountsBalance, null, null);
+                    otherAccountsBalance, creditRestoreReserve, semiLiquidBalance);
         }
     }
 
