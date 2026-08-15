@@ -6,6 +6,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.CategoryForecastDto;
 import ru.selfin.backend.dto.MonthlyForecastDto;
@@ -42,6 +43,7 @@ import java.util.Optional;
 @Component
 @RequiredArgsConstructor
 @Slf4j
+@Transactional(readOnly = true)
 public class PocketInputAssembler {
 
     /** Кап поиска следующего дохода (спека §4): дальше квартала — не «период до дохода». */

@@ -13,6 +13,7 @@ import ru.selfin.backend.repository.CapitalItemRepository;
 import ru.selfin.backend.repository.CapitalRevaluationRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
+import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -68,6 +69,7 @@ class CapitalServiceLiquidTest {
         BalanceCheckpoint cp = BalanceCheckpoint.builder()
                 .date(LocalDate.now().minusDays(30))
                 .amount(new BigDecimal("200000"))
+                .account(AccountFixtures.defaultAccount())
                 .build();
         when(checkpointRepo.findTopByDateLessThanEqualOrderByDateDesc(any())).thenReturn(Optional.of(cp));
         when(eventRepo.sumFactByTypeBetween(eq(EventType.INCOME),        any(), any())).thenReturn(new BigDecimal("50000"));

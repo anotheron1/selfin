@@ -3,7 +3,10 @@ package ru.selfin.backend.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import ru.selfin.backend.dto.BalanceCheckpointCreateDto;
 import ru.selfin.backend.dto.BalanceCheckpointDto;
+import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
@@ -11,13 +14,16 @@ import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
+import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,19 +38,22 @@ class BalanceCheckpointServiceTest {
 
     private BalanceCheckpointRepository repository;
     private FinancialEventRepository eventRepository;
+    private AccountRepository accountRepository;
     private BalanceCheckpointService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(BalanceCheckpointRepository.class);
         eventRepository = mock(FinancialEventRepository.class);
+        accountRepository = mock(AccountRepository.class);
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        service = new BalanceCheckpointService(repository, eventRepository);
+        service = new BalanceCheckpointService(repository, eventRepository, accountRepository);
     }
 
     private static BalanceCheckpoint cp(LocalDate date, long amount, LocalDateTime createdAt) {
         return BalanceCheckpoint.builder()
                 .id(UUID.randomUUID()).date(date).amount(BigDecimal.valueOf(amount))
+                .account(AccountFixtures.defaultAccount())
                 .createdAt(createdAt).updatedAt(createdAt)
                 .build();
     }
@@ -124,5 +133,30 @@ class BalanceCheckpointServiceTest {
         assertThat(dtos.get(0).computedBalance()).isNull();
         assertThat(dtos.get(0).drift()).isNull();
         verifyNoInteractions(eventRepository);
+    }
+
+    @Test
+    @DisplayName("ANO-9: create() без выбора счёта проставляет дефолтный счёт из AccountRepository")
+    void create_setsDefaultAccount() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        when(accountRepository.findByDefaultAccountTrueAndDeletedFalse())
+                .thenReturn(Optional.of(defaultAccount));
+        when(repository.save(any(BalanceCheckpoint.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.create(new BalanceCheckpointCreateDto(LocalDate.of(2026, 8, 15), BigDecimal.valueOf(50_000)));
+
+        ArgumentCaptor<BalanceCheckpoint> captor = ArgumentCaptor.forClass(BalanceCheckpoint.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getAccount()).isEqualTo(defaultAccount);
+    }
+
+    @Test
+    @DisplayName("ANO-9: create() без дефолтного счёта после миграции — явная ошибка, не NPE")
+    void create_noDefaultAccount_throwsIllegalState() {
+        when(accountRepository.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.empty());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        service.create(new BalanceCheckpointCreateDto(LocalDate.of(2026, 8, 15), BigDecimal.valueOf(50_000))))
+                .isInstanceOf(IllegalStateException.class);
     }
 }

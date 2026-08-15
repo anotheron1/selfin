@@ -6,9 +6,11 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.BalanceCheckpointCreateDto;
 import ru.selfin.backend.dto.BalanceCheckpointDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
+import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -25,6 +27,7 @@ public class BalanceCheckpointService {
 
     private final BalanceCheckpointRepository repository;
     private final FinancialEventRepository eventRepository;
+    private final AccountRepository accountRepository;
 
     /** Самый свежий чекпоинт — точка отсчёта для всех балансовых расчётов. */
     public Optional<BalanceCheckpoint> findLatest() {
@@ -36,6 +39,10 @@ public class BalanceCheckpointService {
      * computedBalance = prev.amount + знаковые факты в (prev.date, cur.date]
      * (правило фактов = PocketEngine.currentBalance: factAmount != null, не-wishlist);
      * drift = amount − computedBalance. Один range-запрос на всю цепочку.
+     *
+     * <p><b>Допущение одного счёта.</b> Цепочка строится по всем чекпоинтам без учёта
+     * {@code account}, что корректно ровно пока в системе один счёт (инвариант миграции
+     * V20). Снимается в Task 2.4 — цепочка должна группироваться по счёту.
      */
     public List<BalanceCheckpointDto> findAll() {
         List<BalanceCheckpoint> chain = repository.findAllByOrderByDateDesc();
@@ -72,6 +79,7 @@ public class BalanceCheckpointService {
         BalanceCheckpoint checkpoint = BalanceCheckpoint.builder()
                 .date(dto.date())
                 .amount(dto.amount())
+                .account(defaultAccount())
                 .build();
         return toDto(repository.save(checkpoint), null, null);
     }
@@ -92,6 +100,17 @@ public class BalanceCheckpointService {
             throw new ResourceNotFoundException("BalanceCheckpoint", id);
         }
         repository.deleteById(id);
+    }
+
+    /**
+     * Счёт-приёмник для ре-якоря остатка, введённого без выбора счёта (Task 3.3
+     * добавит выбор в API). Отсутствие дефолтного счёта после миграции V20
+     * невозможно в норме — падаем явной ошибкой, а не NPE ниже по стеку.
+     */
+    private Account defaultAccount() {
+        return accountRepository.findByDefaultAccountTrueAndDeletedFalse()
+                .orElseThrow(() -> new IllegalStateException(
+                        "No default account found — invariant from V20 migration violated"));
     }
 
     private static BigDecimal signed(EventType type, BigDecimal amount) {

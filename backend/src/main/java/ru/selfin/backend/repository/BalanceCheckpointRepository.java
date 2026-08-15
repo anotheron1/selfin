@@ -16,6 +16,9 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
      * Самый свежий чекпоинт: по дате, при равных датах — по created_at (поздний побеждает).
      * Tiebreak обязателен (ANO-15 §4): ре-якорь дважды за день — типовой кейс «исправил
      * опечатку», без него якорь недетерминирован. НЕ заменять на derived-имя без ORDER BY!
+     *
+     * <p>Допущение одного счёта: запрос слеп к {@code account}, что корректно ровно пока
+     * счёт один (инвариант V20). Снимается в Task 2.4.
      */
     @Query("SELECT cp FROM BalanceCheckpoint cp ORDER BY cp.date DESC, cp.createdAt DESC LIMIT 1")
     Optional<BalanceCheckpoint> findTopByOrderByDateDesc();

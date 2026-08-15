@@ -16,6 +16,7 @@ import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
+import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -193,7 +194,8 @@ class PocketInputAssemblerTest {
         LocalDate cpDate = LocalDate.of(2026, 2, 10);
         when(cpRepo.findTopByOrderByDateDesc()).thenReturn(Optional.of(
                 ru.selfin.backend.model.BalanceCheckpoint.builder()
-                        .id(UUID.randomUUID()).date(cpDate).amount(BigDecimal.valueOf(5000)).build()));
+                        .id(UUID.randomUUID()).date(cpDate).amount(BigDecimal.valueOf(5000))
+                        .account(AccountFixtures.defaultAccount()).build()));
         UserSettingsService settings = mock(UserSettingsService.class);
         PredictionService prediction = mock(PredictionService.class);
         RecurringRuleService recurring = mock(RecurringRuleService.class);
