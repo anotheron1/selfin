@@ -176,6 +176,58 @@ class TargetFundAccountTest {
     }
 
     @Test
+    @DisplayName("Цель на кредитке — 400: там чекпоинт хранит доступный лимит, и «накоплено» "
+            + "показало бы деньги, которых нет")
+    void fundOnCreditAccount_rejected() {
+        Account credit = AccountFixtures.account(AccountKind.CREDIT, true)
+                .creditLimit(new BigDecimal("200000")).build();
+        when(accountRepo.findById(credit.getId())).thenReturn(Optional.of(credit));
+
+        assertThatThrownBy(() -> service.create(new TargetFundCreateDto("Цель",
+                new BigDecimal("100000"), null, null, null, null, null, credit.getId())))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(t -> assertThat(((ResponseStatusException) t).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
+        verify(fundRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Цель на конверте без слежения — 400: его остаток не подтверждён ничем")
+    void fundOnUntrackedAccount_rejected() {
+        Account envelope = AccountFixtures.account(AccountKind.DEBIT, false).build();
+        when(accountRepo.findById(envelope.getId())).thenReturn(Optional.of(envelope));
+
+        assertThatThrownBy(() -> service.create(new TargetFundCreateDto("Цель",
+                new BigDecimal("100000"), null, null, null, null, null, envelope.getId())))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(t -> assertThat(((ResponseStatusException) t).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
+        verify(fundRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Отвязка от счёта переносит накопленное в собственное поле копилки, а не "
+            + "возвращает её к протухшему нулю")
+    void unlinkFromAccount_carriesBalanceOver() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        LocalDate today = LocalDate.now();
+        TargetFund f = fund(deposit.getId(), "0");
+
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(checkpointRepo.findLatestForAccountAt(deposit.getId(), today))
+                .thenReturn(Optional.of(checkpoint(deposit, today.minusDays(2), "300000")));
+        when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TargetFundDto out = service.update(f.getId(), new TargetFundCreateDto("На квартиру",
+                new BigDecimal("1000000"), null, null, null, null, null, null));
+
+        assertThat(f.getAccountId()).isNull();
+        assertThat(f.getCurrentBalance()).isEqualByComparingTo("300000");
+        assertThat(out.currentBalance()).isEqualByComparingTo("300000");
+    }
+
+    @Test
     @DisplayName("Копилка на несуществующем счёте — 404")
     void fundOnUnknownAccount_rejected() {
         UUID unknown = UUID.randomUUID();

@@ -82,11 +82,22 @@ public class AccountBalanceService {
      * сценарий. Фильтр по трекингу остаётся там, где живёт смысл фильтра — у вызывающего.
      */
     public BigDecimal balanceAt(Account a, LocalDate t) {
-        Optional<BalanceCheckpoint> anchor = anchorAt(a, t);
-        if (anchor.isEmpty()) return BigDecimal.ZERO;
-        BigDecimal base = anchor.get().getAmount();
+        return balanceAt(a, t, anchorAt(a, t).orElse(null));
+    }
+
+    /**
+     * То же правило, но с уже найденным якорем — для вызывающих, которым якорь нужен и сам по
+     * себе (дата на карточке, подсказка планки, различение «долга нет» и «считать нечем»).
+     * Без этой перегрузки {@code AccountService.toDto} спрашивал якорь одного счёта до трёх раз
+     * за карточку, и три ответа в принципе могли разойтись (найдено ревью чанка 3).
+     *
+     * @param anchor якорь на дату {@code t} либо {@code null}, если его нет
+     */
+    public BigDecimal balanceAt(Account a, LocalDate t, BalanceCheckpoint anchor) {
+        if (anchor == null) return BigDecimal.ZERO;
+        BigDecimal base = anchor.getAmount();
         if (!a.isDefaultAccount()) return base;
-        return base.add(factsDelta(anchor.get().getDate(), t));
+        return base.add(factsDelta(anchor.getDate(), t));
     }
 
     /**
@@ -147,6 +158,15 @@ public class AccountBalanceService {
      */
     public BigDecimal creditDebtAt(Account a, LocalDate t) {
         return creditGapFor(a, t, Account::getCreditLimit);
+    }
+
+    /** То же с уже найденным якорем — см. {@link #balanceAt(Account, LocalDate, BalanceCheckpoint)}. */
+    public BigDecimal creditDebtAt(Account a, BalanceCheckpoint anchor) {
+        if (a.getKind() != AccountKind.CREDIT || a.getCreditLimit() == null || anchor == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal gap = a.getCreditLimit().subtract(anchor.getAmount());
+        return gap.signum() > 0 ? gap : BigDecimal.ZERO;
     }
 
     /**

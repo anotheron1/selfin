@@ -14,8 +14,10 @@ import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.AccountRepository;
+import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -42,6 +44,8 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
     private final FinancialEventRepository eventRepository;
+    private final BalanceCheckpointRepository checkpointRepository;
+    private final TargetFundRepository fundRepository;
     private final AccountBalanceService accountBalanceService;
 
     public List<AccountDto> findAll() {
@@ -73,6 +77,7 @@ public class AccountService {
     @Transactional
     public AccountDto update(UUID id, AccountCreateDto dto) {
         Account account = activeById(id);
+        rejectCreditBoundaryChange(account, dto.kind());
         account.setName(dto.name());
         account.setKind(dto.kind());
         account.setTrackBalance(dto.trackBalance() != null ? dto.trackBalance() : defaultTracking(dto.kind()));
@@ -96,6 +101,17 @@ public class AccountService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Cannot delete the default account: assign another one first");
         }
+        // Копилка, лежащая на этом счёте, после удаления показала бы ноль накопленного
+        // (fundBalanceAt на удалённом счёте даёт ноль), а кармашек начал бы резервировать
+        // взносы на всю цель заново. Восстановить прежнее число неоткуда: собственный баланс
+        // такой копилки давно нулевой. Поэтому 409, а не тихое обнуление (ревью чанка 3).
+        fundRepository.findAllByDeletedFalseOrderByPriorityAsc().stream()
+                .filter(f -> id.equals(f.getAccountId()))
+                .findAny()
+                .ifPresent(f -> {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "The goal \"" + f.getName() + "\" lives on this account: unlink it first");
+                });
         account.setDeleted(true);
         accountRepository.save(account);
     }
@@ -142,6 +158,27 @@ public class AccountService {
     /** Дефолт тумблера по природе счёта (§3.1). CASH без слежения — «расход при снятии». */
     private static boolean defaultTracking(AccountKind kind) {
         return kind != AccountKind.CASH;
+    }
+
+    /**
+     * Переход природы через границу «кредитный / некредитный» запрещён, если у счёта уже есть
+     * чекпоинты (§3.2). Смысл сохранённых сумм при таком переходе переворачивается: у CREDIT
+     * чекпоинт хранит ДОСТУПНЫЙ остаток, у остальных — остаток на счёте. Карта с остатком
+     * 40 000, объявленная кредиткой с лимитом 200 000, мгновенно получила бы долг 160 000 и
+     * выпала из свободных денег — молча, без единой правки чисел (найдено ревью чанка 3).
+     *
+     * <p>Переходы DEBIT ↔ CASH ↔ DEPOSIT разрешены: там сумма означает одно и то же.
+     * Счёт без единого чекпоинта меняет природу свободно — переворачивать нечего.
+     */
+    private void rejectCreditBoundaryChange(Account account, AccountKind next) {
+        boolean wasCredit = account.getKind() == AccountKind.CREDIT;
+        if (wasCredit == (next == AccountKind.CREDIT)) return;
+        if (!checkpointRepository.existsByAccountId(account.getId())) return;
+        throw badRequest(wasCredit
+                ? "This account already has balances recorded as available credit: "
+                        + "they would silently become a plain balance. Create a new account instead"
+                : "This account already has balances recorded as a plain balance: "
+                        + "they would silently become available credit. Create a new account instead");
     }
 
     private void validate(Account a) {
@@ -196,16 +233,19 @@ public class AccountService {
     // === числа карточки (§5.3) ===
 
     private AccountDto toDto(Account a, LocalDate today) {
-        Optional<BalanceCheckpoint> anchor = accountBalanceService.anchorAt(a, today);
-        boolean hasAnchor = anchor.isPresent();
+        // Якорь спрашивается ОДИН раз на карточку и передаётся дальше: balanceAt, долг и дата
+        // должны отвечать про один и тот же чекпоинт (ревью чанка 3 — раньше было три запроса).
+        BalanceCheckpoint anchor = accountBalanceService.anchorAt(a, today).orElse(null);
 
-        BigDecimal balance = a.isTrackBalance() && hasAnchor
-                ? accountBalanceService.balanceAt(a, today) : null;
-        LocalDate balanceDate = anchor.map(BalanceCheckpoint::getDate).orElse(null);
+        BigDecimal balance = a.isTrackBalance() && anchor != null
+                ? accountBalanceService.balanceAt(a, today, anchor) : null;
+        // Дата тоже только при слежении: у конверта без слежения число остатка не показывается,
+        // и одинокая дата рядом с «Выделено за месяц» читалась бы как дата этого выделения.
+        LocalDate balanceDate = a.isTrackBalance() && anchor != null ? anchor.getDate() : null;
 
         boolean creditKnown = a.getKind() == AccountKind.CREDIT
-                && a.getCreditLimit() != null && hasAnchor;
-        BigDecimal debt = creditKnown ? accountBalanceService.creditDebtAt(a, today) : null;
+                && a.getCreditLimit() != null && anchor != null;
+        BigDecimal debt = creditKnown ? accountBalanceService.creditDebtAt(a, anchor) : null;
 
         Category purpose = a.getPurposeCategory();
         BigDecimal allocated = !a.isTrackBalance() && purpose != null
@@ -217,7 +257,7 @@ public class AccountService {
                 purpose != null ? purpose.getName() : null,
                 a.getCreditLimit(), a.getAvailableFloor(), a.isDefaultAccount(), a.getSortOrder(),
                 balance, balanceDate, debt, allocated,
-                floorSuggestion(a, anchor.orElse(null)));
+                floorSuggestion(a, anchor));
     }
 
     /**
@@ -240,11 +280,19 @@ public class AccountService {
      * Подсказка поднять планку (§4.2): доступное на последнем чекпоинте, если оно выше
      * нынешней планки. Одно сравнение, без статистики — устойчив ли уровень, решает
      * пользователь, а не приложение.
+     *
+     * <p>Предложение подрезается лимитом. §8 разрешает доступному быть ВЫШЕ лимита (свои
+     * деньги лежат на кредитке), а {@link #validate} требует {@code планка ≤ лимит} — без
+     * подрезки подсказка предлагала бы уровень, который сама же валидация отвергнет 400,
+     * и кнопка на карточке вела бы в тупик (найдено ревью чанка 3).
      */
     private static BigDecimal floorSuggestion(Account a, BalanceCheckpoint anchor) {
         if (a.getKind() != AccountKind.CREDIT || a.getAvailableFloor() == null || anchor == null) {
             return null;
         }
-        return anchor.getAmount().compareTo(a.getAvailableFloor()) > 0 ? anchor.getAmount() : null;
+        BigDecimal available = anchor.getAmount();
+        BigDecimal capped = a.getCreditLimit() != null && available.compareTo(a.getCreditLimit()) > 0
+                ? a.getCreditLimit() : available;
+        return capped.compareTo(a.getAvailableFloor()) > 0 ? capped : null;
     }
 }

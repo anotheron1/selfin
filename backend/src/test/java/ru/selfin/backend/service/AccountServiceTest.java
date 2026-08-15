@@ -16,15 +16,18 @@ import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
+import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
@@ -59,6 +62,7 @@ class AccountServiceTest {
     @Mock CategoryRepository categoryRepo;
     @Mock BalanceCheckpointRepository checkpointRepo;
     @Mock FinancialEventRepository eventRepo;
+    @Mock TargetFundRepository fundRepo;
 
     private AccountService service;
 
@@ -66,7 +70,8 @@ class AccountServiceTest {
     void setUp() {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
-        service = new AccountService(accountRepo, categoryRepo, eventRepo, balanceService);
+        service = new AccountService(accountRepo, categoryRepo, eventRepo, checkpointRepo,
+                fundRepo, balanceService);
     }
 
     private void savePassesThrough() {
@@ -275,6 +280,68 @@ class AccountServiceTest {
         verify(accountRepo).save(envelope);
     }
 
+    @Test
+    @DisplayName("Удаление счёта, на котором лежит цель — 409: накопленное после удаления "
+            + "показало бы ноль, а восстановить его неоткуда")
+    void delete_accountHoldingAFund_rejectedWithConflict() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("На квартиру")
+                        .accountId(deposit.getId()).build()));
+
+        assertThatThrownBy(() -> service.delete(deposit.getId()))
+                .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
+        assertThat(deposit.isDeleted()).isFalse();
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("§3.2: смена природы через границу «кредитная / некредитная» у счёта с "
+            + "остатками — 400: те же суммы означали бы другое, и долг возник бы из ниоткуда")
+    void update_kindAcrossCreditBoundary_withCheckpoints_rejected() {
+        Account card = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        when(accountRepo.findById(card.getId())).thenReturn(Optional.of(card));
+        when(checkpointRepo.existsByAccountId(card.getId())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.update(card.getId(), new AccountCreateDto(
+                "Кредитка", AccountKind.CREDIT, true, null, new BigDecimal("200000"), null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        assertThat(card.getKind()).isEqualTo(AccountKind.DEBIT);
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Та же смена природы у счёта БЕЗ остатков разрешена — переворачивать нечего")
+    void update_kindAcrossCreditBoundary_withoutCheckpoints_allowed() {
+        Account card = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        when(accountRepo.findById(card.getId())).thenReturn(Optional.of(card));
+        when(checkpointRepo.existsByAccountId(card.getId())).thenReturn(false);
+        savePassesThrough();
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        AccountDto out = service.update(card.getId(), new AccountCreateDto(
+                "Кредитка", AccountKind.CREDIT, true, null, new BigDecimal("200000"), null, null));
+
+        assertThat(out.kind()).isEqualTo(AccountKind.CREDIT);
+    }
+
+    @Test
+    @DisplayName("Переход DEBIT → CASH с остатками разрешён: сумма означает одно и то же")
+    void update_kindWithinNonCreditKinds_allowedEvenWithCheckpoints() {
+        Account card = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        when(accountRepo.findById(card.getId())).thenReturn(Optional.of(card));
+        savePassesThrough();
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        AccountDto out = service.update(card.getId(),
+                new AccountCreateDto("Наличные", AccountKind.CASH, true, null, null, null, null));
+
+        assertThat(out.kind()).isEqualTo(AccountKind.CASH);
+        // Проверка существования чекпоинтов для этого перехода вообще не нужна
+        verify(checkpointRepo, never()).existsByAccountId(any());
+    }
+
     // === Числа карточки (спека §5.3) ===
 
     @Test
@@ -333,6 +400,55 @@ class AccountServiceTest {
         assertThat(out.allocatedThisMonth()).isEqualByComparingTo("7000");
         assertThat(out.balance()).isNull();
         assertThat(out.purposeCategoryName()).isEqualTo("Бензин");
+    }
+
+    @Test
+    @DisplayName("У конверта без слежения нет и ДАТЫ остатка, даже если чекпоинт когда-то был: "
+            + "одинокая дата рядом с «Выделено за месяц» читалась бы как дата этого выделения")
+    void dto_untrackedAccountWithOldCheckpoint_reportsNoBalanceDate() {
+        Category fuel = category("Бензин");
+        Account envelope = AccountFixtures.account(AccountKind.DEBIT, false)
+                .purposeCategory(fuel).build();
+        LocalDate today = LocalDate.now();
+        when(accountRepo.findAllActiveWithPurpose()).thenReturn(List.of(envelope));
+        when(checkpointRepo.findLatestForAccountAt(envelope.getId(), today))
+                .thenReturn(Optional.of(checkpoint(envelope, today.minusDays(60), "5000")));
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        AccountDto out = service.findAll().get(0);
+
+        assertThat(out.balance()).isNull();
+        assertThat(out.balanceDate()).isNull();
+    }
+
+    @Test
+    @DisplayName("«Выделено за месяц» считает ТОЛЬКО расходные факты своей категории: доход по той "
+            + "же категории (кэшбэк), факт по хотелке и голый план в число не входят")
+    void dto_allocatedThisMonth_ignoresIncomeWishlistAndPlans() {
+        Category fuel = category("Бензин");
+        Account envelope = AccountFixtures.account(AccountKind.DEBIT, false)
+                .purposeCategory(fuel).build();
+        LocalDate today = LocalDate.now();
+        LocalDate monthStart = today.withDayOfMonth(1);
+
+        FinancialEvent wishlistFact = expenseFact(today, fuel, "5000");
+        wishlistFact.setWishlistStatus(WishlistStatus.FIXED);
+        FinancialEvent cashback = FinancialEvent.builder()
+                .id(UUID.randomUUID()).date(today).type(EventType.INCOME)
+                .category(fuel).eventKind(EventKind.FACT).factAmount(new BigDecimal("2000"))
+                .status(EventStatus.EXECUTED).priority(Priority.MEDIUM).deleted(false).build();
+        FinancialEvent planOnly = FinancialEvent.builder()
+                .id(UUID.randomUUID()).date(today).type(EventType.EXPENSE)
+                .category(fuel).eventKind(EventKind.PLAN).plannedAmount(new BigDecimal("9000"))
+                .status(EventStatus.PLANNED).priority(Priority.MEDIUM).deleted(false).build();
+
+        when(accountRepo.findAllActiveWithPurpose()).thenReturn(List.of(envelope));
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(monthStart, today)).thenReturn(List.of(
+                expenseFact(monthStart, fuel, "3000"),
+                wishlistFact, cashback, planOnly));
+
+        // Только 3 000. С хотелкой было бы 8 000, с кэшбэком 10 000, с планом 19 000.
+        assertThat(service.findAll().get(0).allocatedThisMonth()).isEqualByComparingTo("3000");
     }
 
     @Test
@@ -403,6 +519,23 @@ class AccountServiceTest {
                 .thenReturn(Optional.of(checkpoint(credit, today.minusDays(1), "120000")));
 
         assertThat(service.findAll().get(0).floorSuggestion()).isNull();
+    }
+
+    @Test
+    @DisplayName("§4.2 + §8: доступное ВЫШЕ лимита (свои деньги на кредитке) — подсказка "
+            + "подрезается лимитом, иначе она предлагала бы уровень, который валидация "
+            + "отвергнет 400, и кнопка вела бы в тупик")
+    void dto_availableAboveLimit_suggestionIsCappedByLimit() {
+        Account credit = AccountFixtures.account(AccountKind.CREDIT, true)
+                .creditLimit(new BigDecimal("200000"))
+                .availableFloor(new BigDecimal("150000")).build();
+        LocalDate today = LocalDate.now();
+        when(accountRepo.findAllActiveWithPurpose()).thenReturn(List.of(credit));
+        when(checkpointRepo.findLatestForAccountAt(credit.getId(), today))
+                .thenReturn(Optional.of(checkpoint(credit, today.minusDays(1), "210000")));
+
+        // 200 000 (лимит), а не 210 000 (доступное)
+        assertThat(service.findAll().get(0).floorSuggestion()).isEqualByComparingTo("200000");
     }
 
     @Test

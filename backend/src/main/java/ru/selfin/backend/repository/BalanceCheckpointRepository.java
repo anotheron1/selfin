@@ -26,6 +26,9 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
     @Query("SELECT cp FROM BalanceCheckpoint cp JOIN FETCH cp.account ORDER BY cp.date DESC, cp.createdAt DESC")
     List<BalanceCheckpoint> findAllByOrderByDateDesc();
 
+    /** Есть ли у счёта хоть один зафиксированный остаток — смена природы счёта их смысл переворачивает. */
+    boolean existsByAccountId(UUID accountId);
+
     /** Самая ранняя дата чекпоинта. Используется StrategyTimelineService.firstActivityMonth(). */
     @Query("SELECT MIN(b.date) FROM BalanceCheckpoint b")
     Optional<LocalDate> findEarliestCheckpointDate();

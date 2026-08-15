@@ -18,7 +18,10 @@ import ru.selfin.backend.dto.pocket.sandbox.SandboxResponseDto;
 import ru.selfin.backend.dto.pocket.sandbox.TryOnDto;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.Account;
+import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundPurchaseType;
@@ -26,6 +29,7 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
+import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -54,6 +58,8 @@ class PocketSandboxServiceTest {
     private PocketInputAssembler assembler;
     private FinancialEventRepository eventRepository;
     private TargetFundRepository fundRepository;
+    private ru.selfin.backend.repository.AccountRepository accountRepository;
+    private ru.selfin.backend.repository.BalanceCheckpointRepository checkpointRepository;
     private PocketSandboxService service;
 
     @BeforeEach
@@ -64,10 +70,10 @@ class PocketSandboxServiceTest {
         when(fundRepository.findAllWishlistFunds()).thenReturn(List.of());
         // Настоящий AccountBalanceService поверх моков: копилка со счётом берёт накопленное
         // с остатка счёта (ANO-9 §3.3), и подменять это правило моком значит не проверять его.
+        accountRepository = mock(ru.selfin.backend.repository.AccountRepository.class);
+        checkpointRepository = mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class);
         service = new PocketSandboxService(assembler, eventRepository, fundRepository,
-                new AccountBalanceService(mock(ru.selfin.backend.repository.AccountRepository.class),
-                        mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class),
-                        eventRepository));
+                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository));
     }
 
     // ── фикстуры ────────────────────────────────────────────────────────────
@@ -385,6 +391,39 @@ class PocketSandboxServiceTest {
         assertThat(cr.creditRate()).isEqualByComparingTo("18.0");
         assertThat(cr.creditTermMonths()).isEqualTo(60);
         assertThat(cr.inBaseline()).isFalse();
+    }
+
+    @Test
+    @DisplayName("ANO-9 §3.3: у копилки НА СЧЕТЕ остаток в примерке считается от остатка счёта, "
+            + "а не от собственного поля — иначе примерка предлагала бы докопить всю цель заново")
+    void items_fundOnAccount_amountFromAccountBalance() {
+        UUID accountId = UUID.randomUUID();
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).id(accountId).build();
+        UUID fundId = UUID.randomUUID();
+        TargetFund fund = TargetFund.builder()
+                .id(fundId).name("На квартиру")
+                .targetAmount(new BigDecimal("1000000"))
+                // Собственное поле нулевое: перевод в копилку на счёте запрещён (§3.3).
+                .currentBalance(BigDecimal.ZERO)
+                .accountId(accountId)
+                .targetDate(LocalDate.of(2026, 5, 20))
+                .purchaseType(FundPurchaseType.SAVINGS)
+                .wishlistStatus(WishlistStatus.FIXED)
+                .build();
+        when(fundRepository.findAllWishlistFunds()).thenReturn(List.of(fund));
+        when(accountRepository.findById(accountId)).thenReturn(java.util.Optional.of(deposit));
+        when(checkpointRepository.findLatestForAccountAt(accountId, TODAY)).thenReturn(
+                java.util.Optional.of(BalanceCheckpoint.builder().id(UUID.randomUUID())
+                        .date(TODAY.minusDays(3)).amount(new BigDecimal("300000"))
+                        .account(deposit).build()));
+        assembled(base().build(), Map.of());
+
+        SandboxResponseDto r = service.simulate(req(List.of(), List.of()), TODAY);
+
+        SandboxItemDto item = r.items().stream()
+                .filter(i -> i.ref().equals(SandboxRef.fund(fundId))).findFirst().orElseThrow();
+        // 1 000 000 − 300 000 (остаток счёта). По собственному полю вышло бы 1 000 000.
+        assertThat(item.amount()).isEqualByComparingTo("700000");
     }
 
     // ── валидация §9 ────────────────────────────────────────────────────────

@@ -31,7 +31,13 @@ function FundAccountPicker({ accounts, value, onChange }: {
     value: string;
     onChange: (v: string) => void;
 }) {
-    if (accounts.length <= 1) return null;
+    // Кредитка и конверт без слежения отсеиваются: на кредитке «накоплено» показало бы
+    // неизрасходованный лимит, а у конверта остаток не подтверждён ничем. Бэкенд обе
+    // привязки отвергает 400 — не предлагаем то, что заведомо не сохранится.
+    const eligible = accounts.filter(a => a.trackBalance && a.kind !== 'CREDIT');
+    // Один подходящий счёт — это основная карта: цель поверх неё означала бы «вся моя
+    // наличность и есть эта цель», выбирать там нечего.
+    if (eligible.length <= 1) return null;
     return (
         <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Деньги лежат на счёте</label>
@@ -41,7 +47,7 @@ function FundAccountPicker({ accounts, value, onChange }: {
                 </SelectTrigger>
                 <SelectContent>
                     <SelectItem value="NONE">Виртуальный конверт</SelectItem>
-                    {accounts.map(a => (
+                    {eligible.map(a => (
                         <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
                     ))}
                 </SelectContent>

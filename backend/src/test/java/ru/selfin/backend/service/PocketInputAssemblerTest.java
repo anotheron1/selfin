@@ -131,6 +131,27 @@ class PocketInputAssemblerTest {
     }
 
     @Test
+    @DisplayName("ANO-9 §3.3: у копилки НА СЧЕТЕ накопленное берётся с остатка счёта, а не из "
+            + "собственного поля — иначе резервировались бы взносы на всю цель поверх уже отложенного")
+    void fundOnAccount_reservesRemainderFromAccountBalance() {
+        // Собственное поле копилки НУЛЕВОЕ (перевод в неё запрещён), а на счёте лежит 20 000.
+        // Правильный остаток = 80 000 − 20 000 = 60 000 → взнос 12 000 × 5.
+        // Если бы код читал getCurrentBalance(), остаток был бы 80 000 → взнос 16 000.
+        TargetFund f = fund("Египет", 80_000, 0, LocalDate.of(2026, 8, 10), FundPurchaseType.SAVINGS);
+        f.setAccountId(UUID.randomUUID());
+        when(accountBalanceService.fundBalanceAt(f, TODAY)).thenReturn(BigDecimal.valueOf(20_000));
+        fixedFunds(f);
+        when(eventRepository.findPlannedIncomeDates(eq(TODAY), any(), anyBoolean(), any()))
+                .thenReturn(List.of(LocalDate.of(2026, 4, 15)));
+
+        List<EventSnapshot> contribs = contributions(assembler.build(MONTHS_6, TODAY));
+
+        assertThat(contribs).hasSize(5);
+        assertThat(contribs).extracting(EventSnapshot::plannedAmount)
+                .allSatisfy(x -> assertThat(x).isEqualByComparingTo("12000.00"));
+    }
+
+    @Test
     @DisplayName("Края §6: накоплено, протухшая цель, без даты, CREDIT, конвертирована — не резервируются")
     void edges_notReserved() {
         TargetFund saved = fund("Накоплено", 50_000, 50_000, LocalDate.of(2026, 8, 10), FundPurchaseType.SAVINGS);

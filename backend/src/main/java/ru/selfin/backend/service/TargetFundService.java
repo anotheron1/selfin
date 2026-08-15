@@ -8,11 +8,13 @@ import ru.selfin.backend.dto.FundsOverviewDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
+import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.FundTransaction;
 import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
@@ -115,6 +117,12 @@ public class TargetFundService {
         if (dto.purchaseType() != null) fund.setPurchaseType(dto.purchaseType());
         fund.setCreditRate(dto.creditRate());
         fund.setCreditTermMonths(dto.creditTermMonths());
+        // Отвязка от счёта фиксирует накопленное на копилке. Пока копилка жила на счёте, её
+        // собственное поле не двигалось (переводы запрещены), и без переноса цель после
+        // отвязки прыгнула бы к протухшему числу — обычно к нулю (найдено ревью чанка 3).
+        if (fund.getAccountId() != null && dto.accountId() == null) {
+            fund.setCurrentBalance(accountBalanceService.fundBalanceAt(fund, LocalDate.now()));
+        }
         fund.setAccountId(validateAccountLink(dto.accountId(), fund.getId()));
         return toDto(fundRepository.save(fund));
     }
@@ -130,9 +138,21 @@ public class TargetFundService {
      */
     private UUID validateAccountLink(UUID accountId, UUID selfId) {
         if (accountId == null) return null;
-        accountRepository.findById(accountId)
+        Account account = accountRepository.findById(accountId)
                 .filter(a -> !a.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Account", accountId));
+        // Цель на кредитке бессмысленна: там чекпоинт хранит ДОСТУПНЫЙ остаток, и «накоплено»
+        // показало бы неизрасходованный лимит — деньги, которых нет. Конверт без слежения
+        // ничем не лучше: его остаток не входит ни в свободные деньги, ни в капитал, и цель
+        // копила бы число, не подтверждённое ничем (найдено ревью чанка 3).
+        if (account.getKind() == AccountKind.CREDIT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A goal cannot live on a credit account: its balance is available credit, not savings");
+        }
+        if (!account.isTrackBalance()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A goal needs a tracked balance: turn balance tracking on for this account first");
+        }
         fundRepository.findAllByDeletedFalseOrderByPriorityAsc().stream()
                 .filter(f -> accountId.equals(f.getAccountId()))
                 .filter(f -> !f.getId().equals(selfId))
