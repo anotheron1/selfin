@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Единственное место, где живёт правило «остаток счёта на дату» (спека §4.1).
@@ -102,6 +103,52 @@ public class AccountBalanceService {
     public BigDecimal creditDebtAt(LocalDate t) {
         return creditGap(t, Account::getCreditLimit);
     }
+
+    /**
+     * Три производных суммы (§4.1–§4.3) за ОДИН проход по {@link #active()} — вызывается
+     * один раз на запрос из {@link PocketInputAssembler} вместо трёх отдельных обходов
+     * (Task 2.1 «Поправки после ревью», п.3). Счетов в системе единицы, пакетная выборка
+     * якорей не нужна — важна только стабильность точки вызова.
+     *
+     * @param excludedAccountId счёт, чей остаток уже учтён отдельно как {@code currentBalance}
+     *        движка, и его нельзя засчитать ещё раз внутри {@code otherAccountsBalance}.
+     *        <b>Не «дефолтный счёт» по имени, а конкретный id.</b> currentBalance движка
+     *        сегодня определяется legacy-запросом без учёта счёта
+     *        ({@code checkpointRepository.findTopByOrderByDateDesc()}, сознательно не
+     *        заменённым на {@code anchorAt(defaultAccount, t)} — это изменило бы наблюдаемое
+     *        поведение при переходе на счета, см. {@code PocketInputAssemblerAnchorRegressionTest}).
+     *        В вырожденном состоянии данных (несколько счетов с чекпоинтами, дефолтного нет
+     *        или он не самый свежий) этот запрос вернёт чекпоинт НЕ дефолтного счёта — тогда
+     *        исключать из суммы нужно именно его, иначе тот же остаток задвоится: один раз
+     *        как currentBalance, второй раз внутри otherAccountsBalance. {@code null} —
+     *        не исключать никого; легитимно, когда якоря вообще нет (тогда у каждого счёта
+     *        {@link #balanceAt} и так вернёт ноль, exclusion результат не меняет).
+     */
+    public Snapshot snapshot(LocalDate t, UUID excludedAccountId) {
+        BigDecimal other = BigDecimal.ZERO;
+        BigDecimal semiLiquid = BigDecimal.ZERO;
+        BigDecimal creditReserve = BigDecimal.ZERO;
+        for (Account a : active()) {
+            if (a.countsAsFreeMoney() && !a.getId().equals(excludedAccountId)) {
+                other = other.add(balanceAt(a, t));
+            }
+            if (a.isSemiLiquid()) {
+                semiLiquid = semiLiquid.add(balanceAt(a, t));
+            }
+            if (a.getKind() == AccountKind.CREDIT && a.getAvailableFloor() != null) {
+                Optional<BalanceCheckpoint> anchor = anchorAt(a, t);
+                if (anchor.isPresent()) {
+                    BigDecimal gap = a.getAvailableFloor().subtract(anchor.get().getAmount());
+                    if (gap.signum() > 0) creditReserve = creditReserve.add(gap);
+                }
+            }
+        }
+        return new Snapshot(other, creditReserve, semiLiquid);
+    }
+
+    /** Результат {@link #snapshot}: свободные деньги прочих счетов, резерв возврата, полу-ликвид. */
+    public record Snapshot(BigDecimal otherAccountsBalance, BigDecimal creditRestoreReserve,
+                            BigDecimal semiLiquidBalance) {}
 
     private BigDecimal creditGap(LocalDate t, java.util.function.Function<Account, BigDecimal> level) {
         BigDecimal sum = BigDecimal.ZERO;

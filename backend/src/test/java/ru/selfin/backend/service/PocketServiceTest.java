@@ -60,10 +60,13 @@ class PocketServiceTest {
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
         when(fundRepository.findByWishlistStatusAndDeletedFalse(any())).thenReturn(List.of());
         CategoryRepository categoryRepository = mock(CategoryRepository.class);
+        AccountBalanceService accountBalanceService = mock(AccountBalanceService.class);
+        when(accountBalanceService.snapshot(any(), any()))
+                .thenReturn(new AccountBalanceService.Snapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
 
         pocketService = new PocketService(new PocketInputAssembler(eventRepository,
                 checkpointRepository, settingsService, predictionService, recurringRuleService,
-                fundRepository, categoryRepository));
+                fundRepository, categoryRepository, accountBalanceService));
     }
 
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */

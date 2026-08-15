@@ -345,4 +345,79 @@ class AccountBalanceServiceTest {
         // Молчащая кредитка не добавляет 200 000 (лимит) как долг — только вторая: 100 000 − 40 000 = 60 000
         assertThat(debt).isEqualByComparingTo(BigDecimal.valueOf(60_000));
     }
+
+    // ── 8. snapshot (ANO-9 Task 2.2) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("snapshot: три суммы за один проход совпадают с otherFreeMoneyAt/creditRestoreReserveAt/semiLiquidAt")
+    void snapshot_matchesIndividualMethods_whenExcludingDefault() {
+        LocalDate t = LocalDate.of(2026, 3, 20);
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        Account otherTracked = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        Account credit = AccountFixtures.account(AccountKind.CREDIT, true)
+                .availableFloor(BigDecimal.valueOf(150_000)).creditLimit(BigDecimal.valueOf(200_000)).build();
+
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(defaultAccount, otherTracked, deposit, credit));
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), t))
+                .thenReturn(Optional.of(anchor(defaultAccount, LocalDate.of(2026, 3, 1), 500_000)));
+        when(checkpointRepository.findLatestForAccountAt(otherTracked.getId(), t))
+                .thenReturn(Optional.of(anchor(otherTracked, LocalDate.of(2026, 3, 1), 20_000)));
+        when(checkpointRepository.findLatestForAccountAt(deposit.getId(), t))
+                .thenReturn(Optional.of(anchor(deposit, LocalDate.of(2026, 3, 1), 150_000)));
+        when(checkpointRepository.findLatestForAccountAt(credit.getId(), t))
+                .thenReturn(Optional.of(anchor(credit, LocalDate.of(2026, 3, 1), 100_000)));
+
+        AccountBalanceService.Snapshot snapshot = service.snapshot(t, defaultAccount.getId());
+
+        assertThat(snapshot.otherAccountsBalance()).isEqualByComparingTo(BigDecimal.valueOf(20_000));
+        assertThat(snapshot.semiLiquidBalance()).isEqualByComparingTo(BigDecimal.valueOf(150_000));
+        assertThat(snapshot.creditRestoreReserve()).isEqualByComparingTo(BigDecimal.valueOf(50_000));
+    }
+
+    @Test
+    @DisplayName("snapshot: excludedAccountId исключает КОНКРЕТНЫЙ счёт, а не «дефолтный» по флагу "
+            + "— закрывает дыру двойного счёта (Task 2.1 «Поправки после ревью», п.2)")
+    void snapshot_excludesGivenAccountRegardlessOfDefaultFlag() {
+        LocalDate t = LocalDate.of(2026, 3, 20);
+        // Вырожденное состояние: ни один счёт не дефолтный (например, дефолтного нет вовсе,
+        // а якорь currentBalance движка достался этому счёту через legacy-запрос без учёта
+        // счёта — см. PocketInputAssembler). Если бы snapshot исключал по isDefaultAccount(),
+        // anchorAccount попал бы в сумму И как currentBalance, И здесь — задвоение.
+        Account anchorAccount = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        Account otherTracked = AccountFixtures.account(AccountKind.DEBIT, true).build();
+
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(anchorAccount, otherTracked));
+        when(checkpointRepository.findLatestForAccountAt(anchorAccount.getId(), t))
+                .thenReturn(Optional.of(anchor(anchorAccount, LocalDate.of(2026, 3, 1), 500_000)));
+        when(checkpointRepository.findLatestForAccountAt(otherTracked.getId(), t))
+                .thenReturn(Optional.of(anchor(otherTracked, LocalDate.of(2026, 3, 1), 20_000)));
+
+        AccountBalanceService.Snapshot snapshot = service.snapshot(t, anchorAccount.getId());
+
+        // Исключён anchorAccount (по id, не по isDefault — у него флага и нет): в сумме
+        // только otherTracked. Ошибочная реализация «исключать isDefault» дала бы 520 000.
+        assertThat(snapshot.otherAccountsBalance()).isEqualByComparingTo(BigDecimal.valueOf(20_000));
+    }
+
+    @Test
+    @DisplayName("snapshot: excludedAccountId == null не исключает никого (легитимно — якоря вообще нет)")
+    void snapshot_nullExcludedId_excludesNobody() {
+        LocalDate t = LocalDate.of(2026, 3, 20);
+        Account a = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        Account b = AccountFixtures.account(AccountKind.DEBIT, true).build();
+
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(a, b));
+        when(checkpointRepository.findLatestForAccountAt(a.getId(), t))
+                .thenReturn(Optional.of(anchor(a, LocalDate.of(2026, 3, 1), 30_000)));
+        when(checkpointRepository.findLatestForAccountAt(b.getId(), t))
+                .thenReturn(Optional.of(anchor(b, LocalDate.of(2026, 3, 1), 20_000)));
+
+        AccountBalanceService.Snapshot snapshot = service.snapshot(t, null);
+
+        assertThat(snapshot.otherAccountsBalance()).isEqualByComparingTo(BigDecimal.valueOf(50_000));
+    }
 }

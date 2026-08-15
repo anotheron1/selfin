@@ -60,6 +60,7 @@ class PocketInputAssemblerAnchorRegressionTest {
     private FinancialEventRepository eventRepository;
     private TargetFundRepository fundRepository;
     private CategoryRepository categoryRepository;
+    private AccountBalanceService accountBalanceService;
     private UserSettingsService settingsService;
     private PredictionService predictionService;
     private RecurringRuleService recurringRuleService;
@@ -69,6 +70,7 @@ class PocketInputAssemblerAnchorRegressionTest {
         eventRepository = mock(FinancialEventRepository.class);
         fundRepository = mock(TargetFundRepository.class);
         categoryRepository = mock(CategoryRepository.class);
+        accountBalanceService = mock(AccountBalanceService.class);
         settingsService = mock(UserSettingsService.class);
         predictionService = mock(PredictionService.class);
         recurringRuleService = mock(RecurringRuleService.class);
@@ -82,11 +84,17 @@ class PocketInputAssemblerAnchorRegressionTest {
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         when(fundRepository.findByWishlistStatusAndDeletedFalse(ru.selfin.backend.model.enums.WishlistStatus.FIXED))
                 .thenReturn(List.of());
+        // Эти тесты — про checkpointAmount/checkpointDate/диапазон событий, не про счета
+        // (ANO-9 Task 2.2 покрыта отдельно в PocketInputAssemblerTest) — снимок счетов
+        // нейтрален, чтобы не влиять на проверяемое поведение.
+        when(accountBalanceService.snapshot(any(), any()))
+                .thenReturn(new AccountBalanceService.Snapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
     }
 
     private PocketInputAssembler assemblerWith(BalanceCheckpointRepository checkpointRepository) {
         return new PocketInputAssembler(eventRepository, checkpointRepository,
-                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository);
+                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository,
+                accountBalanceService);
     }
 
     @Test

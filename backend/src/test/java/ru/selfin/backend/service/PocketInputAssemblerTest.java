@@ -40,6 +40,7 @@ class PocketInputAssemblerTest {
     private FinancialEventRepository eventRepository;
     private TargetFundRepository fundRepository;
     private CategoryRepository categoryRepository;
+    private AccountBalanceService accountBalanceService;
     private PocketInputAssembler assembler;
 
     @BeforeEach
@@ -47,6 +48,7 @@ class PocketInputAssemblerTest {
         eventRepository = mock(FinancialEventRepository.class);
         fundRepository = mock(TargetFundRepository.class);
         categoryRepository = mock(CategoryRepository.class);
+        accountBalanceService = mock(AccountBalanceService.class);
         BalanceCheckpointRepository checkpointRepository = mock(BalanceCheckpointRepository.class);
         UserSettingsService settingsService = mock(UserSettingsService.class);
         PredictionService predictionService = mock(PredictionService.class);
@@ -62,9 +64,14 @@ class PocketInputAssemblerTest {
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         when(fundRepository.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED))
                 .thenReturn(List.of());
+        // По умолчанию — «счетов, кроме дефолтного, нет»: эти тесты про резервирование
+        // копилок и горизонт, а не про счета (ANO-9 Task 2.2 покрыта отдельно).
+        when(accountBalanceService.snapshot(any(), any()))
+                .thenReturn(new AccountBalanceService.Snapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
 
         assembler = new PocketInputAssembler(eventRepository, checkpointRepository,
-                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository);
+                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository,
+                accountBalanceService);
     }
 
     private static TargetFund fund(String name, long target, long balance,
@@ -203,7 +210,7 @@ class PocketInputAssemblerTest {
         when(prediction.forecastFromEvents(any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         PocketInputAssembler a = new PocketInputAssembler(eventRepository, cpRepo,
-                settings, prediction, recurring, fundRepository, categoryRepository);
+                settings, prediction, recurring, fundRepository, categoryRepository, accountBalanceService);
 
         a.build(MONTHS_6, TODAY);
 
@@ -212,11 +219,50 @@ class PocketInputAssemblerTest {
     }
 
     @Test
+    @DisplayName("ANO-9 Task 2.2: снимок счетов исключает СЧЁТ ЧЕКПОИНТА-ЯКОРЯ, а не «дефолтный» по флагу "
+            + "(дыра двойного счёта — Task 2.1 «Поправки после ревью», п.2)")
+    void accountsSnapshot_excludesActualAnchorAccount_notDefaultFlag() {
+        BalanceCheckpointRepository cpRepo = mock(BalanceCheckpointRepository.class);
+        // Вырожденное состояние: чекпоинт принадлежит счёту, который НЕ дефолтный (например,
+        // дефолтного нет вовсе или его чекпоинт не самый свежий — Task 2.1 «Поправки», п.2).
+        ru.selfin.backend.model.Account anchorOwner =
+                AccountFixtures.account(ru.selfin.backend.model.enums.AccountKind.DEBIT, true).build();
+        LocalDate cpDate = LocalDate.of(2026, 2, 10);
+        when(cpRepo.findTopByOrderByDateDesc()).thenReturn(Optional.of(
+                ru.selfin.backend.model.BalanceCheckpoint.builder()
+                        .id(UUID.randomUUID()).date(cpDate).amount(BigDecimal.valueOf(5000))
+                        .account(anchorOwner).build()));
+        UserSettingsService settings = mock(UserSettingsService.class);
+        PredictionService prediction = mock(PredictionService.class);
+        RecurringRuleService recurring = mock(RecurringRuleService.class);
+        when(settings.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
+        when(prediction.forecastFromEvents(any(), any()))
+                .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
+        PocketInputAssembler a = new PocketInputAssembler(eventRepository, cpRepo,
+                settings, prediction, recurring, fundRepository, categoryRepository, accountBalanceService);
+
+        a.build(MONTHS_6, TODAY);
+
+        // Исключается id счёта, чей чекпоинт РЕАЛЬНО стал якорём — не "дефолтный" по имени
+        // (anchorOwner здесь вообще не дефолтный: если бы код исключал по isDefaultAccount(),
+        // этот id в вызов бы не попал, и подмена фильтра осталась бы незамеченной).
+        org.mockito.Mockito.verify(accountBalanceService).snapshot(eq(TODAY), eq(anchorOwner.getId()));
+    }
+
+    @Test
     @DisplayName("ANO-28: без якоря просрочка запрашивается с начала времён")
     void overdue_noCheckpoint_queriedFromEpoch() {
         assembler.build(MONTHS_6, TODAY);
         org.mockito.Mockito.verify(eventRepository)
                 .findOverdueMandatoryExpenses(eq(LocalDate.of(2000, 1, 1)), eq(TODAY));
+    }
+
+    @Test
+    @DisplayName("ANO-9 Task 2.2: без чекпоинта вообще снимок счетов не исключает никого (null)")
+    void accountsSnapshot_noCheckpoint_excludesNobody() {
+        assembler.build(MONTHS_6, TODAY);
+        org.mockito.Mockito.verify(accountBalanceService)
+                .snapshot(eq(TODAY), org.mockito.ArgumentMatchers.isNull());
     }
 
     @Test

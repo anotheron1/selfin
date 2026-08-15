@@ -34,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Сборка входа движка кармашка: lazy-extend recurring, резолюция горизонта, выборки,
@@ -59,6 +60,7 @@ public class PocketInputAssembler {
     private final RecurringRuleService recurringRuleService;
     private final TargetFundRepository fundRepository;
     private final ru.selfin.backend.repository.CategoryRepository categoryRepository;
+    private final AccountBalanceService accountBalanceService;
 
     /**
      * Результат сборки: вход движка + что фактически развёрнуто в baseline
@@ -128,7 +130,14 @@ public class PocketInputAssembler {
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown scope");
         }
 
-        // 2. Чекпоинт и события (баланс + траектория; диапазон — до конца хвоста §3.9)
+        // 2. Чекпоинт и события (баланс + траектория; диапазон — до конца хвоста §3.9).
+        //    Источник ЯКОРЯ сознательно НЕ заменён на accountBalanceService.anchorAt(default, t)
+        //    (ANO-9 Task 2.2, «Поправки после ревью Task 2.1» п.1): этот legacy-запрос не
+        //    ограничен датой (чекпоинт из будущего становится якорём) и при полном отсутствии
+        //    чекпоинта ниже событий выбираются от EPOCH на нулевую базу — оба поведения
+        //    зафиксированы PocketInputAssemblerAnchorRegressionTest и сохраняются НЕИЗМЕННЫМИ:
+        //    задача обязана быть неотличимой снаружи при одном счёте, а смена семантики якоря —
+        //    отдельное осознанное решение, не попутное этой задаче.
         Optional<BalanceCheckpoint> checkpoint = checkpointRepository.findTopByOrderByDateDesc();
         LocalDate from = checkpoint.map(BalanceCheckpoint::getDate).orElse(EPOCH);
         List<EventSnapshot> events = new ArrayList<>(eventRepository
@@ -200,11 +209,22 @@ public class PocketInputAssembler {
         // 5. Буфер
         BigDecimal buffer = settingsService.getPocketSettings().bufferAmount();
 
+        // 6. Счета (спека §4.1–§4.3). Дыра двойного счёта (Task 2.1 «Поправки», п.2): если
+        //    исключать «дефолтный» по флагу, а якорь currentBalance (см. выше) в вырожденном
+        //    состоянии данных окажется чекпоинтом ДРУГОГО отслеживаемого счёта, этот счёт
+        //    задвоится — раз как currentBalance, второй раз внутри otherAccountsBalance.
+        //    Поэтому исключаем не «дефолтный», а буквально СЧЁТ ТОГО ЧЕКПОИНТА, что стал
+        //    якорём — корректно при любом состоянии данных, не только пока счёт один
+        //    (см. AccountBalanceService.snapshot, AccountBalanceServiceTest, PocketInputAssemblerTest).
+        UUID anchorAccountId = checkpoint.map(cp -> cp.getAccount().getId()).orElse(null);
+        AccountBalanceService.Snapshot accounts = accountBalanceService.snapshot(asOfDate, anchorAccountId);
+
         PocketInput input = new PocketInput(asOfDate,
                 checkpoint.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO),
                 checkpoint.map(BalanceCheckpoint::getDate).orElse(null),
                 events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors,
-                futureForecast);
+                futureForecast,
+                accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance());
         return new Assembled(input, baselineRefs, allIncomes);
     }
 

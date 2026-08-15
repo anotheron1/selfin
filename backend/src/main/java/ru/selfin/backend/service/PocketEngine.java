@@ -64,6 +64,9 @@ public final class PocketEngine {
             if (in.checkpointDate() != null && !e.date().isAfter(in.checkpointDate())) continue;
             currentBalance = currentBalance.add(signed(e.type(), e.factAmount()));
         }
+        // Прочие счета (спека §4.1): их остатки уже посчитаны сборщиком входа,
+        // безадресные факты к ним не применяются — они относятся к дефолтному счёту.
+        currentBalance = currentBalance.add(in.otherAccountsBalanceOrZero());
 
         // 2. День 0: − резерв просрочки − плановые расходы сегодняшнего дня.
         //    Плановые доходы с датой ≤ asOfDate НЕ учитываются (консервативная асимметрия §3.3.2).
