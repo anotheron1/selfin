@@ -121,15 +121,15 @@ class BaselineTimelineBuilderTest {
     }
 
     @Test
-    void buildPastPoints_uses_liquidAt_per_month_and_aggregates_facts() {
+    void buildPastPoints_uses_cashLiquidAt_per_month_and_aggregates_facts() {
         // Готовим прошлое: с марта 2024 по апрель 2026 (currentMonth = май 2026)
         // Для тест-сценария замокаем 3 месяца истории и проверим что точки построены корректно.
         YearMonth current = YearMonth.of(2026, 5);
 
-        // capitalService.liquidAt вызывается для конца каждого прошлого месяца
-        when(capitalService.liquidAt(LocalDate.of(2026, 2, 28))).thenReturn(new BigDecimal("100000"));
-        when(capitalService.liquidAt(LocalDate.of(2026, 3, 31))).thenReturn(new BigDecimal("150000"));
-        when(capitalService.liquidAt(LocalDate.of(2026, 4, 30))).thenReturn(new BigDecimal("180000"));
+        // capitalService.cashLiquidAt вызывается для конца каждого прошлого месяца
+        when(capitalService.cashLiquidAt(LocalDate.of(2026, 2, 28))).thenReturn(new BigDecimal("100000"));
+        when(capitalService.cashLiquidAt(LocalDate.of(2026, 3, 31))).thenReturn(new BigDecimal("150000"));
+        when(capitalService.cashLiquidAt(LocalDate.of(2026, 4, 30))).thenReturn(new BigDecimal("180000"));
 
         // Замокать findFactsByDateRange чтобы вернуть факты по месяцам
         Category catFood = Category.builder().id(UUID.randomUUID()).name("Продукты").build();
@@ -152,7 +152,7 @@ class BaselineTimelineBuilderTest {
         List<StrategyTimelinePointDto> past = builder.buildPastPoints(YearMonth.of(2026, 2), current);
 
         assertThat(past).hasSize(3);
-        // Февраль — нет фактов в моке, баланс из liquidAt
+        // Февраль — нет фактов в моке, баланс из cashLiquidAt
         assertThat(past.get(0).yearMonth()).isEqualTo(YearMonth.of(2026, 2));
         assertThat(past.get(0).phase()).isEqualTo(StrategyPointPhase.PAST);
         assertThat(past.get(0).balance()).isEqualByComparingTo("100000");
@@ -180,7 +180,7 @@ class BaselineTimelineBuilderTest {
         // Существующие тесты этого не ловили: у них плановых событий нет вовсе,
         // а баг проявляется только на пересечении плана и истории.
         YearMonth current = YearMonth.of(2026, 8);
-        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
+        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
 
         Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
         Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
@@ -213,7 +213,7 @@ class BaselineTimelineBuilderTest {
         // «Подписки» из реальных данных: план 4 500 выше медианы 3 529 —
         // прогноз обязан обнулиться, а не «вернуть» разницу отрицательным числом.
         YearMonth current = YearMonth.of(2026, 8);
-        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
+        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
 
         Category subs = Category.builder().id(UUID.randomUUID()).name("Подписки").forecastEnabled(true).build();
         Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
@@ -240,8 +240,8 @@ class BaselineTimelineBuilderTest {
     void buildFuturePoints_uses_recurring_planned_and_predicts_with_fan_bounds() {
         YearMonth current = YearMonth.of(2026, 5);
 
-        // Замокать liquidAt(today) — seed для balanceConfirmed[0]
-        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("180000"));
+        // Замокать cashLiquidAt(today) — seed для balanceConfirmed[0]
+        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("180000"));
 
         // Строим statsMap напрямую — buildFuturePoints больше не вызывает categoryRepo/predictionService
         Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
@@ -407,7 +407,7 @@ class BaselineTimelineBuilderTest {
         when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
         when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
 
-        when(capitalService.liquidAt(any())).thenReturn(new BigDecimal("100000"));
+        when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("100000"));
         when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
         when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
         when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
@@ -424,13 +424,13 @@ class BaselineTimelineBuilderTest {
     }
 
     @Test
-    void build_currentMonth_balance_uses_liquidAt_today() {
+    void build_currentMonth_balance_uses_cashLiquidAt_today() {
         when(eventRepo.findEarliestFactDate()).thenReturn(Optional.empty());
         when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
         when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
         // Fallback firstActivityMonth = today.minusMonths(1) — значит будут PAST + CURRENT + FUTURE
-        when(capitalService.liquidAt(LocalDate.now())).thenReturn(new BigDecimal("550000"));
-        when(capitalService.liquidAt(any())).thenReturn(new BigDecimal("550000"));
+        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("550000"));
+        when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("550000"));
         when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
         when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
         when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());

@@ -250,7 +250,10 @@ public class WishlistSimulationService {
 
         BigDecimal monthlyIncomeAvg = totalIncome.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_UP);
         BigDecimal monthlyExpenseAvg = totalExpense.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_UP);
-        BigDecimal currentCapital = capitalService.liquidAt(LocalDate.now());
+        // cashLiquidAt, а не liquidAt: вклад в ограничения хотелок не входит (ANO-46). Потолок
+        // кредита от этого падает — банк вклад учёл бы, а мы нет; принято осознанно, чтобы
+        // «распечатать вклад» оставалось решением пользователя, а не молчаливым допущением.
+        BigDecimal currentCapital = capitalService.cashLiquidAt(LocalDate.now());
 
         // Max wishlist: 6 months income
         BigDecimal maxWishlist = monthlyIncomeAvg.multiply(BigDecimal.valueOf(6));
