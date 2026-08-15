@@ -107,7 +107,7 @@ public class BalanceCheckpointService {
         BalanceCheckpoint checkpoint = BalanceCheckpoint.builder()
                 .date(dto.date())
                 .amount(dto.amount())
-                .account(defaultAccount())
+                .account(resolveAccount(dto.accountId()))
                 .build();
         return toDto(repository.save(checkpoint), null, null);
     }
@@ -118,6 +118,11 @@ public class BalanceCheckpointService {
                 .orElseThrow(() -> new ResourceNotFoundException("BalanceCheckpoint", id));
         checkpoint.setDate(dto.date());
         checkpoint.setAmount(dto.amount());
+        // Счёт меняется, только если его явно прислали: правка суммы задним числом не должна
+        // молча переносить чужой якорь на счёт-приёмник.
+        if (dto.accountId() != null) {
+            checkpoint.setAccount(resolveAccount(dto.accountId()));
+        }
         checkpoint.setUpdatedAt(LocalDateTime.now());
         return toDto(repository.save(checkpoint), null, null);
     }
@@ -131,14 +136,20 @@ public class BalanceCheckpointService {
     }
 
     /**
-     * Счёт-приёмник для ре-якоря остатка, введённого без выбора счёта (Task 3.3
-     * добавит выбор в API). Отсутствие дефолтного счёта после миграции V20
-     * невозможно в норме — падаем явной ошибкой, а не NPE ниже по стеку.
+     * Счёт, чей остаток вводится. Без явного выбора — счёт-приёмник: так «ввёл остаток» днём 1
+     * остаётся однокликовым и не требует от нового пользователя понимать, что такое счёт.
+     * Отсутствие дефолтного счёта после миграции V20 невозможно в норме — падаем явной
+     * ошибкой, а не NPE ниже по стеку.
      */
-    private Account defaultAccount() {
-        return accountRepository.findByDefaultAccountTrueAndDeletedFalse()
-                .orElseThrow(() -> new IllegalStateException(
-                        "No default account found — invariant from V20 migration violated"));
+    private Account resolveAccount(UUID accountId) {
+        if (accountId == null) {
+            return accountRepository.findByDefaultAccountTrueAndDeletedFalse()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "No default account found — invariant from V20 migration violated"));
+        }
+        return accountRepository.findById(accountId)
+                .filter(a -> !a.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Account", accountId));
     }
 
     private static BigDecimal signed(EventType type, BigDecimal amount) {
@@ -146,7 +157,8 @@ public class BalanceCheckpointService {
     }
 
     private BalanceCheckpointDto toDto(BalanceCheckpoint cp, BigDecimal computed, BigDecimal drift) {
+        Account account = cp.getAccount();
         return new BalanceCheckpointDto(cp.getId(), cp.getDate(), cp.getAmount(),
-                cp.getCreatedAt(), computed, drift);
+                account.getId(), account.getName(), cp.getCreatedAt(), computed, drift);
     }
 }

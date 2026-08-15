@@ -31,13 +31,15 @@ import java.util.UUID;
  * <p>Все мутации (CRUD по items и revaluations) — {@code @Transactional}.
  * Чтения (summary, trajectory, list, history) — readOnly на классе.
  *
- * <p>{@code liquidAt(date)} — публичный метод (используется также StrategyTimelineService,
- * BaselineTimelineBuilder, WishlistSimulationService). Формула построена на счетах (спека
- * 2026-08-12-accounts-skeleton-design.md §4.4, ANO-9 Task 2.3):
+ * <p>Два публичных числа ликвидности, и разница между ними — вклад (спека
+ * 2026-08-12-accounts-skeleton-design.md §4.3–§4.4, ANO-9 Task 2.3, ANO-46):
  * <pre>
- *   ликвид(t)        = freeMoneyAt(t) + semiLiquidAt(t) + Σ балансов копилок БЕЗ account_id
+ *   ликвид(t)        = кассовыйЛиквид(t) + semiLiquidAt(t)   ← экран Капитала
+ *   кассовыйЛиквид(t)= freeMoneyAt(t) + noAnchorFallbackAt(t)
+ *                    + Σ балансов копилок БЕЗ account_id     ← прогнозы: /strategy, /wishlist
  *   обязательства(t) = creditDebtAt(t) + Σ CapitalItem(LIABILITY)
  * </pre>
+ * Кто на каком числе сидит и почему — в Javadoc {@link #cashLiquidAt}.
  * {@code freeMoneyAt}/{@code semiLiquidAt}/{@code creditDebtAt} — {@link AccountBalanceService},
  * единственное место правила «остаток счёта на дату». {@code CapitalService} больше НЕ дублирует
  * это правило инлайн (раньше дублировал — через {@code sumFactByTypeBetween}, у которого не
@@ -278,11 +280,41 @@ public class CapitalService {
      * двойного счёта поверх {@code freeMoneyAt}.
      */
     public BigDecimal liquidAt(LocalDate t) {
-        BigDecimal accountsLiquid = accountBalanceService.freeMoneyAt(t)
-                .add(accountBalanceService.semiLiquidAt(t))
+        return cashLiquidAt(t).add(accountBalanceService.semiLiquidAt(t));
+    }
+
+    /**
+     * Кассовый ликвид на дату {@code t} — то же, что {@link #liquidAt}, но <b>БЕЗ вкладов</b>
+     * (ANO-46, решение пользователя 2026-08-15):
+     * <pre>
+     *   кассовыйЛиквид(t) = freeMoneyAt(t) + noAnchorFallbackAt(t)
+     *                     + Σ балансов копилок БЕЗ account_id
+     * </pre>
+     *
+     * <p><b>Зачем два числа.</b> Спека §4.3 сознательно держит вклад вне основного числа
+     * кармашка: он показывается отдельной сноской мелким шрифтом, потому что вкладом не
+     * планируют жить. Но кассовый график стратегии и зоны риска хотелок сидели на
+     * {@link #liquidAt} — и вклад молча оказывался в кумулятивном балансе как обычные
+     * деньги. Одна сущность считалась по-разному на соседних экранах: человек, проедающий
+     * 10 000 в месяц при вкладе 1 500 000, не получал предупреждения о разрыве ближайшие
+     * 12 лет, хотя кармашек показывал ему только остаток карты.
+     *
+     * <p>Формулировка решения: «Вклад, конечно, может помочь пережить месяц, но это должно
+     * быть осознанным решением пользователя, а не предполагаемое действие». Поэтому вклад
+     * остался ровно в одном месте — на экране Капитала ({@link #liquidAt}, §4.4), где он и
+     * есть имущество. Все прогнозные потребители переведены сюда:
+     * {@link BaselineTimelineBuilder} (кассовый график /strategy) и
+     * {@link WishlistSimulationService} (в том числе «потолок кредита» — он падает, и это
+     * принято осознанно).
+     *
+     * <p>Дефект не проявлялся до чанка 3 только потому, что DEPOSIT-счёт нечем было создать:
+     * CRUD появляется в этом же чанке.
+     */
+    public BigDecimal cashLiquidAt(LocalDate t) {
+        BigDecimal accountsCash = accountBalanceService.freeMoneyAt(t)
                 .add(accountBalanceService.noAnchorFallbackAt(t));
         BigDecimal pocketBalance = fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(t);
-        return accountsLiquid.add(pocketBalance);
+        return accountsCash.add(pocketBalance);
     }
 
     private List<LocalDate> buildMonthEndPoints(LocalDate from, LocalDate to) {

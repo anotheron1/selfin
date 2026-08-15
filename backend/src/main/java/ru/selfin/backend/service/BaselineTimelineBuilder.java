@@ -121,8 +121,9 @@ public class BaselineTimelineBuilder {
         BigDecimal expenseToDate = sumByType(factsToDate, EventType.EXPENSE);
         BigDecimal nettoFlow = incomeToDate.subtract(expenseToDate);
 
-        // balance для CURRENT — live liquidAt(today), не end-of-month проекция
-        BigDecimal balance = capitalService.liquidAt(today);
+        // balance для CURRENT — live cashLiquidAt(today), не end-of-month проекция.
+        // cashLiquidAt, а не liquidAt: вклад в кассовый график не входит (ANO-46).
+        BigDecimal balance = capitalService.cashLiquidAt(today);
 
         return new StrategyTimelinePointDto(
                 current,
@@ -162,7 +163,7 @@ public class BaselineTimelineBuilder {
             BigDecimal expense = sumByType(facts, EventType.EXPENSE);
             BigDecimal nettoFlow = income.subtract(expense);
 
-            BigDecimal balance = capitalService.liquidAt(ym.atEndOfMonth());
+            BigDecimal balance = capitalService.cashLiquidAt(ym.atEndOfMonth());
 
             points.add(new StrategyTimelinePointDto(
                     ym,
@@ -224,7 +225,7 @@ public class BaselineTimelineBuilder {
                 .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
 
         // Шаг 3: построение точек
-        BigDecimal balanceConfirmed = capitalService.liquidAt(LocalDate.now());
+        BigDecimal balanceConfirmed = capitalService.cashLiquidAt(LocalDate.now());
 
         // ANO-41: прогноз считается по тому же правилу, что и в кармашке — медиана это ВСЯ
         // обычная трата категории, а план её часть. Раньше здесь вычиталось sumMedian × k

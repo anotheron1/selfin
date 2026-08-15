@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.AccountRepository;
@@ -72,15 +73,31 @@ public class AccountBalanceService {
      * считается потраченным, а не остатком на счёте). Класс — единственное место правила
      * «остаток на дату», но фильтр по трекингу — ответственность вызывающего (см.
      * {@link #freeMoneyAt}, {@link #semiLiquidAt}: оба фильтруют счета ДО вызова этого
-     * метода). Станет ли это guard'ом внутри метода или так и останется контрактом
-     * вызывающего — решается в Task 3.1.
+     * метода).
+     *
+     * <p><b>Решено в Task 3.1: так и остаётся контрактом вызывающего, guard'а внутри не будет.</b>
+     * У метода появился законный потребитель, которому нужен остаток счёта, НЕ дающего свободных
+     * денег: карточка кредитки на экране счетов показывает доступный остаток, а кредитка по
+     * определению не {@code countsAsFreeMoney}. Guard внутри метода запретил бы именно этот
+     * сценарий. Фильтр по трекингу остаётся там, где живёт смысл фильтра — у вызывающего.
      */
     public BigDecimal balanceAt(Account a, LocalDate t) {
-        Optional<BalanceCheckpoint> anchor = anchorAt(a, t);
-        if (anchor.isEmpty()) return BigDecimal.ZERO;
-        BigDecimal base = anchor.get().getAmount();
+        return balanceAt(a, t, anchorAt(a, t).orElse(null));
+    }
+
+    /**
+     * То же правило, но с уже найденным якорем — для вызывающих, которым якорь нужен и сам по
+     * себе (дата на карточке, подсказка планки, различение «долга нет» и «считать нечем»).
+     * Без этой перегрузки {@code AccountService.toDto} спрашивал якорь одного счёта до трёх раз
+     * за карточку, и три ответа в принципе могли разойтись (найдено ревью чанка 3).
+     *
+     * @param anchor якорь на дату {@code t} либо {@code null}, если его нет
+     */
+    public BigDecimal balanceAt(Account a, LocalDate t, BalanceCheckpoint anchor) {
+        if (anchor == null) return BigDecimal.ZERO;
+        BigDecimal base = anchor.getAmount();
         if (!a.isDefaultAccount()) return base;
-        return base.add(factsDelta(anchor.get().getDate(), t));
+        return base.add(factsDelta(anchor.getDate(), t));
     }
 
     /**
@@ -96,6 +113,30 @@ public class AccountBalanceService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /**
+     * Сколько на копилке на самом деле (§3.3). У копилки С {@code accountId} это остаток
+     * СЧЁТА, а не собственное поле {@code currentBalance}: держать два числа за одни деньги
+     * значит гарантированно их разъехать. Копилка со счётом становится целью и датой поверх
+     * чужого остатка, а не отдельным кошельком.
+     *
+     * <p>Счёт без чекпоинта даёт ноль (§8: «Копилка ссылается на счёт, у которого нет
+     * чекпоинта → баланс копилки = 0, прогресс не показывается»). Удалённый счёт — тоже ноль:
+     * денег на нём для нас больше нет.
+     *
+     * <p>Живёт здесь, а не в {@code TargetFundService}, потому что потребителей правила трое
+     * ({@code TargetFundService}, {@code PocketInputAssembler}, {@code PocketSandboxService}),
+     * и разъехавшись, они дали бы три разных ответа на «сколько уже накоплено».
+     */
+    public BigDecimal fundBalanceAt(TargetFund f, LocalDate t) {
+        if (f.getAccountId() == null) {
+            return f.getCurrentBalance() != null ? f.getCurrentBalance() : BigDecimal.ZERO;
+        }
+        return accountRepository.findById(f.getAccountId())
+                .filter(a -> !a.isDeleted())
+                .map(a -> balanceAt(a, t))
+                .orElse(BigDecimal.ZERO);
+    }
+
     /** Полу-ликвид: вклады (§4.3). */
     public BigDecimal semiLiquidAt(LocalDate t) {
         return active().stream()
@@ -107,6 +148,25 @@ public class AccountBalanceService {
     /** Долг по кредиткам для капитала (§4.4). Считается от лимита, а не от планки. */
     public BigDecimal creditDebtAt(LocalDate t) {
         return creditGap(t, Account::getCreditLimit);
+    }
+
+    /**
+     * Долг ОДНОГО кредитного счёта на дату — для карточки счёта (§5.3). Ноль означает и
+     * «долга нет», и «считать нечем» (нет лимита либо нет чекпоинта): различить эти случаи
+     * может только вызывающий, у которого якорь уже на руках — см. {@code AccountService.toDto},
+     * он отдаёт наружу {@code null}, а не ноль (§8, «счёт молчит»).
+     */
+    public BigDecimal creditDebtAt(Account a, LocalDate t) {
+        return creditGapFor(a, t, Account::getCreditLimit);
+    }
+
+    /** То же с уже найденным якорем — см. {@link #balanceAt(Account, LocalDate, BalanceCheckpoint)}. */
+    public BigDecimal creditDebtAt(Account a, BalanceCheckpoint anchor) {
+        if (a.getKind() != AccountKind.CREDIT || a.getCreditLimit() == null || anchor == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal gap = a.getCreditLimit().subtract(anchor.getAmount());
+        return gap.signum() > 0 ? gap : BigDecimal.ZERO;
     }
 
     /**

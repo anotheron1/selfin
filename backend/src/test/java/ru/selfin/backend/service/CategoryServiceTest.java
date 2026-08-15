@@ -20,6 +20,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,6 +28,7 @@ class CategoryServiceTest {
 
     @Mock CategoryRepository categoryRepository;
     @Mock FinancialEventRepository eventRepository;
+    @Mock AccountService accountService;
     @InjectMocks CategoryService categoryService;
 
     @Test
@@ -72,6 +74,26 @@ class CategoryServiceTest {
 
         // No exception expected
         categoryService.update(id, new CategoryCreateDto("Еда", CategoryType.INCOME, Priority.HIGH, null));
+    }
+
+    /**
+     * §8 спеки счетов: удалённая категория-зона обнуляется у счёта, а счёт продолжает жить.
+     * Событиям категория остаётся (это их история), счёту — нет (это его живой смысл:
+     * «эта карта обслуживает бензин», и указывать на удалённую категорию он не может).
+     * Само обнуление проверяет {@code AccountServiceTest.clearPurposeCategory_...}.
+     */
+    @Test
+    void delete_clearsPurposeCategoryOnAccounts() {
+        UUID id = UUID.randomUUID();
+        Category fuel = Category.builder()
+                .id(id).name("Бензин").type(CategoryType.EXPENSE)
+                .priority(Priority.MEDIUM).system(false).build();
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(fuel));
+
+        categoryService.delete(id);
+
+        assertThat(fuel.isDeleted()).isTrue();
+        verify(accountService).clearPurposeCategory(id);
     }
 
     @Test

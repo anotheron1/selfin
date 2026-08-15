@@ -1,5 +1,7 @@
 import { get, post, put, patch, del, generateUUID } from './client';
 import type {
+    Account,
+    AccountCreateDto,
     AnalyticsReport,
     BalanceCheckpoint,
     BalanceCheckpointCreateDto,
@@ -157,11 +159,11 @@ export const postPocketSandbox = (body: SandboxRequest) =>
 export const fetchFunds = () => get<FundsOverview>('/funds');
 
 /** Создаёт новый целевой фонд (копилку). */
-export const createFund = (body: { name: string; targetAmount?: number; priority?: number; targetDate?: string; purchaseType?: PurchaseType; creditRate?: number; creditTermMonths?: number }) =>
+export const createFund = (body: { name: string; targetAmount?: number; priority?: number; targetDate?: string; purchaseType?: PurchaseType; creditRate?: number; creditTermMonths?: number; accountId?: string | null }) =>
     post<TargetFund>('/funds', body);
 
 /** Обновляет целевой фонд (название, целевую сумму, срок достижения). */
-export const updateFund = (id: string, body: { name: string; targetAmount?: number; priority?: number; targetDate?: string; purchaseType?: PurchaseType; creditRate?: number; creditTermMonths?: number }) =>
+export const updateFund = (id: string, body: { name: string; targetAmount?: number; priority?: number; targetDate?: string; purchaseType?: PurchaseType; creditRate?: number; creditTermMonths?: number; accountId?: string | null }) =>
     put<TargetFund>(`/funds/${id}`, body);
 
 /** Загружает данные планировщика копилок: доходы и расходы по месяцам. */
@@ -210,6 +212,20 @@ export const updateCheckpoint = (id: string, dto: BalanceCheckpointCreateDto) =>
 
 /** Удаляет чекпоинт. */
 export const deleteCheckpoint = (id: string) => del(`/balance-checkpoints/${id}`);
+
+// --- Счета (ANO-9) ---
+
+export const fetchAccounts = () => get<Account[]>('/accounts');
+
+export const createAccount = (dto: AccountCreateDto) => post<Account>('/accounts', dto);
+
+export const updateAccount = (id: string, dto: AccountCreateDto) =>
+    put<Account>(`/accounts/${id}`, dto);
+
+export const deleteAccount = (id: string) => del(`/accounts/${id}`);
+
+/** Отдельная ручка: смена приёмника меняет два счёта сразу, в одной транзакции. */
+export const makeAccountDefault = (id: string) => patch<Account>(`/accounts/${id}/default`);
 
 // --- Capital ---
 

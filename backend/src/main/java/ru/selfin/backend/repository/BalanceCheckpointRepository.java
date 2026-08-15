@@ -15,9 +15,19 @@ public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckp
     /** Самый ранний чекпоинт — используется как нижняя граница в траектории капитала. */
     Optional<BalanceCheckpoint> findTopByOrderByDateAsc();
 
-    /** Вся история чекпоинтов, от свежих к старым; tiebreak created_at (порядок drift-цепочки). */
-    @Query("SELECT cp FROM BalanceCheckpoint cp ORDER BY cp.date DESC, cp.createdAt DESC")
+    /**
+     * Вся история чекпоинтов, от свежих к старым; tiebreak created_at (порядок drift-цепочки).
+     *
+     * <p>{@code JOIN FETCH cp.account} обязателен: {@code BalanceCheckpointService.findAll()}
+     * группирует цепочку по счёту, читает у него {@code isDefaultAccount()} и отдаёт наружу имя
+     * счёта. Без fetch это N+1 инициализаций ленивого прокси, а вне транзакции —
+     * {@code LazyInitializationException} (план, «Поправки после ревью чанка 1», п.1).
+     */
+    @Query("SELECT cp FROM BalanceCheckpoint cp JOIN FETCH cp.account ORDER BY cp.date DESC, cp.createdAt DESC")
     List<BalanceCheckpoint> findAllByOrderByDateDesc();
+
+    /** Есть ли у счёта хоть один зафиксированный остаток — смена природы счёта их смысл переворачивает. */
+    boolean existsByAccountId(UUID accountId);
 
     /** Самая ранняя дата чекпоинта. Используется StrategyTimelineService.firstActivityMonth(). */
     @Query("SELECT MIN(b.date) FROM BalanceCheckpoint b")

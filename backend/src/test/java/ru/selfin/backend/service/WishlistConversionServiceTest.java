@@ -26,8 +26,15 @@ class WishlistConversionServiceTest {
     private final TargetFundRepository fundRepo = mock(TargetFundRepository.class);
     private final RecurringRuleService recurringRuleService = mock(RecurringRuleService.class);
     private final CategoryRepository categoryRepo = mock(CategoryRepository.class);
+    /** Настоящий сервис поверх моков: правило «сколько уже накоплено» (ANO-9 §3.3) в fixFund
+     *  проверяемое, а не подменённое — именно его подмена молча усыхала цель. */
+    private final ru.selfin.backend.repository.AccountRepository accountRepo =
+            mock(ru.selfin.backend.repository.AccountRepository.class);
+    private final ru.selfin.backend.repository.BalanceCheckpointRepository checkpointRepo =
+            mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class);
     private final WishlistConversionService service =
-            new WishlistConversionService(eventRepo, fundRepo, recurringRuleService, categoryRepo);
+            new WishlistConversionService(eventRepo, fundRepo, recurringRuleService, categoryRepo,
+                    new AccountBalanceService(accountRepo, checkpointRepo, eventRepo));
 
     private FinancialEvent openWishlist(UUID id) {
         Category cat = Category.builder().id(UUID.randomUUID()).name("Прочее").build();
@@ -297,6 +304,33 @@ class WishlistConversionServiceTest {
         assertThat(src.getTargetAmount()).isEqualByComparingTo("80000");
         assertThat(src.getCurrentBalance()).isEqualByComparingTo("20000");
         assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+    }
+
+    @Test
+    void fix_savingsOnAccount_targetAmountAddsAccountBalance_notStoredZero() {
+        // ANO-9 §3.3: у копилки НА СЧЕТЕ собственное поле навсегда нулевое (перевод запрещён),
+        // а примерка вычла реальный остаток счёта. Если fixFund прибавит сохранённый ноль,
+        // цель усохнет на этот остаток при КАЖДОЙ фиксации: 1 000 000 → 700 000 → 400 000.
+        UUID id = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        TargetFund src = openSavings(id, "1000000", "0");
+        src.setAccountId(accountId);
+        ru.selfin.backend.model.Account deposit = ru.selfin.backend.testsupport.AccountFixtures
+                .account(ru.selfin.backend.model.enums.AccountKind.DEPOSIT, true)
+                .id(accountId).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        when(accountRepo.findById(accountId)).thenReturn(Optional.of(deposit));
+        when(checkpointRepo.findLatestForAccountAt(accountId, TODAY)).thenReturn(Optional.of(
+                ru.selfin.backend.model.BalanceCheckpoint.builder().id(UUID.randomUUID())
+                        .date(TODAY.minusDays(5)).amount(new BigDecimal("300000"))
+                        .account(deposit).build()));
+        stubFundSave();
+
+        service.applyAndFix(id, new SandboxFixRequestDto(
+                "SAVINGS", new BigDecimal("700000"), null, 2, null, null), TODAY);
+
+        // 700 000 (докопить) + 300 000 (уже лежит на счёте) = 1 000 000, цель не сдвинулась
+        assertThat(src.getTargetAmount()).isEqualByComparingTo("1000000");
     }
 
     @Test

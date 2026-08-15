@@ -36,6 +36,7 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final FinancialEventRepository eventRepository;
+    private final AccountService accountService;
 
     /**
      * Возвращает все активные (не удалённые) категории.
@@ -122,6 +123,11 @@ public class CategoryService {
      * Помечает категорию как удалённую (soft delete).
      * Связанные финансовые события при этом не удаляются.
      *
+     * <p>А вот счета, у которых эта категория была зоной ответственности, ссылку теряют
+     * (§8 спеки счетов: «Ссылка обнуляется, счёт остаётся»). Разница с событиями осознанная:
+     * событию категория нужна как история («на что потрачено»), а счёту — как живой смысл
+     * («эта карта обслуживает бензин»), и указывать на удалённую категорию этот смысл не несёт.
+     *
      * @param id идентификатор категории
      * @throws ResourceNotFoundException если категория не найдена
      */
@@ -131,6 +137,7 @@ public class CategoryService {
                 .orElseThrow(() -> new ResourceNotFoundException("Category", id));
         category.setDeleted(true);
         categoryRepository.save(category);
+        accountService.clearPurposeCategory(id);
     }
 
     /**

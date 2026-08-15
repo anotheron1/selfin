@@ -54,6 +54,7 @@ public class WishlistConversionService {
     private final TargetFundRepository fundRepository;
     private final RecurringRuleService recurringRuleService;
     private final CategoryRepository categoryRepository;
+    private final AccountBalanceService accountBalanceService;
 
     /** Имя системной категории для платежей по кредиту (recurring PMT). */
     private static final String CREDIT_CATEGORY_NAME = "Кредит";
@@ -150,10 +151,16 @@ public class WishlistConversionService {
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", itemId));
         ensureNotConverted(src.getConvertedToEventId(), src.getConvertedToFundId());
 
-        // Ловушка: в примерке amount копилки — ОСТАТОК (targetAmount − currentBalance,
+        // Ловушка: в примерке amount копилки — ОСТАТОК (targetAmount − накопленное,
         // PocketSandboxService.buildItems), а в фонде targetAmount — полная цель.
         // Решение Кирилла 2026-07-31: «докопить ещё столько» — накопленное сохраняется.
-        BigDecimal balance = src.getCurrentBalance() != null ? src.getCurrentBalance() : BigDecimal.ZERO;
+        //
+        // «Накопленное» обязано считаться ТЕМ ЖЕ правилом, что и в примерке
+        // (AccountBalanceService.fundBalanceAt, ANO-9 §3.3), а не сырым currentBalance:
+        // у копилки на счёте собственное поле навсегда нулевое (перевод в неё запрещён),
+        // и цель усыхала бы на остаток счёта при каждой фиксации — 1 000 000 → 700 000 →
+        // 400 000. Найдено ревью чанка 3.
+        BigDecimal balance = accountBalanceService.fundBalanceAt(src, today);
         src.setTargetAmount(req.amount().add(balance));
 
         // Решение Кирилла 2026-07-31: у копилки ползунок главнее поля даты. Резерв §6 всегда

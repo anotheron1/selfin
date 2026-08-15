@@ -215,7 +215,7 @@ class WishlistSimulationServiceTest {
         // stub thresholds and capital
         when(userSettingsService.getWishlistSettings())
                 .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null, new BigDecimal("1.0")));
-        when(capitalService.liquidAt(any())).thenReturn(new BigDecimal("500000"));
+        when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("500000"));
         when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
 
         WishlistSimulationDto result = simulationService.getSimulation(36);
