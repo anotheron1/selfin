@@ -19,7 +19,7 @@ import java.time.LocalDate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * ANO-9 Task 2.3: {@code sumByTransactionDateLessThanEqual} используется в
+ * ANO-9 Task 2.3: {@code sumEnvelopeFundsByTransactionDateLessThanEqual} используется в
  * {@code CapitalService.liquidAt} (спека §4.4) и обязан суммировать ТОЛЬКО копилки БЕЗ
  * {@code account_id} — копилка со счётом уже учтена внутри баланса своего счёта
  * ({@code AccountBalanceService.freeMoneyAt}/{@code semiLiquidAt}), повторное сложение
@@ -46,7 +46,7 @@ class FundTransactionRepositoryIT {
     }
 
     @Test
-    void sumByTransactionDateLessThanEqual_excludesFundsLinkedToAnAccount() {
+    void sumEnvelopeFundsByTransactionDateLessThanEqual_excludesFundsLinkedToAnAccount() {
         TargetFund envelope = fundRepo.save(TargetFund.builder().name("Копилка без счёта").build());
         Account linkedAccount = accountRepo.save(Account.builder()
                 .name("Тестовый счёт ANO-9 IT").kind(AccountKind.DEBIT).trackBalance(true).build());
@@ -58,15 +58,15 @@ class FundTransactionRepositoryIT {
         fundTxRepo.save(FundTransaction.builder()
                 .fund(linked).amount(new BigDecimal("20000")).transactionDate(LocalDate.now()).build());
 
-        BigDecimal sum = fundTxRepo.sumByTransactionDateLessThanEqual(LocalDate.now());
+        BigDecimal sum = fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(LocalDate.now());
 
         // Только конверт БЕЗ accountId — 20 000 линкованной копилки уже внутри баланса её счёта.
         assertThat(sum).isEqualByComparingTo("12000");
     }
 
     @Test
-    void sumByTransactionDateLessThanEqual_emptyDb_returnsZero() {
-        BigDecimal sum = fundTxRepo.sumByTransactionDateLessThanEqual(LocalDate.now());
+    void sumEnvelopeFundsByTransactionDateLessThanEqual_emptyDb_returnsZero() {
+        BigDecimal sum = fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(LocalDate.now());
 
         assertThat(sum).isEqualByComparingTo(BigDecimal.ZERO);
     }

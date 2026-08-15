@@ -33,5 +33,5 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
               AND t.transactionDate <= :date
               AND t.fund.accountId IS NULL
             """)
-    BigDecimal sumByTransactionDateLessThanEqual(@Param("date") LocalDate date);
+    BigDecimal sumEnvelopeFundsByTransactionDateLessThanEqual(@Param("date") LocalDate date);
 }

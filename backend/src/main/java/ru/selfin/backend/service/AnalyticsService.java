@@ -95,7 +95,7 @@ public class AnalyticsService {
      * Строит кассовый календарь — список дней с нарастающим балансом.
      * <p>
      * Нарастающий баланс стартует от {@code initialBalance} — реального остатка на счёте
-     * на начало месяца, рассчитанного через {@link #calcStartBalance(LocalDate)}.
+     * на начало месяца, рассчитанного через {@link #calcStartBalance(LocalDate, LocalDate)}.
      * <p>
      * Для каждого дня вычисляется {@code dailyIncome} и {@code dailyExpense}:
      * прошлые дни используют {@code factAmount} (при отсутствии — {@code plannedAmount}),

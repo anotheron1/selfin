@@ -265,6 +265,13 @@ class AnalyticsServiceTest {
         // выбрал бы именно его как "глобально самый свежий чекпоинт".
         when(checkpointRepository.findLatestForAccountAt(deposit.getId(), asOfDate))
                 .thenReturn(Optional.of(checkpoint(deposit, LocalDate.of(2026, 3, 12), 300_000)));
+        // ВАЖНО (ревью): calcStartBalance сейчас спрашивает только defaultAccount() и не обходит
+        // список счетов, поэтому без этого стаба фикстура вклада выше — мёртвый груз: тест
+        // остаётся зелёным даже если её убрать целиком. Стаб даёт правдоподобным мутациям
+        // (регрессия к «обойти все счета, взять глобально свежий чекпоинт») реальные данные,
+        // чтобы под мутацией тест падал именно на 300 000 (вклад), а не на обезличенный 0.
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(defaultAccount, deposit));
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
 
         AnalyticsReportDto report = service.getReport(asOfDate);

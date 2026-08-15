@@ -35,6 +35,11 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class AccountBalanceService {
 
+    /** «С начала времён» — та же граница, что {@code PocketInputAssembler.EPOCH}, для случая
+     *  «чекпоинта нет вовсе» (ANO-28, см. {@link #noAnchorFallbackAt}). Значения самого по себе
+     *  не имеет смысла сравнивать — важно только что оно раньше любых реальных данных. */
+    private static final LocalDate EPOCH = LocalDate.of(2000, 1, 1);
+
     private final AccountRepository accountRepository;
     private final BalanceCheckpointRepository checkpointRepository;
     private final FinancialEventRepository eventRepository;
@@ -102,6 +107,41 @@ public class AccountBalanceService {
     /** Долг по кредиткам для капитала (§4.4). Считается от лимита, а не от планки. */
     public BigDecimal creditDebtAt(LocalDate t) {
         return creditGap(t, Account::getCreditLimit);
+    }
+
+    /**
+     * ANO-28 фолбэк для ДЕФОЛТНОГО счёта БЕЗ чекпоинта на дату {@code t}: сумма ВСЕХ знаковых
+     * фактов на нулевой базе, без нижней границы по дате якоря — то же самое, что делает
+     * {@link PocketEngine#calculate}, когда чекпоинта нет вовсе (пустой {@code checkpointAmount}
+     * + инлайн-цикл по всем событиям без {@code checkpointDate}-отсечки). У кармашка это
+     * поведение сознательно сохранено (пользователь без единого введённого остатка не должен
+     * потерять всю историю фактов из числа) и покрыто регрессией.
+     *
+     * <p>{@link #balanceAt} для счёта без чекпоинта возвращает ноль — и для его прямого
+     * назначения (свободные деньги ДРУГИХ счетов, §4.1) это верно: у не-дефолтных счетов
+     * действительно нет фактов, замерший ноль честен (§6 спеки). Но для ДЕФОЛТНОГО счёта эта
+     * формула не годится потребителям, у которых, в отличие от {@link PocketInputAssembler}, нет
+     * готового {@code currentBalance} движка кармашка — единственный такой потребитель сейчас
+     * {@link CapitalService#liquidAt}. Без этого метода ликвид капитала молча обнулялся бы у
+     * пользователя без единого введённого остатка (найдено ревью ANO-9 Task 2.3 на реальных
+     * данных: факт дохода 90 000 без чекпоинта давал {@code liquid = 0} вместо {@code 90 000} —
+     * капитал и кармашек снова разошлись, ровно там, где пользователь новый).
+     *
+     * <p><b>Не подмешан в {@link #balanceAt}/{@link #freeMoneyAt}/{@link #snapshot} сознательно.</b>
+     * В {@link #snapshot} дефолтный счёт либо исключён явно через {@code excludedAccountId}, либо
+     * (вырожденный случай «чекпоинта нет вовсе», исключать нечего — id пустой) и так дал бы ноль
+     * через {@code balanceAt}, а PocketEngine ПАРАЛЛЕЛЬНО уже сам просуммировал эти же факты своим
+     * инлайн-циклом. Если бы это правило жило внутри {@code balanceAt}, снимок отдал бы ту же
+     * сумму фактов ЕЩЁ РАЗ через {@code otherAccountsBalance} — кармашек задвоил бы факты ровно в
+     * сценарии «дефолтного счёта без чекпоинта», том самом крае, который ANO-28 защищает.
+     *
+     * @return ноль, если у дефолтного счёта ЕСТЬ чекпоинт на дату {@code t} (тогда всё уже верно
+     *         посчитано через {@link #freeMoneyAt}) или дефолтного счёта нет вовсе.
+     */
+    public BigDecimal noAnchorFallbackAt(LocalDate t) {
+        Optional<Account> defaultAcc = defaultAccount();
+        if (defaultAcc.isEmpty() || anchorAt(defaultAcc.get(), t).isPresent()) return BigDecimal.ZERO;
+        return factsDelta(EPOCH, t);
     }
 
     /**

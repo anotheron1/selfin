@@ -46,7 +46,7 @@ import java.util.UUID;
  * <p>Копилки С {@code account_id} в ликвид отдельно не добавляются: их деньги уже внутри баланса
  * своего счёта (учтены через {@code freeMoneyAt}/{@code semiLiquidAt}) — прибавить их ещё раз
  * значило бы задвоить (спека §3.3, §4.4). Фильтр {@code fund.account_id IS NULL} живёт в запросе
- * {@link FundTransactionRepository#sumByTransactionDateLessThanEqual}.
+ * {@link FundTransactionRepository#sumEnvelopeFundsByTransactionDateLessThanEqual}.
  */
 @Service
 @RequiredArgsConstructor
@@ -246,7 +246,8 @@ public class CapitalService {
     /**
      * Жидкий баланс на дату {@code t} (спека §4.4, ANO-9 Task 2.3):
      * <pre>
-     *   ликвид(t) = freeMoneyAt(t) + semiLiquidAt(t) + Σ балансов копилок БЕЗ account_id
+     *   ликвид(t) = freeMoneyAt(t) + semiLiquidAt(t) + noAnchorFallbackAt(t)
+     *             + Σ балансов копилок БЕЗ account_id
      * </pre>
      * Публичный API для согласования с другими сервисами (например, StrategyTimelineService
      * использует этот метод для seed {@code balanceConfirmed}).
@@ -263,10 +264,24 @@ public class CapitalService {
      * {@code accountBalanceService.freeMoneyAt} убирает дублирование правила отбора фактов
      * (теперь оно живёт только в {@link AccountBalanceService#factsDelta}) и синхронизирует
      * это поведение с кармашком.
+     *
+     * <p><b>{@code noAnchorFallbackAt} — правка того же ревью, что нашла дефект выше.</b>
+     * Первая версия перехода на {@code freeMoneyAt} без этого слагаемого молча ЗАВЕЛА новый
+     * дефект вместо старого: {@code balanceAt} без чекпоинта возвращает ноль (§6 спеки — счёт
+     * без чекпоинта «молчит»), а не сумму фактов с нулевой базы, как раньше делал
+     * {@code EPOCH_SENTINEL}-фолбэк старой формулы и как до сих пор делает
+     * {@link PocketEngine#calculate} для кармашка (ANO-28: у пользователя без единого введённого
+     * остатка вся история фактов не должна исчезнуть из числа). На реальных данных (факт дохода
+     * 90 000, чекпоинта нет) ликвид капитала обнулялся вместо 90 000 — капитал и кармашек снова
+     * разошлись, ровно там, где пользователь новый. {@link AccountBalanceService#noAnchorFallbackAt}
+     * возвращает эту сумму ТОЛЬКО когда у дефолтного счёта нет чекпоинта — иначе ноль, без
+     * двойного счёта поверх {@code freeMoneyAt}.
      */
     public BigDecimal liquidAt(LocalDate t) {
-        BigDecimal accountsLiquid = accountBalanceService.freeMoneyAt(t).add(accountBalanceService.semiLiquidAt(t));
-        BigDecimal pocketBalance = fundTxRepo.sumByTransactionDateLessThanEqual(t);
+        BigDecimal accountsLiquid = accountBalanceService.freeMoneyAt(t)
+                .add(accountBalanceService.semiLiquidAt(t))
+                .add(accountBalanceService.noAnchorFallbackAt(t));
+        BigDecimal pocketBalance = fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(t);
         return accountsLiquid.add(pocketBalance);
     }
 

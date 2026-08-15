@@ -81,7 +81,7 @@ class CapitalServiceLiquidTest {
     void summary_emptyDb_liquidIsZero() {
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
         when(accountRepo.findAllByDeletedFalseOrderBySortOrderAscNameAsc()).thenReturn(List.of());
-        when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
 
         CapitalSummaryDto s = service.summary();
@@ -113,7 +113,7 @@ class CapitalServiceLiquidTest {
                 fact(anchorDate.plusDays(6), EventType.EXPENSE, "10000"),
                 fact(anchorDate.plusDays(7), EventType.FUND_TRANSFER, "30000")
         ));
-        when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("30000"));
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("30000"));
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -137,7 +137,7 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(deposit.getId(), today))
                 .thenReturn(Optional.of(checkpoint(deposit, today.minusDays(1), "80000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -165,7 +165,7 @@ class CapitalServiceLiquidTest {
         // остатка счёта, на который она ссылается, и туда они уже вошли бы через freeMoneyAt/
         // semiLiquidAt, если бы такой счёт был среди active(). JPQL-фильтр самого запроса
         // отдельно проверен FundTransactionRepositoryIT.
-        when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("12000"));
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("12000"));
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -190,7 +190,7 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(credit.getId(), today))
                 .thenReturn(Optional.of(checkpoint(credit, today.minusDays(1), "62000"))); // доступно
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -219,7 +219,7 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(creditNoCheckpoint.getId(), today))
                 .thenReturn(Optional.empty());
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -228,6 +228,35 @@ class CapitalServiceLiquidTest {
         // Кредитка без чекпоинта не добавляет ни лимит (300 000), ни ноль — молчит.
         assertThat(s.liabilitiesTotal()).isEqualByComparingTo("0");
         assertThat(s.total()).isEqualByComparingTo("50000");
+    }
+
+    @Test
+    @DisplayName("КРИТИЧНО (ревью после коммита 1c893c2): у пользователя БЕЗ ЕДИНОГО чекпоинта "
+            + "ликвид капитала = сумма фактов на нулевой базе (ANO-28), а не ноль. balanceAt без "
+            + "якоря молча даёт 0 — это верно для ПРОЧИХ счетов (§6 спеки), но не для дефолтного, "
+            + "чью историю фактов кармашек (PocketEngine) сознательно не обнуляет. Замер ревью: "
+            + "факт дохода 90 000 без чекпоинта — было 0, стало 90 000.")
+    void liquidAt_noCheckpointAtAll_sumsFactsFromEpoch_matchesPocketAno28Behaviour() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        LocalDate today = LocalDate.now();
+        LocalDate incomeDate = today.minusDays(5);
+
+        when(accountRepo.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(defaultAccount));
+        // Дефолтный счёт вообще без чекпоинта — noAnchorFallbackAt(t) обязан включиться.
+        when(accountRepo.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.of(defaultAccount));
+        when(checkpointRepo.findLatestForAccountAt(defaultAccount.getId(), today)).thenReturn(Optional.empty());
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(fact(incomeDate, EventType.INCOME, "90000")));
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+        when(revRepo.snapshotAt(any())).thenReturn(List.of());
+        when(itemRepo.findAllActive(null)).thenReturn(List.of());
+
+        CapitalSummaryDto s = service.summary();
+
+        // 90 000 (факт дохода на нулевой базе), НЕ ноль.
+        assertThat(s.liquid()).isEqualByComparingTo("90000");
+        assertThat(s.total()).isEqualByComparingTo("90000");
     }
 
     @Test
@@ -248,7 +277,7 @@ class CapitalServiceLiquidTest {
                 .thenReturn(Optional.of(checkpoint(defaultAccount, anchorDate, "100000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(anchorDate, today))
                 .thenReturn(List.of(wishlistExpenseFact));
-        when(fundTxRepo.sumByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 

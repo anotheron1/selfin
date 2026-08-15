@@ -12,26 +12,8 @@ import java.util.UUID;
 
 public interface BalanceCheckpointRepository extends JpaRepository<BalanceCheckpoint, UUID> {
 
-    /**
-     * Самый свежий чекпоинт: по дате, при равных датах — по created_at (поздний побеждает).
-     * Tiebreak обязателен (ANO-15 §4): ре-якорь дважды за день — типовой кейс «исправил
-     * опечатку», без него якорь недетерминирован. НЕ заменять на derived-имя без ORDER BY!
-     *
-     * <p>Допущение одного счёта: запрос слеп к {@code account}, что корректно ровно пока
-     * счёт один (инвариант V20). Снимается в Task 2.4.
-     */
-    @Query("SELECT cp FROM BalanceCheckpoint cp ORDER BY cp.date DESC, cp.createdAt DESC LIMIT 1")
-    Optional<BalanceCheckpoint> findTopByOrderByDateDesc();
-
     /** Самый ранний чекпоинт — используется как нижняя граница в траектории капитала. */
     Optional<BalanceCheckpoint> findTopByOrderByDateAsc();
-
-    /** Последний чекпоинт с {@code date ≤ asOfDate} (капитал на дату); tiebreak как выше. */
-    @Query("""
-        SELECT cp FROM BalanceCheckpoint cp WHERE cp.date <= :date
-        ORDER BY cp.date DESC, cp.createdAt DESC LIMIT 1
-        """)
-    Optional<BalanceCheckpoint> findTopByDateLessThanEqualOrderByDateDesc(@Param("date") LocalDate date);
 
     /** Вся история чекпоинтов, от свежих к старым; tiebreak created_at (порядок drift-цепочки). */
     @Query("SELECT cp FROM BalanceCheckpoint cp ORDER BY cp.date DESC, cp.createdAt DESC")
