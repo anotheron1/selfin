@@ -32,6 +32,14 @@ public class BalanceCheckpoint {
     /**
      * Счёт, чей остаток зафиксирован. Для {@code AccountKind.CREDIT} здесь
      * ДОСТУПНЫЙ ОСТАТОК, не долг (спека §3.2).
+     *
+     * <p><b>Ленивое и обязательное.</b> Чтение {@code getKind()}/{@code isTrackBalance()}
+     * и прочих свойств счёта вне транзакции кидает {@code LazyInitializationException}.
+     * В Task 2.1 запросы, которым нужен счёт, обязаны брать его через {@code JOIN FETCH}
+     * или {@code @EntityGraph}, а не полагаться на ленивую подгрузку. Осторожно с
+     * {@code @Modifying(clearAutomatically = true)} — та же ловушка, что и в
+     * {@code RecurringRuleService} (строки 96 и 137): такой запрос отсоединяет прокси,
+     * и последующее чтение счёта из уже загруженного чекпоинта падает.
      */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "account_id", nullable = false)

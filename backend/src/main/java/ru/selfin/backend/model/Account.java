@@ -96,4 +96,28 @@ public class Account {
     public boolean isSemiLiquid() {
         return !deleted && trackBalance && kind == AccountKind.DEPOSIT;
     }
+
+    /**
+     * Равенство по {@code id}, устойчивое к Hibernate-прокси (Task 2.1 начинает сравнивать
+     * счета и складывать их в коллекции — экземпляры одного счёта, загруженные разными
+     * запросами, иначе сравнивались бы по ссылке и тихо давали неверный результат вместо
+     * ошибки). Сущность с ещё не сгенерированным {@code id} равна только самой себе.
+     *
+     * <p>Сознательное отступление от конвенции проекта: остальные сущности {@code equals}
+     * не переопределяют, потому что их и не сравнивают в расчётах.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null) return false;
+        Class<?> thisClass = org.hibernate.Hibernate.getClass(this);
+        if (thisClass != org.hibernate.Hibernate.getClass(o)) return false;
+        Account other = (Account) o;
+        return id != null && id.equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return org.hibernate.Hibernate.getClass(this).hashCode();
+    }
 }

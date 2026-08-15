@@ -3,7 +3,8 @@
 --
 -- Инвариант миграции: кармашек после неё обязан совпасть с прежним до копейки.
 -- Достигается тем, что создаётся ровно один счёт — одновременно дефолтный и
--- отслеживаемый — и все существующие чекпоинты адресуются ему.
+-- отслеживаемый — и все существующие чекпоинты адресуются ему. Формула §4.1
+-- при таком раскладе схлопывается в прежнюю.
 
 CREATE TABLE accounts (
     id                  UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -20,29 +21,39 @@ CREATE TABLE accounts (
     updated_at          TIMESTAMP      NOT NULL DEFAULT NOW(),
     is_deleted          BOOLEAN        NOT NULL DEFAULT FALSE,
 
-    CONSTRAINT ck_accounts_credit_fields CHECK (
+    -- кредитные поля бывают только у кредитного счёта
+    CONSTRAINT chk_accounts_credit_fields CHECK (
         kind = 'CREDIT' OR (credit_limit IS NULL AND available_floor IS NULL)),
-    CONSTRAINT ck_accounts_floor_le_limit CHECK (
+    -- планка не выше лимита
+    CONSTRAINT chk_accounts_floor_le_limit CHECK (
         available_floor IS NULL OR credit_limit IS NULL OR available_floor <= credit_limit),
-    CONSTRAINT ck_accounts_deposit_tracked CHECK (
+    -- вклад без остатка бессмыслен: он полу-ликвид в капитале
+    CONSTRAINT chk_accounts_deposit_tracked CHECK (
         kind <> 'DEPOSIT' OR track_balance),
-    CONSTRAINT ck_accounts_default_tracked CHECK (
+    -- счёт-приёмник безадресных операций обязан быть отслеживаемым и ликвидным
+    CONSTRAINT chk_accounts_default_tracked CHECK (
         NOT is_default OR (track_balance AND kind IN ('DEBIT', 'CASH')))
 );
 
+-- не более одного дефолтного среди живых
 CREATE UNIQUE INDEX uq_accounts_single_default
-    ON accounts ((is_default)) WHERE is_default AND NOT is_deleted;
+    ON accounts (is_default) WHERE is_default AND is_deleted = FALSE;
 
-CREATE INDEX idx_accounts_active ON accounts (sort_order) WHERE NOT is_deleted;
+CREATE INDEX idx_accounts_active ON accounts (sort_order) WHERE is_deleted = FALSE;
 
+-- Сид: единственный счёт, в который переезжает вся текущая картина.
 INSERT INTO accounts (name, kind, track_balance, is_default, sort_order)
 VALUES ('Основная карта', 'DEBIT', TRUE, TRUE, 0);
 
+-- Адресация чекпоинтов
 ALTER TABLE balance_checkpoints ADD COLUMN account_id UUID REFERENCES accounts(id);
-UPDATE balance_checkpoints SET account_id = (SELECT id FROM accounts WHERE is_default);
+UPDATE balance_checkpoints SET account_id =
+    (SELECT id FROM accounts WHERE is_default AND is_deleted = FALSE LIMIT 1);
 ALTER TABLE balance_checkpoints ALTER COLUMN account_id SET NOT NULL;
-CREATE INDEX idx_checkpoints_account_date ON balance_checkpoints (account_id, date DESC);
+CREATE INDEX idx_checkpoints_account_date
+    ON balance_checkpoints (account_id, date DESC, created_at DESC);
 
+-- Необязательная привязка копилки к счёту; одна цель на счёт (спека §3.3)
 ALTER TABLE target_funds ADD COLUMN account_id UUID REFERENCES accounts(id);
 CREATE UNIQUE INDEX uq_funds_one_per_account
-    ON target_funds (account_id) WHERE account_id IS NOT NULL AND NOT is_deleted;
+    ON target_funds (account_id) WHERE account_id IS NOT NULL AND is_deleted = FALSE;

@@ -39,6 +39,10 @@ public class BalanceCheckpointService {
      * computedBalance = prev.amount + знаковые факты в (prev.date, cur.date]
      * (правило фактов = PocketEngine.currentBalance: factAmount != null, не-wishlist);
      * drift = amount − computedBalance. Один range-запрос на всю цепочку.
+     *
+     * <p><b>Допущение одного счёта.</b> Цепочка строится по всем чекпоинтам без учёта
+     * {@code account}, что корректно ровно пока в системе один счёт (инвариант миграции
+     * V20). Снимается в Task 2.4 — цепочка должна группироваться по счёту.
      */
     public List<BalanceCheckpointDto> findAll() {
         List<BalanceCheckpoint> chain = repository.findAllByOrderByDateDesc();
@@ -86,11 +90,16 @@ public class BalanceCheckpointService {
                 .orElseThrow(() -> new ResourceNotFoundException("BalanceCheckpoint", id));
         checkpoint.setDate(dto.date());
         checkpoint.setAmount(dto.amount());
-        if (checkpoint.getAccount() == null) {
-            checkpoint.setAccount(defaultAccount());
-        }
         checkpoint.setUpdatedAt(LocalDateTime.now());
         return toDto(repository.save(checkpoint), null, null);
+    }
+
+    @Transactional
+    public void delete(UUID id) {
+        if (!repository.existsById(id)) {
+            throw new ResourceNotFoundException("BalanceCheckpoint", id);
+        }
+        repository.deleteById(id);
     }
 
     /**
@@ -102,14 +111,6 @@ public class BalanceCheckpointService {
         return accountRepository.findByDefaultAccountTrueAndDeletedFalse()
                 .orElseThrow(() -> new IllegalStateException(
                         "No default account found — invariant from V20 migration violated"));
-    }
-
-    @Transactional
-    public void delete(UUID id) {
-        if (!repository.existsById(id)) {
-            throw new ResourceNotFoundException("BalanceCheckpoint", id);
-        }
-        repository.deleteById(id);
     }
 
     private static BigDecimal signed(EventType type, BigDecimal amount) {

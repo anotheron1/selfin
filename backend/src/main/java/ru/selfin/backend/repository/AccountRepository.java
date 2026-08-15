@@ -12,6 +12,4 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     List<Account> findAllByDeletedFalseOrderBySortOrderAscNameAsc();
 
     Optional<Account> findByDefaultAccountTrueAndDeletedFalse();
-
-    boolean existsByPurposeCategoryIdAndDeletedFalse(UUID categoryId);
 }

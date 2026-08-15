@@ -38,11 +38,15 @@ class AccountsMigrationIT {
 
     @Test
     void migration_createsExactlyOneDefaultTrackedDebitAccount() {
-        List<Account> accounts = accountRepository.findAll();
+        // Утверждаем ровно то, что гарантирует миграция: одна строка с is_default,
+        // не общее число счетов — иначе тест зависит от того, что делают другие
+        // методы этого класса (контейнер общий на класс, не на метод).
+        List<Account> defaults = accountRepository.findAll().stream()
+                .filter(Account::isDefaultAccount)
+                .toList();
 
-        assertThat(accounts).hasSize(1);
-        Account account = accounts.get(0);
-        assertThat(account.isDefaultAccount()).isTrue();
+        assertThat(defaults).hasSize(1);
+        Account account = defaults.get(0);
         assertThat(account.isTrackBalance()).isTrue();
         assertThat(account.getKind()).isEqualTo(AccountKind.DEBIT);
     }
@@ -56,10 +60,15 @@ class AccountsMigrationIT {
                 .amount(BigDecimal.valueOf(1000))
                 .account(defaultAccount)
                 .build());
-
-        BalanceCheckpoint reloaded = checkpointRepository.findById(saved.getId()).orElseThrow();
-        assertThat(reloaded.getAccount()).isNotNull();
-        assertThat(reloaded.getAccount().getId()).isEqualTo(defaultAccount.getId());
+        try {
+            BalanceCheckpoint reloaded = checkpointRepository.findById(saved.getId()).orElseThrow();
+            assertThat(reloaded.getAccount()).isNotNull();
+            assertThat(reloaded.getAccount().getId()).isEqualTo(defaultAccount.getId());
+        } finally {
+            // Класс — регрессия миграции; Task 2.4 добавит сюда проверку цепочки дрейфа,
+            // и лишняя строка выстрелит, если не убрать её здесь.
+            checkpointRepository.deleteById(saved.getId());
+        }
     }
 
     @Test
@@ -70,6 +79,7 @@ class AccountsMigrationIT {
                 .trackBalance(true)
                 .defaultAccount(true)
                 .build()))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("uq_accounts_single_default");
     }
 }
