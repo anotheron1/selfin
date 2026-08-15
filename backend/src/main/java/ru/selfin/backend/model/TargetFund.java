@@ -81,4 +81,13 @@ public class TargetFund {
     /** Конверсия копилки в другую копилку/кредит. Только при FIXED. */
     @Column(name = "converted_to_fund_id")
     private UUID convertedToFundId;
+
+    /**
+     * Счёт, на котором физически лежат деньги цели (спека §3.3). Если задан,
+     * {@code currentBalance} перестаёт быть источником правды и вычисляется
+     * из остатка счёта — иначе два числа за одни деньги разъедутся.
+     * Логика вычисления появится в Task 3.4, здесь только поле.
+     */
+    @Column(name = "account_id")
+    private UUID accountId;
 }

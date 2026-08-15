@@ -6,9 +6,11 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.BalanceCheckpointCreateDto;
 import ru.selfin.backend.dto.BalanceCheckpointDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
+import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -25,6 +27,7 @@ public class BalanceCheckpointService {
 
     private final BalanceCheckpointRepository repository;
     private final FinancialEventRepository eventRepository;
+    private final AccountRepository accountRepository;
 
     /** Самый свежий чекпоинт — точка отсчёта для всех балансовых расчётов. */
     public Optional<BalanceCheckpoint> findLatest() {
@@ -72,6 +75,7 @@ public class BalanceCheckpointService {
         BalanceCheckpoint checkpoint = BalanceCheckpoint.builder()
                 .date(dto.date())
                 .amount(dto.amount())
+                .account(defaultAccount())
                 .build();
         return toDto(repository.save(checkpoint), null, null);
     }
@@ -82,8 +86,22 @@ public class BalanceCheckpointService {
                 .orElseThrow(() -> new ResourceNotFoundException("BalanceCheckpoint", id));
         checkpoint.setDate(dto.date());
         checkpoint.setAmount(dto.amount());
+        if (checkpoint.getAccount() == null) {
+            checkpoint.setAccount(defaultAccount());
+        }
         checkpoint.setUpdatedAt(LocalDateTime.now());
         return toDto(repository.save(checkpoint), null, null);
+    }
+
+    /**
+     * Счёт-приёмник для ре-якоря остатка, введённого без выбора счёта (Task 3.3
+     * добавит выбор в API). Отсутствие дефолтного счёта после миграции V20
+     * невозможно в норме — падаем явной ошибкой, а не NPE ниже по стеку.
+     */
+    private Account defaultAccount() {
+        return accountRepository.findByDefaultAccountTrueAndDeletedFalse()
+                .orElseThrow(() -> new IllegalStateException(
+                        "No default account found — invariant from V20 migration violated"));
     }
 
     @Transactional

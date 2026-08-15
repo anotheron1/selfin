@@ -29,6 +29,14 @@ public class BalanceCheckpoint {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;
 
+    /**
+     * Счёт, чей остаток зафиксирован. Для {@code AccountKind.CREDIT} здесь
+     * ДОСТУПНЫЙ ОСТАТОК, не долг (спека §3.2).
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "account_id", nullable = false)
+    private Account account;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
