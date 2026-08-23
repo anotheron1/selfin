@@ -1,0 +1,3910 @@
+{
+ "collected": "2026-08-23",
+ "source": "old.reddit.com JSON API через браузер пользователя",
+ "note": "Индекс тредов, комментарии которых были выкачаны и размечены. Дампы комментариев сохранить не удалось (Chrome заблокировал серию автоматических загрузок с домена) — см. раздел «Метод» в 2026-08-23-reddit-corpus.md.",
+ "themes": {
+  "q1": "провал в середине периода",
+  "q2": "почему бросают",
+  "q3": "календарь и посуточный прогноз",
+  "q4": "нерегулярный доход",
+  "q5": "ручной ввод против импорта",
+  "q6": "цена",
+  "q7": "таблицы вместо приложений",
+  "q8": "PocketSmith / ProjectionLab",
+  "q9": "тревога вокруг денег"
+ },
+ "note_themes": "themes у треда — темы, по которым он был НАЙДЕН поиском; разметка отдельных комментариев велась независимо.",
+ "stats": {
+  "threads": 315,
+  "commentsScanned": 44042,
+  "commentsTagged": 4745,
+  "uniquePostsFound": 7001,
+  "httpRequests": 696,
+  "bySub": {
+   "Bogleheads": 3,
+   "budget": 25,
+   "CreditCards": 1,
+   "eupersonalfinance": 4,
+   "fatFIRE": 3,
+   "financialindependence": 19,
+   "Fire": 15,
+   "Frugal": 19,
+   "leanfire": 4,
+   "MiddleClassFinance": 1,
+   "MonarchMoney": 16,
+   "personalfinance": 35,
+   "pocketsmith": 7,
+   "povertyfinance": 62,
+   "projectionlab": 22,
+   "ynab": 79
+  }
+ },
+ "threads": [
+  {
+   "sub": "Bogleheads",
+   "id": "1r3quru",
+   "date": "2026-02-13",
+   "score": 212,
+   "comments": 239,
+   "themes": [
+    "q8"
+   ],
+   "title": "AUM Fees: Husband is Sick to His Stomach",
+   "url": "https://www.reddit.com/r/Bogleheads/comments/1r3quru/"
+  },
+  {
+   "sub": "Bogleheads",
+   "id": "1i1ir6p",
+   "date": "2025-01-14",
+   "score": 55,
+   "comments": 67,
+   "themes": [
+    "q8"
+   ],
+   "title": "retirement planning calculators- which one to believe?",
+   "url": "https://www.reddit.com/r/Bogleheads/comments/1i1ir6p/"
+  },
+  {
+   "sub": "Bogleheads",
+   "id": "1ndtrd6",
+   "date": "2025-09-10",
+   "score": 63,
+   "comments": 30,
+   "themes": [
+    "q8"
+   ],
+   "title": "I Bogled, I’m a Bogler",
+   "url": "https://www.reddit.com/r/Bogleheads/comments/1ndtrd6/"
+  },
+  {
+   "sub": "budget",
+   "id": "1o2o059",
+   "date": "2025-10-10",
+   "score": 78,
+   "comments": 226,
+   "themes": [
+    "q1"
+   ],
+   "title": "My family thinks I’m spending too much money, are they right??",
+   "url": "https://www.reddit.com/r/budget/comments/1o2o059/"
+  },
+  {
+   "sub": "budget",
+   "id": "1hqmtli",
+   "date": "2024-12-31",
+   "score": 494,
+   "comments": 183,
+   "themes": [
+    "q1"
+   ],
+   "title": "I tracked every penny spent in 2024 and will never do it again",
+   "url": "https://www.reddit.com/r/budget/comments/1hqmtli/"
+  },
+  {
+   "sub": "budget",
+   "id": "1phjxax",
+   "date": "2025-12-08",
+   "score": 2,
+   "comments": 81,
+   "themes": [
+    "q1"
+   ],
+   "title": "Where is my money going?",
+   "url": "https://www.reddit.com/r/budget/comments/1phjxax/"
+  },
+  {
+   "sub": "budget",
+   "id": "1k26ca8",
+   "date": "2025-04-18",
+   "score": 18,
+   "comments": 67,
+   "themes": [
+    "q5",
+    "q7"
+   ],
+   "title": "What budgeting apps are you using?",
+   "url": "https://www.reddit.com/r/budget/comments/1k26ca8/"
+  },
+  {
+   "sub": "budget",
+   "id": "1v07ysl",
+   "date": "2026-07-18",
+   "score": 50,
+   "comments": 64,
+   "themes": [
+    "q1"
+   ],
+   "title": "How do I budget with my monthly salary?",
+   "url": "https://www.reddit.com/r/budget/comments/1v07ysl/"
+  },
+  {
+   "sub": "budget",
+   "id": "1qj6xha",
+   "date": "2026-01-21",
+   "score": 125,
+   "comments": 58,
+   "themes": [
+    "q1"
+   ],
+   "title": "How does anyone live on $800/mo?",
+   "url": "https://www.reddit.com/r/budget/comments/1qj6xha/"
+  },
+  {
+   "sub": "budget",
+   "id": "1n4kbvu",
+   "date": "2025-08-31",
+   "score": 14,
+   "comments": 54,
+   "themes": [
+    "q1"
+   ],
+   "title": "How do you personally set your budget up [categories] (more i fo)?",
+   "url": "https://www.reddit.com/r/budget/comments/1n4kbvu/"
+  },
+  {
+   "sub": "budget",
+   "id": "1oso0kp",
+   "date": "2025-11-09",
+   "score": 22,
+   "comments": 46,
+   "themes": [
+    "q1",
+    "q7"
+   ],
+   "title": "150 pounds til end of month",
+   "url": "https://www.reddit.com/r/budget/comments/1oso0kp/"
+  },
+  {
+   "sub": "budget",
+   "id": "1medr4q",
+   "date": "2025-07-31",
+   "score": 5,
+   "comments": 39,
+   "themes": [
+    "q1"
+   ],
+   "title": "Sticking to a budget: Debit or Credit?",
+   "url": "https://www.reddit.com/r/budget/comments/1medr4q/"
+  },
+  {
+   "sub": "budget",
+   "id": "1il0bvx",
+   "date": "2025-02-08",
+   "score": 7,
+   "comments": 34,
+   "themes": [
+    "q1"
+   ],
+   "title": "I feel like I'm going insane trying to get the numbers right",
+   "url": "https://www.reddit.com/r/budget/comments/1il0bvx/"
+  },
+  {
+   "sub": "budget",
+   "id": "n16yqc",
+   "date": "2021-04-29",
+   "score": 16,
+   "comments": 30,
+   "themes": [
+    "q1"
+   ],
+   "title": "Look for budgeting app",
+   "url": "https://www.reddit.com/r/budget/comments/n16yqc/"
+  },
+  {
+   "sub": "budget",
+   "id": "1izdzm1",
+   "date": "2025-02-27",
+   "score": 2,
+   "comments": 22,
+   "themes": [
+    "q1"
+   ],
+   "title": "Hi folks, I'm hoping for some budget help.",
+   "url": "https://www.reddit.com/r/budget/comments/1izdzm1/"
+  },
+  {
+   "sub": "budget",
+   "id": "1r9f1p6",
+   "date": "2026-02-19",
+   "score": 38,
+   "comments": 21,
+   "themes": [
+    "q1"
+   ],
+   "title": "How TF have I been living without a budget until now??",
+   "url": "https://www.reddit.com/r/budget/comments/1r9f1p6/"
+  },
+  {
+   "sub": "budget",
+   "id": "1m29fg2",
+   "date": "2025-07-17",
+   "score": 12,
+   "comments": 21,
+   "themes": [
+    "q5",
+    "q7"
+   ],
+   "title": "Google spreadsheet",
+   "url": "https://www.reddit.com/r/budget/comments/1m29fg2/"
+  },
+  {
+   "sub": "budget",
+   "id": "1qnoyv4",
+   "date": "2026-01-26",
+   "score": 26,
+   "comments": 20,
+   "themes": [
+    "q3",
+    "q7",
+    "q9"
+   ],
+   "title": "Stopped tracking every expense — here's what actually worked",
+   "url": "https://www.reddit.com/r/budget/comments/1qnoyv4/"
+  },
+  {
+   "sub": "budget",
+   "id": "1mqliyr",
+   "date": "2025-08-15",
+   "score": 5,
+   "comments": 19,
+   "themes": [
+    "q1"
+   ],
+   "title": "need help with budgeting",
+   "url": "https://www.reddit.com/r/budget/comments/1mqliyr/"
+  },
+  {
+   "sub": "budget",
+   "id": "1dm0hg6",
+   "date": "2024-06-22",
+   "score": 2,
+   "comments": 19,
+   "themes": [
+    "q1"
+   ],
+   "title": "Cheap Budgeting Apps",
+   "url": "https://www.reddit.com/r/budget/comments/1dm0hg6/"
+  },
+  {
+   "sub": "budget",
+   "id": "1qn8182",
+   "date": "2026-01-26",
+   "score": 18,
+   "comments": 17,
+   "themes": [
+    "q1"
+   ],
+   "title": "My personal take on budgeting",
+   "url": "https://www.reddit.com/r/budget/comments/1qn8182/"
+  },
+  {
+   "sub": "budget",
+   "id": "1p9woao",
+   "date": "2025-11-29",
+   "score": 33,
+   "comments": 15,
+   "themes": [
+    "q2",
+    "q7"
+   ],
+   "title": "Stop punishing yourself",
+   "url": "https://www.reddit.com/r/budget/comments/1p9woao/"
+  },
+  {
+   "sub": "budget",
+   "id": "181nf8k",
+   "date": "2023-11-22",
+   "score": 2,
+   "comments": 15,
+   "themes": [
+    "q8"
+   ],
+   "title": "Budgeting Apps recommendations",
+   "url": "https://www.reddit.com/r/budget/comments/181nf8k/"
+  },
+  {
+   "sub": "budget",
+   "id": "1clo2zc",
+   "date": "2024-05-06",
+   "score": 1,
+   "comments": 15,
+   "themes": [
+    "q8"
+   ],
+   "title": "Trying to find a good Budgeting platform/app",
+   "url": "https://www.reddit.com/r/budget/comments/1clo2zc/"
+  },
+  {
+   "sub": "budget",
+   "id": "pz9jey",
+   "date": "2021-10-01",
+   "score": 10,
+   "comments": 11,
+   "themes": [
+    "q8"
+   ],
+   "title": "YNAB vs Pocketsmith vs something else.",
+   "url": "https://www.reddit.com/r/budget/comments/pz9jey/"
+  },
+  {
+   "sub": "budget",
+   "id": "1jpo0b9",
+   "date": "2025-04-02",
+   "score": 3,
+   "comments": 9,
+   "themes": [
+    "q2"
+   ],
+   "title": "Budget app that tracks finances, subscriptions, expenses, etc",
+   "url": "https://www.reddit.com/r/budget/comments/1jpo0b9/"
+  },
+  {
+   "sub": "budget",
+   "id": "1gonc4w",
+   "date": "2024-11-11",
+   "score": 0,
+   "comments": 4,
+   "themes": [
+    "q3",
+    "q8"
+   ],
+   "title": "How To Create A Budget With A Single Income?",
+   "url": "https://www.reddit.com/r/budget/comments/1gonc4w/"
+  },
+  {
+   "sub": "budget",
+   "id": "1n1l5uk",
+   "date": "2025-08-27",
+   "score": 1,
+   "comments": 3,
+   "themes": [
+    "q2"
+   ],
+   "title": "Any tips on how I can budget my entertainment expenses?",
+   "url": "https://www.reddit.com/r/budget/comments/1n1l5uk/"
+  },
+  {
+   "sub": "CreditCards",
+   "id": "1n8l06z",
+   "date": "2025-09-04",
+   "score": 6,
+   "comments": 19,
+   "themes": [
+    "q8"
+   ],
+   "title": "Interesting dilemma for the new Walmart / Synchrony / One Pay Mastercard.",
+   "url": "https://www.reddit.com/r/CreditCards/comments/1n8l06z/"
+  },
+  {
+   "sub": "eupersonalfinance",
+   "id": "1gzednv",
+   "date": "2024-11-25",
+   "score": 22,
+   "comments": 64,
+   "themes": [
+    "q8"
+   ],
+   "title": "Which tool to manage your personal finance?",
+   "url": "https://www.reddit.com/r/eupersonalfinance/comments/1gzednv/"
+  },
+  {
+   "sub": "eupersonalfinance",
+   "id": "1m3bh6z",
+   "date": "2025-07-18",
+   "score": 17,
+   "comments": 48,
+   "themes": [
+    "q3",
+    "q7",
+    "q8"
+   ],
+   "title": "What personal finance tracking apps are you actually using (and not abandoning after a month)?",
+   "url": "https://www.reddit.com/r/eupersonalfinance/comments/1m3bh6z/"
+  },
+  {
+   "sub": "eupersonalfinance",
+   "id": "1vfj6h6",
+   "date": "2026-08-04",
+   "score": 8,
+   "comments": 14,
+   "themes": [
+    "q8"
+   ],
+   "title": "Financial (net worth, retirement and cashflow) planning apps for Ireland/Europe",
+   "url": "https://www.reddit.com/r/eupersonalfinance/comments/1vfj6h6/"
+  },
+  {
+   "sub": "eupersonalfinance",
+   "id": "gp9kti",
+   "date": "2020-05-23",
+   "score": 10,
+   "comments": 6,
+   "themes": [
+    "q2"
+   ],
+   "title": "[BE] What do I need to include in my tax report regarding investing ?",
+   "url": "https://www.reddit.com/r/eupersonalfinance/comments/gp9kti/"
+  },
+  {
+   "sub": "fatFIRE",
+   "id": "15qvp24",
+   "date": "2023-08-14",
+   "score": 100,
+   "comments": 85,
+   "themes": [
+    "q8"
+   ],
+   "title": "Using a 4%+ SWR and depleting my savings during retirement",
+   "url": "https://www.reddit.com/r/fatFIRE/comments/15qvp24/"
+  },
+  {
+   "sub": "fatFIRE",
+   "id": "1heav4h",
+   "date": "2024-12-14",
+   "score": 40,
+   "comments": 66,
+   "themes": [
+    "q8"
+   ],
+   "title": "Resigning Monday: Thoughts on the plan",
+   "url": "https://www.reddit.com/r/fatFIRE/comments/1heav4h/"
+  },
+  {
+   "sub": "fatFIRE",
+   "id": "u2wada",
+   "date": "2022-04-13",
+   "score": 109,
+   "comments": 21,
+   "themes": [
+    "q8"
+   ],
+   "title": "Crosspost, new FI simulator. Looks pretty feature rich.",
+   "url": "https://www.reddit.com/r/fatFIRE/comments/u2wada/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "owfs82",
+   "date": "2021-08-02",
+   "score": 13285,
+   "comments": 1772,
+   "themes": [
+    "q6"
+   ],
+   "title": "If you make a decent income, it becomes all about lifestyle creep.",
+   "url": "https://www.reddit.com/r/financialindependence/comments/owfs82/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "imoao6",
+   "date": "2020-09-04",
+   "score": 3316,
+   "comments": 780,
+   "themes": [
+    "q6",
+    "q7"
+   ],
+   "title": "Confession: I panicked, it cost me a lot. Don't let it happen to you, even if you have to pay f",
+   "url": "https://www.reddit.com/r/financialindependence/comments/imoao6/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "r8omv6",
+   "date": "2021-12-04",
+   "score": 1540,
+   "comments": 473,
+   "themes": [
+    "q2"
+   ],
+   "title": "I am a doctor quitting 1.5 yrs into my career due to burnout and attempting to FIRE on 2k/mo.",
+   "url": "https://www.reddit.com/r/financialindependence/comments/r8omv6/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "jx2ybx",
+   "date": "2020-11-19",
+   "score": 740,
+   "comments": 444,
+   "themes": [
+    "q2",
+    "q9"
+   ],
+   "title": "Turned 29 and hit LeanFIRE! I feel no differently than I did when I had nothing. I also suffer",
+   "url": "https://www.reddit.com/r/financialindependence/comments/jx2ybx/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "u7hth3",
+   "date": "2022-04-19",
+   "score": 900,
+   "comments": 413,
+   "themes": [
+    "q1",
+    "q3"
+   ],
+   "title": "Cut Your Retirement Spending Now, Says Creator of the 4% Rule",
+   "url": "https://www.reddit.com/r/financialindependence/comments/u7hth3/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "gur5bv",
+   "date": "2020-06-01",
+   "score": 1041,
+   "comments": 327,
+   "themes": [
+    "q2"
+   ],
+   "title": "Thoughts and decisions that led to debt free with paid off mortgage in early 30’s",
+   "url": "https://www.reddit.com/r/financialindependence/comments/gur5bv/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "hqexle",
+   "date": "2020-07-13",
+   "score": 756,
+   "comments": 242,
+   "themes": [
+    "q2",
+    "q7"
+   ],
+   "title": "Oversaving in a 529 is a much smaller problem than you would think",
+   "url": "https://www.reddit.com/r/financialindependence/comments/hqexle/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "v6xige",
+   "date": "2022-06-07",
+   "score": 2014,
+   "comments": 235,
+   "themes": [
+    "q7",
+    "q9"
+   ],
+   "title": "PSA: Take care of your mental health before making important, lifelong decisions. I did and my",
+   "url": "https://www.reddit.com/r/financialindependence/comments/v6xige/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "10a55jz",
+   "date": "2023-01-12",
+   "score": 1103,
+   "comments": 222,
+   "themes": [
+    "q1",
+    "q7"
+   ],
+   "title": "Journey to the first $100k",
+   "url": "https://www.reddit.com/r/financialindependence/comments/10a55jz/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "7exbtt",
+   "date": "2017-11-23",
+   "score": 415,
+   "comments": 156,
+   "themes": [
+    "q2"
+   ],
+   "title": "40/m/engaged Mint Net Worth History $2.5m",
+   "url": "https://www.reddit.com/r/financialindependence/comments/7exbtt/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "1to8o0b",
+   "date": "2026-05-26",
+   "score": 32,
+   "comments": 151,
+   "themes": [
+    "q3",
+    "q4"
+   ],
+   "title": "WWYD: Upgrade your home or Stay Put?",
+   "url": "https://www.reddit.com/r/financialindependence/comments/1to8o0b/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "1reo6ef",
+   "date": "2026-02-25",
+   "score": 38,
+   "comments": 107,
+   "themes": [
+    "q8"
+   ],
+   "title": "How to optimize withdrawals to reduce MAGI for ACA subsidies?",
+   "url": "https://www.reddit.com/r/financialindependence/comments/1reo6ef/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "1ja6sjl",
+   "date": "2025-03-13",
+   "score": 378,
+   "comments": 92,
+   "themes": [
+    "q2"
+   ],
+   "title": "FI/RE 7 years in – yearly update and what-have-yous",
+   "url": "https://www.reddit.com/r/financialindependence/comments/1ja6sjl/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "1r4ol73",
+   "date": "2026-02-14",
+   "score": 135,
+   "comments": 48,
+   "themes": [
+    "q8"
+   ],
+   "title": "Eleven Year Update",
+   "url": "https://www.reddit.com/r/financialindependence/comments/1r4ol73/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "rtmupf",
+   "date": "2022-01-01",
+   "score": 407,
+   "comments": 45,
+   "themes": [
+    "q8"
+   ],
+   "title": "FIRE calculators that do different and interesting things, YEAR 2!",
+   "url": "https://www.reddit.com/r/financialindependence/comments/rtmupf/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "1tgrrmj",
+   "date": "2026-05-18",
+   "score": 0,
+   "comments": 42,
+   "themes": [
+    "q8"
+   ],
+   "title": "One year update: was going to retire, then AI made work interesting again",
+   "url": "https://www.reddit.com/r/financialindependence/comments/1tgrrmj/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "1129z7z",
+   "date": "2023-02-14",
+   "score": 268,
+   "comments": 39,
+   "themes": [
+    "q8"
+   ],
+   "title": "FI Calcs that do different and interesting things, Volume 3",
+   "url": "https://www.reddit.com/r/financialindependence/comments/1129z7z/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "1gysepj",
+   "date": "2024-11-24",
+   "score": 18,
+   "comments": 39,
+   "themes": [
+    "q8"
+   ],
+   "title": "To Roth or Not to Roth",
+   "url": "https://www.reddit.com/r/financialindependence/comments/1gysepj/"
+  },
+  {
+   "sub": "financialindependence",
+   "id": "4esrsm",
+   "date": "2016-04-14",
+   "score": 66,
+   "comments": 24,
+   "themes": [
+    "q3",
+    "q5"
+   ],
+   "title": "Budget & FI/RE Spreadsheet (x-post /r/PersonalFinance)",
+   "url": "https://www.reddit.com/r/financialindependence/comments/4esrsm/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1u7dhoh",
+   "date": "2026-06-16",
+   "score": 557,
+   "comments": 569,
+   "themes": [
+    "q8"
+   ],
+   "title": "Blanket statements of \"never pay off that mortgage\" are bad advice",
+   "url": "https://www.reddit.com/r/Fire/comments/1u7dhoh/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1sfkk91",
+   "date": "2026-04-08",
+   "score": 129,
+   "comments": 419,
+   "themes": [
+    "q7",
+    "q9"
+   ],
+   "title": "Searching For Life Altering Experiences: Now That Money Isn't A Barrier, What Decadent Experien",
+   "url": "https://www.reddit.com/r/Fire/comments/1sfkk91/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1fnhud6",
+   "date": "2024-09-23",
+   "score": 2183,
+   "comments": 348,
+   "themes": [
+    "q7",
+    "q9"
+   ],
+   "title": "Retired at 47 a year ago. Here's how it's going.",
+   "url": "https://www.reddit.com/r/Fire/comments/1fnhud6/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1rsy97b",
+   "date": "2026-03-13",
+   "score": 59,
+   "comments": 208,
+   "themes": [
+    "q8"
+   ],
+   "title": "How Come This Isn't Taught in School?",
+   "url": "https://www.reddit.com/r/Fire/comments/1rsy97b/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1m3a06r",
+   "date": "2025-07-18",
+   "score": 51,
+   "comments": 193,
+   "themes": [
+    "q3",
+    "q8"
+   ],
+   "title": "What personal finance tracking apps are you actually using (and not abandoning after a month)?",
+   "url": "https://www.reddit.com/r/Fire/comments/1m3a06r/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1k05mpx",
+   "date": "2025-04-15",
+   "score": 574,
+   "comments": 176,
+   "themes": [
+    "q2"
+   ],
+   "title": "Networth crossed 500k at age 24. No one to share it with",
+   "url": "https://www.reddit.com/r/Fire/comments/1k05mpx/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1q8m5m9",
+   "date": "2026-01-09",
+   "score": 319,
+   "comments": 150,
+   "themes": [
+    "q3",
+    "q6"
+   ],
+   "title": "Retired at 45. Here is my updated budget/spending 2014 - 2026",
+   "url": "https://www.reddit.com/r/Fire/comments/1q8m5m9/"
+  },
+  {
+   "sub": "Fire",
+   "id": "185vbzj",
+   "date": "2023-11-28",
+   "score": 131,
+   "comments": 145,
+   "themes": [
+    "q8"
+   ],
+   "title": "Simple rules like \"the 4% rule\" no longer make sense. We have computers now.",
+   "url": "https://www.reddit.com/r/Fire/comments/185vbzj/"
+  },
+  {
+   "sub": "Fire",
+   "id": "13ctst5",
+   "date": "2023-05-09",
+   "score": 134,
+   "comments": 120,
+   "themes": [
+    "q7",
+    "q8"
+   ],
+   "title": "How often are you checking your numbers/progress and what tools do you use?",
+   "url": "https://www.reddit.com/r/Fire/comments/13ctst5/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1fnqswe",
+   "date": "2024-09-23",
+   "score": 223,
+   "comments": 104,
+   "themes": [
+    "q2"
+   ],
+   "title": "Do FIRE people primarily prioritize an easy life over a luxurious one?",
+   "url": "https://www.reddit.com/r/Fire/comments/1fnqswe/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1f8xozb",
+   "date": "2024-09-04",
+   "score": 32,
+   "comments": 83,
+   "themes": [
+    "q8"
+   ],
+   "title": "Anyone talk to a financial advisor to validate their plan?",
+   "url": "https://www.reddit.com/r/Fire/comments/1f8xozb/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1f400hk",
+   "date": "2024-08-29",
+   "score": 13,
+   "comments": 76,
+   "themes": [
+    "q2"
+   ],
+   "title": "Anyone else really struggle with having a good + up-to-date overview of personal finances?",
+   "url": "https://www.reddit.com/r/Fire/comments/1f400hk/"
+  },
+  {
+   "sub": "Fire",
+   "id": "16kngtf",
+   "date": "2023-09-17",
+   "score": 4,
+   "comments": 26,
+   "themes": [
+    "q2"
+   ],
+   "title": "How to keep reducing expenses?",
+   "url": "https://www.reddit.com/r/Fire/comments/16kngtf/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1t06ybs",
+   "date": "2026-04-30",
+   "score": 0,
+   "comments": 21,
+   "themes": [
+    "q2"
+   ],
+   "title": "$9 million net worth at age 39, not sure what to do from here, already FIREd",
+   "url": "https://www.reddit.com/r/Fire/comments/1t06ybs/"
+  },
+  {
+   "sub": "Fire",
+   "id": "1cd9n6k",
+   "date": "2024-04-26",
+   "score": 21,
+   "comments": 15,
+   "themes": [
+    "q2"
+   ],
+   "title": "Trying to FIRE",
+   "url": "https://www.reddit.com/r/Fire/comments/1cd9n6k/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1k77n1r",
+   "date": "2025-04-25",
+   "score": 11502,
+   "comments": 7422,
+   "themes": [
+    "q9"
+   ],
+   "title": "What’s one thing under $25 that significantly improved your daily life?",
+   "url": "https://www.reddit.com/r/Frugal/comments/1k77n1r/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1e7tejg",
+   "date": "2024-07-20",
+   "score": 4772,
+   "comments": 3995,
+   "themes": [
+    "q6"
+   ],
+   "title": "What are the things you stopped buying since the price increases because it’s just not worth it",
+   "url": "https://www.reddit.com/r/Frugal/comments/1e7tejg/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1ce3irb",
+   "date": "2024-04-27",
+   "score": 2148,
+   "comments": 2579,
+   "themes": [
+    "q6"
+   ],
+   "title": "What is something that you love that is beginning to become too expensive?",
+   "url": "https://www.reddit.com/r/Frugal/comments/1ce3irb/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "sy7xn6",
+   "date": "2022-02-21",
+   "score": 15556,
+   "comments": 2287,
+   "themes": [
+    "q6"
+   ],
+   "title": "Where is this so-called 7% inflation everyone's talking about? Where I live (~150k pop. county)",
+   "url": "https://www.reddit.com/r/Frugal/comments/sy7xn6/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1fpif6u",
+   "date": "2024-09-25",
+   "score": 1344,
+   "comments": 1862,
+   "themes": [
+    "q9"
+   ],
+   "title": "Whats something you bought that saves you alot of money",
+   "url": "https://www.reddit.com/r/Frugal/comments/1fpif6u/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1ankxii",
+   "date": "2024-02-10",
+   "score": 1278,
+   "comments": 1587,
+   "themes": [
+    "q6"
+   ],
+   "title": "What price increase shocks and/or infuriates you the most?",
+   "url": "https://www.reddit.com/r/Frugal/comments/1ankxii/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1of3nc2",
+   "date": "2025-10-24",
+   "score": 1702,
+   "comments": 1372,
+   "themes": [
+    "q3"
+   ],
+   "title": "Fiance won't let me turn on the heat to the house",
+   "url": "https://www.reddit.com/r/Frugal/comments/1of3nc2/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "15dreik",
+   "date": "2023-07-30",
+   "score": 1526,
+   "comments": 1302,
+   "themes": [
+    "q4"
+   ],
+   "title": "What’s an expensive thing you splurge on that you know isnt necessary but you canna go without?",
+   "url": "https://www.reddit.com/r/Frugal/comments/15dreik/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1tprhua",
+   "date": "2026-05-28",
+   "score": 559,
+   "comments": 1276,
+   "themes": [
+    "q9"
+   ],
+   "title": "Is there anywhere in the US that's affordable to live at this point?",
+   "url": "https://www.reddit.com/r/Frugal/comments/1tprhua/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "mizulw",
+   "date": "2021-04-03",
+   "score": 780,
+   "comments": 730,
+   "themes": [
+    "q2"
+   ],
+   "title": "What is worth to make at home, and what should you just buy because it's too much work?",
+   "url": "https://www.reddit.com/r/Frugal/comments/mizulw/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "41p707",
+   "date": "2016-01-19",
+   "score": 3598,
+   "comments": 432,
+   "themes": [
+    "q6",
+    "q7",
+    "q9"
+   ],
+   "title": "Save TONS of money when selling/buying a home (advice from a former real estate agent).",
+   "url": "https://www.reddit.com/r/Frugal/comments/41p707/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "yglbml",
+   "date": "2022-10-29",
+   "score": 2319,
+   "comments": 204,
+   "themes": [
+    "q2"
+   ],
+   "title": "If you try to cancel HBO Max, they'll give you 3 months for half price.",
+   "url": "https://www.reddit.com/r/Frugal/comments/yglbml/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "byf14",
+   "date": "2010-04-30",
+   "score": 50,
+   "comments": 200,
+   "themes": [
+    "q2"
+   ],
+   "title": "Hey r/Frugal! I make $32,000 a year. What should I be doing with my money?",
+   "url": "https://www.reddit.com/r/Frugal/comments/byf14/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "82que7",
+   "date": "2018-03-07",
+   "score": 372,
+   "comments": 114,
+   "themes": [
+    "q1",
+    "q7"
+   ],
+   "title": "Things That I Learned From Working at a Bank",
+   "url": "https://www.reddit.com/r/Frugal/comments/82que7/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1hr3xal",
+   "date": "2025-01-01",
+   "score": 723,
+   "comments": 114,
+   "themes": [
+    "q2"
+   ],
+   "title": "Cancelled my Netflix and bumble dating subscriptions",
+   "url": "https://www.reddit.com/r/Frugal/comments/1hr3xal/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "1vay1ov",
+   "date": "2026-07-30",
+   "score": 212,
+   "comments": 91,
+   "themes": [
+    "q2"
+   ],
+   "title": "Try to cancel and you get a lower price?",
+   "url": "https://www.reddit.com/r/Frugal/comments/1vay1ov/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "12b23d7",
+   "date": "2023-04-03",
+   "score": 240,
+   "comments": 89,
+   "themes": [
+    "q2"
+   ],
+   "title": "Amazon Prime now offers $139 in savings!",
+   "url": "https://www.reddit.com/r/Frugal/comments/12b23d7/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "3u3jwc",
+   "date": "2015-11-24",
+   "score": 54,
+   "comments": 73,
+   "themes": [
+    "q1",
+    "q3"
+   ],
+   "title": "Is there anything I can do to avoid being charged from my bank?",
+   "url": "https://www.reddit.com/r/Frugal/comments/3u3jwc/"
+  },
+  {
+   "sub": "Frugal",
+   "id": "24pek2",
+   "date": "2014-05-04",
+   "score": 49,
+   "comments": 26,
+   "themes": [
+    "q8"
+   ],
+   "title": "[Request] A financial planner or budgeting software with down-to-the-day scheduling of expenses",
+   "url": "https://www.reddit.com/r/Frugal/comments/24pek2/"
+  },
+  {
+   "sub": "leanfire",
+   "id": "u506tt",
+   "date": "2022-04-16",
+   "score": 503,
+   "comments": 184,
+   "themes": [
+    "q8"
+   ],
+   "title": "I spent 1200 hours building a new FI planning tool",
+   "url": "https://www.reddit.com/r/leanfire/comments/u506tt/"
+  },
+  {
+   "sub": "leanfire",
+   "id": "1sal5da",
+   "date": "2026-04-02",
+   "score": 257,
+   "comments": 95,
+   "themes": [
+    "q8"
+   ],
+   "title": "After 14 years of running retirement calculator/planner sites, let's talk.",
+   "url": "https://www.reddit.com/r/leanfire/comments/1sal5da/"
+  },
+  {
+   "sub": "leanfire",
+   "id": "152z111",
+   "date": "2023-07-18",
+   "score": 260,
+   "comments": 64,
+   "themes": [
+    "q8"
+   ],
+   "title": "I spent 2 years building a modern FI planning tool",
+   "url": "https://www.reddit.com/r/leanfire/comments/152z111/"
+  },
+  {
+   "sub": "leanfire",
+   "id": "1svddyu",
+   "date": "2026-04-25",
+   "score": 165,
+   "comments": 61,
+   "themes": [
+    "q8"
+   ],
+   "title": "I spent 5 years building a FIRE planning tool",
+   "url": "https://www.reddit.com/r/leanfire/comments/1svddyu/"
+  },
+  {
+   "sub": "MiddleClassFinance",
+   "id": "1r0j9ta",
+   "date": "2026-02-09",
+   "score": 65,
+   "comments": 42,
+   "themes": [
+    "q8"
+   ],
+   "title": "Stay full-time, change to part-time, or Retire?",
+   "url": "https://www.reddit.com/r/MiddleClassFinance/comments/1r0j9ta/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1srpil9",
+   "date": "2026-04-21",
+   "score": 182,
+   "comments": 126,
+   "themes": [
+    "q8"
+   ],
+   "title": "Unpopular Opinion: Y’all are overreacting",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1srpil9/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1bthuyx",
+   "date": "2024-04-01",
+   "score": 59,
+   "comments": 106,
+   "themes": [
+    "q2"
+   ],
+   "title": "Canceled my subscription",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1bthuyx/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1o32xht",
+   "date": "2025-10-10",
+   "score": 43,
+   "comments": 78,
+   "themes": [
+    "q2"
+   ],
+   "title": "I loved this tool and recommended it to others. Now I'm cancelling my subscription.",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1o32xht/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1rnlnm9",
+   "date": "2026-03-07",
+   "score": 0,
+   "comments": 58,
+   "themes": [
+    "q2"
+   ],
+   "title": "What did you switch to after Monarch?",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1rnlnm9/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1b5yd6s",
+   "date": "2024-03-04",
+   "score": 17,
+   "comments": 53,
+   "themes": [
+    "q2"
+   ],
+   "title": "Wealthsimple Canada connection issues thread",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1b5yd6s/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1t5gjd7",
+   "date": "2026-05-06",
+   "score": 35,
+   "comments": 49,
+   "themes": [
+    "q8"
+   ],
+   "title": "Chrysalis now supports Early Access Projection Lab | Monarch->Projection Lab sync",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1t5gjd7/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "19e1kvt",
+   "date": "2024-01-23",
+   "score": 16,
+   "comments": 45,
+   "themes": [
+    "q2"
+   ],
+   "title": "Monarch or YNAB",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/19e1kvt/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1e79ig1",
+   "date": "2024-07-19",
+   "score": 24,
+   "comments": 43,
+   "themes": [
+    "q8"
+   ],
+   "title": "The #1 thing that lets MM down is not separating institutions & accounts.",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1e79ig1/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1nnrduq",
+   "date": "2025-09-22",
+   "score": 76,
+   "comments": 38,
+   "themes": [
+    "q8"
+   ],
+   "title": "ProjectionLab Features in a new Monarch+ subscription tier",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1nnrduq/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1o9aixa",
+   "date": "2025-10-17",
+   "score": 70,
+   "comments": 28,
+   "themes": [
+    "q8"
+   ],
+   "title": "Feature Request: Intergration with Projection Lab",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1o9aixa/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1tq155r",
+   "date": "2026-05-28",
+   "score": 11,
+   "comments": 25,
+   "themes": [
+    "q2"
+   ],
+   "title": "Switching from ynab",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1tq155r/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1h1zk0b",
+   "date": "2024-11-28",
+   "score": 5,
+   "comments": 24,
+   "themes": [
+    "q2"
+   ],
+   "title": "Monarch Support: ChatGPT / Skeleton Crew",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1h1zk0b/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1sr73vb",
+   "date": "2026-04-20",
+   "score": 93,
+   "comments": 18,
+   "themes": [
+    "q8"
+   ],
+   "title": "Monarch Plus Pricing Needs to be Re-evaluated",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1sr73vb/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1r3rl35",
+   "date": "2026-02-13",
+   "score": 12,
+   "comments": 17,
+   "themes": [
+    "q8"
+   ],
+   "title": "Hitting the Hindsight Wall",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1r3rl35/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1tstq0q",
+   "date": "2026-05-31",
+   "score": 23,
+   "comments": 17,
+   "themes": [
+    "q8"
+   ],
+   "title": "Chrysalis update (v1.0.5) — \"Failed to fetch\" is fixed, plus some other goodies",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1tstq0q/"
+  },
+  {
+   "sub": "MonarchMoney",
+   "id": "1jtnse5",
+   "date": "2025-04-07",
+   "score": 6,
+   "comments": 16,
+   "themes": [
+    "q2"
+   ],
+   "title": "Question for those that switched from YNAB",
+   "url": "https://www.reddit.com/r/MonarchMoney/comments/1jtnse5/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "36pnp0",
+   "date": "2015-05-21",
+   "score": 13615,
+   "comments": 2469,
+   "themes": [
+    "q9"
+   ],
+   "title": "3 Tricks Car Salesmen Use to take your money",
+   "url": "https://www.reddit.com/r/personalfinance/comments/36pnp0/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "7uzp28",
+   "date": "2018-02-03",
+   "score": 13862,
+   "comments": 2020,
+   "themes": [
+    "q7"
+   ],
+   "title": "I kept a detailed record of how much was spent to have our baby. Here it is.",
+   "url": "https://www.reddit.com/r/personalfinance/comments/7uzp28/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "f5336f",
+   "date": "2020-02-17",
+   "score": 21401,
+   "comments": 1976,
+   "themes": [
+    "q6"
+   ],
+   "title": "My Experience with a Timeshare (Wyndham) Sales Team in Vegas",
+   "url": "https://www.reddit.com/r/personalfinance/comments/f5336f/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "6ka7ku",
+   "date": "2017-06-29",
+   "score": 17738,
+   "comments": 1642,
+   "themes": [
+    "q7"
+   ],
+   "title": "How My Wife and I Never Fight Over Money",
+   "url": "https://www.reddit.com/r/personalfinance/comments/6ka7ku/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "k8illm",
+   "date": "2020-12-07",
+   "score": 2972,
+   "comments": 1629,
+   "themes": [
+    "q9"
+   ],
+   "title": "Did I make a horrible mistake buying a new car?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/k8illm/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "boza0g",
+   "date": "2019-05-15",
+   "score": 50772,
+   "comments": 1598,
+   "themes": [
+    "q7",
+    "q9"
+   ],
+   "title": "I made a spreadsheet for people who don't know how to budget!",
+   "url": "https://www.reddit.com/r/personalfinance/comments/boza0g/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "ebfkrf",
+   "date": "2019-12-16",
+   "score": 10740,
+   "comments": 1516,
+   "themes": [
+    "q7"
+   ],
+   "title": "I just bought a used car for the first time. Here is what I learned.",
+   "url": "https://www.reddit.com/r/personalfinance/comments/ebfkrf/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "8c5esp",
+   "date": "2018-04-14",
+   "score": 10119,
+   "comments": 1392,
+   "themes": [
+    "q1"
+   ],
+   "title": "Wells Fargo will \"post Items presented against the Account in any order the Bank chooses\".",
+   "url": "https://www.reddit.com/r/personalfinance/comments/8c5esp/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "85ca9j",
+   "date": "2018-03-18",
+   "score": 9031,
+   "comments": 1371,
+   "themes": [
+    "q9"
+   ],
+   "title": "30 year old with $1,000",
+   "url": "https://www.reddit.com/r/personalfinance/comments/85ca9j/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "4tlqsd",
+   "date": "2016-07-19",
+   "score": 16186,
+   "comments": 1366,
+   "themes": [
+    "q6"
+   ],
+   "title": "ELI22: Personal finance tips for older young adults (US)",
+   "url": "https://www.reddit.com/r/personalfinance/comments/4tlqsd/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "4gpas8",
+   "date": "2016-04-27",
+   "score": 7375,
+   "comments": 1305,
+   "themes": [
+    "q9"
+   ],
+   "title": "Rent increase continues to outgrow wage increase.",
+   "url": "https://www.reddit.com/r/personalfinance/comments/4gpas8/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "dp7pww",
+   "date": "2019-10-30",
+   "score": 36713,
+   "comments": 1217,
+   "themes": [
+    "q7",
+    "q9"
+   ],
+   "title": "I mde a spreadsheet for people who dont know how to budget! Ver. 2.0",
+   "url": "https://www.reddit.com/r/personalfinance/comments/dp7pww/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "a1id29",
+   "date": "2018-11-29",
+   "score": 4112,
+   "comments": 812,
+   "themes": [
+    "q6",
+    "q9"
+   ],
+   "title": "Company dinner party will be too expensive for me. Polite way to decline or compromise?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/a1id29/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "j58ksd",
+   "date": "2020-10-04",
+   "score": 3619,
+   "comments": 670,
+   "themes": [
+    "q2"
+   ],
+   "title": "I have 77k in credit card debt",
+   "url": "https://www.reddit.com/r/personalfinance/comments/j58ksd/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "4uuejg",
+   "date": "2016-07-27",
+   "score": 4024,
+   "comments": 593,
+   "themes": [
+    "q6",
+    "q9"
+   ],
+   "title": "ELI40: personal finance tips to make best use of your assets (US)",
+   "url": "https://www.reddit.com/r/personalfinance/comments/4uuejg/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "4100ky",
+   "date": "2016-01-14",
+   "score": 2865,
+   "comments": 432,
+   "themes": [
+    "q1",
+    "q3",
+    "q7"
+   ],
+   "title": "How I paid off $10k in CC debt in one year ($55k - no windfalls)",
+   "url": "https://www.reddit.com/r/personalfinance/comments/4100ky/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "n0crdw",
+   "date": "2021-04-28",
+   "score": 3936,
+   "comments": 403,
+   "themes": [
+    "q9",
+    "q8"
+   ],
+   "title": "Found out my coworker who I trained makes $20k more. I went in to ask for a rate adjustment",
+   "url": "https://www.reddit.com/r/personalfinance/comments/n0crdw/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "2zpbac",
+   "date": "2015-03-20",
+   "score": 626,
+   "comments": 193,
+   "themes": [
+    "q5",
+    "q7",
+    "q9"
+   ],
+   "title": "My girlfriend has no financial discipline. What tools can I point her towards to get her on the",
+   "url": "https://www.reddit.com/r/personalfinance/comments/2zpbac/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "s3svz9",
+   "date": "2022-01-14",
+   "score": 2990,
+   "comments": 122,
+   "themes": [
+    "q3",
+    "q7"
+   ],
+   "title": "Here are some PF related Google Sheets that I've created and used over the years",
+   "url": "https://www.reddit.com/r/personalfinance/comments/s3svz9/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "1sr051",
+   "date": "2013-12-12",
+   "score": 79,
+   "comments": 113,
+   "themes": [
+    "q1",
+    "q3",
+    "q4"
+   ],
+   "title": "I am getting buried in a horrible cycle of payday loans and overdrafting my bank account",
+   "url": "https://www.reddit.com/r/personalfinance/comments/1sr051/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "9a9qc0",
+   "date": "2018-08-25",
+   "score": 234,
+   "comments": 110,
+   "themes": [
+    "q8"
+   ],
+   "title": "Now that Mint's UI has become practicality unusable, what's the best alternative?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/9a9qc0/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "8o4mfm",
+   "date": "2018-06-02",
+   "score": 69,
+   "comments": 84,
+   "themes": [
+    "q2"
+   ],
+   "title": "Which budgeting apps do you love or hate?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/8o4mfm/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "16xsua",
+   "date": "2013-01-20",
+   "score": 68,
+   "comments": 80,
+   "themes": [
+    "q3",
+    "q8"
+   ],
+   "title": "Is there a good app/program for monitoring personal cash flow?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/16xsua/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "4nez3y",
+   "date": "2016-06-10",
+   "score": 42,
+   "comments": 77,
+   "themes": [
+    "q2"
+   ],
+   "title": "49 payments left of $436 on a car whose value has decreased dramatically",
+   "url": "https://www.reddit.com/r/personalfinance/comments/4nez3y/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "1aa5jv",
+   "date": "2013-03-14",
+   "score": 49,
+   "comments": 76,
+   "themes": [
+    "q2"
+   ],
+   "title": "I'm looking for a good (free?) budgeting website or software.",
+   "url": "https://www.reddit.com/r/personalfinance/comments/1aa5jv/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "4w0339",
+   "date": "2016-08-03",
+   "score": 1,
+   "comments": 68,
+   "themes": [
+    "q2"
+   ],
+   "title": "I have almost 100k in student loan debt! I can't find a job and the interest (6.8%) is digging",
+   "url": "https://www.reddit.com/r/personalfinance/comments/4w0339/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "7m3w3k",
+   "date": "2017-12-25",
+   "score": 338,
+   "comments": 60,
+   "themes": [
+    "q2"
+   ],
+   "title": "Kitchen/Food tips I learned that have saved me hundreds, if not thousands.",
+   "url": "https://www.reddit.com/r/personalfinance/comments/7m3w3k/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "gh3w26",
+   "date": "2020-05-10",
+   "score": 139,
+   "comments": 50,
+   "themes": [
+    "q2"
+   ],
+   "title": "I’m being charged for a subscription I cancelled two years after I cancelled it",
+   "url": "https://www.reddit.com/r/personalfinance/comments/gh3w26/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "a9i7s7",
+   "date": "2018-12-25",
+   "score": 18,
+   "comments": 50,
+   "themes": [
+    "q8"
+   ],
+   "title": "Why has no one made a good piece of personal finance software?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/a9i7s7/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "2dnbh4",
+   "date": "2014-08-15",
+   "score": 116,
+   "comments": 33,
+   "themes": [
+    "q2"
+   ],
+   "title": "Was I punished for canceling my myfico.com subscription or am I just being paranoid?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/2dnbh4/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "1qra0qo",
+   "date": "2026-01-30",
+   "score": 1,
+   "comments": 19,
+   "themes": [
+    "q5",
+    "q8"
+   ],
+   "title": "Rebalance calculator for target asset allocation",
+   "url": "https://www.reddit.com/r/personalfinance/comments/1qra0qo/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "1je4na7",
+   "date": "2025-03-18",
+   "score": 0,
+   "comments": 15,
+   "themes": [
+    "q8"
+   ],
+   "title": "Withdrawing from brokerage to reduce monthly mortgage payment?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/1je4na7/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "1cxz73d",
+   "date": "2024-05-22",
+   "score": 2,
+   "comments": 14,
+   "themes": [
+    "q8"
+   ],
+   "title": "More complex retirement calculator?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/1cxz73d/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "37l1n7",
+   "date": "2015-05-28",
+   "score": 3,
+   "comments": 12,
+   "themes": [
+    "q3",
+    "q8"
+   ],
+   "title": "Wanted to find budget software to fit needs and wants",
+   "url": "https://www.reddit.com/r/personalfinance/comments/37l1n7/"
+  },
+  {
+   "sub": "personalfinance",
+   "id": "z02qds",
+   "date": "2022-11-20",
+   "score": 0,
+   "comments": 12,
+   "themes": [
+    "q8"
+   ],
+   "title": "What apps do you use to manage to finances? Do you ever feel overwhelmed by any of the apps?",
+   "url": "https://www.reddit.com/r/personalfinance/comments/z02qds/"
+  },
+  {
+   "sub": "pocketsmith",
+   "id": "196v5iz",
+   "date": "2024-01-15",
+   "score": 8,
+   "comments": 7,
+   "themes": [
+    "q8"
+   ],
+   "title": "Update!",
+   "url": "https://www.reddit.com/r/pocketsmith/comments/196v5iz/"
+  },
+  {
+   "sub": "pocketsmith",
+   "id": "1u9mc9j",
+   "date": "2026-06-18",
+   "score": 1,
+   "comments": 5,
+   "themes": [
+    "q3",
+    "q8"
+   ],
+   "title": "Budgets - how to get the most out of them",
+   "url": "https://www.reddit.com/r/pocketsmith/comments/1u9mc9j/"
+  },
+  {
+   "sub": "pocketsmith",
+   "id": "107t427",
+   "date": "2023-01-09",
+   "score": 3,
+   "comments": 4,
+   "themes": [
+    "q8"
+   ],
+   "title": "r/pocketsmith Lounge",
+   "url": "https://www.reddit.com/r/pocketsmith/comments/107t427/"
+  },
+  {
+   "sub": "pocketsmith",
+   "id": "1dd9dw1",
+   "date": "2024-06-11",
+   "score": 2,
+   "comments": 1,
+   "themes": [
+    "q5",
+    "q8"
+   ],
+   "title": "Paypal 2FA Yodlee and Plaid",
+   "url": "https://www.reddit.com/r/pocketsmith/comments/1dd9dw1/"
+  },
+  {
+   "sub": "pocketsmith",
+   "id": "1metafw",
+   "date": "2025-08-01",
+   "score": 2,
+   "comments": 1,
+   "themes": [
+    "q8"
+   ],
+   "title": "Setting up Bills",
+   "url": "https://www.reddit.com/r/pocketsmith/comments/1metafw/"
+  },
+  {
+   "sub": "pocketsmith",
+   "id": "1b8ftzq",
+   "date": "2024-03-07",
+   "score": 1,
+   "comments": 0,
+   "themes": [
+    "q8"
+   ],
+   "title": "Apple Card Support",
+   "url": "https://www.reddit.com/r/pocketsmith/comments/1b8ftzq/"
+  },
+  {
+   "sub": "pocketsmith",
+   "id": "12h2jct",
+   "date": "2023-04-10",
+   "score": 1,
+   "comments": 0,
+   "themes": [
+    "q8"
+   ],
+   "title": "Scenarios help...",
+   "url": "https://www.reddit.com/r/pocketsmith/comments/12h2jct/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1niu4k8",
+   "date": "2025-09-16",
+   "score": 30101,
+   "comments": 6799,
+   "themes": [
+    "q1"
+   ],
+   "title": "Found ATM receipt, who is keeping $51,000+ in checking!?!?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1niu4k8/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1b84p1z",
+   "date": "2024-03-06",
+   "score": 4846,
+   "comments": 1980,
+   "themes": [
+    "q9"
+   ],
+   "title": "33M I literally can't find a path to make more money.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1b84p1z/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1hmvxrp",
+   "date": "2024-12-26",
+   "score": 83930,
+   "comments": 1660,
+   "themes": [
+    "q1"
+   ],
+   "title": "Saved my first $5k at 26 pls clap",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1hmvxrp/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1aelboi",
+   "date": "2024-01-30",
+   "score": 3925,
+   "comments": 1371,
+   "themes": [
+    "q9"
+   ],
+   "title": "My life is a Trainwreck and I'm stuck in the flames.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1aelboi/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "dtzgum",
+   "date": "2019-11-09",
+   "score": 38768,
+   "comments": 1060,
+   "themes": [
+    "q1"
+   ],
+   "title": "How I feel about overdraft",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/dtzgum/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1jtprw6",
+   "date": "2025-04-07",
+   "score": 42985,
+   "comments": 1008,
+   "themes": [
+    "q1"
+   ],
+   "title": "My bank account yesterday versus today. Won a settlement",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1jtprw6/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1u9f5pw",
+   "date": "2026-06-18",
+   "score": 2091,
+   "comments": 858,
+   "themes": [
+    "q1"
+   ],
+   "title": "How do you say no to family when you finally have $1,000 saved?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1u9f5pw/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1u973zv",
+   "date": "2026-06-18",
+   "score": 46306,
+   "comments": 833,
+   "themes": [
+    "q1"
+   ],
+   "title": "I finally did it, my first $1000 in savings!!!",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1u973zv/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "qws7e0",
+   "date": "2021-11-18",
+   "score": 4216,
+   "comments": 784,
+   "themes": [
+    "q1"
+   ],
+   "title": "No one warns us about how fucking hard this is",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/qws7e0/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "vczjca",
+   "date": "2022-06-15",
+   "score": 5988,
+   "comments": 719,
+   "themes": [
+    "q1"
+   ],
+   "title": "We need a new sub",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/vczjca/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1jlbyqx",
+   "date": "2025-03-27",
+   "score": 41020,
+   "comments": 640,
+   "themes": [
+    "q1"
+   ],
+   "title": "This is the most i’ve ever had in my savings",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1jlbyqx/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "pwjmn7",
+   "date": "2021-09-27",
+   "score": 7424,
+   "comments": 550,
+   "themes": [
+    "q1"
+   ],
+   "title": "There is a class war against the poor",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/pwjmn7/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "de7jrr",
+   "date": "2019-10-06",
+   "score": 4445,
+   "comments": 550,
+   "themes": [
+    "q1"
+   ],
+   "title": "I work at a bank part time...",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/de7jrr/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "rhl7w5",
+   "date": "2021-12-16",
+   "score": 12358,
+   "comments": 533,
+   "themes": [
+    "q1"
+   ],
+   "title": "Overdraft fees",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/rhl7w5/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "iig613",
+   "date": "2020-08-28",
+   "score": 26623,
+   "comments": 518,
+   "themes": [
+    "q1"
+   ],
+   "title": "Overdraft fees cripple people already struggling financially",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/iig613/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "v2ds4a",
+   "date": "2022-06-01",
+   "score": 1859,
+   "comments": 474,
+   "themes": [
+    "q1"
+   ],
+   "title": "This subreddit makes me so angry on behalf of Americans",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/v2ds4a/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "186inq4",
+   "date": "2023-11-29",
+   "score": 802,
+   "comments": 467,
+   "themes": [
+    "q1"
+   ],
+   "title": "What happens to old people in poverty?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/186inq4/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "19aci7t",
+   "date": "2024-01-19",
+   "score": 1099,
+   "comments": 456,
+   "themes": [
+    "q1"
+   ],
+   "title": "I voluntarily surrendered my car today.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/19aci7t/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "rwp1dl",
+   "date": "2022-01-05",
+   "score": 864,
+   "comments": 438,
+   "themes": [
+    "q1"
+   ],
+   "title": "I want to get into fitness but it's damn expensive.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/rwp1dl/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "f5yf1z",
+   "date": "2020-02-18",
+   "score": 5733,
+   "comments": 415,
+   "themes": [
+    "q1"
+   ],
+   "title": "Bank: Yeah, you were .30 in debt one day, so we charged you an overdraft fee. Then another one.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/f5yf1z/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1ut5rmu",
+   "date": "2026-07-11",
+   "score": 4018,
+   "comments": 412,
+   "themes": [
+    "q1"
+   ],
+   "title": "I can't take this anymore",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1ut5rmu/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1e10o12",
+   "date": "2024-07-11",
+   "score": 903,
+   "comments": 350,
+   "themes": [
+    "q2",
+    "q9"
+   ],
+   "title": "Wife has a spending problem and I am at my wit's end",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1e10o12/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "qiu212",
+   "date": "2021-10-30",
+   "score": 2121,
+   "comments": 349,
+   "themes": [
+    "q1"
+   ],
+   "title": "PSA Do not make any large purchases at Amazon near the end of the month",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/qiu212/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "136u2t6",
+   "date": "2023-05-03",
+   "score": 6691,
+   "comments": 338,
+   "themes": [
+    "q1"
+   ],
+   "title": "Making progress and I've (30M) got nobody to tell. Hope this fits here.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/136u2t6/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1unv38i",
+   "date": "2026-07-05",
+   "score": 3234,
+   "comments": 330,
+   "themes": [
+    "q1"
+   ],
+   "title": "Sick of living paycheck to paycheck",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1unv38i/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1jrehou",
+   "date": "2025-04-04",
+   "score": 196,
+   "comments": 323,
+   "themes": [
+    "q1"
+   ],
+   "title": "You need $5 or $10 fast, what do you do?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1jrehou/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1740pbz",
+   "date": "2023-10-09",
+   "score": 961,
+   "comments": 320,
+   "themes": [
+    "q4",
+    "q6"
+   ],
+   "title": "I really hate that most hobbies are kinda expensive.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1740pbz/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "18k6gvj",
+   "date": "2023-12-17",
+   "score": 392,
+   "comments": 307,
+   "themes": [
+    "q2",
+    "q1"
+   ],
+   "title": "PSA: Avoid the Albert app.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/18k6gvj/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "gxikk9",
+   "date": "2020-06-06",
+   "score": 2754,
+   "comments": 297,
+   "themes": [
+    "q1"
+   ],
+   "title": "I was scammed yesterday and I feel devastated.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/gxikk9/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "16jdbn3",
+   "date": "2023-09-15",
+   "score": 1923,
+   "comments": 296,
+   "themes": [
+    "q1"
+   ],
+   "title": "I am not financially irresponsible. I just literally don't get paid enough to exist",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/16jdbn3/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "yxs1y4",
+   "date": "2022-11-17",
+   "score": 2526,
+   "comments": 273,
+   "themes": [
+    "q1"
+   ],
+   "title": "I hate that I can’t even afford to exist",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/yxs1y4/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1b3wvre",
+   "date": "2024-03-01",
+   "score": 583,
+   "comments": 273,
+   "themes": [
+    "q1"
+   ],
+   "title": "Please guys never use cash advance apps if you already down on money",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1b3wvre/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1azvw9t",
+   "date": "2024-02-25",
+   "score": 261,
+   "comments": 266,
+   "themes": [
+    "q1"
+   ],
+   "title": "19 y/o college student in the military. Any advice?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1azvw9t/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1u8p5ok",
+   "date": "2026-06-17",
+   "score": 497,
+   "comments": 256,
+   "themes": [
+    "q1"
+   ],
+   "title": "Lifestyle creep got me this week, need help",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1u8p5ok/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1858bcq",
+   "date": "2023-11-27",
+   "score": 823,
+   "comments": 250,
+   "themes": [
+    "q1"
+   ],
+   "title": "We’re fucked",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1858bcq/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1uph5qc",
+   "date": "2026-07-07",
+   "score": 445,
+   "comments": 247,
+   "themes": [
+    "q1"
+   ],
+   "title": "Genuinely lost",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1uph5qc/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1u9ll14",
+   "date": "2026-06-18",
+   "score": 7573,
+   "comments": 246,
+   "themes": [
+    "q1"
+   ],
+   "title": "My Goal was 10k in my savings in 12 months.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1u9ll14/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1lwv5ov",
+   "date": "2025-07-11",
+   "score": 1697,
+   "comments": 244,
+   "themes": [
+    "q1"
+   ],
+   "title": "My friend lost $20k he didn’t have",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1lwv5ov/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "16kgoud",
+   "date": "2023-09-16",
+   "score": 576,
+   "comments": 237,
+   "themes": [
+    "q1"
+   ],
+   "title": "How is anyone surviving?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/16kgoud/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1pc42am",
+   "date": "2025-12-02",
+   "score": 1380,
+   "comments": 233,
+   "themes": [
+    "q1"
+   ],
+   "title": "Christmas Vent",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1pc42am/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "15bocsx",
+   "date": "2023-07-28",
+   "score": 1021,
+   "comments": 228,
+   "themes": [
+    "q1"
+   ],
+   "title": "All my mistakes: How to avoid poverty.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/15bocsx/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1urepaq",
+   "date": "2026-07-09",
+   "score": 512,
+   "comments": 225,
+   "themes": [
+    "q1"
+   ],
+   "title": "36, single mom of 2, no degree, running out of money and need advice",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1urepaq/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1dzq15j",
+   "date": "2024-07-10",
+   "score": 944,
+   "comments": 221,
+   "themes": [
+    "q1"
+   ],
+   "title": "I (m37) just found out my wife (f31) borrowed £30,000 during COVID",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1dzq15j/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "c2h756",
+   "date": "2019-06-19",
+   "score": 2353,
+   "comments": 217,
+   "themes": [
+    "q1"
+   ],
+   "title": "$3 in my account until pay day tomorrow.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/c2h756/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "a0uk6s",
+   "date": "2018-11-27",
+   "score": 3767,
+   "comments": 190,
+   "themes": [
+    "q8"
+   ],
+   "title": "Greetings fellow poors. I wanted to compile a list of reddit resources I've found",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/a0uk6s/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "vaf5ic",
+   "date": "2022-06-12",
+   "score": 415,
+   "comments": 180,
+   "themes": [
+    "q1",
+    "q5"
+   ],
+   "title": "Compiled list of options for getting money with Bad Credit and barely any money",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/vaf5ic/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "c6tcxk",
+   "date": "2019-06-29",
+   "score": 1695,
+   "comments": 130,
+   "themes": [
+    "q2"
+   ],
+   "title": "Return 100% of the shit you do not need or use. Recaptured around $150 today!!",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/c6tcxk/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1vc4cgp",
+   "date": "2026-07-31",
+   "score": 1124,
+   "comments": 124,
+   "themes": [
+    "q2"
+   ],
+   "title": "What am I doing wrong?!",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1vc4cgp/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1099b1h",
+   "date": "2023-01-11",
+   "score": 468,
+   "comments": 99,
+   "themes": [
+    "q2"
+   ],
+   "title": "Can I cancel my subscription to being an adult? It isn’t for me",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1099b1h/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1pt4o01",
+   "date": "2025-12-22",
+   "score": 51,
+   "comments": 84,
+   "themes": [
+    "q5",
+    "q7"
+   ],
+   "title": "Apps for living paycheck to paycheck",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1pt4o01/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "8a1suv",
+   "date": "2018-04-05",
+   "score": 351,
+   "comments": 73,
+   "themes": [
+    "q1",
+    "q3"
+   ],
+   "title": "Anyone else get emotional seeing people where you used to be",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/8a1suv/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "egsw9c",
+   "date": "2019-12-28",
+   "score": 534,
+   "comments": 56,
+   "themes": [
+    "q2"
+   ],
+   "title": "A car repair PSA.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/egsw9c/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1bwukyg",
+   "date": "2024-04-05",
+   "score": 90,
+   "comments": 51,
+   "themes": [
+    "q4",
+    "q1"
+   ],
+   "title": "After a month of unemployment I landed a low paying job….mixed feelings",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1bwukyg/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1dktpr7",
+   "date": "2024-06-21",
+   "score": 33,
+   "comments": 46,
+   "themes": [
+    "q7",
+    "q1"
+   ],
+   "title": "How do you budget while being paycheck to paycheck?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1dktpr7/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1lvxnbg",
+   "date": "2025-07-09",
+   "score": 206,
+   "comments": 37,
+   "themes": [
+    "q2"
+   ],
+   "title": "I quit my job today",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1lvxnbg/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1muig7o",
+   "date": "2025-08-19",
+   "score": 47,
+   "comments": 36,
+   "themes": [
+    "q2"
+   ],
+   "title": "Feeling Defeated",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1muig7o/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1ar41j8",
+   "date": "2024-02-15",
+   "score": 2,
+   "comments": 35,
+   "themes": [
+    "q2"
+   ],
+   "title": "Best Hysa",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1ar41j8/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1j2yywx",
+   "date": "2025-03-04",
+   "score": 6,
+   "comments": 22,
+   "themes": [
+    "q2"
+   ],
+   "title": "Tips for Saving?",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1j2yywx/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "cm6h0f",
+   "date": "2019-08-05",
+   "score": 20,
+   "comments": 16,
+   "themes": [
+    "q2"
+   ],
+   "title": "This house is falling apart",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/cm6h0f/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "16cykgj",
+   "date": "2023-09-08",
+   "score": 10,
+   "comments": 12,
+   "themes": [
+    "q2"
+   ],
+   "title": "How do I escape this painful never ending cycle",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/16cykgj/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "rejgke",
+   "date": "2021-12-12",
+   "score": 0,
+   "comments": 11,
+   "themes": [
+    "q2"
+   ],
+   "title": "I just got scammed off NordVPN",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/rejgke/"
+  },
+  {
+   "sub": "povertyfinance",
+   "id": "1kovalb",
+   "date": "2025-05-17",
+   "score": 39,
+   "comments": 11,
+   "themes": [
+    "q2"
+   ],
+   "title": "How people from poor countries use credit cards in the U.S.",
+   "url": "https://www.reddit.com/r/povertyfinance/comments/1kovalb/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1u5r5va",
+   "date": "2026-06-14",
+   "score": 47,
+   "comments": 64,
+   "themes": [
+    "q8"
+   ],
+   "title": "Boldin vs. ProjectionLab: Which Retirement Planner Is Best for You?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1u5r5va/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1vqdh6b",
+   "date": "2026-08-17",
+   "score": 5,
+   "comments": 57,
+   "themes": [
+    "q8"
+   ],
+   "title": "What do I do next?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1vqdh6b/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1svgruj",
+   "date": "2026-04-25",
+   "score": 31,
+   "comments": 47,
+   "themes": [
+    "q8"
+   ],
+   "title": "Optimizing for lowest marginal lifetime tax rate is kind of blowing my mind",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1svgruj/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1tswtd0",
+   "date": "2026-05-31",
+   "score": 30,
+   "comments": 47,
+   "themes": [
+    "q8"
+   ],
+   "title": "Monthly Premium subscription gone",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1tswtd0/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1tg4t1p",
+   "date": "2026-05-17",
+   "score": 33,
+   "comments": 42,
+   "themes": [
+    "q8"
+   ],
+   "title": "Am I dumb, or is ProjectionLab a maze? (Getting started struggles)",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1tg4t1p/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1sjo141",
+   "date": "2026-04-12",
+   "score": 5,
+   "comments": 33,
+   "themes": [
+    "q8"
+   ],
+   "title": "Recommended Settings for Monte Carlo?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1sjo141/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1snnmd6",
+   "date": "2026-04-17",
+   "score": 12,
+   "comments": 30,
+   "themes": [
+    "q8"
+   ],
+   "title": "Roth conversions in ProjectionLab",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1snnmd6/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1t2ixe3",
+   "date": "2026-05-03",
+   "score": 56,
+   "comments": 28,
+   "themes": [
+    "q8"
+   ],
+   "title": "Claude + ProjectionLab",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1t2ixe3/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1t67n6t",
+   "date": "2026-05-07",
+   "score": 8,
+   "comments": 26,
+   "themes": [
+    "q8"
+   ],
+   "title": "Garbage In, Garbage Out - not sure what mistakes I'm making in using this",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1t67n6t/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1v3qthd",
+   "date": "2026-07-22",
+   "score": 4,
+   "comments": 26,
+   "themes": [
+    "q8"
+   ],
+   "title": "Modeling end of life care?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1v3qthd/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1sgrw52",
+   "date": "2026-04-09",
+   "score": 10,
+   "comments": 25,
+   "themes": [
+    "q8"
+   ],
+   "title": "What growth rates are you using?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1sgrw52/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1v27q56",
+   "date": "2026-07-21",
+   "score": 11,
+   "comments": 24,
+   "themes": [
+    "q8"
+   ],
+   "title": "Die with zero in ProjectionLab?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1v27q56/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1sddvwx",
+   "date": "2026-04-05",
+   "score": 90,
+   "comments": 22,
+   "themes": [
+    "q8"
+   ],
+   "title": "Welcome to r/ProjectionLab!",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1sddvwx/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1vciyqk",
+   "date": "2026-08-01",
+   "score": 2,
+   "comments": 22,
+   "themes": [
+    "q8"
+   ],
+   "title": "What growth rates, inflation rates do you assume?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1vciyqk/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1typolq",
+   "date": "2026-06-06",
+   "score": 37,
+   "comments": 21,
+   "themes": [
+    "q8"
+   ],
+   "title": "100% Chance of Success",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1typolq/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1uynw2r",
+   "date": "2026-07-17",
+   "score": 7,
+   "comments": 21,
+   "themes": [
+    "q8"
+   ],
+   "title": "Not double-counting housing costs",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1uynw2r/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1ux9c5i",
+   "date": "2026-07-15",
+   "score": 3,
+   "comments": 21,
+   "themes": [
+    "q8"
+   ],
+   "title": "Plan values vs Chance of Success values",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1ux9c5i/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1tuylah",
+   "date": "2026-06-02",
+   "score": 1,
+   "comments": 21,
+   "themes": [
+    "q8"
+   ],
+   "title": "SS break even?",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1tuylah/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1sde3yq",
+   "date": "2026-04-05",
+   "score": 55,
+   "comments": 20,
+   "themes": [
+    "q8"
+   ],
+   "title": "ProjectionLab v4.5.0",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1sde3yq/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1sf1rjn",
+   "date": "2026-04-07",
+   "score": 22,
+   "comments": 20,
+   "themes": [
+    "q8"
+   ],
+   "title": "Solved: Monarch->ProjectionLab sync",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1sf1rjn/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1sryj3j",
+   "date": "2026-04-21",
+   "score": 68,
+   "comments": 18,
+   "themes": [
+    "q8"
+   ],
+   "title": "Optimize your financial future with ProjectionLab v4.6.0",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1sryj3j/"
+  },
+  {
+   "sub": "projectionlab",
+   "id": "1ucrkrx",
+   "date": "2026-06-22",
+   "score": 35,
+   "comments": 18,
+   "themes": [
+    "q8"
+   ],
+   "title": "Claude + PL = Financial planner on your laptop",
+   "url": "https://www.reddit.com/r/projectionlab/comments/1ucrkrx/"
+  },
+  {
+   "sub": "ynab",
+   "id": "qkcgzc",
+   "date": "2021-11-01",
+   "score": 1912,
+   "comments": 2004,
+   "themes": [
+    "q6"
+   ],
+   "title": "YNAB rolling out an ~18% price increase",
+   "url": "https://www.reddit.com/r/ynab/comments/qkcgzc/"
+  },
+  {
+   "sub": "ynab",
+   "id": "qkvc7s",
+   "date": "2021-11-02",
+   "score": 681,
+   "comments": 397,
+   "themes": [
+    "q3",
+    "q5",
+    "q7",
+    "q8"
+   ],
+   "title": "Alternates to YNAB...heres a list",
+   "url": "https://www.reddit.com/r/ynab/comments/qkvc7s/"
+  },
+  {
+   "sub": "ynab",
+   "id": "ql77om",
+   "date": "2021-11-02",
+   "score": 944,
+   "comments": 305,
+   "themes": [
+    "q5",
+    "q6"
+   ],
+   "title": "An Outside Product Manager's Perspective on YNAB's Price Hike Announcement",
+   "url": "https://www.reddit.com/r/ynab/comments/ql77om/"
+  },
+  {
+   "sub": "ynab",
+   "id": "nw1fxl",
+   "date": "2021-06-09",
+   "score": 280,
+   "comments": 235,
+   "themes": [
+    "q7",
+    "q9"
+   ],
+   "title": "Am trying to decide if I'm smart enough to pull the trigger on YNAB and if this can help me.",
+   "url": "https://www.reddit.com/r/ynab/comments/nw1fxl/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1i87n5t",
+   "date": "2025-01-23",
+   "score": 279,
+   "comments": 233,
+   "themes": [
+    "q1"
+   ],
+   "title": "YNAB Changed My Life, But I’m Struggling to Forgive My Parents for Not Teaching Me About Money",
+   "url": "https://www.reddit.com/r/ynab/comments/1i87n5t/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1dtlg6t",
+   "date": "2024-07-02",
+   "score": 99,
+   "comments": 224,
+   "themes": [
+    "q6",
+    "q9"
+   ],
+   "title": "I truely do not understand peoples obsession with actual budget after the price hike",
+   "url": "https://www.reddit.com/r/ynab/comments/1dtlg6t/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1o04570",
+   "date": "2025-10-07",
+   "score": 159,
+   "comments": 196,
+   "themes": [
+    "q2"
+   ],
+   "title": "The new app UI is hot garbage",
+   "url": "https://www.reddit.com/r/ynab/comments/1o04570/"
+  },
+  {
+   "sub": "ynab",
+   "id": "7d6aj6",
+   "date": "2017-11-15",
+   "score": 319,
+   "comments": 192,
+   "themes": [
+    "q5",
+    "q7",
+    "q8"
+   ],
+   "title": "YNAB Alternatives",
+   "url": "https://www.reddit.com/r/ynab/comments/7d6aj6/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1ijv9ve",
+   "date": "2025-02-07",
+   "score": 570,
+   "comments": 186,
+   "themes": [
+    "q2",
+    "q5",
+    "q6"
+   ],
+   "title": "Leaving YNAB After 6 Years – Pricing is the Final Straw",
+   "url": "https://www.reddit.com/r/ynab/comments/1ijv9ve/"
+  },
+  {
+   "sub": "ynab",
+   "id": "12nidll",
+   "date": "2023-04-15",
+   "score": 198,
+   "comments": 176,
+   "themes": [
+    "q6",
+    "q7"
+   ],
+   "title": "I tried to find a \"free\" alternative to YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/12nidll/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1e3v11g",
+   "date": "2024-07-15",
+   "score": 353,
+   "comments": 175,
+   "themes": [
+    "q5",
+    "q6",
+    "q7"
+   ],
+   "title": "Bidding GoodBye: Fiver Years of YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/1e3v11g/"
+  },
+  {
+   "sub": "ynab",
+   "id": "qqwwl7",
+   "date": "2021-11-10",
+   "score": 225,
+   "comments": 169,
+   "themes": [
+    "q6",
+    "q7"
+   ],
+   "title": "MEGATHREAD: November 2021 YNAB Updates",
+   "url": "https://www.reddit.com/r/ynab/comments/qqwwl7/"
+  },
+  {
+   "sub": "ynab",
+   "id": "18cwmoa",
+   "date": "2023-12-07",
+   "score": 141,
+   "comments": 167,
+   "themes": [
+    "q8"
+   ],
+   "title": "What are your Top 3 most desired features for YNAB?",
+   "url": "https://www.reddit.com/r/ynab/comments/18cwmoa/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1dta2it",
+   "date": "2024-07-02",
+   "score": 349,
+   "comments": 166,
+   "themes": [
+    "q5",
+    "q6",
+    "q7"
+   ],
+   "title": "I know that YNAB saves you more than 109 a year blah blah blah...",
+   "url": "https://www.reddit.com/r/ynab/comments/1dta2it/"
+  },
+  {
+   "sub": "ynab",
+   "id": "qlwr7p",
+   "date": "2021-11-03",
+   "score": 175,
+   "comments": 141,
+   "themes": [
+    "q6",
+    "q7"
+   ],
+   "title": "The Worst Thing is Not the Price Increase",
+   "url": "https://www.reddit.com/r/ynab/comments/qlwr7p/"
+  },
+  {
+   "sub": "ynab",
+   "id": "rsz03l",
+   "date": "2021-12-31",
+   "score": 169,
+   "comments": 140,
+   "themes": [
+    "q2",
+    "q5"
+   ],
+   "title": "How many of you enter transactions manually?",
+   "url": "https://www.reddit.com/r/ynab/comments/rsz03l/"
+  },
+  {
+   "sub": "ynab",
+   "id": "8zuwde",
+   "date": "2018-07-18",
+   "score": 29,
+   "comments": 122,
+   "themes": [
+    "q2"
+   ],
+   "title": "[Rant] The handling of reimbursements may make me leave YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/8zuwde/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1dsv8rh",
+   "date": "2024-07-01",
+   "score": 101,
+   "comments": 121,
+   "themes": [
+    "q2",
+    "q6"
+   ],
+   "title": "If you want to protest the price increase, then cancel your subscription.",
+   "url": "https://www.reddit.com/r/ynab/comments/1dsv8rh/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1bl2lqc",
+   "date": "2024-03-22",
+   "score": 98,
+   "comments": 117,
+   "themes": [
+    "q1"
+   ],
+   "title": "What to do with a very resistant irresponsible spouse with a million excuses",
+   "url": "https://www.reddit.com/r/ynab/comments/1bl2lqc/"
+  },
+  {
+   "sub": "ynab",
+   "id": "83ffmy",
+   "date": "2018-03-10",
+   "score": 91,
+   "comments": 109,
+   "themes": [
+    "q2"
+   ],
+   "title": "[Rant] Downgrading to YNAB4 after almost 2 years of using the online one",
+   "url": "https://www.reddit.com/r/ynab/comments/83ffmy/"
+  },
+  {
+   "sub": "ynab",
+   "id": "18hatn4",
+   "date": "2023-12-13",
+   "score": 8,
+   "comments": 99,
+   "themes": [
+    "q2"
+   ],
+   "title": "Ready to give up on YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/18hatn4/"
+  },
+  {
+   "sub": "ynab",
+   "id": "xxkfxw",
+   "date": "2022-10-07",
+   "score": 328,
+   "comments": 95,
+   "themes": [
+    "q7",
+    "q9"
+   ],
+   "title": "YNAB works for ADHD! My life is changed.",
+   "url": "https://www.reddit.com/r/ynab/comments/xxkfxw/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1pjga6j",
+   "date": "2025-12-10",
+   "score": 201,
+   "comments": 90,
+   "themes": [
+    "q6",
+    "q1"
+   ],
+   "title": "Feature Request: Sub-categories",
+   "url": "https://www.reddit.com/r/ynab/comments/1pjga6j/"
+  },
+  {
+   "sub": "ynab",
+   "id": "3zo4ew",
+   "date": "2016-01-06",
+   "score": 28,
+   "comments": 89,
+   "themes": [
+    "q2",
+    "q3"
+   ],
+   "title": "nYNAB has been a disappointment. Here are my reasons for leaving YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/3zo4ew/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1clkd86",
+   "date": "2024-05-06",
+   "score": 34,
+   "comments": 87,
+   "themes": [
+    "q2"
+   ],
+   "title": "Not worth 100€ year without bank connection",
+   "url": "https://www.reddit.com/r/ynab/comments/1clkd86/"
+  },
+  {
+   "sub": "ynab",
+   "id": "14kjhmv",
+   "date": "2023-06-27",
+   "score": 217,
+   "comments": 86,
+   "themes": [
+    "q1"
+   ],
+   "title": "My wife is a True Expense.",
+   "url": "https://www.reddit.com/r/ynab/comments/14kjhmv/"
+  },
+  {
+   "sub": "ynab",
+   "id": "ta6iqi",
+   "date": "2022-03-09",
+   "score": 328,
+   "comments": 85,
+   "themes": [
+    "q2"
+   ],
+   "title": "Happily paid my $98.99 annual fee this morning",
+   "url": "https://www.reddit.com/r/ynab/comments/ta6iqi/"
+  },
+  {
+   "sub": "ynab",
+   "id": "adht9i",
+   "date": "2019-01-07",
+   "score": 123,
+   "comments": 85,
+   "themes": [
+    "q2"
+   ],
+   "title": "Reality Check Served by YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/adht9i/"
+  },
+  {
+   "sub": "ynab",
+   "id": "69ubgx",
+   "date": "2017-05-07",
+   "score": 64,
+   "comments": 84,
+   "themes": [
+    "q2",
+    "q5"
+   ],
+   "title": "[Rant] My 4th year with YNAB, I'm saddened by the current state of nYNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/69ubgx/"
+  },
+  {
+   "sub": "ynab",
+   "id": "10avi52",
+   "date": "2023-01-13",
+   "score": 644,
+   "comments": 84,
+   "themes": [
+    "q1"
+   ],
+   "title": "Did anyone else start YNAB and realize that income wasn’t the problem ?",
+   "url": "https://www.reddit.com/r/ynab/comments/10avi52/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1bzt3dd",
+   "date": "2024-04-09",
+   "score": 231,
+   "comments": 81,
+   "themes": [
+    "q2"
+   ],
+   "title": "Why does YNAB make me feel broke when I have more money than I've ever had?",
+   "url": "https://www.reddit.com/r/ynab/comments/1bzt3dd/"
+  },
+  {
+   "sub": "ynab",
+   "id": "qr8rw7",
+   "date": "2021-11-11",
+   "score": 37,
+   "comments": 75,
+   "themes": [
+    "q1"
+   ],
+   "title": "How many times did you restart your budget before it clicked?",
+   "url": "https://www.reddit.com/r/ynab/comments/qr8rw7/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1dgzj67",
+   "date": "2024-06-16",
+   "score": 11,
+   "comments": 74,
+   "themes": [
+    "q1"
+   ],
+   "title": "Feature request: Is there a way besides doing your own math to figure out how much is available",
+   "url": "https://www.reddit.com/r/ynab/comments/1dgzj67/"
+  },
+  {
+   "sub": "ynab",
+   "id": "qv7f4v",
+   "date": "2021-11-16",
+   "score": 82,
+   "comments": 73,
+   "themes": [
+    "q2"
+   ],
+   "title": "Sure my money has a job, but it isn't making any money, so leaving YNAB?",
+   "url": "https://www.reddit.com/r/ynab/comments/qv7f4v/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1pmjd9g",
+   "date": "2025-12-14",
+   "score": 144,
+   "comments": 70,
+   "themes": [
+    "q7",
+    "q1"
+   ],
+   "title": "New Chrome extension: Better notes for your categories",
+   "url": "https://www.reddit.com/r/ynab/comments/1pmjd9g/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1tgxbrv",
+   "date": "2026-05-18",
+   "score": 17,
+   "comments": 69,
+   "themes": [
+    "q3",
+    "q8"
+   ],
+   "title": "Calendar?",
+   "url": "https://www.reddit.com/r/ynab/comments/1tgxbrv/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1307059",
+   "date": "2023-04-27",
+   "score": 156,
+   "comments": 64,
+   "themes": [
+    "q1"
+   ],
+   "title": "YNAB WIN! New fear unlocked.",
+   "url": "https://www.reddit.com/r/ynab/comments/1307059/"
+  },
+  {
+   "sub": "ynab",
+   "id": "mhi8w3",
+   "date": "2021-03-31",
+   "score": 577,
+   "comments": 64,
+   "themes": [
+    "q3",
+    "q1"
+   ],
+   "title": "A Pre-YNAB Guide - Things You Should Know and Do Before Starting YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/mhi8w3/"
+  },
+  {
+   "sub": "ynab",
+   "id": "hv5lq6",
+   "date": "2020-07-21",
+   "score": 287,
+   "comments": 63,
+   "themes": [
+    "q1"
+   ],
+   "title": "It finally clicked! Ladies and Gentlemen, if you constantly have to reshuffle money",
+   "url": "https://www.reddit.com/r/ynab/comments/hv5lq6/"
+  },
+  {
+   "sub": "ynab",
+   "id": "qo6orq",
+   "date": "2021-11-06",
+   "score": 52,
+   "comments": 62,
+   "themes": [
+    "q3",
+    "q5",
+    "q6"
+   ],
+   "title": "Actual Budget: It's Worth $4/month (unless it's not)",
+   "url": "https://www.reddit.com/r/ynab/comments/qo6orq/"
+  },
+  {
+   "sub": "ynab",
+   "id": "ey0br4",
+   "date": "2020-02-03",
+   "score": 546,
+   "comments": 61,
+   "themes": [
+    "q1",
+    "q7"
+   ],
+   "title": "I've never been so wrong in my life",
+   "url": "https://www.reddit.com/r/ynab/comments/ey0br4/"
+  },
+  {
+   "sub": "ynab",
+   "id": "2wfx6i",
+   "date": "2015-02-19",
+   "score": 114,
+   "comments": 60,
+   "themes": [
+    "q1"
+   ],
+   "title": "This is a story of short term success for all those really poor would be YNABers",
+   "url": "https://www.reddit.com/r/ynab/comments/2wfx6i/"
+  },
+  {
+   "sub": "ynab",
+   "id": "gavu77",
+   "date": "2020-04-30",
+   "score": 400,
+   "comments": 59,
+   "themes": [
+    "q1"
+   ],
+   "title": "If you're on the fence about YNAB, read this – a success story.",
+   "url": "https://www.reddit.com/r/ynab/comments/gavu77/"
+  },
+  {
+   "sub": "ynab",
+   "id": "kag6m6",
+   "date": "2020-12-10",
+   "score": 653,
+   "comments": 56,
+   "themes": [
+    "q1"
+   ],
+   "title": "I think I won a little this week? For once in my life, I kept a buffer of $100 in my checking",
+   "url": "https://www.reddit.com/r/ynab/comments/kag6m6/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1db1qug",
+   "date": "2024-06-08",
+   "score": 1,
+   "comments": 55,
+   "themes": [
+    "q1"
+   ],
+   "title": "Anyone keep money in Ready to Assign?",
+   "url": "https://www.reddit.com/r/ynab/comments/1db1qug/"
+  },
+  {
+   "sub": "ynab",
+   "id": "17nurjs",
+   "date": "2023-11-04",
+   "score": 36,
+   "comments": 53,
+   "themes": [
+    "q3",
+    "q4"
+   ],
+   "title": "FINALLY figured out a way to do a \"needed for next month\" category",
+   "url": "https://www.reddit.com/r/ynab/comments/17nurjs/"
+  },
+  {
+   "sub": "ynab",
+   "id": "5ccrn6",
+   "date": "2016-11-11",
+   "score": 19,
+   "comments": 51,
+   "themes": [
+    "q1"
+   ],
+   "title": "I was not aware of this when I signed up",
+   "url": "https://www.reddit.com/r/ynab/comments/5ccrn6/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1bqkj65",
+   "date": "2024-03-29",
+   "score": 262,
+   "comments": 49,
+   "themes": [
+    "q1"
+   ],
+   "title": "I think YNAB changed my life??? huh???",
+   "url": "https://www.reddit.com/r/ynab/comments/1bqkj65/"
+  },
+  {
+   "sub": "ynab",
+   "id": "groulu",
+   "date": "2020-05-27",
+   "score": 430,
+   "comments": 48,
+   "themes": [
+    "q1"
+   ],
+   "title": "Another example of how YNAB completely reframes your thinking",
+   "url": "https://www.reddit.com/r/ynab/comments/groulu/"
+  },
+  {
+   "sub": "ynab",
+   "id": "g1jwck",
+   "date": "2020-04-15",
+   "score": 316,
+   "comments": 48,
+   "themes": [
+    "q1"
+   ],
+   "title": "Almost one year of using YNAB. I want to cry I am so relieved.",
+   "url": "https://www.reddit.com/r/ynab/comments/g1jwck/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1j99ja3",
+   "date": "2025-03-12",
+   "score": 52,
+   "comments": 48,
+   "themes": [
+    "q3",
+    "q5",
+    "q1"
+   ],
+   "title": "Tip from someone who wished they had done it sooner...",
+   "url": "https://www.reddit.com/r/ynab/comments/1j99ja3/"
+  },
+  {
+   "sub": "ynab",
+   "id": "aanibn",
+   "date": "2018-12-29",
+   "score": 58,
+   "comments": 46,
+   "themes": [
+    "q1"
+   ],
+   "title": "Can I use YNAB if I live in my overdraft?",
+   "url": "https://www.reddit.com/r/ynab/comments/aanibn/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1rei3rh",
+   "date": "2026-02-25",
+   "score": 8,
+   "comments": 45,
+   "themes": [
+    "q1"
+   ],
+   "title": "YNABing Together",
+   "url": "https://www.reddit.com/r/ynab/comments/1rei3rh/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1dtsbrl",
+   "date": "2024-07-02",
+   "score": 19,
+   "comments": 44,
+   "themes": [
+    "q1"
+   ],
+   "title": "Questions about YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/1dtsbrl/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1g3nllt",
+   "date": "2024-10-14",
+   "score": 13,
+   "comments": 43,
+   "themes": [
+    "q3",
+    "q8",
+    "q1"
+   ],
+   "title": "Is YNAB for Paycheck to Paycheck When I spend More Than Income",
+   "url": "https://www.reddit.com/r/ynab/comments/1g3nllt/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1khjo6m",
+   "date": "2025-05-08",
+   "score": 14,
+   "comments": 43,
+   "themes": [
+    "q8"
+   ],
+   "title": "Aussie YNAB alternative",
+   "url": "https://www.reddit.com/r/ynab/comments/1khjo6m/"
+  },
+  {
+   "sub": "ynab",
+   "id": "10jbrnt",
+   "date": "2023-01-23",
+   "score": 22,
+   "comments": 42,
+   "themes": [
+    "q1"
+   ],
+   "title": "How can I stop overspending so much",
+   "url": "https://www.reddit.com/r/ynab/comments/10jbrnt/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1asbiq9",
+   "date": "2024-02-16",
+   "score": 13,
+   "comments": 42,
+   "themes": [
+    "q8"
+   ],
+   "title": "I really don't understand",
+   "url": "https://www.reddit.com/r/ynab/comments/1asbiq9/"
+  },
+  {
+   "sub": "ynab",
+   "id": "bkjhkg",
+   "date": "2019-05-04",
+   "score": 62,
+   "comments": 40,
+   "themes": [
+    "q1"
+   ],
+   "title": "Please tell me that it gets better.",
+   "url": "https://www.reddit.com/r/ynab/comments/bkjhkg/"
+  },
+  {
+   "sub": "ynab",
+   "id": "abskte",
+   "date": "2019-01-02",
+   "score": 193,
+   "comments": 38,
+   "themes": [
+    "q1"
+   ],
+   "title": "My age of money is 3 days...",
+   "url": "https://www.reddit.com/r/ynab/comments/abskte/"
+  },
+  {
+   "sub": "ynab",
+   "id": "2mxaas",
+   "date": "2014-11-20",
+   "score": 20,
+   "comments": 38,
+   "themes": [
+    "q1"
+   ],
+   "title": "looking for sucess/failure stories on YNAB",
+   "url": "https://www.reddit.com/r/ynab/comments/2mxaas/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1bmosqv",
+   "date": "2024-03-24",
+   "score": 326,
+   "comments": 36,
+   "themes": [
+    "q1"
+   ],
+   "title": "I didn't overdraft this paycheck!",
+   "url": "https://www.reddit.com/r/ynab/comments/1bmosqv/"
+  },
+  {
+   "sub": "ynab",
+   "id": "y27ory",
+   "date": "2022-10-12",
+   "score": 32,
+   "comments": 34,
+   "themes": [
+    "q1"
+   ],
+   "title": "New and confused!",
+   "url": "https://www.reddit.com/r/ynab/comments/y27ory/"
+  },
+  {
+   "sub": "ynab",
+   "id": "173ywjy",
+   "date": "2023-10-09",
+   "score": 6,
+   "comments": 34,
+   "themes": [
+    "q8"
+   ],
+   "title": "Zero-based budgeting with bank sync, there's really no alternative in Europe, is there?",
+   "url": "https://www.reddit.com/r/ynab/comments/173ywjy/"
+  },
+  {
+   "sub": "ynab",
+   "id": "hdc7qt",
+   "date": "2020-06-21",
+   "score": 180,
+   "comments": 34,
+   "themes": [
+    "q1"
+   ],
+   "title": "Budgeting for mistakes",
+   "url": "https://www.reddit.com/r/ynab/comments/hdc7qt/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1iducun",
+   "date": "2025-01-30",
+   "score": 292,
+   "comments": 33,
+   "themes": [
+    "q1"
+   ],
+   "title": "Newbies need to understand that you are the boss of your budget",
+   "url": "https://www.reddit.com/r/ynab/comments/1iducun/"
+  },
+  {
+   "sub": "ynab",
+   "id": "sacxv0",
+   "date": "2022-01-22",
+   "score": 85,
+   "comments": 33,
+   "themes": [
+    "q1"
+   ],
+   "title": "Is it really worth it for a dummy like me?",
+   "url": "https://www.reddit.com/r/ynab/comments/sacxv0/"
+  },
+  {
+   "sub": "ynab",
+   "id": "139tfnn",
+   "date": "2023-05-06",
+   "score": 139,
+   "comments": 32,
+   "themes": [
+    "q1"
+   ],
+   "title": "Does anyone else get the itch to assign payday before it even comes??",
+   "url": "https://www.reddit.com/r/ynab/comments/139tfnn/"
+  },
+  {
+   "sub": "ynab",
+   "id": "bru2lk",
+   "date": "2019-05-22",
+   "score": 28,
+   "comments": 32,
+   "themes": [
+    "q1"
+   ],
+   "title": "Do you keep a checking account buffer?",
+   "url": "https://www.reddit.com/r/ynab/comments/bru2lk/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1o2n21m",
+   "date": "2025-10-10",
+   "score": 75,
+   "comments": 32,
+   "themes": [
+    "q1"
+   ],
+   "title": "got my 1st checking account bonus !",
+   "url": "https://www.reddit.com/r/ynab/comments/1o2n21m/"
+  },
+  {
+   "sub": "ynab",
+   "id": "14ygtr8",
+   "date": "2023-07-13",
+   "score": 27,
+   "comments": 31,
+   "themes": [
+    "q1"
+   ],
+   "title": "How can I make YNAB work for me?",
+   "url": "https://www.reddit.com/r/ynab/comments/14ygtr8/"
+  },
+  {
+   "sub": "ynab",
+   "id": "187zn5r",
+   "date": "2023-12-01",
+   "score": 5,
+   "comments": 31,
+   "themes": [
+    "q1"
+   ],
+   "title": "Should I assign to credit and cash categories at the same time?",
+   "url": "https://www.reddit.com/r/ynab/comments/187zn5r/"
+  },
+  {
+   "sub": "ynab",
+   "id": "4qx837",
+   "date": "2016-07-02",
+   "score": 11,
+   "comments": 31,
+   "themes": [
+    "q1"
+   ],
+   "title": "[nYNAB] Credit Cards Seem Backwards",
+   "url": "https://www.reddit.com/r/ynab/comments/4qx837/"
+  },
+  {
+   "sub": "ynab",
+   "id": "163wibj",
+   "date": "2023-08-28",
+   "score": 95,
+   "comments": 29,
+   "themes": [
+    "q8"
+   ],
+   "title": "YNAB + ProjectionLab for long term planning",
+   "url": "https://www.reddit.com/r/ynab/comments/163wibj/"
+  },
+  {
+   "sub": "ynab",
+   "id": "10uihkq",
+   "date": "2023-02-05",
+   "score": 17,
+   "comments": 18,
+   "themes": [
+    "q8"
+   ],
+   "title": "Back at ynab after trying pocketsmith again",
+   "url": "https://www.reddit.com/r/ynab/comments/10uihkq/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1ngrd9a",
+   "date": "2025-09-14",
+   "score": 16,
+   "comments": 16,
+   "themes": [
+    "q8"
+   ],
+   "title": "YNAB + Projection Lab?",
+   "url": "https://www.reddit.com/r/ynab/comments/1ngrd9a/"
+  },
+  {
+   "sub": "ynab",
+   "id": "111ilga",
+   "date": "2023-02-13",
+   "score": 37,
+   "comments": 14,
+   "themes": [
+    "q3",
+    "q8"
+   ],
+   "title": "I'm rolling with the punches too much. I'm unsure if my income matches my expenses",
+   "url": "https://www.reddit.com/r/ynab/comments/111ilga/"
+  },
+  {
+   "sub": "ynab",
+   "id": "kjoksu",
+   "date": "2020-12-24",
+   "score": 7,
+   "comments": 14,
+   "themes": [
+    "q8"
+   ],
+   "title": "New year, new budgeting app? (Recommendations please)",
+   "url": "https://www.reddit.com/r/ynab/comments/kjoksu/"
+  },
+  {
+   "sub": "ynab",
+   "id": "1ihq4xo",
+   "date": "2025-02-04",
+   "score": 5,
+   "comments": 13,
+   "themes": [
+    "q8"
+   ],
+   "title": "Best companion app for tracking future income and multiple income sources?",
+   "url": "https://www.reddit.com/r/ynab/comments/1ihq4xo/"
+  }
+ ]
+}
