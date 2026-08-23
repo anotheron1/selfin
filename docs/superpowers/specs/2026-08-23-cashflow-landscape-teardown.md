@@ -26,6 +26,7 @@
 | **Learn Center PocketSmith** | Справка продукта | Высокое — там раскрыта механика Safe Balance, которой нет на сайте |
 | **Русскоязычные источники** — Тинькофф Журнал (кейс пары, использующей YNAB) и блог Глеба Калинина | Практики, пишущие о своём опыте | Высокое к описанию опыта. **Единственный найденный срез того, как метод YNAB принимается в РФ.** Разбор — G.4 |
 | **Product Hunt** (ProjectionLab, 11 отзывов) | Площадка запусков | Среднее: аудитория доброжелательная, критики мало |
+| **Гостевой пост основателя ProjectionLab на madfientist.com + 54 комментария** | Самопрезентация, но с живой дискуссией и ответами автора на каждый вопрос | **Высокое.** Лучший источник по ProjectionLab: основатель отвечает на критику предметно. Разбор — E.6 |
 | **alternativeto.net** (PocketSmith) | Каталог с отзывами | Среднее, отзывов мало |
 | **Обзорные сайты** (moneywise, thecfoclub и пр.) | Affiliate-контент | **Низкое доверие.** Использованы только для проверки фактов о тарифах и наличии фич |
 
@@ -255,6 +256,56 @@ Product Hunt: **4.9/5 при 11 отзывах**, запуск 2022. Аудит�
 
 **Ценовое сопротивление** (из HN, повторяю здесь для полноты): «$109/year is beyond what I'm willing to spend… If it were $40/year I probably would subscribe. And I am reasonably well off».
 
+### E.6 Гостевой пост основателя и 54 комментария под ним
+
+Источник: `madfientist.com/projection-lab/`, март 2023 — Kyle Nolan пишет о своём продукте сам, и отвечает почти на каждый комментарий. Самый содержательный из найденного по ProjectionLab.
+
+**Происхождение — то же, что у нас и у Monene.** Инженер из Бостона, side project, «после пары тысяч часов кодинга»: «I couldn't find the perfect long-term financial planning tool, so I decided to build one». Третий подряд продукт в этом разборе, выросший из личной потребности разработчика.
+
+Мотив тоже знакомый: «with some luck, **reduce anxiety around your finances**».
+
+**Что стоит забрать — «free sandbox with example personas».**
+
+> «There is a **free sandbox**, if you just want to hop in and see how it works. It does not ask to link your financial accounts. **You do not have to create an account to try it**… There's also the free sandbox with **example personas** you can check out if you'd just like to get a feel for the tool **without needing to populate a bunch of data**.»
+
+Демо-данные с готовыми персонами решают сразу две наши задачи: человек видит **ответ до того, как что-то ввёл** (это прямо тест читаемости из H.8), и не платит налог на ввод ради того, чтобы просто посмотреть. У Monene были пустые состояния с подсказками — здесь ход сильнее.
+
+**Чего делать не надо — терять данные пробного периода.** Три независимых комментатора, жалоба держится с 2023 по 2024 год и не исправлена:
+
+> **Alex (30.03.2023):** «I can't fathom creating an account and trying something that **won't save any of my data** without signing up for a paid subscription. **So a pass for me** until they rethink that bit.»
+
+> **Alex Measures (31.03.2023):** «Offering access to a SaaS platform with **no ability to save your data** is not something I have ever encountered… I am positive that **not allowing data to be saved at all prior to putting in credit card details will stop many from trying it out**.»
+
+> **amomy (28.05.2024):** «It would be way better if even if your not allowed to use, your data is saved. **So you're not throwing your work away.**»
+
+> **tester (30.03.2023):** «even to test it out will be kind of wasting my time… **I will have to redo scenarios over and over if data isn't saved**.»
+
+Урок общий, не про их тариф: **если вход дорогой, нельзя заставлять человека проходить его дважды.** Для Selfin это про ре-якорь и про любой будущий пробный режим.
+
+**Доверие к расчёту — причина не продлевать подписку.** Это, пожалуй, главная находка блока:
+
+> **Steve (30.03.2023):** «Does any external party check the calculations in these tools? **Is it being audited so we can trust the results?**»
+
+> **Victor (09.04.2023):** «+1 on the first point. Getting an independent, reputable firm to audit the software and outcomes would remove **the one aspect of PL that makes me hesitate to renew my subscription**. Aside from that, it's a great tool!»
+
+Ответ основателя — про тесты:
+
+> «I've built a variety of automated test suites… regression testing, unit testing, integration testing, spot-checking specific scenarios (including cases where **results are compared to known outputs from other tools**)… **At least 5-6 thousand tests are run for each change that makes it to prod.**»
+
+Две вещи для нас. Первая: **у прогнозного продукта доверие к числу — это отдельная продуктовая задача**, и тестами она не закрывается — Kyle прогоняет 5–6 тысяч тестов на каждый релиз, и пользователь всё равно хочет внешний аудит. Наш ответ на это — не тесты, а **объяснимость**: типизированный `breakdown[]` с арифметическим инвариантом показывает, откуда взялось число, вместо того чтобы просить поверить. Это стоит считать не технической деталью, а продающим свойством.
+
+Вторая, к слову об ANO-50: 5–6 тысяч тестов против наших ~460 бэкенд + ~102 фронтенд. Порядок разный, и это ориентир, а не упрёк — у него горизонт в десятилетия и налоговые режимы трёх стран.
+
+**Цена: сигнал в обе стороны.** В HN был отказ («$109 — дороже, чем я готов»), здесь противоположное от основателя: «**a surprising number of folks tell me that PL's price point should actually be higher**, but I try to err on the side of keeping it affordable». Значит сегмент расслоён, и единой цены нет.
+
+**Локальность прогноза как структурный факт.** Комментарии из Австралии (superannuation, negative gearing, offset accounts) и Великобритании (DB pension, income tax) — у Kyle налоговые пресеты по странам, и всё равно не хватает. Прогнозный продукт **глубоко локален**: он завязан на налоги, типы счетов и ритм доходов конкретной страны.
+
+Для нас это работает в обе стороны. **В нашу пользу:** зарубежному игроку зайти в РФ трудно — ему пришлось бы отдельно делать наш налоговый и банковский контекст. **Против нас:** выйти из РФ нам будет так же трудно, и «мировой рынок» из этого продукта не следует.
+
+**Публичный роадмап с голосованием** (`changemap.co`) — Kyle в половине ответов предлагает «add that on the public roadmap» / «upvote». Механизм приоритизации сообществом, работающий на удержание.
+
+**Позиционирование против Excel — третье независимое подтверждение.** В каталоге huntscreens тег продукта звучит буквально «**Альтернатива электронной таблице**». Excel как настоящий конкурент всплывает уже из трёх независимых источников: отзывы HN, комментарии Т—Ж, самопозиционирование ProjectionLab.
+
 ---
 
 ## Часть F. «Safe to spend» — категория, которой мы не знали
@@ -475,6 +526,8 @@ CoinKeeper и Дзен-мани — учёт прошлого: категори�
 | **Календарь как основной, а не вспомогательный вид** | PocketSmith | Единственная фича, про которую сказано «нигде больше не нашёл». У нас она есть (ANO-14), но живёт вторым экраном |
 | **Ввод счёта фотографией с распознаванием** | Cushion | Снижает налог на ввод, не отбирая ручной режим. Прямо ложится в ANO-11 |
 | **Дневная раскладка остатка** | SafeToSpend, запрос пользователей Monzo | «Сколько в день до зарплаты» — люди считают это руками поверх продуктов. Дешёвая производная от нашей траектории |
+| **Демо-данные с готовыми персонами** | ProjectionLab | Человек видит ответ **до** ввода своих данных. Закрывает и тест читаемости, и налог на вход одним ходом |
+| **Объяснимость как продающее свойство** | от обратного: жалобы пользователей ProjectionLab | «Доверять ли расчёту» — причина не продлевать подписку. Наш `breakdown[]` — готовый ответ, но сейчас он подан как техническая деталь |
 | **Честный лозунг про ошибку конкурентов** | вывод F.3 | Если гипотеза верна, «остальные скажут, что всё хорошо, а 12-го вы уйдёте в минус» — это готовая формулировка отличия |
 
 ### H.5 Чего не берём
