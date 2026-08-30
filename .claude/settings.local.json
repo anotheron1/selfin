@@ -140,7 +140,11 @@
       "Bash(find /c/Users/Kirill/IdeaProjects/selfin/.worktrees/feature/savings-planner -name *.md)",
       "Bash(find /c/Users/Kirill/IdeaProjects/selfin -name *.md)",
       "Bash(find /c/Users/Kirill/IdeaProjects/selfin -name *plan* -o -name *TODO*)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(curl -sS -m 30 -A 'Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/605.1.15 Safari/605.1.15' 'https://itunes.apple.com/lookup?id=6758524287&country=us' -o /tmp/comp/sts.json -w 'HTTP %{http_code}\\\\n')",
+      "Bash(python3 -)",
+      "Bash(curl -sS -m 30 \"https://itunes.apple.com/lookup?id=6782220727&country=us\" -o /tmp/comp/cushion.json -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(git checkout *)"
     ]
   }
 }
