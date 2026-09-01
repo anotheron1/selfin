@@ -144,7 +144,8 @@
       "Bash(curl -sS -m 30 -A 'Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/605.1.15 Safari/605.1.15' 'https://itunes.apple.com/lookup?id=6758524287&country=us' -o /tmp/comp/sts.json -w 'HTTP %{http_code}\\\\n')",
       "Bash(python3 -)",
       "Bash(curl -sS -m 30 \"https://itunes.apple.com/lookup?id=6782220727&country=us\" -o /tmp/comp/cushion.json -w \"HTTP %{http_code}\\\\n\")",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__send_later"
     ]
   }
 }
