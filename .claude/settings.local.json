@@ -145,7 +145,13 @@
       "Bash(python3 -)",
       "Bash(curl -sS -m 30 \"https://itunes.apple.com/lookup?id=6782220727&country=us\" -o /tmp/comp/cushion.json -w \"HTTP %{http_code}\\\\n\")",
       "Bash(git checkout *)",
-      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__send_later"
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__send_later",
+      "Bash(find src *)",
+      "Bash(grep -A8 \"test:\" vite.config.ts)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw compile)",
+      "Bash(JAVA_HOME=\"/c/Users/Kirill/.jdks/jbr-21.0.8\" ./mvnw test \"-Dtest=!*IT\")",
+      "Bash(rtk git *)",
+      "Bash(curl -s -o /dev/null -w \"API 8081: HTTP %{http_code}\\\\n\" http://localhost:8081/api/v1/accounts)"
     ]
   }
 }
