@@ -92,7 +92,19 @@ function verdictFor(block, label, m, limit) {
   return m;
 }
 
+/** Убрать оставленные --keep объекты, ничего не меряя. */
+async function sweep() {
+  const evs = (await must('/events?startDate=2020-01-01&endDate=2051-12-31'))
+    .filter((e) => !e.deleted && (e.description ?? '').includes(MARK));
+  for (const e of evs) await api(`/events/${e.id}`, { method: 'DELETE' });
+  const funds = (await must('/funds').then((r) => r.funds ?? r))
+    .filter((f) => !f.deleted && (f.name ?? '').includes(MARK));
+  for (const f of funds) await api(`/funds/${f.id}`, { method: 'DELETE' });
+  console.log(`убрано: событий ${evs.length}, копилок ${funds.length}`);
+}
+
 async function main() {
+  if (process.argv.includes('--sweep')) return sweep();
   console.log(`\nANO-50 · первый проход, этап 11 — объём и отзывчивость · ${today}`);
   console.log(`пороги: интерактивный экран ${FAST} мс, тяжёлый отчёт ${HEAVY} мс, замеров на ручку ${RUNS}`);
   console.log('='.repeat(78));
@@ -208,8 +220,14 @@ async function main() {
     record('11.5', 'СМОТРЕТЬ', 'рост времени по каждому экрану', growth);
     record('11.5', 'РУКАМИ', 'читаемость списков из двадцати копилок и двадцати хотелок — только на экране');
 
-    for (const id of madeFunds) await api(`/funds/${id}`, { method: 'DELETE' });
-    for (const id of madeWishes) await api(`/events/${id}`, { method: 'DELETE' });
+    if (process.argv.includes('--keep')) {
+      record('11.5', 'РУКАМИ',
+        `двадцать копилок и двадцать хотелок ОСТАВЛЕНЫ на стенде для просмотра глазами. `
+        + `Убрать: node tools/ano50-stage11.mjs --sweep`);
+    } else {
+      for (const id of madeFunds) await api(`/funds/${id}`, { method: 'DELETE' });
+      for (const id of madeWishes) await api(`/events/${id}`, { method: 'DELETE' });
+    }
   }
 
   // ── уборка и итог ────────────────────────────────────────────────────────
