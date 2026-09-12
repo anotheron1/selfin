@@ -198,6 +198,83 @@ class FundMoneyFlowIT {
         assertThat(isDeleted(fundId)).isTrue();
     }
 
+    @Test
+    @DisplayName("ANO-86: при «потрачено» журнал перестаёт звать трату переводом")
+    void delete_spent_renamesJournalEntry() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=SPENT", fundId))
+                .andExpect(status().isNoContent());
+
+        String description = jdbc.queryForObject(
+                "SELECT description FROM financial_events"
+                        + " WHERE target_fund_id = ?::uuid AND is_deleted = false LIMIT 1",
+                String.class, fundId);
+
+        assertThat(description)
+                .as("место, куда переводили, больше не существует — это была трата")
+                .isEqualTo("Отпуск");
+    }
+
+    @Test
+    @DisplayName("ANO-86: при «вернуть» журнал не переписывается — перевод и был переводом")
+    void delete_return_keepsJournalWording() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=RETURN", fundId))
+                .andExpect(status().isNoContent());
+
+        String description = jdbc.queryForObject(
+                "SELECT description FROM financial_events"
+                        + " WHERE target_fund_id = ?::uuid AND is_deleted = false"
+                        + " ORDER BY created_at LIMIT 1",
+                String.class, fundId);
+
+        assertThat(description)
+                .as("переписывать прошлое без нужды нельзя: деньги вернулись, перевод состоялся")
+                .isEqualTo("В копилку: Отпуск");
+    }
+
+    // ── закон сохранения ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("закон сохранения: перевод туда и обратно не меняет ликвид")
+    void conservation_transferRoundTrip_keepsLiquid() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        BigDecimal start = capitalService.cashLiquidAt(LocalDate.now());
+
+        transfer(fundId, new BigDecimal("15000"), null).andExpect(status().isOk());
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("перемещение между своими деньгами не создаёт и не уничтожает их")
+                .isEqualByComparingTo(start);
+
+        transfer(fundId, new BigDecimal("-15000"), null).andExpect(status().isOk());
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("и обратное перемещение тоже").isEqualByComparingTo(start);
+    }
+
+    @Test
+    @DisplayName("копилка со счётом удаляется без выбора, остаток счёта не тронут")
+    void accountBackedFund_deletesWithoutChoice() throws Exception {
+        anchorDefaultAccount("500000");
+        String accountId = firstTrackedAccountId();
+        String fundId = createFundOnAccount("Цель на карте", accountId);
+        BigDecimal liquidBefore = capitalService.cashLiquidAt(LocalDate.now());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}", fundId))
+                .andExpect(status().isNoContent());
+
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("деньги лежат на счёте и никуда не делись — удалена только цель поверх них")
+                .isEqualByComparingTo(liquidBefore);
+        assertThat(isDeleted(fundId)).isTrue();
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
 
     /** Копилка без счёта — базовый случай: у неё собственный баланс. */

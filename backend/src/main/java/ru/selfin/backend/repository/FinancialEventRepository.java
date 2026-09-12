@@ -238,4 +238,10 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     /** Хотелки нескольких статусов одним запросом (вход движка wishlistEvents, спека §3.1). */
     List<FinancialEvent> findByWishlistStatusInAndDeletedFalse(
             java.util.Collection<ru.selfin.backend.model.enums.WishlistStatus> statuses);
+
+    /**
+     * Живые события, привязанные к копилке (ANO-86: переименование при «потрачено на цель»).
+     * Копилка удаляется, и её переводы перестают быть перемещением — они оказались тратой.
+     */
+    List<FinancialEvent> findAllByTargetFundIdAndDeletedFalse(UUID targetFundId);
 }
