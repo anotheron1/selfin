@@ -33,9 +33,14 @@ public class BalanceCheckpointService {
 
     /**
      * История чекпоинтов, от свежих к старым, с дрейфом каждого интервала (ANO-15 §4):
-     * computedBalance = prev.amount + знаковые факты в (prev.date, cur.date]
-     * (правило фактов = PocketEngine.currentBalance: factAmount != null, не-wishlist);
+     * computedBalance = prev.amount + знаковые факты окна {@code prev → cur}
+     * (factAmount != null, не-wishlist; граница окна — {@link AnchorWindow}, то же правило,
+     * что у {@link PocketEngine#calculate} и {@link AccountBalanceService#balanceAt});
      * drift = amount − computedBalance. Один range-запрос фактов на всю историю.
+     *
+     * <p>После ANO-82 день предыдущего якоря исключается по времени ЗАПИСИ, а не по дате:
+     * факт, записанный после ввода якоря, в его число попасть не мог и обязан участвовать
+     * в дрейфе — иначе дрейф показывал бы расхождение там, где его нет.
      *
      * <p><b>Цепочка группируется по счёту (Task 2.4).</b> Дрейф второго и последующих
      * чекпоинтов каждого счёта считается от ПРЕДЫДУЩЕГО чекпоинта ТОГО ЖЕ счёта, а не
@@ -88,9 +93,13 @@ public class BalanceCheckpointService {
                     continue;
                 }
                 BalanceCheckpoint prev = group.get(i + 1);
+                // Граница окна — одна на все три места, живёт в AnchorWindow (ANO-82).
+                // День prev исключается не «потому что день якоря», а потому что запись
+                // существовала в момент сверки; записанное позже в то число попасть не могло.
                 BigDecimal delta = facts.stream()
-                        .filter(e -> e.getDate().isAfter(prev.getDate())
-                                && !e.getDate().isAfter(cur.getDate()))
+                        .filter(e -> AnchorWindow.countsTowardBalance(
+                                e.getDate(), e.getCreatedAt(),
+                                prev.getDate(), prev.getCreatedAt(), cur.getDate()))
                         .map(e -> signed(e.getType(), e.getFactAmount()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal computed = prev.getAmount().add(delta);

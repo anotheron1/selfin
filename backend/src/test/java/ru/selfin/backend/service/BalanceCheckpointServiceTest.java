@@ -75,6 +75,18 @@ class BalanceCheckpointServiceTest {
                 .build();
     }
 
+    /**
+     * Факт с явным временем ЗАПИСИ (ANO-82). В день якоря решает оно, а не дата, поэтому
+     * в фактах дня чекпоинта полагаться на {@code now()} по умолчанию нельзя: тест
+     * проверял бы момент запуска, а не правило.
+     */
+    private static FinancialEvent fact(LocalDate date, EventType type, long amount,
+                                       LocalDateTime createdAt) {
+        FinancialEvent e = fact(date, type, amount);
+        e.setCreatedAt(createdAt);
+        return e;
+    }
+
     private static FinancialEvent wishlistFact(LocalDate date, long amount) {
         FinancialEvent e = fact(date, EventType.EXPENSE, amount);
         e.setWishlistStatus(WishlistStatus.FIXED);
@@ -92,9 +104,15 @@ class BalanceCheckpointServiceTest {
         when(eventRepository.findAllByDeletedFalseAndDateBetween(
                 LocalDate.of(2026, 3, 1), LocalDate.of(2026, 4, 1)))
                 .thenReturn(List.of(
-                        fact(LocalDate.of(2026, 3, 1), EventType.INCOME, 999),    // день c1 — исключён
+                        // Оба факта дня чекпоинта записаны ДО его ввода — то есть уже сидели
+                        // в числе из банка (ANO-82 сменила основание: исключает не дата, а
+                        // время записи). Время задано явно: на now() этот тест мерил бы
+                        // момент своего запуска.
+                        fact(LocalDate.of(2026, 3, 1), EventType.INCOME, 999,
+                                t.minusDays(40).minusHours(1)),                   // день c1 — исключён
                         fact(LocalDate.of(2026, 3, 5), EventType.INCOME, 5_000),  // интервал c2
-                        fact(LocalDate.of(2026, 3, 15), EventType.EXPENSE, 1_000),// день c2 — включён в c2
+                        fact(LocalDate.of(2026, 3, 15), EventType.EXPENSE, 1_000,
+                                t.minusDays(17).minusHours(1)),                   // день c2 — включён в c2
                         wishlistFact(LocalDate.of(2026, 3, 10), 7_777),           // игнор
                         fact(LocalDate.of(2026, 3, 20), EventType.EXPENSE, 2_000) // интервал c3
                 ));
@@ -112,6 +130,52 @@ class BalanceCheckpointServiceTest {
         assertThat(d3.drift()).isEqualByComparingTo(BigDecimal.valueOf(-1_000));
         assertThat(d1.computedBalance()).isNull();
         assertThat(d1.drift()).isNull();
+    }
+
+    @Test
+    @DisplayName("ANO-82: дрейф считает факт дня предыдущего якоря, записанный после него")
+    void drift_countsFactRecordedAfterPreviousAnchor() {
+        // Два якоря: 01.09 введён в 10:00, 05.09 — позже. Факт 01.09 записан в 18:00, то есть
+        // после ввода первого якоря: в его число попасть не мог и обязан участвовать в дрейфе.
+        BalanceCheckpoint c1 = cp(LocalDate.of(2026, 9, 1), 10_000,
+                LocalDateTime.of(2026, 9, 1, 10, 0));
+        BalanceCheckpoint c2 = cp(LocalDate.of(2026, 9, 5), 7_000,
+                LocalDateTime.of(2026, 9, 5, 12, 0));
+        when(repository.findAllByOrderByDateDesc()).thenReturn(List.of(c2, c1));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5)))
+                .thenReturn(List.of(fact(LocalDate.of(2026, 9, 1), EventType.EXPENSE, 2_000,
+                        LocalDateTime.of(2026, 9, 1, 18, 0))));
+
+        BalanceCheckpointDto d2 = find(service.findAll(), c2.getId());
+
+        assertThat(d2.computedBalance())
+                .as("трата записана после сверки — счёт обязан был уменьшиться")
+                .isEqualByComparingTo(BigDecimal.valueOf(8_000));
+        assertThat(d2.drift())
+                .as("дрейф меряет расхождение с реальностью, а не потерянный ввод")
+                .isEqualByComparingTo(BigDecimal.valueOf(-1_000));
+    }
+
+    @Test
+    @DisplayName("ANO-28: дрейф не считает факт дня предыдущего якоря, записанный ДО него")
+    void drift_ignoresFactRecordedBeforePreviousAnchor() {
+        BalanceCheckpoint c1 = cp(LocalDate.of(2026, 9, 1), 10_000,
+                LocalDateTime.of(2026, 9, 1, 10, 0));
+        BalanceCheckpoint c2 = cp(LocalDate.of(2026, 9, 5), 7_000,
+                LocalDateTime.of(2026, 9, 5, 12, 0));
+        when(repository.findAllByOrderByDateDesc()).thenReturn(List.of(c2, c1));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5)))
+                .thenReturn(List.of(fact(LocalDate.of(2026, 9, 1), EventType.EXPENSE, 2_000,
+                        LocalDateTime.of(2026, 9, 1, 9, 0))));
+
+        BalanceCheckpointDto d2 = find(service.findAll(), c2.getId());
+
+        assertThat(d2.computedBalance())
+                .as("трата была на экране, когда вводили 10 000 — число её уже содержит")
+                .isEqualByComparingTo(BigDecimal.valueOf(10_000));
+        assertThat(d2.drift()).isEqualByComparingTo(BigDecimal.valueOf(-3_000));
     }
 
     @Test
