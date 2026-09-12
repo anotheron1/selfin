@@ -61,11 +61,17 @@ public class TargetFundController {
         return fundService.update(id, dto);
     }
 
-    @Operation(summary = "Удалить целевой фонд", description = "Soft delete: фонд скрывается из UI, транзакции сохраняются")
+    @Operation(summary = "Удалить целевой фонд",
+            description = "Soft delete. Если на копилке лежат деньги, обязателен параметр money: "
+                    + "RETURN — вернуть их в свободные деньги, SPENT — признать потраченными "
+                    + "на цель. Без него 409: молча решать судьбу денег продукт не вправе.")
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@Parameter(description = "ID фонда") @PathVariable UUID id) {
-        fundService.delete(id);
+    public void delete(
+            @Parameter(description = "ID фонда") @PathVariable UUID id,
+            @Parameter(description = "Судьба денег: RETURN | SPENT")
+            @RequestParam(required = false) ru.selfin.backend.model.enums.FundMoneyDisposal money) {
+        fundService.delete(id, money);
     }
 
     @Operation(summary = "Перевести средства в фонд", description = "Добавляет указанную сумму на баланс фонда (пополнение из кармашка). "

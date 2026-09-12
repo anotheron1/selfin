@@ -1,6 +1,7 @@
 package ru.selfin.backend;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -48,9 +50,32 @@ class FundMoneyFlowIT {
     @Autowired CapitalService capitalService;
 
     /**
+     * Возвращает денежное состояние к нулю перед каждым тестом.
+     *
+     * <p>Контейнер один на класс, и без этой уборки тесты протекают друг в друга: перевод на
+     * 99 999 999 из проверки подтверждения уводил счёт в минус, и последующие тесты упирались
+     * в проверку достаточности. Тесты становились зависимыми от порядка запуска — то есть
+     * измеряли не то, что заявляют. Сиды (счета, категории) не трогаем, чистим только деньги.
+     */
+    @BeforeEach
+    void resetMoneyState() {
+        jdbc.update("DELETE FROM fund_transactions");
+        jdbc.update("DELETE FROM financial_events WHERE type = 'FUND_TRANSFER'");
+        jdbc.update("DELETE FROM target_funds");
+        jdbc.update("DELETE FROM balance_checkpoints");
+    }
+
+    /**
      * Даёт дефолтному счёту якорь, чтобы у продукта было основание для мнения о свободных
      * деньгах. Без якоря {@code freeMoneyAt} равен нулю, и ЛЮБОЙ перевод считался бы
      * превышением остатка — тест проверял бы не то, что заявляет.
+     *
+     * <p><b>Якорь ставится ВЧЕРАШНИМ днём, и это принципиально.</b> Перевод создаёт факт
+     * сегодняшней датой, а по семантике дня якоря (ANO-15 §5) операции дня чекпоинта в
+     * остаток не добавляются: при якоре «сегодня» счёт не уменьшился бы, копилка выросла, и
+     * ликвид совпал бы с исходным ПО СОВПАДЕНИЮ — это дефект ANO-125, и он замаскировал бы
+     * ровно то, что мы здесь проверяем. Тесты этого класса написаны так, чтобы измерять
+     * поведение копилки, а не наткнуться на соседний дефект.
      */
     private void anchorDefaultAccount(String amount) {
         String accountId = jdbc.queryForObject(
@@ -58,7 +83,7 @@ class FundMoneyFlowIT {
                 String.class);
         jdbc.update("""
                 INSERT INTO balance_checkpoints (id, date, amount, account_id, created_at)
-                VALUES (gen_random_uuid(), CURRENT_DATE, ?::numeric, ?::uuid, now())
+                VALUES (gen_random_uuid(), CURRENT_DATE - 1, ?::numeric, ?::uuid, now())
                 """, amount, accountId);
     }
 
@@ -114,6 +139,63 @@ class FundMoneyFlowIT {
         assertThat(liquidBefore.subtract(liquidAfter))
                 .as("удалённая копилка не имеет права продолжать раздувать капитал")
                 .isEqualByComparingTo("20000");
+    }
+
+    @Test
+    @DisplayName("ANO-86: удаление копилки с деньгами без ответа — 409 с суммой")
+    void delete_withMoney_withoutChoice_isRefused() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}", fundId))
+                .andExpect(status().isConflict());
+
+        assertThat(isDeleted(fundId)).as("отказ не должен удалять").isFalse();
+    }
+
+    @Test
+    @DisplayName("ANO-86: «вернуть» — деньги возвращаются, капитал не меняется")
+    void delete_return_givesMoneyBack() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        BigDecimal liquidStart = capitalService.cashLiquidAt(LocalDate.now());
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=RETURN", fundId))
+                .andExpect(status().isNoContent());
+
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("возврат своих же денег не меняет чистую стоимость")
+                .isEqualByComparingTo(liquidStart);
+        assertThat(isDeleted(fundId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("ANO-86: «потрачено» — капитал падает ровно на сумму")
+    void delete_spent_dropsCapital() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+        BigDecimal liquidBefore = capitalService.cashLiquidAt(LocalDate.now());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=SPENT", fundId))
+                .andExpect(status().isNoContent());
+
+        assertThat(liquidBefore.subtract(capitalService.cashLiquidAt(LocalDate.now())))
+                .as("вещь куплена — этих денег в чистой стоимости больше нет")
+                .isEqualByComparingTo("20000");
+    }
+
+    @Test
+    @DisplayName("ANO-86: пустая копилка удаляется без выбора")
+    void delete_emptyFund_needsNoChoice() throws Exception {
+        String fundId = createFund("Пустая");
+
+        mockMvc.perform(delete("/api/v1/funds/{id}", fundId))
+                .andExpect(status().isNoContent());
+
+        assertThat(isDeleted(fundId)).isTrue();
     }
 
     // ── оснастка ─────────────────────────────────────────────────────────────
