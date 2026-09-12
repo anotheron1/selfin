@@ -169,19 +169,35 @@ async function main() {
   }
   s0 = s;
 
-  // 6.8 удалить копилку с накоплениями
+  // 6.8 удалить копилку с накоплениями.
+  //
+  // ANO-86 починен: раньше удаление молча сносило копилку, деньги исчезали из свободных и
+  // продолжали раздувать капитал. Теперь продукт СПРАШИВАЕТ, что с ними сделать, и оба
+  // ответа обязаны быть арифметически верными. Проверяем все три ветки.
   const beforeDel = await snap();
-  const del = await api(`/funds/${otpusk.id}`, { method: 'DELETE' });
-  const afterDel = await snap();
   const savedBefore = Number(beforeDel.funds.find((f) => f.id === otpusk.id)?.currentBalance ?? 0);
-  if (!del.ok) {
-    record('6.8', 'СОШЛОСЬ', `удаление копилки с накоплениями запрещено, ${del.status}`);
+
+  const noChoice = await api(`/funds/${otpusk.id}`, { method: 'DELETE' });
+  noChoice.status === 409
+    ? record('6.8', 'СОШЛОСЬ', 'удаление копилки с деньгами требует ответа, что с ними сделать')
+    : record('6.8', 'РАСХОЖДЕНИЕ', 'копилка с деньгами удаляется без вопроса',
+      { статус: noChoice.status, былоНакоплено: savedBefore });
+
+  const returned = await api(`/funds/${otpusk.id}?money=RETURN`, { method: 'DELETE' });
+  const afterDel = await snap();
+  if (returned.ok) {
+    eq(afterDel.liquid, beforeDel.liquid) && eq(afterDel.pocket - beforeDel.pocket, savedBefore)
+      ? record('6.8', 'СОШЛОСЬ', 'деньги вернулись в свободные, ликвид не изменился',
+        { вернулось: savedBefore, ликвид: afterDel.liquid })
+      : record('6.8', 'РАСХОЖДЕНИЕ', 'возврат денег не сошёлся',
+        { былоНакоплено: savedBefore, ликвидДо: beforeDel.liquid, ликвидПосле: afterDel.liquid,
+          кармашекДо: beforeDel.pocket, кармашекПосле: afterDel.pocket });
   } else {
-    record('6.8', 'СМОТРЕТЬ', 'копилка с накоплениями удалена — куда делись деньги',
-      { былоНакоплено: savedBefore, ликвидДо: beforeDel.liquid, ликвидПосле: afterDel.liquid,
-        кармашекДо: beforeDel.pocket, кармашекПосле: afterDel.pocket,
-        сдвигЛиквида: afterDel.liquid - beforeDel.liquid });
+    record('6.8', 'РАСХОЖДЕНИЕ', `возврат денег не прошёл, ${returned.status}`,
+      { тело: returned.body });
   }
+  record('6.8', 'РУКАМИ', 'второй исход «потрачено на цель» — проверить, что капитал падает '
+    + 'ровно на сумму, а строка журнала перестаёт звать трату переводом');
   record('6.9', 'РУКАМИ', 'свободное исследование копилок');
 
   // ══ ЭТАП 7. КАПИТАЛ ═══════════════════════════════════════════════════════
