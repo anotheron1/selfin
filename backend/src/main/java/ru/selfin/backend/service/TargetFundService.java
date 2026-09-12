@@ -231,9 +231,21 @@ public class TargetFundService {
     @Transactional
     public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount) {
         // Идемпотентность: повторный запрос с тем же ключом возвращает закэшированный результат
+        return transferToPocket(fundId, idempotencyKey, amount, false);
+    }
+
+    /**
+     * То же с явным подтверждением перевода сверх остатка счёта (ANO-87, спека §4.2).
+     *
+     * @param confirm человек увидел предупреждение и настаивает
+     */
+    @Transactional
+    public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount,
+                                          boolean confirm) {
+        // Идемпотентность: повторный запрос с тем же ключом возвращает закэшированный результат
         return transactionRepository.findByIdempotencyKey(idempotencyKey)
                 .map(tx -> toDto(tx.getFund()))
-                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount));
+                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount, confirm));
     }
 
     /**
@@ -247,18 +259,33 @@ public class TargetFundService {
      * @return обновлённый фонд
      * @throws ResourceNotFoundException если фонд не найден или удалён
      */
-    private TargetFundDto doTransfer(UUID fundId, UUID idempotencyKey, BigDecimal amount) {
+    private TargetFundDto doTransfer(UUID fundId, UUID idempotencyKey, BigDecimal amount,
+                                     boolean confirm) {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
         rejectTransferToAccountBackedFund(fund);
 
+        if (amount.signum() == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Transfer amount must not be zero");
+        }
+        // ANO-87 (спека §4.1). Снять можно только то, что накоплено. Это не запрет, а
+        // арифметика: в копилке столько физически нет. В отличие от перевода СВЕРХ остатка
+        // счёта, здесь подтверждать нечего — отказ безусловный.
+        if (amount.signum() < 0 && amount.negate().compareTo(fund.getCurrentBalance()) > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Fund holds only " + fund.getCurrentBalance());
+        }
+
         BigDecimal oldBalance = fund.getCurrentBalance();
         BigDecimal newBalance = oldBalance.add(amount);
         fund.setCurrentBalance(newBalance);
-        if (fund.getTargetAmount() != null && newBalance.compareTo(fund.getTargetAmount()) >= 0) {
-            fund.setStatus(FundStatus.REACHED);
-        }
+        // Статус пересчитывается в ОБЕ стороны: после снятия копилка может перестать быть
+        // достигнутой, и оставлять её REACHED значило бы врать на экране (ANO-87).
+        fund.setStatus(fund.getTargetAmount() != null
+                && newBalance.compareTo(fund.getTargetAmount()) >= 0
+                ? FundStatus.REACHED : FundStatus.FUNDING);
         fundRepository.save(fund);
 
         // Сохраняем транзакцию для истории и расчёта прогноза

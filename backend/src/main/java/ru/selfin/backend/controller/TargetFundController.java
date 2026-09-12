@@ -4,7 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
@@ -90,10 +90,14 @@ public class TargetFundController {
     }
 
     /**
-     * Тело запроса на пополнение фонда.
+     * Тело запроса на перемещение денег между счётом и копилкой.
      *
-     * @param amount сумма перевода; должна быть строго положительной
+     * <p>Сумма ЗНАКОВАЯ (ANO-87, спека §4.1): положительная — отложить, отрицательная —
+     * забрать обратно. Отдельной ручки для обратного перевода нет осознанно: это одно
+     * действие «переместить», направление задаёт знак.
+     *
+     * @param amount сумма перемещения, не ноль
      */
-    record TransferRequest(@Positive BigDecimal amount) {
+    record TransferRequest(@NotNull BigDecimal amount) {
     }
 }
