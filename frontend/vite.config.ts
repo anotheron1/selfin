@@ -16,5 +16,14 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    // ANO-129: покрытие измеряется, порогов нет. `npm run test:coverage`.
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'json-summary', 'html'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/*.d.ts', 'src/main.tsx', 'src/vite-env.d.ts'],
+      all: true,
+    },
   },
 })
