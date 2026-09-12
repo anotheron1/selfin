@@ -175,11 +175,21 @@ public final class PocketEngine {
         BigDecimal semiLiquid = in.semiLiquidBalanceOrZero();
         BigDecimal pocketWithDeposits = semiLiquid.signum() > 0 ? pocket.add(semiLiquid) : null;
 
-        // 6. Кандидаты-хотелки — ТОЛЬКО из отдельной выборки (§3.1): OPEN любые
+        // 6. Кандидаты-хотелки — ТОЛЬКО из отдельной выборки (§3.1): OPEN неконвертированные
         //    + FIXED-неконвертированные без даты. Датированные FIXED уже в траектории из events.
+        //
+        //    ANO-103: до V22 состояние «OPEN и при этом сконвертирована» было невозможно —
+        //    его запрещало check-ограничение в базе, и потому здесь стояло «OPEN любые».
+        //    V22 это ограничение снимает (возврат в обсуждение с сохранением артефакта —
+        //    прямое обещание спеки), и без проверки !converted() вернувшаяся хотелка
+        //    попала бы в кандидаты ВТОРОЙ раз: её план уже лежит в траектории. Это ровно
+        //    форма ANO-106 — две неотличимые копии одного и того же на экране, плюс
+        //    завышенная строка WISHLIST_INFO. Инвариант, на который код опирался молча,
+        //    теперь записан здесь явно.
         List<PocketResultDto.WishlistCandidate> candidates = in.wishlistEvents().stream()
+                .filter(e -> !e.converted())
                 .filter(e -> e.wishlistStatus() == WishlistStatus.OPEN
-                        || (e.wishlistStatus() == WishlistStatus.FIXED && !e.converted() && e.date() == null))
+                        || (e.wishlistStatus() == WishlistStatus.FIXED && e.date() == null))
                 .map(e -> new PocketResultDto.WishlistCandidate(e.id(), e.description(),
                         e.plannedAmount(), e.date(), e.wishlistStatus() == WishlistStatus.FIXED))
                 .toList();

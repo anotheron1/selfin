@@ -287,6 +287,40 @@ class PocketEngineTest {
     }
 
     @Test
+    @DisplayName("ANO-103: вернувшаяся в OPEN сконвертированная хотелка не становится кандидатом второй раз")
+    void wishlistFilter_openButConverted_isNotACandidate() {
+        // До V22 это состояние было недостижимо: его запрещало check-ограничение в базе,
+        // и фильтр кандидатов пропускал «OPEN любые». V22 ограничение снимает — возврат в
+        // обсуждение с сохранением артефакта обещан спекой, — и состояние становится
+        // достижимым. Хотелка, которую уже превратили в план, обязана считаться ОДИН раз:
+        // её план лежит в траектории, и показывать её ещё и в кандидатах значит рисовать
+        // две неотличимые копии одного решения (форма ANO-106) и завышать WISHLIST_INFO.
+        PocketInput in = base()
+                .wishlist(wishlist(WishlistStatus.OPEN, null, 20_000, true))
+                .horizon(LocalDate.of(2026, 3, 15))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.wishlistCandidates()).isEmpty();
+        assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.WISHLIST_INFO);
+    }
+
+    @Test
+    @DisplayName("ANO-103: OPEN-неконвертированная кандидатом остаётся — фильтр режет по converted, а не по OPEN")
+    void wishlistFilter_openNotConverted_staysACandidate() {
+        // Парный к предыдущему. Без него правка «не пускать converted» могла бы выродиться
+        // в «не пускать OPEN вовсе» и оба теста прошли бы поодиночке.
+        PocketInput in = base()
+                .wishlist(wishlist(WishlistStatus.OPEN, null, 20_000, false))
+                .horizon(LocalDate.of(2026, 3, 15))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.wishlistCandidates()).hasSize(1);
+        assertThat(line(r, BreakdownType.WISHLIST_INFO).amount()).isEqualByComparingTo(dec(20_000));
+    }
+
+    @Test
     @DisplayName("FIXED-неконвертированная с датой в окне режет траекторию; без даты — кандидат fixed=true")
     void wishlistFilter_fixedUnconverted() {
         PocketInput in = base()

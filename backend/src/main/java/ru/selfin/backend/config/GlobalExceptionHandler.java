@@ -119,6 +119,33 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Нарушение ограничения целостности в базе (check, unique, foreign key).
+     * Возвращает HTTP 409 вместо 500.
+     *
+     * <p>Заведено по ANO-103: PATCH статуса сконвертированной хотелки упирался в
+     * check-ограничение, и пользователь получал «Internal server error» — то есть
+     * сообщение, из которого нельзя понять ни что произошло, ни что делать. Само
+     * ограничение снято миграцией V22, но обработчик нужен независимо от неё: пока
+     * его нет, ЛЮБОЕ ограничение базы — а их в схеме больше двадцати, включая
+     * частичный уникальный индекс {@code uq_events_rule_date_active} из ANO-91 —
+     * доходит до клиента пятисоткой. Общая линия с ANO-85.
+     *
+     * <p>Наружу уходит родовая формулировка, а не текст исключения: сообщение
+     * PostgreSQL называет таблицы, колонки и имена ограничений, и отдавать его
+     * клиенту значит рассказывать о внутреннем устройстве. Подробности — в лог.
+     *
+     * <p>Стоит ВЫШЕ {@code @ExceptionHandler(Exception.class)} — более специфичный матч.
+     */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(
+            org.springframework.dao.DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation", ex);
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(409, "Operation conflicts with a data constraint"));
+    }
+
+    /**
      * Fallback-обработчик для всех непредвиденных исключений.
      * Логирует полный стек, возвращает HTTP 500 без деталей реализации клиенту.
      */
