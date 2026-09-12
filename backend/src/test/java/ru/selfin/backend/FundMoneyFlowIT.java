@@ -100,6 +100,22 @@ class FundMoneyFlowIT {
         assertThat(fundBalance(fundId)).isEqualByComparingTo("99999999");
     }
 
+    @Test
+    @DisplayName("ANO-86: движения удалённой копилки уходят из ликвида капитала")
+    void deletedFund_dropsOutOfLiquid() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Ипотека");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        BigDecimal liquidBefore = capitalService.cashLiquidAt(LocalDate.now());
+        softDeleteFundDirectly(fundId);
+        BigDecimal liquidAfter = capitalService.cashLiquidAt(LocalDate.now());
+
+        assertThat(liquidBefore.subtract(liquidAfter))
+                .as("удалённая копилка не имеет права продолжать раздувать капитал")
+                .isEqualByComparingTo("20000");
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
 
     /** Копилка без счёта — базовый случай: у неё собственный баланс. */
