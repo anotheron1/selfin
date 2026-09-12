@@ -202,8 +202,8 @@ class FinancialEventServiceTest {
     // --- Task 3.7 test ---
 
     @Test
-    @DisplayName("createLinkedFact: FACT inherits recurringRule from parent PLAN")
-    void createLinkedFact_inherits_recurringRule_from_parent_plan() {
+    @DisplayName("ANO-91: FACT НЕ наследует recurringRule — связь с рецептом идёт через parentEventId")
+    void createLinkedFact_doesNotInherit_recurringRule_from_parent_plan() {
         UUID planId = UUID.randomUUID();
         Category cat = Category.builder().id(UUID.randomUUID()).build();
         RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
@@ -231,7 +231,18 @@ class FinancialEventServiceTest {
         // First saved entity is the new FACT row.
         FinancialEvent fact = cap.getAllValues().get(0);
         assertThat(fact.getEventKind()).isEqualTo(EventKind.FACT);
-        assertThat(fact.getRecurringRule()).isSameAs(rule);
+
+        // До ANO-91 здесь стояло isSameAs(rule), и этот тест был ЗЕЛЁНЫМ при полностью
+        // сломанном поведении: на моках нет базы, а значит нет и уникального индекса
+        // uq_events_rule_date_active, об который наследование разбивалось в проде. Тест не
+        // просто пропустил дефект — он зафиксировал его как требование. Настоящую проверку
+        // делает RecurringFactIT на Testcontainers.
+        assertThat(fact.getRecurringRule())
+                .as("recurring_rule_id — поле плана; факту оно не принадлежит")
+                .isNull();
+        assertThat(fact.getParentEventId())
+                .as("связь с рецептом остаётся через родителя")
+                .isEqualTo(planId);
     }
 
     // --- Task 3.3 tests ---

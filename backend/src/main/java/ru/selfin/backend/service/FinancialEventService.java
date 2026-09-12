@@ -287,7 +287,20 @@ public class FinancialEventService {
                 .type(plan.getType())
                 .factAmount(dto.factAmount())
                 .priority(dto.priority() != null ? dto.priority() : plan.getPriority())
-                .recurringRule(plan.getRecurringRule())   // inherit (null if parent is non-recurring)
+                // ANO-91: правило фактом НЕ наследуется. recurring_rule_id — поле ПЛАНА: им
+                // владеет генератор (RecurringEventGenerator:74-75 всегда ставит eventKind=PLAN),
+                // и уникальный индекс uq_events_rule_date_active (V16) исходит из того же —
+                // «один рецепт, одно событие на дату». Факт, унаследовав ссылку, садился на тот
+                // же ключ (rule_id, date), что его собственный родительский план, и вставка
+                // падала с 500: ни аренду, ни ипотеку, ни подписки нельзя было отметить
+                // оплаченными. На стенде это видно прямо: 331 PLAN несёт правило и НИ ОДИН из
+                // 560 фактов — за всё время ни один повторяющийся платёж не был отмечен.
+                //
+                // Связь с рецептом у факта остаётся, просто через родителя: parent_event_id →
+                // план → recurring_rule. Пять запросов репозитория по recurring_rule_id и так
+                // написаны в расчёте на планы (ни один не фильтрует по event_kind), поэтому
+                // без наследования они становятся корректными сами собой, а индекс V16 начинает
+                // означать ровно то, что заявлено.
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .rawInput(dto.rawInput())        // ANO-33: «450+1230+890», если сумму ввели выражением
