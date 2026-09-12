@@ -36,7 +36,7 @@ class FinancialEventServiceTest {
     // Build service and inject the @Lazy TargetFundService + RecurringRuleService via reflection
     private final FinancialEventService service;
     {
-        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository, categoryService, Clock.systemDefaultZone(), ruleService);
+        service = new FinancialEventService(eventRepository, categoryRepository, targetFundRepository, categoryService, Clock.systemDefaultZone(), ruleService, mock(WishlistArtifactService.class));
         try {
             var field = FinancialEventService.class.getDeclaredField("targetFundService");
             field.setAccessible(true);

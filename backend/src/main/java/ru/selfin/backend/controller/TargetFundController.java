@@ -85,7 +85,8 @@ public class TargetFundController {
             @Parameter(description = "ID фонда") @PathVariable UUID id,
             @RequestBody ru.selfin.backend.dto.wishlist.WishlistStatusUpdateDto dto) {
         fundService.setWishlistStatus(id,
-                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()));
+                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()),
+                dto.deleteArtifactRequested());
     }
 
     /**

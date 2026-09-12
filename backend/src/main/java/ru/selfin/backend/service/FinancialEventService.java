@@ -32,6 +32,7 @@ public class FinancialEventService {
     private final CategoryService categoryService;
     private final Clock clock;
     private final RecurringRuleService ruleService;
+    private final WishlistArtifactService wishlistArtifactService;
 
     @Autowired @Lazy
     private TargetFundService targetFundService;
@@ -373,12 +374,34 @@ public class FinancialEventService {
      */
     @Transactional
     public void setWishlistStatus(UUID id, WishlistStatus status) {
+        setWishlistStatus(id, status, false);
+    }
+
+    /**
+     * То же плюс явный выбор судьбы артефакта, созданного конверсией (ANO-103, спека §66:
+     * «артефакт остаётся (или удаляется по явному выбору)»).
+     *
+     * <p><b>Операция атомарна.</b> Если артефакт удалить нельзя, откатывается и смена статуса:
+     * иначе пришлось бы отдавать наружу «статус сменил, удалить не смог», а для этого у ручки
+     * нет тела ответа. Запертым человек при этом не остаётся — возврат БЕЗ флага работает всегда
+     * и ничем не ограничен, отказ касается только удаления.
+     *
+     * @param deleteArtifact удалить ли созданный артефакт
+     * @throws ResponseStatusException 409, если у артефакта есть факты (план) или деньги (копилка)
+     */
+    @Transactional
+    public void setWishlistStatus(UUID id, WishlistStatus status, boolean deleteArtifact) {
         FinancialEvent e = eventRepository.findById(id)
                 .filter(ev -> !ev.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
         if (e.getPriority() != Priority.LOW) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "wishlist_status applies to LOW-priority events only");
+        }
+        if (deleteArtifact) {
+            wishlistArtifactService.deleteArtifact(e.getConvertedToEventId(), e.getConvertedToFundId());
+            e.setConvertedToEventId(null);
+            e.setConvertedToFundId(null);
         }
         e.setWishlistStatus(status);   // idempotent: same value is a no-op write
         eventRepository.save(e);

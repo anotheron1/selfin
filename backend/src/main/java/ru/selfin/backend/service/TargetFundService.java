@@ -57,6 +57,7 @@ public class TargetFundService {
     private final CategoryRepository categoryRepository;
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
+    private final WishlistArtifactService wishlistArtifactService;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -189,9 +190,28 @@ public class TargetFundService {
      */
     @Transactional
     public void setWishlistStatus(UUID id, WishlistStatus status) {
+        setWishlistStatus(id, status, false);
+    }
+
+    /**
+     * То же плюс явный выбор судьбы артефакта (ANO-103, спека §66). Зеркало
+     * {@code FinancialEventService.setWishlistStatus}: хотелкой может быть и событие, и копилка,
+     * и обе ветки обязаны вести себя одинаково. Само правило удаления живёт в одном месте —
+     * {@link WishlistArtifactService}, здесь только ссылка и очистка.
+     *
+     * @param deleteArtifact удалить ли созданный конверсией артефакт
+     * @throws ResponseStatusException 409, если за артефактом стоят деньги
+     */
+    @Transactional
+    public void setWishlistStatus(UUID id, WishlistStatus status, boolean deleteArtifact) {
         TargetFund f = fundRepository.findById(id)
                 .filter(x -> !x.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        if (deleteArtifact) {
+            wishlistArtifactService.deleteArtifact(f.getConvertedToEventId(), f.getConvertedToFundId());
+            f.setConvertedToEventId(null);
+            f.setConvertedToFundId(null);
+        }
         f.setWishlistStatus(status);
         fundRepository.save(f);
     }

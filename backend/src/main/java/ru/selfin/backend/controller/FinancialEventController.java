@@ -145,6 +145,7 @@ public class FinancialEventController {
             @Parameter(description = "ID события") @PathVariable UUID id,
             @RequestBody ru.selfin.backend.dto.wishlist.WishlistStatusUpdateDto dto) {
         eventService.setWishlistStatus(id,
-                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()));
+                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()),
+                dto.deleteArtifactRequested());
     }
 }
