@@ -118,7 +118,7 @@ class PocketMigrationRegressionTest {
         List<EventSnapshot> overdueEvents = List.of(overdueExpense(LocalDate.of(2026, 2, 20), 4_000, "Связь (просрочен)"));
 
         return new PocketInput(
-                AS_OF, dec(50_000), CHECKPOINT_DATE,
+                AS_OF, dec(50_000), CHECKPOINT_DATE, null,
                 events, wishlistEvents, overdueEvents,
                 new PocketScope(PocketScope.Type.NEXT_INCOME, null, null),
                 HORIZON_END, FallbackKind.NONE,

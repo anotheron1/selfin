@@ -51,17 +51,18 @@ public final class PocketEngine {
     private PocketEngine() {}
 
     public static PocketResultDto calculate(PocketInput in) {
-        // 1. Текущий баланс: checkpoint + факты (правило §3.2) СТРОГО ПОСЛЕ даты чекпоинта
-        //    по asOfDate: сумма якоря — «число из банка на конец его дня», операции дня
-        //    чекпоинта уже внутри (ANO-15 §5, закрывает задвоение из §3.3).
-        //    Это правило зеркалено (ANO-23, править синхронно при изменении любого):
-        //    AccountBalanceService.factsDelta, BalanceCheckpointService.findAll() (дрейф),
-        //    CapitalService.liquidAt.
+        // 1. Текущий баланс: checkpoint + факты (правило §3.2), попавшие в окно якоря по
+        //    asOfDate. Сумма якоря — «число из банка», и оно содержит операции, которые
+        //    существовали В МОМЕНТ СВЕРКИ (ANO-15 §5, закрывает задвоение из §3.3). Записанное
+        //    после ввода якоря в то число попасть не могло и считается (ANO-82).
+        //    Граница окна больше не зеркалится по трём местам (ANO-23) — она одна и живёт в
+        //    AnchorWindow; сюда её зовут так же, как AccountBalanceService.factsDelta и
+        //    BalanceCheckpointService.findAll() (дрейф).
         BigDecimal currentBalance = in.checkpointAmount();
         for (EventSnapshot e : in.events()) {
             if (e.wishlistStatus() != null || e.factAmount() == null || e.date() == null) continue;
-            if (e.date().isAfter(in.asOfDate())) continue;
-            if (in.checkpointDate() != null && !e.date().isAfter(in.checkpointDate())) continue;
+            if (!AnchorWindow.countsTowardBalance(e.date(), e.createdAt(),
+                    in.checkpointDate(), in.checkpointCreatedAt(), in.asOfDate())) continue;
             currentBalance = currentBalance.add(signed(e.type(), e.factAmount()));
         }
         // Прочие счета (спека §4.1): их остатки уже посчитаны сборщиком входа,

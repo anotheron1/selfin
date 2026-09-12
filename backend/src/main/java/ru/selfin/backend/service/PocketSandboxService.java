@@ -117,8 +117,12 @@ public class PocketSandboxService {
         // не зависят. Если бы здесь остался старый 13-арный конструктор, otherAccountsBalance
         // и остальные два поля молча схлопнулись бы в null → 0 — и «свободно» из
         // POST /pocket/sandbox разошлось бы с GET /pocket ровно на сумму прочих счетов.
+        // Время ввода якоря (ANO-82) проносится по той же причине: примерка не сверяется с
+        // банком заново, и потеряв его, песочница вернулась бы к правилу «день якоря целиком
+        // не считается» — то есть разошлась бы с GET /pocket ровно на факты дня ре-якоря.
         PocketInput fittedInput = new PocketInput(in.asOfDate(), in.checkpointAmount(),
-                in.checkpointDate(), fittedEvents, fittedWishlist, in.overdueEvents(),
+                in.checkpointDate(), in.checkpointCreatedAt(),
+                fittedEvents, fittedWishlist, in.overdueEvents(),
                 in.scope(), in.horizonEnd(), in.fallbackKind(), in.bufferAmount(),
                 in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
                 in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());

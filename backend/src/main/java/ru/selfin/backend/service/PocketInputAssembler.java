@@ -228,6 +228,9 @@ public class PocketInputAssembler {
         PocketInput input = new PocketInput(asOfDate,
                 checkpoint.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO),
                 checkpoint.map(BalanceCheckpoint::getDate).orElse(null),
+                // Время ВВОДА якоря (ANO-82): без него движок не отличит факт дня якоря,
+                // существовавший в момент сверки, от записанного после неё.
+                checkpoint.map(BalanceCheckpoint::getCreatedAt).orElse(null),
                 events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors,
                 futureForecast,
                 accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance());

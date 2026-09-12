@@ -2,6 +2,7 @@ package ru.selfin.backend.dto.pocket;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -12,6 +13,10 @@ import java.util.List;
  * @param overdueEvents   просроченные обязательные PLAN(PLANNED) HIGH EXPENSE без FACT-детей,
  *                        БЕЗ границы месяца (спека §3.4)
  * @param checkpointDate  null = чекпоинта нет, баланс от нуля
+ * @param checkpointCreatedAt когда якорь ВВЕДЁН (ANO-82). Факт дня якоря считается, если
+ *                        записан позже: «банк уже всё учёл» верно только для того, что
+ *                        существовало в момент сверки — см. {@code AnchorWindow}.
+ *                        {@code null} — день якоря решается по дате, как до ANO-82
  * @param fallbackKind    тип фолбэка горизонта (NONE = заякорен как просил скоуп);
  *                        различает «доходов нет» и «второй не найден» для правдивого label
  * @param unplannedForecast прогноз незапланированных трат текущего месяца (≥ 0)
@@ -33,6 +38,7 @@ public record PocketInput(
         LocalDate asOfDate,
         BigDecimal checkpointAmount,
         LocalDate checkpointDate,
+        LocalDateTime checkpointCreatedAt,
         List<EventSnapshot> events,
         List<EventSnapshot> wishlistEvents,
         List<EventSnapshot> overdueEvents,

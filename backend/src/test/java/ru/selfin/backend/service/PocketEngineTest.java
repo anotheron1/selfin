@@ -16,6 +16,7 @@ import ru.selfin.backend.model.enums.WishlistStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +37,17 @@ class PocketEngineTest {
     private static EventSnapshot fact(EventType type, LocalDate date, long amount) {
         return new EventSnapshot(UUID.randomUUID(), date, type, EventKind.FACT, EventStatus.EXECUTED,
                 Priority.MEDIUM, null, dec(amount), null, false, "fact");
+    }
+
+    /**
+     * Факт с явным временем ЗАПИСИ (ANO-82). Значимо только в день чекпоинта: там решает
+     * оно, а не дата. Перегрузка без него ставит {@code createdAt = null} — тогда день
+     * чекпоинта решается по-старому, и остальные тесты класса не затронуты.
+     */
+    private static EventSnapshot fact(EventType type, LocalDate date, long amount,
+                                      LocalDateTime createdAt) {
+        return new EventSnapshot(UUID.randomUUID(), date, type, EventKind.FACT, EventStatus.EXECUTED,
+                Priority.MEDIUM, null, dec(amount), null, false, "fact", null, createdAt);
     }
 
     private static EventSnapshot executedPlan(EventType type, LocalDate date, long planned) {
@@ -75,6 +87,7 @@ class PocketEngineTest {
         LocalDate asOf = TODAY;
         BigDecimal checkpoint = dec(10_000);
         LocalDate checkpointDate = TODAY;
+        LocalDateTime checkpointCreatedAt = null;
         List<EventSnapshot> events = List.of();
         List<EventSnapshot> wishlistEvents = List.of();
         List<EventSnapshot> overdue = List.of();
@@ -110,6 +123,8 @@ class PocketEngineTest {
         }
         PocketInputBuilder noCheckpoint() { this.checkpoint = BigDecimal.ZERO; this.checkpointDate = null; return this; }
         PocketInputBuilder checkpointDate(LocalDate d) { this.checkpointDate = d; return this; }
+        /** Время ВВОДА якоря (ANO-82): для дня якоря решает оно, а не дата. */
+        PocketInputBuilder checkpointCreatedAt(LocalDateTime t) { this.checkpointCreatedAt = t; return this; }
         PocketInputBuilder fallback() { this.fallback = FallbackKind.NO_INCOMES; return this; }
         PocketInputBuilder fallback(FallbackKind kind) { this.fallback = kind; return this; }
         PocketInputBuilder secondIncomeScope(LocalDate end) {
@@ -124,7 +139,8 @@ class PocketEngineTest {
         PocketInputBuilder semiLiquidBalance(long v) { this.semiLiquidBalance = dec(v); return this; }
 
         PocketInput build() {
-            return new PocketInput(asOf, checkpoint, checkpointDate, events, wishlistEvents, overdue,
+            return new PocketInput(asOf, checkpoint, checkpointDate, checkpointCreatedAt,
+                    events, wishlistEvents, overdue,
                     scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast,
                     otherAccountsBalance, creditRestoreReserve, semiLiquidBalance);
         }
@@ -172,13 +188,40 @@ class PocketEngineTest {
     }
 
     @Test
-    @DisplayName("Факт В ДЕНЬ чекпоинта не считается: сумма якоря уже содержит операции дня (ANO-15 §5)")
-    void factOnCheckpointDay_notDoubleCounted() {
-        // Чекпоинт = TODAY (дефолт билдера); факт тем же днём должен быть внутри якоря
+    @DisplayName("ANO-28: факт дня чекпоинта, записанный ДО сверки, не задваивается")
+    void factOnCheckpointDay_recordedBefore_notDoubleCounted() {
+        PocketInput in = base()
+                .checkpointCreatedAt(LocalDateTime.of(2026, 3, 1, 10, 0))
+                .events(fact(EventType.EXPENSE, TODAY, 4_000,
+                        LocalDateTime.of(2026, 3, 1, 9, 0)))
+                .build();
+        assertThat(PocketEngine.calculate(in).currentBalance())
+                .as("трата была на экране, когда вводили число из банка")
+                .isEqualByComparingTo(dec(10_000));
+    }
+
+    @Test
+    @DisplayName("ANO-82: факт дня чекпоинта, записанный ПОСЛЕ сверки, считается")
+    void factOnCheckpointDay_recordedAfter_counts() {
+        PocketInput in = base()
+                .checkpointCreatedAt(LocalDateTime.of(2026, 3, 1, 10, 0))
+                .events(fact(EventType.EXPENSE, TODAY, 4_000,
+                        LocalDateTime.of(2026, 3, 1, 18, 0)))
+                .build();
+        assertThat(PocketEngine.calculate(in).currentBalance())
+                .as("сверился утром, записал вечером — ввод не должен пропадать")
+                .isEqualByComparingTo(dec(6_000));
+    }
+
+    @Test
+    @DisplayName("Время записи неизвестно — день чекпоинта решается по-старому (33 теста класса на этом)")
+    void factOnCheckpointDay_unknownEntryTime_staysOut() {
         PocketInput in = base()
                 .events(fact(EventType.EXPENSE, TODAY, 4_000))
                 .build();
-        assertThat(PocketEngine.calculate(in).currentBalance()).isEqualByComparingTo(dec(10_000));
+        assertThat(PocketEngine.calculate(in).currentBalance())
+                .as("совместимая перегрузка ставит createdAt = null — прежнее поведение")
+                .isEqualByComparingTo(dec(10_000));
     }
 
     // ── просрочка ────────────────────────────────────────────────────────────
@@ -379,7 +422,8 @@ class PocketEngineTest {
     void unplannedForecast_emptyWindow() {
         LocalDate eom = LocalDate.of(2026, 3, 31);
         PocketInput in = base().forecast(5_000, "Продукты").build();
-        in = new PocketInput(eom, in.checkpointAmount(), eom, in.events(), in.wishlistEvents(),
+        in = new PocketInput(eom, in.checkpointAmount(), eom, in.checkpointCreatedAt(),
+                in.events(), in.wishlistEvents(),
                 in.overdueEvents(), in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
                 in.bufferAmount(), in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
                 in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());
