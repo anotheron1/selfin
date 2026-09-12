@@ -76,7 +76,8 @@ public class TargetFundController {
             @Parameter(description = "ID фонда") @PathVariable UUID id,
             @Parameter(description = "UUID для идемпотентности", required = true) @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @Valid @RequestBody TransferRequest request) {
-        return fundService.transferToPocket(id, idempotencyKey, request.amount());
+        return fundService.transferToPocket(id, idempotencyKey, request.amount(),
+                request.confirmed());
     }
 
     @Operation(summary = "Сменить wishlist-статус копилки/кредита (OPEN/FIXED/DISMISSED)")
@@ -96,8 +97,14 @@ public class TargetFundController {
      * забрать обратно. Отдельной ручки для обратного перевода нет осознанно: это одно
      * действие «переместить», направление задаёт знак.
      *
-     * @param amount сумма перемещения, не ноль
+     * @param amount  сумма перемещения, не ноль
+     * @param confirm человек увидел предупреждение «переводите больше, чем есть» и настаивает.
+     *        {@code null} трактуется как «не подтверждено» (спека §4.2).
      */
-    record TransferRequest(@NotNull BigDecimal amount) {
+    record TransferRequest(@NotNull BigDecimal amount, Boolean confirm) {
+
+        boolean confirmed() {
+            return Boolean.TRUE.equals(confirm);
+        }
     }
 }

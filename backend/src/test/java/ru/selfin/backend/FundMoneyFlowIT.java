@@ -47,9 +47,25 @@ class FundMoneyFlowIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired CapitalService capitalService;
 
+    /**
+     * Даёт дефолтному счёту якорь, чтобы у продукта было основание для мнения о свободных
+     * деньгах. Без якоря {@code freeMoneyAt} равен нулю, и ЛЮБОЙ перевод считался бы
+     * превышением остатка — тест проверял бы не то, что заявляет.
+     */
+    private void anchorDefaultAccount(String amount) {
+        String accountId = jdbc.queryForObject(
+                "SELECT id::text FROM accounts WHERE is_default = true AND is_deleted = false",
+                String.class);
+        jdbc.update("""
+                INSERT INTO balance_checkpoints (id, date, amount, account_id, created_at)
+                VALUES (gen_random_uuid(), CURRENT_DATE, ?::numeric, ?::uuid, now())
+                """, amount, accountId);
+    }
+
     @Test
     @DisplayName("ANO-87: из копилки можно забрать деньги обратно")
     void withdraw_returnsMoneyToAccount() throws Exception {
+        anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
         transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
 
@@ -61,6 +77,7 @@ class FundMoneyFlowIT {
     @Test
     @DisplayName("ANO-87: снять больше накопленного нельзя — в копилке столько нет")
     void withdraw_moreThanBalance_isRefused() throws Exception {
+        anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
         transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
 
@@ -68,6 +85,19 @@ class FundMoneyFlowIT {
 
         assertThat(fundBalance(fundId))
                 .as("отказ не должен списать ничего").isEqualByComparingTo("20000");
+    }
+
+    @Test
+    @DisplayName("ANO-87: перевод больше остатка требует подтверждения")
+    void transfer_overBalance_needsConfirmation() throws Exception {
+        String fundId = createFund("Отпуск");
+
+        transfer(fundId, new BigDecimal("99999999"), null).andExpect(status().isConflict());
+        assertThat(fundBalance(fundId))
+                .as("без подтверждения не должно пройти ничего").isEqualByComparingTo("0");
+
+        transfer(fundId, new BigDecimal("99999999"), true).andExpect(status().isOk());
+        assertThat(fundBalance(fundId)).isEqualByComparingTo("99999999");
     }
 
     // ── оснастка ─────────────────────────────────────────────────────────────

@@ -277,6 +277,28 @@ public class TargetFundService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Fund holds only " + fund.getCurrentBalance());
         }
+        // ANO-87 (спека §4.2). Переложить больше, чем показывает остаток, можно — но только
+        // осознанно. Остаток в продукте не банковская истина, а якорь плюс введённое: он
+        // отстаёт от реальности, и жёсткий отказ наказывал бы за неточный ввод, что запрещает
+        // правило 5. Человек, у которого деньги реально есть, обязан суметь их отложить.
+        //
+        // NB ANO-39: LocalDate.now() здесь — прямой вызов, 36-е место. Clock в этот сервис не
+        // инжектится, а половинчатая миграция одного сервиса хуже честных 36 мест. При
+        // инъекции Clock не пропустить: это денежный путь, тот же, где живёт ANO-125.
+        if (amount.signum() > 0 && !confirm) {
+            LocalDate today = LocalDate.now();
+            // Ровно то число, которое продукт САМ называет свободными деньгами: так же
+            // считает CapitalService.cashLiquidAt. Один freeMoneyAt занижает у пользователя
+            // без чекпоинта — для него существует запасной путь noAnchorFallbackAt (ANO-28),
+            // и предупреждать по числу, которое продукт свободными деньгами не считает, нельзя.
+            BigDecimal free = accountBalanceService.freeMoneyAt(today)
+                    .add(accountBalanceService.noAnchorFallbackAt(today));
+            if (amount.compareTo(free) > 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Account holds " + free + ", transferring " + amount
+                                + "; resend with confirm=true to proceed");
+            }
+        }
 
         BigDecimal oldBalance = fund.getCurrentBalance();
         BigDecimal newBalance = oldBalance.add(amount);
