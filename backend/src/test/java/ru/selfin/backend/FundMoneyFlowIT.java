@@ -115,6 +115,11 @@ class FundMoneyFlowIT {
     @Test
     @DisplayName("ANO-87: перевод больше остатка требует подтверждения")
     void transfer_overBalance_needsConfirmation() throws Exception {
+        // ANO-157: якорь здесь ОБЯЗАТЕЛЕН, и это не оснастка, а предмет. Без него тест
+        // проходил, опираясь на дефект: свободных денег ноль, потому что продукт ничего не
+        // знает, — и предупреждение приходило из незнания. Проверялось не правило ANO-87,
+        // а тот самый ноль-незнание, который ANO-157 перестал считать запретом.
+        anchorDefaultAccount("1000");
         String fundId = createFund("Отпуск");
 
         transfer(fundId, new BigDecimal("99999999"), null).andExpect(status().isConflict());
