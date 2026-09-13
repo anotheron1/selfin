@@ -130,21 +130,17 @@ class FundMoneyFlowIT {
         assertThat(fundBalance(fundId)).isEqualByComparingTo("99999999");
     }
 
-    @Test
-    @DisplayName("ANO-86: движения удалённой копилки уходят из ликвида капитала")
-    void deletedFund_dropsOutOfLiquid() throws Exception {
-        anchorDefaultAccount("500000");
-        String fundId = createFund("Ипотека");
-        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
-
-        BigDecimal liquidBefore = capitalService.cashLiquidAt(LocalDate.now());
-        softDeleteFundDirectly(fundId);
-        BigDecimal liquidAfter = capitalService.cashLiquidAt(LocalDate.now());
-
-        assertThat(liquidBefore.subtract(liquidAfter))
-                .as("удалённая копилка не имеет права продолжать раздувать капитал")
-                .isEqualByComparingTo("20000");
-    }
+    // ANO-156: здесь стоял deletedFund_dropsOutOfLiquid — он помечал копилку удалённой В
+    // ОБХОД сервиса и проверял, что её деньги уйдут из ликвида. Проверялся фильтр
+    // t.fund.deleted в запросе суммы копилок, и другого смысла у обхода не было.
+    //
+    // Фильтр снят намеренно: он применял флаг «удалена сейчас» ко всем прошлым датам и
+    // переписывал историю. Гарантия ANO-86 переехала на компенсирующее движение, а обход
+    // сервиса — это ровно обход компенсации, то есть больше не эквивалент удаления.
+    //
+    // Само утверждение не потеряно: delete_spent_dropsCapital проверяет то же самое —
+    // капитал падает ровно на сумму — но через настоящий путь. Строки, удалённые в базе
+    // руками до этой правки, лечит миграция V24 (DisposedFundMigrationIT).
 
     @Test
     @DisplayName("ANO-86: удаление копилки с деньгами без ответа — 409 с суммой")
@@ -190,6 +186,40 @@ class FundMoneyFlowIT {
         assertThat(liquidBefore.subtract(capitalService.cashLiquidAt(LocalDate.now())))
                 .as("вещь куплена — этих денег в чистой стоимости больше нет")
                 .isEqualByComparingTo("20000");
+    }
+
+    @Test
+    @DisplayName("ANO-156: «потрачено» не переписывает прошлое")
+    void delete_spent_doesNotRewriteHistory() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        LocalDate past = LocalDate.now().minusMonths(1);
+        contributeOn(fundId, new BigDecimal("20000"), past);
+        BigDecimal liquidPastBefore = capitalService.cashLiquidAt(past);
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=SPENT", fundId))
+                .andExpect(status().isNoContent());
+
+        assertThat(capitalService.cashLiquidAt(past))
+                .as("месяц назад деньги лежали в копилке — удаление сегодня не меняет прошлое")
+                .isEqualByComparingTo(liquidPastBefore);
+    }
+
+    @Test
+    @DisplayName("ANO-156: «вернуть» тоже не переписывает прошлое")
+    void delete_return_doesNotRewriteHistory() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        LocalDate past = LocalDate.now().minusMonths(1);
+        contributeOn(fundId, new BigDecimal("20000"), past);
+        BigDecimal liquidPastBefore = capitalService.cashLiquidAt(past);
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=RETURN", fundId))
+                .andExpect(status().isNoContent());
+
+        assertThat(capitalService.cashLiquidAt(past))
+                .as("возврат датируется сегодняшним днём и прошлого не касается")
+                .isEqualByComparingTo(liquidPastBefore);
     }
 
     @Test
@@ -351,6 +381,34 @@ class FundMoneyFlowIT {
                 BigDecimal.class, fundId);
     }
 
+    /**
+     * Взнос в копилку ПРОШЛОЙ датой: движение, событие FUND_TRANSFER и баланс копилки —
+     * ровно то, что создал бы перевод, но задним числом.
+     *
+     * <p>Через API так нельзя: {@code doTransfer} всегда ставит сегодняшнюю дату. А без
+     * прошлой даты дефект ANO-156 не воспроизводится вовсе — он весь про то, что удаление
+     * сегодня меняет числа за прошлые месяцы.
+     */
+    private void contributeOn(String fundId, BigDecimal amount, LocalDate date) {
+        String categoryId = jdbc.queryForObject(
+                "SELECT id::text FROM categories WHERE type = 'EXPENSE' AND is_deleted = false LIMIT 1",
+                String.class);
+        jdbc.update("""
+                INSERT INTO fund_transactions
+                    (id, fund_id, idempotency_key, amount, transaction_date, is_deleted, created_at)
+                VALUES (gen_random_uuid(), ?::uuid, gen_random_uuid(), ?::numeric, ?::date, false, now())
+                """, fundId, amount.toPlainString(), date.toString());
+        jdbc.update("""
+                INSERT INTO financial_events
+                    (id, date, category_id, type, fact_amount, status, priority,
+                     is_deleted, event_kind, created_at, target_fund_id, description)
+                VALUES (gen_random_uuid(), ?::date, ?::uuid, 'FUND_TRANSFER', ?::numeric,
+                        'EXECUTED', 'MEDIUM', false, 'FACT', now(), ?::uuid, 'В копилку')
+                """, date.toString(), categoryId, amount.toPlainString(), fundId);
+        jdbc.update("UPDATE target_funds SET current_balance = ?::numeric WHERE id = ?::uuid",
+                amount.toPlainString(), fundId);
+    }
+
     /** Сумма живых движений копилки — то самое, что складывает запрос суммы копилок. */
     private BigDecimal movementSum(String fundId) {
         return jdbc.queryForObject(
@@ -373,8 +431,4 @@ class FundMoneyFlowIT {
                 "SELECT is_deleted FROM target_funds WHERE id = ?::uuid", Boolean.class, fundId));
     }
 
-    /** Помечает копилку удалённой в обход сервиса — проверяется именно запрос ликвида. */
-    private void softDeleteFundDirectly(String fundId) {
-        jdbc.update("UPDATE target_funds SET is_deleted = true WHERE id = ?::uuid", fundId);
-    }
 }
