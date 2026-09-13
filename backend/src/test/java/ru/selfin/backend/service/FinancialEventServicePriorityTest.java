@@ -25,7 +25,8 @@ class FinancialEventServicePriorityTest {
     {
         service = new FinancialEventService(
                 eventRepository, categoryRepository, targetFundRepository,
-                categoryService, Clock.systemDefaultZone(), ruleService);
+                categoryService, Clock.systemDefaultZone(), ruleService,
+                mock(WishlistArtifactService.class));
     }
 
     @Test

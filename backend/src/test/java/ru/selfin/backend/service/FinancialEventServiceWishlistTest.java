@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,7 +36,7 @@ class FinancialEventServiceWishlistTest {
     void findWishlist_usesFirstDayOfMonth_notToday() {
         // Inject clock via constructor (after implementation step)
         FinancialEventService service = new FinancialEventService(
-                eventRepository, categoryRepository, targetFundRepository, categoryService, clock, ruleService);
+                eventRepository, categoryRepository, targetFundRepository, categoryService, clock, ruleService, mock(WishlistArtifactService.class));
 
         when(eventRepository.findWishlistItems(
                 Priority.LOW, EventStatus.PLANNED,

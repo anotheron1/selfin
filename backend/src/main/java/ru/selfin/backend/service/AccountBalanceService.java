@@ -14,6 +14,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -27,9 +28,9 @@ import java.util.UUID;
  * только чекпоинтами — известное ограничение первой версии (§6). Фиктивных операций,
  * чтобы это обойти, не выдумываем: замерший остаток честнее мусора в аналитике.
  *
- * <p>NB: правило отбора фактов продублировано в {@link PocketEngine} — движок чистый и
- * суммирует факты сам. Схождение этих двух мест — предмет ANO-23, здесь не решается,
- * но при правке одного обязательно править второе.
+ * <p>NB: граница окна «что уже внутри якоря» живёт в {@link AnchorWindow} — одно место на
+ * три бывших копии (ANO-82 централизовала то, что ANO-23 называла дублированием). Движок
+ * по-прежнему суммирует факты сам, но по тому же правилу, а не по своей копии.
  */
 @Service
 @RequiredArgsConstructor
@@ -97,7 +98,7 @@ public class AccountBalanceService {
         if (anchor == null) return BigDecimal.ZERO;
         BigDecimal base = anchor.getAmount();
         if (!a.isDefaultAccount()) return base;
-        return base.add(factsDelta(anchor.getDate(), t));
+        return base.add(factsDelta(anchor.getDate(), anchor.getCreatedAt(), t));
     }
 
     /**
@@ -201,7 +202,8 @@ public class AccountBalanceService {
     public BigDecimal noAnchorFallbackAt(LocalDate t) {
         Optional<Account> defaultAcc = defaultAccount();
         if (defaultAcc.isEmpty() || anchorAt(defaultAcc.get(), t).isPresent()) return BigDecimal.ZERO;
-        return factsDelta(EPOCH, t);
+        // EPOCH — не якорь, а «с начала времён»: времени ввода у него нет и быть не может.
+        return factsDelta(EPOCH, null, t);
     }
 
     /**
@@ -267,17 +269,24 @@ public class AccountBalanceService {
     }
 
     /**
-     * Знаковая сумма фактов в {@code (from, to]}. Вызывается только когда якорь уже найден —
-     * см. {@link #balanceAt}, там же оговорено единственное расхождение с движком (поведение
-     * без якоря). При наличии якоря правило отбора совпадает с шагом 1
-     * {@link PocketEngine#calculate}: только факты, не-хотелки, дата не позже {@code to}
-     * и строго после даты якоря — операции дня чекпоинта уже внутри его суммы (ANO-15 §5).
+     * Знаковая сумма фактов в окне якоря по {@code to}. Вызывается только когда якорь уже
+     * найден — см. {@link #balanceAt}, там же оговорено единственное расхождение с движком
+     * (поведение без якоря). Отбор — только факты и не-хотелки, а граница окна живёт в
+     * {@link AnchorWindow}: одно место на три бывших копии (ANO-23).
+     *
+     * <p>Граница больше не «строго после даты якоря». Операции дня якоря сидят внутри его
+     * суммы только если существовали В МОМЕНТ СВЕРКИ — записанное позже в число из банка
+     * попасть не могло (ANO-82, ANO-15 §5). Отсюда второй параметр.
+     *
+     * @param fromCreatedAt время ВВОДА якоря; {@code null} — решать день якоря по-старому
+     *                      (используется фолбэком без якоря, см. {@link #noAnchorFallbackAt})
      */
-    private BigDecimal factsDelta(LocalDate from, LocalDate to) {
+    private BigDecimal factsDelta(LocalDate from, LocalDateTime fromCreatedAt, LocalDate to) {
         return eventRepository.findAllByDeletedFalseAndDateBetween(from, to).stream()
                 .filter(e -> e.getFactAmount() != null)
                 .filter(e -> e.getWishlistStatus() == null)
-                .filter(e -> e.getDate() != null && e.getDate().isAfter(from))
+                .filter(e -> AnchorWindow.countsTowardBalance(
+                        e.getDate(), e.getCreatedAt(), from, fromCreatedAt, to))
                 .map(e -> e.getType() == EventType.INCOME
                         ? e.getFactAmount() : e.getFactAmount().negate())
                 .reduce(BigDecimal.ZERO, BigDecimal::add);

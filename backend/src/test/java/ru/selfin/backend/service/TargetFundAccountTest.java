@@ -32,6 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -61,7 +62,7 @@ class TargetFundAccountTest {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
         service = new TargetFundService(fundRepo, txRepo, eventRepo, categoryRepo,
-                accountRepo, balanceService);
+                accountRepo, balanceService, mock(WishlistArtifactService.class));
     }
 
     private static TargetFund fund(UUID accountId, String storedBalance) {
@@ -152,7 +153,12 @@ class TargetFundAccountTest {
                 .thenReturn(Optional.of(ru.selfin.backend.model.Category.builder()
                         .id(UUID.randomUUID()).name("Переводы в копилки").build()));
 
-        service.transferToPocket(f.getId(), key, new BigDecimal("5000"));
+        // confirm=true намеренно: предмет этого теста — что перевод в виртуальный конверт
+        // проходит, а не проверка достаточности из ANO-87. Здесь собран настоящий
+        // AccountBalanceService поверх мок-репозиториев, поэтому свободных денег у него ноль,
+        // и без подтверждения перевод упёрся бы в предупреждение — но проверялось бы уже не
+        // то, что заявлено в названии. Достаточность покрыта отдельно, в FundMoneyFlowIT.
+        service.transferToPocket(f.getId(), key, new BigDecimal("5000"), true);
 
         assertThat(f.getCurrentBalance()).isEqualByComparingTo("6000");
         verify(fundRepo).save(f);

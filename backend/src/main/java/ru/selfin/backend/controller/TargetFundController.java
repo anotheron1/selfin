@@ -4,7 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
@@ -61,11 +61,17 @@ public class TargetFundController {
         return fundService.update(id, dto);
     }
 
-    @Operation(summary = "Удалить целевой фонд", description = "Soft delete: фонд скрывается из UI, транзакции сохраняются")
+    @Operation(summary = "Удалить целевой фонд",
+            description = "Soft delete. Если на копилке лежат деньги, обязателен параметр money: "
+                    + "RETURN — вернуть их в свободные деньги, SPENT — признать потраченными "
+                    + "на цель. Без него 409: молча решать судьбу денег продукт не вправе.")
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@Parameter(description = "ID фонда") @PathVariable UUID id) {
-        fundService.delete(id);
+    public void delete(
+            @Parameter(description = "ID фонда") @PathVariable UUID id,
+            @Parameter(description = "Судьба денег: RETURN | SPENT")
+            @RequestParam(required = false) ru.selfin.backend.model.enums.FundMoneyDisposal money) {
+        fundService.delete(id, money);
     }
 
     @Operation(summary = "Перевести средства в фонд", description = "Добавляет указанную сумму на баланс фонда (пополнение из кармашка). "
@@ -76,7 +82,8 @@ public class TargetFundController {
             @Parameter(description = "ID фонда") @PathVariable UUID id,
             @Parameter(description = "UUID для идемпотентности", required = true) @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @Valid @RequestBody TransferRequest request) {
-        return fundService.transferToPocket(id, idempotencyKey, request.amount());
+        return fundService.transferToPocket(id, idempotencyKey, request.amount(),
+                request.confirmed());
     }
 
     @Operation(summary = "Сменить wishlist-статус копилки/кредита (OPEN/FIXED/DISMISSED)")
@@ -85,14 +92,25 @@ public class TargetFundController {
             @Parameter(description = "ID фонда") @PathVariable UUID id,
             @RequestBody ru.selfin.backend.dto.wishlist.WishlistStatusUpdateDto dto) {
         fundService.setWishlistStatus(id,
-                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()));
+                ru.selfin.backend.model.enums.WishlistStatus.valueOf(dto.status()),
+                dto.deleteArtifactRequested());
     }
 
     /**
-     * Тело запроса на пополнение фонда.
+     * Тело запроса на перемещение денег между счётом и копилкой.
      *
-     * @param amount сумма перевода; должна быть строго положительной
+     * <p>Сумма ЗНАКОВАЯ (ANO-87, спека §4.1): положительная — отложить, отрицательная —
+     * забрать обратно. Отдельной ручки для обратного перевода нет осознанно: это одно
+     * действие «переместить», направление задаёт знак.
+     *
+     * @param amount  сумма перемещения, не ноль
+     * @param confirm человек увидел предупреждение «переводите больше, чем есть» и настаивает.
+     *        {@code null} трактуется как «не подтверждено» (спека §4.2).
      */
-    record TransferRequest(@Positive BigDecimal amount) {
+    record TransferRequest(@NotNull BigDecimal amount, Boolean confirm) {
+
+        boolean confirmed() {
+            return Boolean.TRUE.equals(confirm);
+        }
     }
 }

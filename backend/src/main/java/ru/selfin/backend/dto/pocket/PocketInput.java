@@ -2,6 +2,7 @@ package ru.selfin.backend.dto.pocket;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -11,7 +12,15 @@ import java.util.List;
  * @param wishlistEvents  отдельная выборка хотелок (OPEN + FIXED) — date-range их не достаёт
  * @param overdueEvents   просроченные обязательные PLAN(PLANNED) HIGH EXPENSE без FACT-детей,
  *                        БЕЗ границы месяца (спека §3.4)
+ * @param releasedOverdueEvents та же просрочка, но удержанная последним ре-якорем вне резерва
+ *                        (ANO-79). Движок их НЕ вычитает — только объясняет строкой
+ *                        {@code OVERDUE_RELEASED}, почему резерв уменьшился. Правило ANO-28
+ *                        не меняется: план старше якоря по-прежнему не бронируется
  * @param checkpointDate  null = чекпоинта нет, баланс от нуля
+ * @param checkpointCreatedAt когда якорь ВВЕДЁН (ANO-82). Факт дня якоря считается, если
+ *                        записан позже: «банк уже всё учёл» верно только для того, что
+ *                        существовало в момент сверки — см. {@code AnchorWindow}.
+ *                        {@code null} — день якоря решается по дате, как до ANO-82
  * @param fallbackKind    тип фолбэка горизонта (NONE = заякорен как просил скоуп);
  *                        различает «доходов нет» и «второй не найден» для правдивого label
  * @param unplannedForecast прогноз незапланированных трат текущего месяца (≥ 0)
@@ -33,9 +42,11 @@ public record PocketInput(
         LocalDate asOfDate,
         BigDecimal checkpointAmount,
         LocalDate checkpointDate,
+        LocalDateTime checkpointCreatedAt,
         List<EventSnapshot> events,
         List<EventSnapshot> wishlistEvents,
         List<EventSnapshot> overdueEvents,
+        List<EventSnapshot> releasedOverdueEvents,
         PocketScope scope,
         LocalDate horizonEnd,
         FallbackKind fallbackKind,
@@ -50,6 +61,11 @@ public record PocketInput(
     /** Прогноз будущих месяцев, безопасный к null (старые вызовы/тесты). */
     public java.util.Map<java.time.YearMonth, BigDecimal> futureForecastOrEmpty() {
         return futureForecast != null ? futureForecast : java.util.Map.of();
+    }
+
+    /** Удержанная якорем просрочка, безопасная к null (старые вызовы/тесты, ANO-79). */
+    public List<EventSnapshot> releasedOverdueOrEmpty() {
+        return releasedOverdueEvents != null ? releasedOverdueEvents : List.of();
     }
 
     public BigDecimal otherAccountsBalanceOrZero() { return orZero(otherAccountsBalance); }

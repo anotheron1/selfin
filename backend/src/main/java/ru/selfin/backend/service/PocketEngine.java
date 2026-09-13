@@ -51,17 +51,18 @@ public final class PocketEngine {
     private PocketEngine() {}
 
     public static PocketResultDto calculate(PocketInput in) {
-        // 1. Текущий баланс: checkpoint + факты (правило §3.2) СТРОГО ПОСЛЕ даты чекпоинта
-        //    по asOfDate: сумма якоря — «число из банка на конец его дня», операции дня
-        //    чекпоинта уже внутри (ANO-15 §5, закрывает задвоение из §3.3).
-        //    Это правило зеркалено (ANO-23, править синхронно при изменении любого):
-        //    AccountBalanceService.factsDelta, BalanceCheckpointService.findAll() (дрейф),
-        //    CapitalService.liquidAt.
+        // 1. Текущий баланс: checkpoint + факты (правило §3.2), попавшие в окно якоря по
+        //    asOfDate. Сумма якоря — «число из банка», и оно содержит операции, которые
+        //    существовали В МОМЕНТ СВЕРКИ (ANO-15 §5, закрывает задвоение из §3.3). Записанное
+        //    после ввода якоря в то число попасть не могло и считается (ANO-82).
+        //    Граница окна больше не зеркалится по трём местам (ANO-23) — она одна и живёт в
+        //    AnchorWindow; сюда её зовут так же, как AccountBalanceService.factsDelta и
+        //    BalanceCheckpointService.findAll() (дрейф).
         BigDecimal currentBalance = in.checkpointAmount();
         for (EventSnapshot e : in.events()) {
             if (e.wishlistStatus() != null || e.factAmount() == null || e.date() == null) continue;
-            if (e.date().isAfter(in.asOfDate())) continue;
-            if (in.checkpointDate() != null && !e.date().isAfter(in.checkpointDate())) continue;
+            if (!AnchorWindow.countsTowardBalance(e.date(), e.createdAt(),
+                    in.checkpointDate(), in.checkpointCreatedAt(), in.asOfDate())) continue;
             currentBalance = currentBalance.add(signed(e.type(), e.factAmount()));
         }
         // Прочие счета (спека §4.1): их остатки уже посчитаны сборщиком входа,
@@ -175,11 +176,21 @@ public final class PocketEngine {
         BigDecimal semiLiquid = in.semiLiquidBalanceOrZero();
         BigDecimal pocketWithDeposits = semiLiquid.signum() > 0 ? pocket.add(semiLiquid) : null;
 
-        // 6. Кандидаты-хотелки — ТОЛЬКО из отдельной выборки (§3.1): OPEN любые
+        // 6. Кандидаты-хотелки — ТОЛЬКО из отдельной выборки (§3.1): OPEN неконвертированные
         //    + FIXED-неконвертированные без даты. Датированные FIXED уже в траектории из events.
+        //
+        //    ANO-103: до V22 состояние «OPEN и при этом сконвертирована» было невозможно —
+        //    его запрещало check-ограничение в базе, и потому здесь стояло «OPEN любые».
+        //    V22 это ограничение снимает (возврат в обсуждение с сохранением артефакта —
+        //    прямое обещание спеки), и без проверки !converted() вернувшаяся хотелка
+        //    попала бы в кандидаты ВТОРОЙ раз: её план уже лежит в траектории. Это ровно
+        //    форма ANO-106 — две неотличимые копии одного и того же на экране, плюс
+        //    завышенная строка WISHLIST_INFO. Инвариант, на который код опирался молча,
+        //    теперь записан здесь явно.
         List<PocketResultDto.WishlistCandidate> candidates = in.wishlistEvents().stream()
+                .filter(e -> !e.converted())
                 .filter(e -> e.wishlistStatus() == WishlistStatus.OPEN
-                        || (e.wishlistStatus() == WishlistStatus.FIXED && !e.converted() && e.date() == null))
+                        || (e.wishlistStatus() == WishlistStatus.FIXED && e.date() == null))
                 .map(e -> new PocketResultDto.WishlistCandidate(e.id(), e.description(),
                         e.plannedAmount(), e.date(), e.wishlistStatus() == WishlistStatus.FIXED))
                 .toList();
@@ -267,6 +278,23 @@ public final class PocketEngine {
         // ПОСЛЕ POCKET, рядом с WISHLIST_INFO: строка информационная и в инвариант не входит.
         // Порядок здесь — не про рендер, а про смысл: всё до кармашка объясняет, из чего он
         // сложился; всё после — оговорки, которые пользователь может учесть, а может нет.
+        // ANO-79: разбивка объясняла состояние и никогда — изменение. Строка OVERDUE_RESERVE
+        // после ре-якоря просто исчезала, и автор продукта не смог определить, верное ли у него
+        // число. Теперь видно, сколько именно этот якорь снял с брони и почему. Сумма
+        // ПОЛОЖИТЕЛЬНАЯ и без знака: это деньги, которые НЕ вычитаются, как у WISHLIST_INFO.
+        List<EventSnapshot> released = in.releasedOverdueOrEmpty();
+        BigDecimal releasedSum = released.stream()
+                .map(EventSnapshot::plannedAmount).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (releasedSum.signum() != 0 && in.checkpointDate() != null) {
+            lines.add(new PocketResultDto.BreakdownLine(BreakdownType.OVERDUE_RELEASED,
+                    "Больше не бронируется: остаток обновлён " + DD_MM.format(in.checkpointDate())
+                            + " (" + released.size() + " шт)",
+                    releasedSum,
+                    released.stream()
+                            .map(e -> e.description() != null ? e.description() : "без описания").toList()));
+        }
+
         if (creditReserve.signum() > 0) {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.CREDIT_RESTORE,
                     "Вернуть карты к планке", creditReserve.negate(), List.of()));

@@ -33,9 +33,16 @@ public class BalanceCheckpointService {
 
     /**
      * История чекпоинтов, от свежих к старым, с дрейфом каждого интервала (ANO-15 §4):
-     * computedBalance = prev.amount + знаковые факты в (prev.date, cur.date]
-     * (правило фактов = PocketEngine.currentBalance: factAmount != null, не-wishlist);
+     * computedBalance = prev.amount + знаковые факты окна {@code prev → cur}
+     * (factAmount != null, не-wishlist; граница окна — {@link AnchorWindow}, то же правило,
+     * что у {@link PocketEngine#calculate} и {@link AccountBalanceService#balanceAt});
      * drift = amount − computedBalance. Один range-запрос фактов на всю историю.
+     *
+     * <p>После ANO-82 обе границы окна решаются по времени ЗАПИСИ, а не по дате, и это
+     * несимметрично только на первый взгляд. Дрейф сравнивает посчитанный остаток с числом
+     * ВТОРОГО якоря, поэтому факт обязан быть уже вне числа {@code prev} и ещё внутри числа
+     * {@code cur}. Пропустить верхнюю границу — значит включить в расчёт трату, записанную
+     * после сверки, и показать расхождение там, где его нет (найдено ревью PR #41).
      *
      * <p><b>Цепочка группируется по счёту (Task 2.4).</b> Дрейф второго и последующих
      * чекпоинтов каждого счёта считается от ПРЕДЫДУЩЕГО чекпоинта ТОГО ЖЕ счёта, а не
@@ -88,9 +95,15 @@ public class BalanceCheckpointService {
                     continue;
                 }
                 BalanceCheckpoint prev = group.get(i + 1);
+                // Граница окна — одна на все три места, живёт в AnchorWindow (ANO-82).
+                // Дрейфу нужны ОБЕ границы по времени записи: он сравнивает посчитанный
+                // остаток с числом ВТОРОГО якоря, а не с сегодняшним днём. Трата, записанная
+                // после сверки, в это число не попала — и в computedBalance ей не место.
                 BigDecimal delta = facts.stream()
-                        .filter(e -> e.getDate().isAfter(prev.getDate())
-                                && !e.getDate().isAfter(cur.getDate()))
+                        .filter(e -> AnchorWindow.fallsBetweenAnchors(
+                                e.getDate(), e.getCreatedAt(),
+                                prev.getDate(), prev.getCreatedAt(),
+                                cur.getDate(), cur.getCreatedAt()))
                         .map(e -> signed(e.getType(), e.getFactAmount()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal computed = prev.getAmount().add(delta);

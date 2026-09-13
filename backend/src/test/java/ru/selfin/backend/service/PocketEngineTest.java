@@ -16,6 +16,7 @@ import ru.selfin.backend.model.enums.WishlistStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +37,17 @@ class PocketEngineTest {
     private static EventSnapshot fact(EventType type, LocalDate date, long amount) {
         return new EventSnapshot(UUID.randomUUID(), date, type, EventKind.FACT, EventStatus.EXECUTED,
                 Priority.MEDIUM, null, dec(amount), null, false, "fact");
+    }
+
+    /**
+     * Факт с явным временем ЗАПИСИ (ANO-82). Значимо только в день чекпоинта: там решает
+     * оно, а не дата. Перегрузка без него ставит {@code createdAt = null} — тогда день
+     * чекпоинта решается по-старому, и остальные тесты класса не затронуты.
+     */
+    private static EventSnapshot fact(EventType type, LocalDate date, long amount,
+                                      LocalDateTime createdAt) {
+        return new EventSnapshot(UUID.randomUUID(), date, type, EventKind.FACT, EventStatus.EXECUTED,
+                Priority.MEDIUM, null, dec(amount), null, false, "fact", null, createdAt);
     }
 
     private static EventSnapshot executedPlan(EventType type, LocalDate date, long planned) {
@@ -75,9 +87,11 @@ class PocketEngineTest {
         LocalDate asOf = TODAY;
         BigDecimal checkpoint = dec(10_000);
         LocalDate checkpointDate = TODAY;
+        LocalDateTime checkpointCreatedAt = null;
         List<EventSnapshot> events = List.of();
         List<EventSnapshot> wishlistEvents = List.of();
         List<EventSnapshot> overdue = List.of();
+        List<EventSnapshot> releasedOverdue = List.of();
         PocketScope scope = new PocketScope(PocketScope.Type.NEXT_INCOME, null, null);
         LocalDate horizonEnd = LocalDate.of(2026, 3, 15);
         FallbackKind fallback = FallbackKind.NONE;
@@ -93,6 +107,8 @@ class PocketEngineTest {
         PocketInputBuilder events(EventSnapshot... e) { this.events = List.of(e); return this; }
         PocketInputBuilder wishlist(EventSnapshot... e) { this.wishlistEvents = List.of(e); return this; }
         PocketInputBuilder overdue(EventSnapshot... e) { this.overdue = List.of(e); return this; }
+        /** Просрочка, удержанная якорем вне резерва (ANO-79) — только для объяснения. */
+        PocketInputBuilder releasedOverdue(EventSnapshot... e) { this.releasedOverdue = List.of(e); return this; }
         PocketInputBuilder buffer(long b) { this.buffer = dec(b); return this; }
         PocketInputBuilder forecast(long f, String... names) {
             this.forecast = dec(f); this.contributors = List.of(names); return this;
@@ -110,6 +126,8 @@ class PocketEngineTest {
         }
         PocketInputBuilder noCheckpoint() { this.checkpoint = BigDecimal.ZERO; this.checkpointDate = null; return this; }
         PocketInputBuilder checkpointDate(LocalDate d) { this.checkpointDate = d; return this; }
+        /** Время ВВОДА якоря (ANO-82): для дня якоря решает оно, а не дата. */
+        PocketInputBuilder checkpointCreatedAt(LocalDateTime t) { this.checkpointCreatedAt = t; return this; }
         PocketInputBuilder fallback() { this.fallback = FallbackKind.NO_INCOMES; return this; }
         PocketInputBuilder fallback(FallbackKind kind) { this.fallback = kind; return this; }
         PocketInputBuilder secondIncomeScope(LocalDate end) {
@@ -124,7 +142,8 @@ class PocketEngineTest {
         PocketInputBuilder semiLiquidBalance(long v) { this.semiLiquidBalance = dec(v); return this; }
 
         PocketInput build() {
-            return new PocketInput(asOf, checkpoint, checkpointDate, events, wishlistEvents, overdue,
+            return new PocketInput(asOf, checkpoint, checkpointDate, checkpointCreatedAt,
+                    events, wishlistEvents, overdue, releasedOverdue,
                     scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast,
                     otherAccountsBalance, creditRestoreReserve, semiLiquidBalance);
         }
@@ -172,13 +191,40 @@ class PocketEngineTest {
     }
 
     @Test
-    @DisplayName("Факт В ДЕНЬ чекпоинта не считается: сумма якоря уже содержит операции дня (ANO-15 §5)")
-    void factOnCheckpointDay_notDoubleCounted() {
-        // Чекпоинт = TODAY (дефолт билдера); факт тем же днём должен быть внутри якоря
+    @DisplayName("ANO-28: факт дня чекпоинта, записанный ДО сверки, не задваивается")
+    void factOnCheckpointDay_recordedBefore_notDoubleCounted() {
+        PocketInput in = base()
+                .checkpointCreatedAt(LocalDateTime.of(2026, 3, 1, 10, 0))
+                .events(fact(EventType.EXPENSE, TODAY, 4_000,
+                        LocalDateTime.of(2026, 3, 1, 9, 0)))
+                .build();
+        assertThat(PocketEngine.calculate(in).currentBalance())
+                .as("трата была на экране, когда вводили число из банка")
+                .isEqualByComparingTo(dec(10_000));
+    }
+
+    @Test
+    @DisplayName("ANO-82: факт дня чекпоинта, записанный ПОСЛЕ сверки, считается")
+    void factOnCheckpointDay_recordedAfter_counts() {
+        PocketInput in = base()
+                .checkpointCreatedAt(LocalDateTime.of(2026, 3, 1, 10, 0))
+                .events(fact(EventType.EXPENSE, TODAY, 4_000,
+                        LocalDateTime.of(2026, 3, 1, 18, 0)))
+                .build();
+        assertThat(PocketEngine.calculate(in).currentBalance())
+                .as("сверился утром, записал вечером — ввод не должен пропадать")
+                .isEqualByComparingTo(dec(6_000));
+    }
+
+    @Test
+    @DisplayName("Время записи неизвестно — день чекпоинта решается по-старому (33 теста класса на этом)")
+    void factOnCheckpointDay_unknownEntryTime_staysOut() {
         PocketInput in = base()
                 .events(fact(EventType.EXPENSE, TODAY, 4_000))
                 .build();
-        assertThat(PocketEngine.calculate(in).currentBalance()).isEqualByComparingTo(dec(10_000));
+        assertThat(PocketEngine.calculate(in).currentBalance())
+                .as("совместимая перегрузка ставит createdAt = null — прежнее поведение")
+                .isEqualByComparingTo(dec(10_000));
     }
 
     // ── просрочка ────────────────────────────────────────────────────────────
@@ -255,6 +301,71 @@ class PocketEngineTest {
         return r.breakdown().stream().filter(l -> l.type() == t).findFirst().orElseThrow();
     }
 
+    private static int indexOf(PocketResultDto r, BreakdownType t) {
+        for (int i = 0; i < r.breakdown().size(); i++) {
+            if (r.breakdown().get(i).type() == t) return i;
+        }
+        throw new AssertionError("нет строки " + t);
+    }
+
+    // ── ANO-79: что якорь снял с резерва ─────────────────────────────────────
+
+    @Test
+    @DisplayName("ANO-79: просрочка, снятая ре-якорем, объяснена строкой после кармашка")
+    void releasedOverdue_explainedAfterPocket() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .releasedOverdue(planNamed(EventType.EXPENSE, LocalDate.of(2026, 2, 22), 5_000, "Страховка"),
+                        plan(EventType.EXPENSE, LocalDate.of(2026, 2, 24), 16_000, Priority.HIGH))
+                .build());
+
+        assertThat(line(r, BreakdownType.OVERDUE_RELEASED).amount())
+                .as("ровно то, что перестало бронироваться")
+                .isEqualByComparingTo(dec(21_000));
+        assertThat(line(r, BreakdownType.OVERDUE_RELEASED).label())
+                .as("причина названа действием человека, а не его ошибкой — правила 8 и 12")
+                .isEqualTo("Больше не бронируется: остаток обновлён 01.03 (2 шт)");
+        assertThat(line(r, BreakdownType.OVERDUE_RELEASED).details())
+                .containsExactly("Страховка", "plan");
+        assertThat(indexOf(r, BreakdownType.OVERDUE_RELEASED))
+                .as("строка информационная — её место после кармашка, а не внутри арифметики")
+                .isGreaterThan(indexOf(r, BreakdownType.POCKET));
+    }
+
+    @Test
+    @DisplayName("ANO-79: снимать нечего — строки нет")
+    void releasedOverdue_empty_noLine() {
+        assertThat(PocketEngine.calculate(base().build()).breakdown())
+                .noneMatch(l -> l.type() == BreakdownType.OVERDUE_RELEASED);
+    }
+
+    @Test
+    @DisplayName("ANO-79: объяснение не входит в инвариант кармашка")
+    void releasedOverdue_staysOutOfInvariant() {
+        // Минимум обязан оказаться ПОСЛЕ всех трёх событий: строки разбивки считают суммы до
+        // минимума, и всё, что за ним, в них не попадает — тогда инвариант проверять не на чем.
+        // 10 000 − 4 000 + 1 000 − 3 000 = 4 000 в день 04.03, ниже стартовых 10 000.
+        PocketInputBuilder b = base()
+                .events(plan(EventType.EXPENSE, LocalDate.of(2026, 3, 2), 4_000, Priority.MEDIUM),
+                        plan(EventType.INCOME, LocalDate.of(2026, 3, 3), 1_000, Priority.MEDIUM),
+                        plan(EventType.EXPENSE, LocalDate.of(2026, 3, 4), 3_000, Priority.MEDIUM));
+        PocketResultDto without = PocketEngine.calculate(b.build());
+        PocketResultDto with = PocketEngine.calculate(b
+                .releasedOverdue(plan(EventType.EXPENSE, LocalDate.of(2026, 2, 20), 21_000, Priority.HIGH))
+                .build());
+
+        assertThat(with.pocket())
+                .as("объяснение не двигает ответ на вопрос «сколько можно тратить»")
+                .isEqualByComparingTo(without.pocket());
+        assertThat(with.minPoint().balance()).isEqualByComparingTo(without.minPoint().balance());
+
+        // STARTING − EXPENSES + INCOME = MIN, и новая строка в этой сумме не участвует
+        BigDecimal starting = line(with, BreakdownType.STARTING_BALANCE).amount();
+        BigDecimal expenses = line(with, BreakdownType.PLANNED_EXPENSES).amount();
+        BigDecimal income = line(with, BreakdownType.PLANNED_INCOME).amount();
+        assertThat(starting.add(expenses).add(income))
+                .isEqualByComparingTo(with.minPoint().balance());
+    }
+
     // ── буфер ────────────────────────────────────────────────────────────────
 
     @Test
@@ -283,6 +394,40 @@ class PocketEngineTest {
         assertThat(r.pocket()).isEqualByComparingTo(dec(10_000)); // ни одна не съела
         assertThat(r.wishlistCandidates()).hasSize(1);
         assertThat(r.wishlistCandidates().get(0).fixed()).isFalse();
+        assertThat(line(r, BreakdownType.WISHLIST_INFO).amount()).isEqualByComparingTo(dec(20_000));
+    }
+
+    @Test
+    @DisplayName("ANO-103: вернувшаяся в OPEN сконвертированная хотелка не становится кандидатом второй раз")
+    void wishlistFilter_openButConverted_isNotACandidate() {
+        // До V22 это состояние было недостижимо: его запрещало check-ограничение в базе,
+        // и фильтр кандидатов пропускал «OPEN любые». V22 ограничение снимает — возврат в
+        // обсуждение с сохранением артефакта обещан спекой, — и состояние становится
+        // достижимым. Хотелка, которую уже превратили в план, обязана считаться ОДИН раз:
+        // её план лежит в траектории, и показывать её ещё и в кандидатах значит рисовать
+        // две неотличимые копии одного решения (форма ANO-106) и завышать WISHLIST_INFO.
+        PocketInput in = base()
+                .wishlist(wishlist(WishlistStatus.OPEN, null, 20_000, true))
+                .horizon(LocalDate.of(2026, 3, 15))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.wishlistCandidates()).isEmpty();
+        assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.WISHLIST_INFO);
+    }
+
+    @Test
+    @DisplayName("ANO-103: OPEN-неконвертированная кандидатом остаётся — фильтр режет по converted, а не по OPEN")
+    void wishlistFilter_openNotConverted_staysACandidate() {
+        // Парный к предыдущему. Без него правка «не пускать converted» могла бы выродиться
+        // в «не пускать OPEN вовсе» и оба теста прошли бы поодиночке.
+        PocketInput in = base()
+                .wishlist(wishlist(WishlistStatus.OPEN, null, 20_000, false))
+                .horizon(LocalDate.of(2026, 3, 15))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.wishlistCandidates()).hasSize(1);
         assertThat(line(r, BreakdownType.WISHLIST_INFO).amount()).isEqualByComparingTo(dec(20_000));
     }
 
@@ -345,8 +490,10 @@ class PocketEngineTest {
     void unplannedForecast_emptyWindow() {
         LocalDate eom = LocalDate.of(2026, 3, 31);
         PocketInput in = base().forecast(5_000, "Продукты").build();
-        in = new PocketInput(eom, in.checkpointAmount(), eom, in.events(), in.wishlistEvents(),
-                in.overdueEvents(), in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
+        in = new PocketInput(eom, in.checkpointAmount(), eom, in.checkpointCreatedAt(),
+                in.events(), in.wishlistEvents(),
+                in.overdueEvents(), in.releasedOverdueEvents(),
+                in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
                 in.bufferAmount(), in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
                 in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());
         PocketResultDto r = PocketEngine.calculate(in);

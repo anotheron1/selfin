@@ -32,6 +32,7 @@ public class FinancialEventService {
     private final CategoryService categoryService;
     private final Clock clock;
     private final RecurringRuleService ruleService;
+    private final WishlistArtifactService wishlistArtifactService;
 
     @Autowired @Lazy
     private TargetFundService targetFundService;
@@ -286,7 +287,20 @@ public class FinancialEventService {
                 .type(plan.getType())
                 .factAmount(dto.factAmount())
                 .priority(dto.priority() != null ? dto.priority() : plan.getPriority())
-                .recurringRule(plan.getRecurringRule())   // inherit (null if parent is non-recurring)
+                // ANO-91: правило фактом НЕ наследуется. recurring_rule_id — поле ПЛАНА: им
+                // владеет генератор (RecurringEventGenerator:74-75 всегда ставит eventKind=PLAN),
+                // и уникальный индекс uq_events_rule_date_active (V16) исходит из того же —
+                // «один рецепт, одно событие на дату». Факт, унаследовав ссылку, садился на тот
+                // же ключ (rule_id, date), что его собственный родительский план, и вставка
+                // падала с 500: ни аренду, ни ипотеку, ни подписки нельзя было отметить
+                // оплаченными. На стенде это видно прямо: 331 PLAN несёт правило и НИ ОДИН из
+                // 560 фактов — за всё время ни один повторяющийся платёж не был отмечен.
+                //
+                // Связь с рецептом у факта остаётся, просто через родителя: parent_event_id →
+                // план → recurring_rule. Пять запросов репозитория по recurring_rule_id и так
+                // написаны в расчёте на планы (ни один не фильтрует по event_kind), поэтому
+                // без наследования они становятся корректными сами собой, а индекс V16 начинает
+                // означать ровно то, что заявлено.
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .rawInput(dto.rawInput())        // ANO-33: «450+1230+890», если сумму ввели выражением
@@ -373,12 +387,34 @@ public class FinancialEventService {
      */
     @Transactional
     public void setWishlistStatus(UUID id, WishlistStatus status) {
+        setWishlistStatus(id, status, false);
+    }
+
+    /**
+     * То же плюс явный выбор судьбы артефакта, созданного конверсией (ANO-103, спека §66:
+     * «артефакт остаётся (или удаляется по явному выбору)»).
+     *
+     * <p><b>Операция атомарна.</b> Если артефакт удалить нельзя, откатывается и смена статуса:
+     * иначе пришлось бы отдавать наружу «статус сменил, удалить не смог», а для этого у ручки
+     * нет тела ответа. Запертым человек при этом не остаётся — возврат БЕЗ флага работает всегда
+     * и ничем не ограничен, отказ касается только удаления.
+     *
+     * @param deleteArtifact удалить ли созданный артефакт
+     * @throws ResponseStatusException 409, если у артефакта есть факты (план) или деньги (копилка)
+     */
+    @Transactional
+    public void setWishlistStatus(UUID id, WishlistStatus status, boolean deleteArtifact) {
         FinancialEvent e = eventRepository.findById(id)
                 .filter(ev -> !ev.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
         if (e.getPriority() != Priority.LOW) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "wishlist_status applies to LOW-priority events only");
+        }
+        if (deleteArtifact) {
+            wishlistArtifactService.deleteArtifact(e.getConvertedToEventId(), e.getConvertedToFundId());
+            e.setConvertedToEventId(null);
+            e.setConvertedToFundId(null);
         }
         e.setWishlistStatus(status);   // idempotent: same value is a no-op write
         eventRepository.save(e);

@@ -195,6 +195,29 @@ public class PocketInputAssembler {
         //    и хотелки (отдельные выборки, спека §3.1, §3.4)
         List<EventSnapshot> overdue = eventRepository.findOverdueMandatoryExpenses(from, asOfDate)
                 .stream().map(EventSnapshot::from).toList();
+
+        // ANO-79: та же выборка при других границах даёт ДОПОЛНИТЕЛЬНОЕ множество — просрочку,
+        // которую последний ре-якорь удержал вне резерва. Движок её не вычитает, а объясняет:
+        // до этой правки строка OVERDUE_RESERVE после ре-якоря исчезала молча.
+        //
+        // Второго запроса не заводим. Копия предиката из девяти условий — ровно та болезнь,
+        // которую ANO-23 называет по имени; два множества, посчитанные одним предикатом, не
+        // могут разойтись по определению.
+        //
+        // Верхняя граница — день якоря включительно, но не позже сегодня: план сегодняшнего дня
+        // не просрочка, его считает шаг 2 движка (todayExpenses), и назвать его удержанным было
+        // бы враньём. Нижняя — ПРЕЖНИЙ якорь: человеку объясняем то изменение, которое он
+        // только что наблюдал, а не всё, что накопилось за историю (спека §«что считать
+        // удержанным»).
+        List<EventSnapshot> releasedOverdue = checkpoint.map(cp -> {
+            LocalDate previousAnchor = accountBalanceService
+                    .anchorAt(cp.getAccount(), cp.getDate().minusDays(1))
+                    .map(BalanceCheckpoint::getDate).orElse(EPOCH);
+            LocalDate through = cp.getDate().plusDays(1);
+            if (through.isAfter(asOfDate)) through = asOfDate;
+            return eventRepository.findOverdueMandatoryExpenses(previousAnchor, through)
+                    .stream().map(EventSnapshot::from).toList();
+        }).orElse(List.of());
         List<EventSnapshot> wishlist = eventRepository
                 .findByWishlistStatusInAndDeletedFalse(EnumSet.of(WishlistStatus.OPEN, WishlistStatus.FIXED))
                 .stream().map(EventSnapshot::from).toList();
@@ -228,7 +251,11 @@ public class PocketInputAssembler {
         PocketInput input = new PocketInput(asOfDate,
                 checkpoint.map(BalanceCheckpoint::getAmount).orElse(BigDecimal.ZERO),
                 checkpoint.map(BalanceCheckpoint::getDate).orElse(null),
-                events, wishlist, overdue, scope, horizonEnd, fallback, buffer, delta, contributors,
+                // Время ВВОДА якоря (ANO-82): без него движок не отличит факт дня якоря,
+                // существовавший в момент сверки, от записанного после неё.
+                checkpoint.map(BalanceCheckpoint::getCreatedAt).orElse(null),
+                events, wishlist, overdue, releasedOverdue,
+                scope, horizonEnd, fallback, buffer, delta, contributors,
                 futureForecast,
                 accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance());
         return new Assembled(input, baselineRefs, allIncomes);

@@ -19,6 +19,7 @@ import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundPurchaseType;
+import ru.selfin.backend.model.enums.FundMoneyDisposal;
 import ru.selfin.backend.model.enums.FundStatus;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import org.springframework.http.HttpStatus;
@@ -57,6 +58,7 @@ public class TargetFundService {
     private final CategoryRepository categoryRepository;
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
+    private final WishlistArtifactService wishlistArtifactService;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -173,8 +175,57 @@ public class TargetFundService {
      */
     @Transactional
     public void delete(UUID id) {
+        delete(id, null);
+    }
+
+    /**
+     * Удаляет копилку, явно решая судьбу лежащих на ней денег (ANO-86, спека §4.3).
+     *
+     * <p>Раньше это была одна строка {@code setDeleted(true)}, и она убивала половину
+     * взаимной компенсации: событие {@code FUND_TRANSFER} уже вычло деньги из остатка счёта,
+     * движения копилки оставались живыми, и сумма оказывалась одновременно недоступной и
+     * посчитанной в капитале. Блок 6.8 плана тестирования требовал «внятный вопрос, что
+     * сделать с деньгами» — вот он.
+     *
+     * <p>Копилка — условное место, где деньги лежат. Поэтому оба исхода законны: деньги могли
+     * быть потрачены на саму цель, а могло быть и вынужденное удаление, когда их надо вернуть.
+     * Выбрать за человека продукт не может.
+     *
+     * @param disposal что сделать с деньгами; обязателен только при ненулевом балансе
+     * @throws ResponseStatusException 409, если на копилке есть деньги, а выбор не сделан
+     */
+    @Transactional
+    public void delete(UUID id, FundMoneyDisposal disposal) {
         TargetFund fund = fundRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+
+        // У копилки СО СЧЁТОМ собственных денег нет: её баланс — это остаток счёта, и он
+        // остаётся на месте. Удаляется только цель поверх чужих денег, спрашивать не о чем
+        // (спека §4.6).
+        BigDecimal balance = fund.getAccountId() != null
+                ? BigDecimal.ZERO
+                : (fund.getCurrentBalance() != null ? fund.getCurrentBalance() : BigDecimal.ZERO);
+
+        if (balance.signum() != 0) {
+            if (disposal == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Fund holds " + balance + "; pass money=RETURN or money=SPENT");
+            }
+            if (disposal == FundMoneyDisposal.RETURN) {
+                // Обратный перевод на всю сумму: деньги возвращаются в свободные, кармашек и
+                // остаток растут. confirm=true — подтверждать тут нечего, это возврат своих же.
+                doTransfer(id, UUID.randomUUID(), balance.negate(), true);
+            } else {
+                // Деньги потрачены на цель. Журнал обязан назвать это тратой, а не
+                // перемещением в место, которого больше нет: строка «В копилку: Отпуск»
+                // ссылалась бы на несуществующую копилку (правило 13, спека §4.5).
+                // Меняется ТОЛЬКО описание — сумма, дата и тип остаются: это по-прежнему та
+                // же операция, просто названная правдиво. При RETURN не переименовываем:
+                // перевод состоялся и деньги вернулись, переписывать прошлое незачем.
+                eventRepository.findAllByTargetFundIdAndDeletedFalse(id)
+                        .forEach(e -> e.setDescription(fund.getName()));
+            }
+        }
         fund.setDeleted(true);
         fundRepository.save(fund);
     }
@@ -189,9 +240,28 @@ public class TargetFundService {
      */
     @Transactional
     public void setWishlistStatus(UUID id, WishlistStatus status) {
+        setWishlistStatus(id, status, false);
+    }
+
+    /**
+     * То же плюс явный выбор судьбы артефакта (ANO-103, спека §66). Зеркало
+     * {@code FinancialEventService.setWishlistStatus}: хотелкой может быть и событие, и копилка,
+     * и обе ветки обязаны вести себя одинаково. Само правило удаления живёт в одном месте —
+     * {@link WishlistArtifactService}, здесь только ссылка и очистка.
+     *
+     * @param deleteArtifact удалить ли созданный конверсией артефакт
+     * @throws ResponseStatusException 409, если за артефактом стоят деньги
+     */
+    @Transactional
+    public void setWishlistStatus(UUID id, WishlistStatus status, boolean deleteArtifact) {
         TargetFund f = fundRepository.findById(id)
                 .filter(x -> !x.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        if (deleteArtifact) {
+            wishlistArtifactService.deleteArtifact(f.getConvertedToEventId(), f.getConvertedToFundId());
+            f.setConvertedToEventId(null);
+            f.setConvertedToFundId(null);
+        }
         f.setWishlistStatus(status);
         fundRepository.save(f);
     }
@@ -211,9 +281,21 @@ public class TargetFundService {
     @Transactional
     public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount) {
         // Идемпотентность: повторный запрос с тем же ключом возвращает закэшированный результат
+        return transferToPocket(fundId, idempotencyKey, amount, false);
+    }
+
+    /**
+     * То же с явным подтверждением перевода сверх остатка счёта (ANO-87, спека §4.2).
+     *
+     * @param confirm человек увидел предупреждение и настаивает
+     */
+    @Transactional
+    public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount,
+                                          boolean confirm) {
+        // Идемпотентность: повторный запрос с тем же ключом возвращает закэшированный результат
         return transactionRepository.findByIdempotencyKey(idempotencyKey)
                 .map(tx -> toDto(tx.getFund()))
-                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount));
+                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount, confirm));
     }
 
     /**
@@ -227,18 +309,55 @@ public class TargetFundService {
      * @return обновлённый фонд
      * @throws ResourceNotFoundException если фонд не найден или удалён
      */
-    private TargetFundDto doTransfer(UUID fundId, UUID idempotencyKey, BigDecimal amount) {
+    private TargetFundDto doTransfer(UUID fundId, UUID idempotencyKey, BigDecimal amount,
+                                     boolean confirm) {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
         rejectTransferToAccountBackedFund(fund);
 
+        if (amount.signum() == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Transfer amount must not be zero");
+        }
+        // ANO-87 (спека §4.1). Снять можно только то, что накоплено. Это не запрет, а
+        // арифметика: в копилке столько физически нет. В отличие от перевода СВЕРХ остатка
+        // счёта, здесь подтверждать нечего — отказ безусловный.
+        if (amount.signum() < 0 && amount.negate().compareTo(fund.getCurrentBalance()) > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Fund holds only " + fund.getCurrentBalance());
+        }
+        // ANO-87 (спека §4.2). Переложить больше, чем показывает остаток, можно — но только
+        // осознанно. Остаток в продукте не банковская истина, а якорь плюс введённое: он
+        // отстаёт от реальности, и жёсткий отказ наказывал бы за неточный ввод, что запрещает
+        // правило 5. Человек, у которого деньги реально есть, обязан суметь их отложить.
+        //
+        // NB ANO-39: LocalDate.now() здесь — прямой вызов, 36-е место. Clock в этот сервис не
+        // инжектится, а половинчатая миграция одного сервиса хуже честных 36 мест. При
+        // инъекции Clock не пропустить: это денежный путь, тот же, где живёт ANO-125.
+        if (amount.signum() > 0 && !confirm) {
+            LocalDate today = LocalDate.now();
+            // Ровно то число, которое продукт САМ называет свободными деньгами: так же
+            // считает CapitalService.cashLiquidAt. Один freeMoneyAt занижает у пользователя
+            // без чекпоинта — для него существует запасной путь noAnchorFallbackAt (ANO-28),
+            // и предупреждать по числу, которое продукт свободными деньгами не считает, нельзя.
+            BigDecimal free = accountBalanceService.freeMoneyAt(today)
+                    .add(accountBalanceService.noAnchorFallbackAt(today));
+            if (amount.compareTo(free) > 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Account holds " + free + ", transferring " + amount
+                                + "; resend with confirm=true to proceed");
+            }
+        }
+
         BigDecimal oldBalance = fund.getCurrentBalance();
         BigDecimal newBalance = oldBalance.add(amount);
         fund.setCurrentBalance(newBalance);
-        if (fund.getTargetAmount() != null && newBalance.compareTo(fund.getTargetAmount()) >= 0) {
-            fund.setStatus(FundStatus.REACHED);
-        }
+        // Статус пересчитывается в ОБЕ стороны: после снятия копилка может перестать быть
+        // достигнутой, и оставлять её REACHED значило бы врать на экране (ANO-87).
+        fund.setStatus(fund.getTargetAmount() != null
+                && newBalance.compareTo(fund.getTargetAmount()) >= 0
+                ? FundStatus.REACHED : FundStatus.FUNDING);
         fundRepository.save(fund);
 
         // Сохраняем транзакцию для истории и расчёта прогноза

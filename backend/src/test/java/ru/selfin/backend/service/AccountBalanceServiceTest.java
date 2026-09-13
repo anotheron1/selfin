@@ -19,6 +19,7 @@ import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -58,12 +59,28 @@ class AccountBalanceServiceTest {
                 .build();
     }
 
+    /** Якорь с явным временем ВВОДА — для дня якоря решает оно, а не дата (ANO-82). */
+    private static BalanceCheckpoint anchor(Account account, LocalDate date, long amount,
+                                            LocalDateTime createdAt) {
+        BalanceCheckpoint cp = anchor(account, date, amount);
+        cp.setCreatedAt(createdAt);
+        return cp;
+    }
+
     private static FinancialEvent fact(LocalDate date, EventType type, long amount) {
         return FinancialEvent.builder()
                 .id(UUID.randomUUID()).date(date).type(type)
                 .eventKind(EventKind.FACT).factAmount(BigDecimal.valueOf(amount))
                 .status(EventStatus.EXECUTED).priority(Priority.MEDIUM).deleted(false)
                 .build();
+    }
+
+    /** Факт с явным временем ЗАПИСИ — см. {@link AnchorWindow}. */
+    private static FinancialEvent fact(LocalDate date, EventType type, long amount,
+                                       LocalDateTime createdAt) {
+        FinancialEvent e = fact(date, type, amount);
+        e.setCreatedAt(createdAt);
+        return e;
     }
 
     private static FinancialEvent wishlistFact(LocalDate date, long amount) {
@@ -105,6 +122,46 @@ class AccountBalanceServiceTest {
         assertThat(balance).isEqualByComparingTo(BigDecimal.valueOf(55_000));
     }
 
+    @Test
+    @DisplayName("ANO-82: факт дня якоря, записанный после сверки, входит в остаток")
+    void factOnAnchorDay_recordedAfter_entersBalance() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        LocalDate day = LocalDate.of(2026, 9, 5);
+        BalanceCheckpoint cp = anchor(defaultAccount, day, 50_000,
+                LocalDateTime.of(2026, 9, 5, 10, 0));
+        FinancialEvent late = fact(day, EventType.EXPENSE, 3_000,
+                LocalDateTime.of(2026, 9, 5, 18, 0));
+
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), day))
+                .thenReturn(Optional.of(cp));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(day, day))
+                .thenReturn(List.of(late));
+
+        assertThat(service.balanceAt(defaultAccount, day))
+                .as("трата записана после сверки — в банковское число попасть не могла")
+                .isEqualByComparingTo(BigDecimal.valueOf(47_000));
+    }
+
+    @Test
+    @DisplayName("ANO-28: факт дня якоря, записанный до сверки, в остаток НЕ входит")
+    void factOnAnchorDay_recordedBefore_staysOut() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        LocalDate day = LocalDate.of(2026, 9, 5);
+        BalanceCheckpoint cp = anchor(defaultAccount, day, 50_000,
+                LocalDateTime.of(2026, 9, 5, 10, 0));
+        FinancialEvent early = fact(day, EventType.EXPENSE, 3_000,
+                LocalDateTime.of(2026, 9, 5, 9, 0));
+
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), day))
+                .thenReturn(Optional.of(cp));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(day, day))
+                .thenReturn(List.of(early));
+
+        assertThat(service.balanceAt(defaultAccount, day))
+                .as("защита от задвоения обязана уцелеть")
+                .isEqualByComparingTo(BigDecimal.valueOf(50_000));
+    }
+
     // ── 2. balanceAt не дефолтного счёта ────────────────────────────────────
 
     @Test
@@ -142,21 +199,28 @@ class AccountBalanceServiceTest {
     // ── правило отбора фактов (отдельно) ────────────────────────────────────
 
     @Test
-    @DisplayName("Отбор фактов: якорный день исключён, хотелка исключена, событие без факта исключено")
+    @DisplayName("Отбор фактов: якорный день до сверки исключён, хотелка исключена, событие без факта исключено")
     void balanceAt_defaultAccount_factSelectionRuleMatchesPocketEngine() {
         Account defaultAccount = AccountFixtures.defaultAccount();
         LocalDate anchorDate = LocalDate.of(2026, 3, 8);
         LocalDate t = LocalDate.of(2026, 3, 15);
-        BalanceCheckpoint cp = anchor(defaultAccount, anchorDate, 10_000);
+        BalanceCheckpoint cp = anchor(defaultAccount, anchorDate, 10_000,
+                LocalDateTime.of(2026, 3, 8, 10, 0));
 
         when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), t))
                 .thenReturn(Optional.of(cp));
         // Все события ниже возвращает МОК findAllByDeletedFalseAndDateBetween(...) — этот метод
         // уже исключает deleted=true по имени запроса (см. FinancialEventRepository), поэтому
         // удалённые здесь отдельно не моделируем: их и не может там оказаться.
+        //
+        // ANO-82 сменила контракт первой строки: день якоря исключается не «потому что день
+        // якоря», а потому что трата записана ДО сверки — она уже сидела в числе из банка.
+        // Время записи проставлено явно; полагаться на now() здесь нельзя, иначе тест
+        // проверял бы порядок конструирования объектов, а не правило.
         when(eventRepository.findAllByDeletedFalseAndDateBetween(anchorDate, t))
                 .thenReturn(List.of(
-                        fact(anchorDate, EventType.EXPENSE, 999_999),      // день якоря — исключается
+                        fact(anchorDate, EventType.EXPENSE, 999_999,
+                                LocalDateTime.of(2026, 3, 8, 9, 0)),       // день якоря, до сверки — исключается
                         wishlistFact(LocalDate.of(2026, 3, 9), 777_777),   // хотелка — исключается
                         planWithoutFact(LocalDate.of(2026, 3, 10), 555_555), // без факта — исключается
                         fact(LocalDate.of(2026, 3, 11), EventType.EXPENSE, 1_000) // единственный, что считается
