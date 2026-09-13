@@ -199,6 +199,30 @@ public class AccountBalanceService {
      * @return ноль, если у дефолтного счёта ЕСТЬ чекпоинт на дату {@code t} (тогда всё уже верно
      *         посчитано через {@link #freeMoneyAt}) или дефолтного счёта нет вовсе.
      */
+    /**
+     * Есть ли у продукта ОСНОВАНИЯ судить о свободных деньгах на дату {@code t} (ANO-157).
+     *
+     * <p>{@link #freeMoneyAt} и {@link #noAnchorFallbackAt} возвращают ноль в двух разных
+     * случаях, и склеивать их нельзя. Якорь, говорящий «на счёте ноль», — это ЗНАНИЕ, и
+     * предупреждать по нему верно: человек сам ввёл это число. Отсутствие якоря и фактов —
+     * НЕЗНАНИЕ, и мнения из него не бывает (правило продукта 5: ни один экран не сообщает
+     * пользователю, что он завёл неправильно).
+     *
+     * <p>Поэтому различение структурное, а не числовое: проверка {@code free == 0} склеила бы
+     * оба случая обратно.
+     *
+     * <p>Живёт здесь, а не у вызывающего: класс объявлен единственным местом правила «остаток
+     * счёта на дату», и «знаем ли мы остаток» — часть того же правила. Второе место, знающее,
+     * из чего складывается остаток, разъехалось бы с этим при первой правке.
+     */
+    public boolean knowsFreeMoneyAt(LocalDate t) {
+        boolean anyAnchor = active().stream()
+                .filter(Account::countsAsFreeMoney)
+                .anyMatch(a -> anchorAt(a, t).isPresent());
+        return anyAnchor || eventRepository
+                .existsByDeletedFalseAndFactAmountNotNullAndWishlistStatusIsNullAndDateLessThanEqual(t);
+    }
+
     public BigDecimal noAnchorFallbackAt(LocalDate t) {
         Optional<Account> defaultAcc = defaultAccount();
         if (defaultAcc.isEmpty() || anchorAt(defaultAcc.get(), t).isPresent()) return BigDecimal.ZERO;

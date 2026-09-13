@@ -492,4 +492,67 @@ class AccountBalanceServiceTest {
 
         assertThat(snapshot.otherAccountsBalance()).isEqualByComparingTo(BigDecimal.valueOf(50_000));
     }
+
+    // ── 6. основания для мнения об остатке (ANO-157) ────────────────────────
+
+    @Test
+    @DisplayName("ANO-157: ни якоря, ни фактов — оснований нет")
+    void knowsFreeMoneyAt_nothingEntered_isFalse() {
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of());
+        when(eventRepository
+                .existsByDeletedFalseAndFactAmountNotNullAndWishlistStatusIsNullAndDateLessThanEqual(any()))
+                .thenReturn(false);
+
+        assertThat(service.knowsFreeMoneyAt(LocalDate.of(2026, 3, 10)))
+                .as("ноль здесь значит «мы не знаем», а не «у вас ничего нет»")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("ANO-157: якорь на НОЛЬ — это знание, основание есть")
+    void knowsFreeMoneyAt_zeroAnchor_isTrue() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        LocalDate t = LocalDate.of(2026, 3, 10);
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(defaultAccount));
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), t))
+                .thenReturn(Optional.of(anchor(defaultAccount, t, 0)));
+
+        assertThat(service.knowsFreeMoneyAt(t))
+                .as("человек сам сказал, что на счёте ноль — это основание, а не пустота")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("ANO-157: якоря нет, но факты есть — основание есть (фолбэк ANO-28)")
+    void knowsFreeMoneyAt_factsWithoutAnchor_isTrue() {
+        LocalDate t = LocalDate.of(2026, 3, 10);
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of());
+        when(eventRepository
+                .existsByDeletedFalseAndFactAmountNotNullAndWishlistStatusIsNullAndDateLessThanEqual(t))
+                .thenReturn(true);
+
+        assertThat(service.knowsFreeMoneyAt(t))
+                .as("noAnchorFallbackAt существует ровно для этого случая")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("ANO-157: счёт без свободных денег основанием не считается")
+    void knowsFreeMoneyAt_nonFreeMoneyAccount_isFalse() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        LocalDate t = LocalDate.of(2026, 3, 10);
+        when(accountRepository.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(deposit));
+        when(eventRepository
+                .existsByDeletedFalseAndFactAmountNotNullAndWishlistStatusIsNullAndDateLessThanEqual(t))
+                .thenReturn(false);
+
+        assertThat(service.knowsFreeMoneyAt(t))
+                .as("вклад не даёт свободных денег — по нему о них судить нельзя")
+                .isFalse();
+        verifyNoInteractions(checkpointRepository);
+    }
 }

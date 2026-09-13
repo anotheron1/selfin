@@ -211,6 +211,18 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
                                                       @Param("today") LocalDate today);
 
     /**
+     * Есть ли хотя бы один факт с датой не позже {@code date} (ANO-157).
+     *
+     * <p>Предикат зеркалит отбор {@code AccountBalanceService.factsDelta}: факт — это
+     * не удалённое событие с заполненным {@code factAmount} и без {@code wishlistStatus}.
+     * Основанием судить о деньгах может быть только то, что деньгами и считается.
+     *
+     * <p>Существование, а не сумма: факты на +100 и −100 дают ноль, но основание дают.
+     */
+    boolean existsByDeletedFalseAndFactAmountNotNullAndWishlistStatusIsNullAndDateLessThanEqual(
+            LocalDate date);
+
+    /**
      * Ближайшие РАЗЛИЧНЫЕ даты будущих планов-доходов, по возрастанию
      * (горизонты NEXT_INCOME / SECOND_INCOME, спека §4 + ANO-14 §4). Лимит — через Pageable.
      * Хотелки исключены явно (income-хотелок не бывает, но фильтр дешёвый и страхует).
