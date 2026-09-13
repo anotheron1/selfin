@@ -134,6 +134,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                                         && line.type !== 'TRAJECTORY_MIN'
                                                         && line.type !== 'POCKET'
                                                         && line.type !== 'CREDIT_RESTORE'
+                                                        && line.type !== 'OVERDUE_RELEASED'
                                                         && line.type !== 'WISHLIST_INFO' ? '+' : ''}
                                                     {fmtC(line.amount)}
                                                 </span>

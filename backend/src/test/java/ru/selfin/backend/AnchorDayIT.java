@@ -27,8 +27,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * ANO-82 и ANO-125: день якоря. Что считается остатком, когда сверка и ввод пришлись на
- * один день.
+ * ANO-82, ANO-125 и ANO-79: день якоря. Что считается остатком, когда сверка и ввод пришлись
+ * на один день, и что ре-якорь снимает с брони.
  *
  * <p>Проверяется ЗАКОН СОХРАНЕНИЯ и граница правила, а не отдельные методы. Утверждение о
  * системе ловит дефект независимо от того, в скольких местах записано правило — до этой
@@ -114,6 +114,35 @@ class AnchorDayIT {
                 .isEqualByComparingTo("60000");
     }
 
+    // ── ANO-79: ре-якорь объясняет снятую бронь ──────────────────────────────
+
+    @Test
+    @DisplayName("ANO-79: ре-якорь не снимает бронь молча — объяснение с суммой остаётся на экране")
+    void reanchor_explainsReleasedOverdue() throws Exception {
+        anchorDefaultAccountOn(LocalDate.now().minusDays(10), "60000");
+        createOverdueMandatoryPlan(LocalDate.now().minusDays(5), new BigDecimal("21000"));
+
+        assertThat(breakdownAmount("OVERDUE_RESERVE"))
+                .as("до ре-якоря обязательство забронировано")
+                .isEqualByComparingTo("-21000");
+        assertThat(breakdownAmount("OVERDUE_RELEASED"))
+                .as("снимать ещё нечего")
+                .isNull();
+        BigDecimal pocketBefore = pocket();
+
+        anchorDefaultAccountToday("60000");
+
+        assertThat(breakdownAmount("OVERDUE_RESERVE"))
+                .as("якорь съел обязательство — бронь снята, это и есть поведение ANO-28")
+                .isNull();
+        assertThat(breakdownAmount("OVERDUE_RELEASED"))
+                .as("но теперь оно названо: столько перестало бронироваться и почему")
+                .isEqualByComparingTo("21000");
+        assertThat(pocket().subtract(pocketBefore))
+                .as("кармашек вырос ровно на снятую бронь — то самое необъяснённое изменение")
+                .isEqualByComparingTo("21000");
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
 
     /**
@@ -126,10 +155,47 @@ class AnchorDayIT {
      * собственную оснастку.
      */
     private void anchorDefaultAccountToday(String amount) throws Exception {
+        anchorDefaultAccountOn(LocalDate.now(), amount);
+    }
+
+    private void anchorDefaultAccountOn(LocalDate date, String amount) throws Exception {
         mockMvc.perform(post("/api/v1/balance-checkpoints")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"date\": \"" + LocalDate.now() + "\", \"amount\": " + amount + "}"))
+                        .content("{\"date\": \"" + date + "\", \"amount\": " + amount + "}"))
                 .andExpect(status().isCreated());
+    }
+
+    /** Просроченное обязательство: PLAN / PLANNED / HIGH / EXPENSE в прошлом, без FACT-ребёнка. */
+    private void createOverdueMandatoryPlan(LocalDate date, BigDecimal amount) throws Exception {
+        String categoryId = jdbc.queryForObject(
+                "SELECT id::text FROM categories WHERE type = 'EXPENSE' AND is_deleted = false LIMIT 1",
+                String.class);
+        mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date": "%s", "categoryId": "%s", "type": "EXPENSE",
+                                 "plannedAmount": %s, "priority": "HIGH", "description": "Страховка"}
+                                """.formatted(date, categoryId, amount.toPlainString())))
+                .andExpect(status().isOk());
+    }
+
+    /** Сумма строки разбивки по типу; {@code null} — строки нет. */
+    private BigDecimal breakdownAmount(String type) throws Exception {
+        for (var line : objectMapper.readTree(pocketBody()).get("breakdown")) {
+            if (type.equals(line.get("type").asText())) return new BigDecimal(line.get("amount").asText());
+        }
+        return null;
+    }
+
+    private BigDecimal pocket() throws Exception {
+        return new BigDecimal(objectMapper.readTree(pocketBody()).get("pocket").asText());
+    }
+
+    private String pocketBody() throws Exception {
+        return mockMvc.perform(get("/api/v1/pocket"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
     }
 
     /** Копилка без счёта — у неё собственный баланс, и именно он задваивал капитал в ANO-125. */

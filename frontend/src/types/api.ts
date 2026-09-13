@@ -157,7 +157,8 @@ export type BreakdownType =
     | 'PLANNED_INCOME'
     | 'UNPLANNED_FORECAST' | 'TRAJECTORY_MIN' | 'BUFFER' | 'POCKET'
     // После POCKET — информационные строки: в инвариант кармашка не входят.
-    | 'CREDIT_RESTORE' | 'WISHLIST_INFO';
+    // OVERDUE_RELEASED — сколько перестало бронироваться из-за ре-якоря (ANO-79).
+    | 'OVERDUE_RELEASED' | 'CREDIT_RESTORE' | 'WISHLIST_INFO';
 
 export interface PocketResponse {
     pocket: number;
