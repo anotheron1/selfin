@@ -66,7 +66,7 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify -Dit.test=EmptyStateT
 - Consumes: ничего
 - Produces: `AccountBalanceService.knowsFreeMoneyAt(LocalDate t)` → `boolean`
 
-- [ ] **Шаг 1: Написать падающие тесты**
+- [x] **Шаг 1: Написать падающие тесты**
 
 Дописать в `AccountBalanceServiceTest` новой секцией:
 
@@ -135,11 +135,11 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify -Dit.test=EmptyStateT
     }
 ```
 
-- [ ] **Шаг 2: Прогнать и убедиться, что не компилируется**
+- [x] **Шаг 2: Прогнать и убедиться, что не компилируется**
 
 Ожидается: нет метода `knowsFreeMoneyAt` и нет метода репозитория.
 
-- [ ] **Шаг 3: Добавить запрос в репозиторий**
+- [x] **Шаг 3: Добавить запрос в репозиторий**
 
 Рядом с существующими запросами Pocket в `FinancialEventRepository`:
 
@@ -157,7 +157,7 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify -Dit.test=EmptyStateT
             LocalDate date);
 ```
 
-- [ ] **Шаг 4: Написать правило**
+- [x] **Шаг 4: Написать правило**
 
 В `AccountBalanceService`, рядом с `noAnchorFallbackAt`:
 
@@ -187,9 +187,9 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify -Dit.test=EmptyStateT
     }
 ```
 
-- [ ] **Шаг 5: Прогнать — четыре теста проходят**
+- [x] **Шаг 5: Прогнать — четыре теста проходят**
 
-- [ ] **Шаг 6: Проверить мутациями**
+- [x] **Шаг 6: Проверить мутациями**
 
 | мутация | обязан упасть |
 |---|---|
@@ -199,7 +199,7 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify -Dit.test=EmptyStateT
 
 Каждую применить, прогнать, вернуть.
 
-- [ ] **Шаг 7: Коммит**
+- [x] **Шаг 7: Коммит**
 
 ```bash
 git add backend/src/main/java/ru/selfin/backend/repository/FinancialEventRepository.java \
@@ -223,7 +223,7 @@ git commit -m "feat(ano-157): продукт различает ноль-зна�
 - Consumes: ничего
 - Produces: `ConfirmationRequiredException(String message)`; константа `ConfirmationRequiredException.CODE` = `"CONFIRM_REQUIRED"`; ответ 409 с `details = ["CONFIRM_REQUIRED"]`
 
-- [ ] **Шаг 1: Написать падающий тест**
+- [x] **Шаг 1: Написать падающий тест**
 
 Дописать в `GlobalExceptionHandlerIntegrityTest`:
 
@@ -247,9 +247,9 @@ git commit -m "feat(ano-157): продукт различает ноль-зна�
     }
 ```
 
-- [ ] **Шаг 2: Прогнать и убедиться, что не компилируется**
+- [x] **Шаг 2: Прогнать и убедиться, что не компилируется**
 
-- [ ] **Шаг 3: Завести исключение**
+- [x] **Шаг 3: Завести исключение**
 
 ```java
 package ru.selfin.backend.exception;
@@ -275,7 +275,7 @@ public class ConfirmationRequiredException extends RuntimeException {
 }
 ```
 
-- [ ] **Шаг 4: Добавить обработчик**
+- [x] **Шаг 4: Добавить обработчик**
 
 В `GlobalExceptionHandler`, ВЫШЕ обработчика `ResponseStatusException` (более специфичный матч):
 
@@ -296,13 +296,13 @@ public class ConfirmationRequiredException extends RuntimeException {
     }
 ```
 
-- [ ] **Шаг 5: Прогнать — тест проходит**
+- [x] **Шаг 5: Прогнать — тест проходит**
 
-- [ ] **Шаг 6: Проверить мутацией**
+- [x] **Шаг 6: Проверить мутацией**
 
 Вернуть `List.of()` вместо кода → тест краснеет. Вернуть обратно.
 
-- [ ] **Шаг 7: Коммит**
+- [x] **Шаг 7: Коммит**
 
 ---
 
@@ -316,7 +316,7 @@ public class ConfirmationRequiredException extends RuntimeException {
 - Consumes: `AccountBalanceService.knowsFreeMoneyAt`, `ConfirmationRequiredException`
 - Produces: изменённая семантика `POST /funds/{id}/transfer`
 
-- [ ] **Шаг 1: Снять костыль в существующем тесте**
+- [x] **Шаг 1: Снять костыль в существующем тесте**
 
 `TargetFundAccountTest:156` передаёт `confirm=true` и признаёт это комментарием. Заменить вызов и комментарий:
 
@@ -328,7 +328,7 @@ public class ConfirmationRequiredException extends RuntimeException {
         service.transferToPocket(f.getId(), key, new BigDecimal("5000"));
 ```
 
-- [ ] **Шаг 2: Написать второй тест — что предупреждение НЕ исчезло при основаниях**
+- [x] **Шаг 2: Написать второй тест — что предупреждение НЕ исчезло при основаниях**
 
 Дописать в `TargetFundAccountTest`:
 
@@ -359,11 +359,11 @@ public class ConfirmationRequiredException extends RuntimeException {
     }
 ```
 
-- [ ] **Шаг 3: Прогнать и убедиться, что оба падают**
+- [x] **Шаг 3: Прогнать и убедиться, что оба падают**
 
 Ожидается: первый — 409 из пустоты, второй — `ResponseStatusException` вместо `ConfirmationRequiredException`.
 
-- [ ] **Шаг 4: Перевести проверку достаточности**
+- [x] **Шаг 4: Перевести проверку достаточности**
 
 В `doTransfer` заменить блок §4.2 целиком:
 
@@ -399,13 +399,13 @@ public class ConfirmationRequiredException extends RuntimeException {
 
 Импорт `ru.selfin.backend.exception.ConfirmationRequiredException` добавить к остальным.
 
-- [ ] **Шаг 5: Прогнать весь `TargetFundAccountTest` — зелено**
+- [x] **Шаг 5: Прогнать весь `TargetFundAccountTest` — зелено**
 
-- [ ] **Шаг 6: Проверить мутацией**
+- [x] **Шаг 6: Проверить мутацией**
 
 Убрать условие `knowsFreeMoneyAt(today)` → тест без костыля краснеет. Вернуть.
 
-- [ ] **Шаг 7: Полный юнит-прогон бэкенда, затем коммит**
+- [x] **Шаг 7: Полный юнит-прогон бэкенда, затем коммит**
 
 ---
 
@@ -420,7 +420,7 @@ public class ConfirmationRequiredException extends RuntimeException {
 - Consumes: код `"CONFIRM_REQUIRED"` из ответа бэкенда
 - Produces: класс `ApiError { status: number; details: string[] }`; функция `needsConfirmation(err: unknown): boolean`
 
-- [ ] **Шаг 1: Написать падающие тесты**
+- [x] **Шаг 1: Написать падающие тесты**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -448,9 +448,9 @@ describe('needsConfirmation', () => {
 });
 ```
 
-- [ ] **Шаг 2: Прогнать `npm test` — падает, модуля нет**
+- [x] **Шаг 2: Прогнать `npm test` — падает, модуля нет**
 
-- [ ] **Шаг 3: Написать чистую функцию**
+- [x] **Шаг 3: Написать чистую функцию**
 
 ```ts
 // frontend/src/lib/transferConfirm.ts
@@ -475,9 +475,9 @@ export function needsConfirmation(err: unknown): boolean {
 }
 ```
 
-- [ ] **Шаг 4: Прогнать — четыре теста проходят**
+- [x] **Шаг 4: Прогнать — четыре теста проходят**
 
-- [ ] **Шаг 5: Научить клиент бросать типизированную ошибку**
+- [x] **Шаг 5: Научить клиент бросать типизированную ошибку**
 
 В `client.ts` над `request`:
 
@@ -518,13 +518,13 @@ export class ApiError extends Error {
     }
 ```
 
-- [ ] **Шаг 6: Прогнать `npm test` и `npx tsc --noEmit`**
+- [x] **Шаг 6: Прогнать `npm test` и `npx tsc --noEmit`**
 
-- [ ] **Шаг 7: Проверить мутацией**
+- [x] **Шаг 7: Проверить мутацией**
 
 В `needsConfirmation` убрать проверку `e?.status === 409` → тест «другой статус с тем же кодом» краснеет. Вернуть.
 
-- [ ] **Шаг 8: Коммит**
+- [x] **Шаг 8: Коммит**
 
 ---
 
@@ -538,7 +538,7 @@ export class ApiError extends Error {
 - Consumes: `needsConfirmation`, `transferToFund(fundId, amount, confirm?)`
 - Produces: интерфейс, в котором решает бэкенд
 
-- [ ] **Шаг 1: Дать API третий параметр**
+- [x] **Шаг 1: Дать API третий параметр**
 
 ```ts
 /**
@@ -552,7 +552,7 @@ export const transferToFund = (fundId: string, amount: number, confirm?: boolean
         { 'Idempotency-Key': generateUUID() });
 ```
 
-- [ ] **Шаг 2: Убрать стену в карточке**
+- [x] **Шаг 2: Убрать стену в карточке**
 
 `Funds.tsx`, условие рендера кнопки «пополнить»: убрать `&& pocketBalance > 0`, условие `!fund.accountId` оставить. Комментарий над ним заменить:
 
@@ -564,7 +564,7 @@ export const transferToFund = (fundId: string, amount: number, confirm?: boolean
                     {!reached && !fund.accountId && (
 ```
 
-- [ ] **Шаг 3: Убрать стену в форме и показать диалог**
+- [x] **Шаг 3: Убрать стену в форме и показать диалог**
 
 Заменить `handleSubmit` целиком:
 
@@ -594,9 +594,9 @@ export const transferToFund = (fundId: string, amount: number, confirm?: boolean
 
 Импорт: `import { needsConfirmation } from '../lib/transferConfirm';`
 
-- [ ] **Шаг 4: Прогнать `npm test` и `npx tsc --noEmit`**
+- [x] **Шаг 4: Прогнать `npm test` и `npx tsc --noEmit`**
 
-- [ ] **Шаг 5: Коммит**
+- [x] **Шаг 5: Коммит**
 
 ---
 
@@ -605,7 +605,7 @@ export const transferToFund = (fundId: string, amount: number, confirm?: boolean
 **Files:**
 - Create: `backend/src/test/java/ru/selfin/backend/EmptyStateTransferIT.java`
 
-- [ ] **Шаг 1: Написать тесты**
+- [x] **Шаг 1: Написать тесты**
 
 Оснастку перенести из `FundMoneyFlowIT` без изменений — четыре метода и уборку:
 
@@ -656,21 +656,21 @@ export const transferToFund = (fundId: string, amount: number, confirm?: boolean
 
 Якорь ставить ВЧЕРАШНИМ днём (`CURRENT_DATE - 1`), как в `FundMoneyFlowIT`: при якоре «сегодня» переводы ведут себя иначе, и тест мерил бы соседнее правило.
 
-- [ ] **Шаг 2: Прогнать IT отдельно — три теста проходят**
+- [x] **Шаг 2: Прогнать IT отдельно — три теста проходят**
 
-- [ ] **Шаг 3: Проверить зубы мутацией**
+- [x] **Шаг 3: Проверить зубы мутацией**
 
 Убрать условие `knowsFreeMoneyAt(today)` в `TargetFundService` → первый тест краснеет. Вернуть.
 
-- [ ] **Шаг 4: Коммит**
+- [x] **Шаг 4: Коммит**
 
 ---
 
 ### Задача 7: Полная проверка и отметка
 
-- [ ] **Шаг 1: Полный прогон** — `mvnw verify` из `backend`, `npm test` и `npx tsc --noEmit` из `frontend`. Ожидается 366+ юнитов, 146+ интеграционных, 106+ фронтовых, ноль падений.
+- [x] **Шаг 1: Полный прогон** — `mvnw verify` из `backend`, `npm test` и `npx tsc --noEmit` из `frontend`. Ожидается 366+ юнитов, 146+ интеграционных, 106+ фронтовых, ноль падений.
 
-- [ ] **Шаг 2: Пересобрать стенд**
+- [x] **Шаг 2: Пересобрать стенд**
 
 ```bash
 COMPOSE_PROJECT_NAME=selfin-test docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build backend
@@ -678,11 +678,11 @@ COMPOSE_PROJECT_NAME=selfin-test docker compose -f docker-compose.yml -f docker-
 
 Дождаться `200` на `/api/v1/pocket`. Собирается несколько минут — не проверять раньше, иначе ответит старый контейнер.
 
-- [ ] **Шаг 3: Проверить, что при основаниях ничего не изменилось**
+- [x] **Шаг 3: Проверить, что при основаниях ничего не изменилось**
 
 На эталонном стенде якорь есть, поэтому поведение обязано остаться прежним: перевод сверх остатка даёт 409 с `details: ["CONFIRM_REQUIRED"]`, в пределах остатка проходит. Сверить числа стенда с эталоном: кармашек 26 000, остаток 60 000, капитал 2 668 277, ликвид 210 000, якорь 2026-08-29.
 
-- [ ] **Шаг 4: Воспроизвести пустое состояние**
+- [x] **Шаг 4: Воспроизвести пустое состояние**
 
 ```bash
 bash tools/ano50-reset-stand.sh
@@ -690,7 +690,7 @@ bash tools/ano50-reset-stand.sh
 
 Без аргумента скрипт поднимает пустую базу — новый пользователь. Создать копилку и перевести в неё сумму: **обязано пройти без подтверждения**. До починки упиралось в 409.
 
-- [ ] **Шаг 5: Восстановить стенд**
+- [x] **Шаг 5: Восстановить стенд**
 
 ```bash
 bash tools/ano50-reset-stand.sh C:/Users/Kirill/selfin-backups/ano50-fixsession-start-2026-09-12.sql
@@ -698,10 +698,39 @@ bash tools/ano50-reset-stand.sh C:/Users/Kirill/selfin-backups/ano50-fixsession-
 
 Сверить эталонные числа ещё раз.
 
-- [ ] **Шаг 6: Отметиться в ANO-157** — комментарий с замерами до и после, списком мутаций и результатом стенда. Перевести в Done.
+- [x] **Шаг 6: Отметиться в ANO-157** — комментарий с замерами до и после, списком мутаций и результатом стенда. Перевести в Done.
 
 ---
 
 ## Известный остаток, в задачу не входит
 
 Подпись формы перевода говорит `доступно {fmt(pocketBalance)}` и на пустом состоянии покажет «доступно 0» — то же мнение из незнания, но уже текстом. Починить честно нельзя, не дав фронту тот же источник, что у бэкенда: сейчас у него `pocket.trajectory[0].balance`, а у бэкенда `freeMoneyAt + noAnchorFallbackAt`. Сведение этих двух чисел — отдельный вопрос, смежный с ANO-9, и спека прямо выносит его за рамки.
+
+---
+
+## Выполнено 13 сентября 2026
+
+Коммиты `7b0a8c9`, `e244cb3`, `3830d68`, `b221e0d`, `ccb8175`, `3ada909`, `2ea7e0e`. Прогон: **371 юнит + 146 интеграционных**, фронт 106 тестов, `tsc` чистый. Семь мутаций, каждая роняет ровно свой тест.
+
+### Замер на стенде
+
+```
+новый пользователь, база пустая     перевод 15 000 → 200, копилка 15 000
+                                    до починки → 409 (замерено мутацией IT)
+
+эталонный стенд, якорь 29.08        перевод 99 999 999 → 409
+                                    details: ["CONFIRM_REQUIRED"]
+                                    с confirm: true → 200
+```
+
+Числа стенда после пересборки совпали с эталонными до копейки, инварианты зелёные.
+
+### Где реальность разошлась с планом
+
+**Второй костыль того же вида, которого план не предвидел.** Полный прогон уронил `FundMoneyFlowIT.transfer_overBalance_needsConfirmation`: тест не ставил якорь вовсе и доказывал правило ANO-87, опираясь на дефект ANO-157 — предупреждение приходило из незнания. Дан якорь на 1000; теперь проверяется заявленное правило. План предвидел один такой костыль (`TargetFundAccountTest`), их оказалось два.
+
+**Тест обработчика написан не так, как в плане.** Существующий класс проверяет обработчик через `MockMvc` с бросающим контроллером, а не прямым вызовом. Взят этот стиль — он доказывает и выбор обработчика. Заодно добавлен парный тест на безусловный отказ.
+
+**Порядок проверки в `doTransfer` переставлен относительно черновика.** Проверка оснований стоит ПЕРЕД подсчётом свободных денег: у человека без якоря и фактов считать незачем, сравнивать не с чем. Первая редакция считала всегда.
+
+**Проп `pocketBalance` удалён из `FundCard` целиком**, а не оставлен неиспользуемым: после снятия стены он там больше ни для чего не нужен.
