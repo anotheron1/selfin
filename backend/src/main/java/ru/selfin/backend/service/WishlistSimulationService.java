@@ -106,7 +106,7 @@ public class WishlistSimulationService {
                     org.springframework.http.HttpStatus.BAD_REQUEST,
                     "kind, amount, targetDate are required");
         }
-        YearMonth current = YearMonth.now();
+        YearMonth current = YearMonth.now(clock);
         int horizonMonths = 36;
         BigDecimal amount = req.amount() != null ? req.amount() : BigDecimal.ZERO;
         String kind = req.kind();

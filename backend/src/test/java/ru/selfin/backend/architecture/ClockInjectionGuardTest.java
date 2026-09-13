@@ -44,9 +44,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ClockInjectionGuardTest {
 
-    /** Вызов без аргумента. С аргументом — {@code now(clock)} — регуляркой не ловится. */
-    private static final Pattern DIRECT_NOW =
-            Pattern.compile("\\bLocalDate(Time)?\\.now\\(\\s*\\)");
+    /**
+     * Вызов без аргумента. С аргументом — {@code now(clock)} — не ловится.
+     *
+     * <p>Перечислены ВСЕ типы {@code java.time}, у которых есть {@code now()}, а не только
+     * те, что встретились при миграции. Первая редакция сторожа знала лишь
+     * {@code LocalDate} и {@code LocalDateTime} — и пропустила пять {@code YearMonth.now()}
+     * в четырёх сервисах. Сторож, который ищет не всё, даёт ложное чувство законченности.
+     */
+    private static final Pattern DIRECT_NOW = Pattern.compile(
+            "\\b(LocalDate|LocalDateTime|LocalTime|Instant|YearMonth|Year|MonthDay"
+                    + "|ZonedDateTime|OffsetDateTime|OffsetTime)\\.now\\(\\s*\\)");
 
     private static final List<String> GUARDED_PACKAGES =
             List.of("src/main/java/ru/selfin/backend/service",

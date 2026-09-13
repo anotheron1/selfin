@@ -341,7 +341,7 @@ public class WishlistConversionService {
         BigDecimal monthlyPMT = WishlistSimulationService.computeCreditDelta(
                 src.getTargetAmount(),
                 src.getTargetDate(),
-                YearMonth.now(),
+                YearMonth.now(clock),
                 Math.max(termMonths + 1, 1),
                 src.getCreditRate(),
                 termMonths).monthlyPMT();

@@ -66,7 +66,7 @@ public class BaselineTimelineBuilder {
      */
     public TimelineSnapshot build(int horizonMonths, boolean withBreakdown) {
         YearMonth firstMonth = firstActivityMonth();
-        YearMonth currentMonth = YearMonth.now();
+        YearMonth currentMonth = YearMonth.now(clock);
         YearMonth horizonEnd = currentMonth.plusMonths(horizonMonths);
 
         Map<Category, CategoryMonthStats> statsMap = computeStatsMap();
@@ -547,6 +547,6 @@ public class BaselineTimelineBuilder {
 
         return earliest
                 .map(YearMonth::from)
-                .orElseGet(() -> YearMonth.now().minusMonths(1));
+                .orElseGet(() -> YearMonth.now(clock).minusMonths(1));
     }
 }

@@ -51,7 +51,7 @@ public class FundPlannerService {
         List<FinancialEvent> plans =
                 eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED);
 
-        YearMonth current = YearMonth.now();
+        YearMonth current = YearMonth.now(clock);
         LocalDate today = LocalDate.now(clock);
 
         // FACT-записи текущего месяца (для фактических агрегатов)
