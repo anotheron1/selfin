@@ -91,6 +91,7 @@ class PocketEngineTest {
         List<EventSnapshot> events = List.of();
         List<EventSnapshot> wishlistEvents = List.of();
         List<EventSnapshot> overdue = List.of();
+        List<EventSnapshot> releasedOverdue = List.of();
         PocketScope scope = new PocketScope(PocketScope.Type.NEXT_INCOME, null, null);
         LocalDate horizonEnd = LocalDate.of(2026, 3, 15);
         FallbackKind fallback = FallbackKind.NONE;
@@ -106,6 +107,8 @@ class PocketEngineTest {
         PocketInputBuilder events(EventSnapshot... e) { this.events = List.of(e); return this; }
         PocketInputBuilder wishlist(EventSnapshot... e) { this.wishlistEvents = List.of(e); return this; }
         PocketInputBuilder overdue(EventSnapshot... e) { this.overdue = List.of(e); return this; }
+        /** Просрочка, удержанная якорем вне резерва (ANO-79) — только для объяснения. */
+        PocketInputBuilder releasedOverdue(EventSnapshot... e) { this.releasedOverdue = List.of(e); return this; }
         PocketInputBuilder buffer(long b) { this.buffer = dec(b); return this; }
         PocketInputBuilder forecast(long f, String... names) {
             this.forecast = dec(f); this.contributors = List.of(names); return this;
@@ -140,7 +143,7 @@ class PocketEngineTest {
 
         PocketInput build() {
             return new PocketInput(asOf, checkpoint, checkpointDate, checkpointCreatedAt,
-                    events, wishlistEvents, overdue,
+                    events, wishlistEvents, overdue, releasedOverdue,
                     scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast,
                     otherAccountsBalance, creditRestoreReserve, semiLiquidBalance);
         }
@@ -298,6 +301,71 @@ class PocketEngineTest {
         return r.breakdown().stream().filter(l -> l.type() == t).findFirst().orElseThrow();
     }
 
+    private static int indexOf(PocketResultDto r, BreakdownType t) {
+        for (int i = 0; i < r.breakdown().size(); i++) {
+            if (r.breakdown().get(i).type() == t) return i;
+        }
+        throw new AssertionError("нет строки " + t);
+    }
+
+    // ── ANO-79: что якорь снял с резерва ─────────────────────────────────────
+
+    @Test
+    @DisplayName("ANO-79: просрочка, снятая ре-якорем, объяснена строкой после кармашка")
+    void releasedOverdue_explainedAfterPocket() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .releasedOverdue(planNamed(EventType.EXPENSE, LocalDate.of(2026, 2, 22), 5_000, "Страховка"),
+                        plan(EventType.EXPENSE, LocalDate.of(2026, 2, 24), 16_000, Priority.HIGH))
+                .build());
+
+        assertThat(line(r, BreakdownType.OVERDUE_RELEASED).amount())
+                .as("ровно то, что перестало бронироваться")
+                .isEqualByComparingTo(dec(21_000));
+        assertThat(line(r, BreakdownType.OVERDUE_RELEASED).label())
+                .as("причина названа действием человека, а не его ошибкой — правила 8 и 12")
+                .isEqualTo("Больше не бронируется: остаток обновлён 01.03 (2 шт)");
+        assertThat(line(r, BreakdownType.OVERDUE_RELEASED).details())
+                .containsExactly("Страховка", "plan");
+        assertThat(indexOf(r, BreakdownType.OVERDUE_RELEASED))
+                .as("строка информационная — её место после кармашка, а не внутри арифметики")
+                .isGreaterThan(indexOf(r, BreakdownType.POCKET));
+    }
+
+    @Test
+    @DisplayName("ANO-79: снимать нечего — строки нет")
+    void releasedOverdue_empty_noLine() {
+        assertThat(PocketEngine.calculate(base().build()).breakdown())
+                .noneMatch(l -> l.type() == BreakdownType.OVERDUE_RELEASED);
+    }
+
+    @Test
+    @DisplayName("ANO-79: объяснение не входит в инвариант кармашка")
+    void releasedOverdue_staysOutOfInvariant() {
+        // Минимум обязан оказаться ПОСЛЕ всех трёх событий: строки разбивки считают суммы до
+        // минимума, и всё, что за ним, в них не попадает — тогда инвариант проверять не на чем.
+        // 10 000 − 4 000 + 1 000 − 3 000 = 4 000 в день 04.03, ниже стартовых 10 000.
+        PocketInputBuilder b = base()
+                .events(plan(EventType.EXPENSE, LocalDate.of(2026, 3, 2), 4_000, Priority.MEDIUM),
+                        plan(EventType.INCOME, LocalDate.of(2026, 3, 3), 1_000, Priority.MEDIUM),
+                        plan(EventType.EXPENSE, LocalDate.of(2026, 3, 4), 3_000, Priority.MEDIUM));
+        PocketResultDto without = PocketEngine.calculate(b.build());
+        PocketResultDto with = PocketEngine.calculate(b
+                .releasedOverdue(plan(EventType.EXPENSE, LocalDate.of(2026, 2, 20), 21_000, Priority.HIGH))
+                .build());
+
+        assertThat(with.pocket())
+                .as("объяснение не двигает ответ на вопрос «сколько можно тратить»")
+                .isEqualByComparingTo(without.pocket());
+        assertThat(with.minPoint().balance()).isEqualByComparingTo(without.minPoint().balance());
+
+        // STARTING − EXPENSES + INCOME = MIN, и новая строка в этой сумме не участвует
+        BigDecimal starting = line(with, BreakdownType.STARTING_BALANCE).amount();
+        BigDecimal expenses = line(with, BreakdownType.PLANNED_EXPENSES).amount();
+        BigDecimal income = line(with, BreakdownType.PLANNED_INCOME).amount();
+        assertThat(starting.add(expenses).add(income))
+                .isEqualByComparingTo(with.minPoint().balance());
+    }
+
     // ── буфер ────────────────────────────────────────────────────────────────
 
     @Test
@@ -424,7 +492,8 @@ class PocketEngineTest {
         PocketInput in = base().forecast(5_000, "Продукты").build();
         in = new PocketInput(eom, in.checkpointAmount(), eom, in.checkpointCreatedAt(),
                 in.events(), in.wishlistEvents(),
-                in.overdueEvents(), in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
+                in.overdueEvents(), in.releasedOverdueEvents(),
+                in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
                 in.bufferAmount(), in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
                 in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());
         PocketResultDto r = PocketEngine.calculate(in);

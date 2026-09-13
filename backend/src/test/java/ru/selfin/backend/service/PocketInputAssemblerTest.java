@@ -264,6 +264,70 @@ class PocketInputAssemblerTest {
     }
 
     @Test
+    @DisplayName("ANO-79: удержанное якорем спрашивается от ПРЕЖНЕГО якоря по день текущего включительно")
+    void releasedOverdue_queriedBetweenPreviousAndCurrentAnchor() {
+        LocalDate previous = LocalDate.of(2026, 1, 20);
+        LocalDate current = LocalDate.of(2026, 2, 10);
+        ru.selfin.backend.model.Account defaultAccount = AccountFixtures.defaultAccount();
+        when(accountBalanceService.defaultAccount()).thenReturn(Optional.of(defaultAccount));
+        when(accountBalanceService.anchorAt(defaultAccount, TODAY))
+                .thenReturn(Optional.of(checkpoint(defaultAccount, current)));
+        when(accountBalanceService.anchorAt(defaultAccount, current.minusDays(1)))
+                .thenReturn(Optional.of(checkpoint(defaultAccount, previous)));
+
+        assembler.build(MONTHS_6, TODAY);
+
+        // (20.01, 11.02) = 20.01 < date ≤ 10.02 — ровно то, что снял с брони якорь 10.02
+        org.mockito.Mockito.verify(eventRepository)
+                .findOverdueMandatoryExpenses(eq(previous), eq(current.plusDays(1)));
+    }
+
+    @Test
+    @DisplayName("ANO-79: прежнего якоря нет — удержано всё до текущего")
+    void releasedOverdue_noPreviousAnchor_queriedFromEpoch() {
+        LocalDate current = LocalDate.of(2026, 2, 10);
+        ru.selfin.backend.model.Account defaultAccount = AccountFixtures.defaultAccount();
+        when(accountBalanceService.defaultAccount()).thenReturn(Optional.of(defaultAccount));
+        when(accountBalanceService.anchorAt(defaultAccount, TODAY))
+                .thenReturn(Optional.of(checkpoint(defaultAccount, current)));
+
+        assembler.build(MONTHS_6, TODAY);
+
+        org.mockito.Mockito.verify(eventRepository)
+                .findOverdueMandatoryExpenses(eq(LocalDate.of(2000, 1, 1)), eq(current.plusDays(1)));
+    }
+
+    @Test
+    @DisplayName("ANO-79: якорь сегодняшним днём — верхняя граница сегодня, план сегодня не удержан")
+    void releasedOverdue_anchorToday_upperBoundIsToday() {
+        ru.selfin.backend.model.Account defaultAccount = AccountFixtures.defaultAccount();
+        when(accountBalanceService.defaultAccount()).thenReturn(Optional.of(defaultAccount));
+        when(accountBalanceService.anchorAt(defaultAccount, TODAY))
+                .thenReturn(Optional.of(checkpoint(defaultAccount, TODAY)));
+
+        assembler.build(MONTHS_6, TODAY);
+
+        // Не TODAY.plusDays(1): план сегодняшнего дня не просрочка, его считает шаг 2 движка.
+        org.mockito.Mockito.verify(eventRepository, org.mockito.Mockito.times(2))
+                .findOverdueMandatoryExpenses(any(), eq(TODAY));
+    }
+
+    @Test
+    @DisplayName("ANO-79: якоря нет — удерживать нечем, второго запроса не бывает")
+    void releasedOverdue_noAnchor_notQueriedAtAll() {
+        assembler.build(MONTHS_6, TODAY);
+        org.mockito.Mockito.verify(eventRepository, org.mockito.Mockito.times(1))
+                .findOverdueMandatoryExpenses(any(), any());
+    }
+
+    private static ru.selfin.backend.model.BalanceCheckpoint checkpoint(
+            ru.selfin.backend.model.Account account, LocalDate date) {
+        return ru.selfin.backend.model.BalanceCheckpoint.builder()
+                .id(UUID.randomUUID()).date(date).amount(BigDecimal.valueOf(5000))
+                .account(account).build();
+    }
+
+    @Test
     @DisplayName("ANO-9 Task 2.2: без чекпоинта вообще снимок счетов не исключает никого (null)")
     void accountsSnapshot_noCheckpoint_excludesNobody() {
         assembler.build(MONTHS_6, TODAY);

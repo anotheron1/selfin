@@ -11,6 +11,13 @@ package ru.selfin.backend.dto.pocket;
 public enum BreakdownType {
     STARTING_BALANCE, OVERDUE_RESERVE, PLANNED_EXPENSES, SAVINGS_CONTRIBUTIONS, PLANNED_INCOME,
     UNPLANNED_FORECAST, TRAJECTORY_MIN, BUFFER, POCKET,
+    /**
+     * Сколько просроченных обязательств перестало бронироваться из-за последнего ре-якоря
+     * (ANO-79). Информационная: эти деньги НЕ вычитаются, строка объясняет, почему строка
+     * {@code OVERDUE_RESERVE} уменьшилась или исчезла. До этой правки она исчезала молча, и
+     * автор продукта не смог определить, верное ли у него число.
+     */
+    OVERDUE_RELEASED,
     /** Сколько нужно, чтобы вернуть кредитки к планке (ANO-9 §4.2). Информационная. */
     CREDIT_RESTORE,
     WISHLIST_INFO

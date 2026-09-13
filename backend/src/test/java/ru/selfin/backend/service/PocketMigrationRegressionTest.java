@@ -119,7 +119,7 @@ class PocketMigrationRegressionTest {
 
         return new PocketInput(
                 AS_OF, dec(50_000), CHECKPOINT_DATE, null,
-                events, wishlistEvents, overdueEvents,
+                events, wishlistEvents, overdueEvents, List.of(),
                 new PocketScope(PocketScope.Type.NEXT_INCOME, null, null),
                 HORIZON_END, FallbackKind.NONE,
                 dec(5_000),

@@ -39,11 +39,11 @@ class PocketEngineAccountsTest {
                 Priority.MEDIUM, null, dec(amount), null, false, "факт");
     }
 
-    /** Полный вход (17-арный, с явными счетами) с настраиваемым якорем дефолтного счёта и прочими. */
+    /** Полный вход (18-арный, с явными счетами) с настраиваемым якорем дефолтного счёта и прочими. */
     private static PocketInput input(long checkpointAmount, List<EventSnapshot> events,
                                      BigDecimal otherAccountsBalance) {
         return new PocketInput(TODAY, dec(checkpointAmount), CHECKPOINT_DATE, null,
-                events, List.of(), List.of(),
+                events, List.of(), List.of(), List.of(),
                 MONTHS_1, HORIZON_END, FallbackKind.NONE,
                 BigDecimal.ZERO, BigDecimal.ZERO, List.of(), java.util.Map.of(),
                 otherAccountsBalance, null, null);
@@ -82,7 +82,7 @@ class PocketEngineAccountsTest {
         // *OrZero() геттеры обязаны трактовать его как ноль, не кидать NPE (тот же приём,
         // что уже применён для futureForecast, ANO-36).
         PocketInput withNulls = new PocketInput(TODAY, dec(50_000), CHECKPOINT_DATE, null,
-                List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(),
                 MONTHS_1, HORIZON_END, FallbackKind.NONE,
                 BigDecimal.ZERO, BigDecimal.ZERO, List.of(), java.util.Map.of(),
                 null, null, null);

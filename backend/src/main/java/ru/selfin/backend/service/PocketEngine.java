@@ -278,6 +278,23 @@ public final class PocketEngine {
         // ПОСЛЕ POCKET, рядом с WISHLIST_INFO: строка информационная и в инвариант не входит.
         // Порядок здесь — не про рендер, а про смысл: всё до кармашка объясняет, из чего он
         // сложился; всё после — оговорки, которые пользователь может учесть, а может нет.
+        // ANO-79: разбивка объясняла состояние и никогда — изменение. Строка OVERDUE_RESERVE
+        // после ре-якоря просто исчезала, и автор продукта не смог определить, верное ли у него
+        // число. Теперь видно, сколько именно этот якорь снял с брони и почему. Сумма
+        // ПОЛОЖИТЕЛЬНАЯ и без знака: это деньги, которые НЕ вычитаются, как у WISHLIST_INFO.
+        List<EventSnapshot> released = in.releasedOverdueOrEmpty();
+        BigDecimal releasedSum = released.stream()
+                .map(EventSnapshot::plannedAmount).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (releasedSum.signum() != 0 && in.checkpointDate() != null) {
+            lines.add(new PocketResultDto.BreakdownLine(BreakdownType.OVERDUE_RELEASED,
+                    "Больше не бронируется: остаток обновлён " + DD_MM.format(in.checkpointDate())
+                            + " (" + released.size() + " шт)",
+                    releasedSum,
+                    released.stream()
+                            .map(e -> e.description() != null ? e.description() : "без описания").toList()));
+        }
+
         if (creditReserve.signum() > 0) {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.CREDIT_RESTORE,
                     "Вернуть карты к планке", creditReserve.negate(), List.of()));

@@ -122,7 +122,7 @@ public class PocketSandboxService {
         // не считается» — то есть разошлась бы с GET /pocket ровно на факты дня ре-якоря.
         PocketInput fittedInput = new PocketInput(in.asOfDate(), in.checkpointAmount(),
                 in.checkpointDate(), in.checkpointCreatedAt(),
-                fittedEvents, fittedWishlist, in.overdueEvents(),
+                fittedEvents, fittedWishlist, in.overdueEvents(), in.releasedOverdueEvents(),
                 in.scope(), in.horizonEnd(), in.fallbackKind(), in.bufferAmount(),
                 in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
                 in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());
