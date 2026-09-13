@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FundsOverviewDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
+import ru.selfin.backend.exception.ConfirmationRequiredException;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
@@ -335,18 +336,31 @@ public class TargetFundService {
         // NB ANO-39: LocalDate.now() здесь — прямой вызов, 36-е место. Clock в этот сервис не
         // инжектится, а половинчатая миграция одного сервиса хуже честных 36 мест. При
         // инъекции Clock не пропустить: это денежный путь, тот же, где живёт ANO-125.
+        // ANO-157: и только если у продукта ЕСТЬ основания судить. Без якоря и без фактов
+        // свободные деньги равны нулю не потому, что их нет, а потому что мы не знаем. Ноль
+        // из незнания продукт читал как ноль-знание и запрещал действие — то же правило 5,
+        // нарушенное с другой стороны: человек, ничего не вводивший, упирался в стену на
+        // первом же действии и не узнавал почему.
         if (amount.signum() > 0 && !confirm) {
             LocalDate today = LocalDate.now();
-            // Ровно то число, которое продукт САМ называет свободными деньгами: так же
-            // считает CapitalService.cashLiquidAt. Один freeMoneyAt занижает у пользователя
-            // без чекпоинта — для него существует запасной путь noAnchorFallbackAt (ANO-28),
-            // и предупреждать по числу, которое продукт свободными деньгами не считает, нельзя.
-            BigDecimal free = accountBalanceService.freeMoneyAt(today)
-                    .add(accountBalanceService.noAnchorFallbackAt(today));
-            if (amount.compareTo(free) > 0) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Account holds " + free + ", transferring " + amount
-                                + "; resend with confirm=true to proceed");
+            // Проверка оснований стоит ПЕРЕД подсчётом: у человека без якоря и фактов это
+            // ещё и самый дешёвый путь — считать свободные деньги незачем, их не с чем
+            // сравнивать.
+            if (accountBalanceService.knowsFreeMoneyAt(today)) {
+                // Ровно то число, которое продукт САМ называет свободными деньгами: так же
+                // считает CapitalService.cashLiquidAt. Один freeMoneyAt занижает у пользователя
+                // без чекпоинта — для него существует запасной путь noAnchorFallbackAt (ANO-28),
+                // и предупреждать по числу, которое продукт свободными деньгами не считает, нельзя.
+                BigDecimal free = accountBalanceService.freeMoneyAt(today)
+                        .add(accountBalanceService.noAnchorFallbackAt(today));
+                if (amount.compareTo(free) > 0) {
+                    // Отдельный тип, а не ResponseStatusException: статус тот же 409, что у
+                    // безусловного отказа выше, и различить их фронт может только по коду в
+                    // details (ANO-157).
+                    throw new ConfirmationRequiredException(
+                            "Account holds " + free + ", transferring " + amount
+                                    + "; resend with confirm=true to proceed");
+                }
             }
         }
 
