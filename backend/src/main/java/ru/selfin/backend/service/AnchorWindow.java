@@ -57,4 +57,26 @@ public final class AnchorWindow {
         if (factCreatedAt == null || anchorCreatedAt == null) return false; // нечем решить — как было
         return factCreatedAt.isAfter(anchorCreatedAt);
     }
+
+    /**
+     * Входит ли факт в окно МЕЖДУ двумя якорями: «уже не внутри числа {@code from}, но ещё
+     * внутри числа {@code to}». Нужно дрейфу ({@link BalanceCheckpointService#findAll}), который
+     * сравнивает посчитанный остаток с числом ВТОРОГО якоря, а не с сегодняшним днём.
+     *
+     * <p>Обе границы обязаны решаться по времени записи, иначе они разъезжаются. Число из банка,
+     * прочитанное в 12:00, не содержит трату, записанную в 18:00 того же дня, — значит и
+     * посчитанный остаток не имеет права её содержать. Иначе дрейф показывает расхождение,
+     * которого нет, а живой остаток ту же трату считает: два места разошлись бы ровно там, где
+     * ANO-82 их только что свела.
+     *
+     * <p>Верхняя граница выражена через то же {@link #countsTowardBalance}, а не отдельной
+     * проверкой: «внутри числа {@code to}» — это буквально отрицание «считается после
+     * {@code to}».
+     */
+    public static boolean fallsBetweenAnchors(LocalDate factDate, LocalDateTime factCreatedAt,
+                                              LocalDate from, LocalDateTime fromCreatedAt,
+                                              LocalDate to, LocalDateTime toCreatedAt) {
+        return countsTowardBalance(factDate, factCreatedAt, from, fromCreatedAt, to)
+                && !countsTowardBalance(factDate, factCreatedAt, to, toCreatedAt, to);
+    }
 }

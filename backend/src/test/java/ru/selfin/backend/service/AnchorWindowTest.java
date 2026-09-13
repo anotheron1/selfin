@@ -98,6 +98,42 @@ class AnchorWindowTest {
     }
 
     @Test
+    @DisplayName("окно между якорями: обе границы по времени записи, не по дате")
+    void betweenAnchors_bothBoundsUseEntryTime() {
+        LocalDate from = LocalDate.of(2026, 9, 1);
+        LocalDateTime fromEntered = LocalDateTime.of(2026, 9, 1, 10, 0);
+        LocalDate to = LocalDate.of(2026, 9, 5);
+        LocalDateTime toEntered = LocalDateTime.of(2026, 9, 5, 12, 0);
+
+        assertThat(AnchorWindow.fallsBetweenAnchors(
+                from, LocalDateTime.of(2026, 9, 1, 18, 0), from, fromEntered, to, toEntered))
+                .as("день первого якоря, записано ПОСЛЕ него — уже не внутри его числа")
+                .isTrue();
+
+        assertThat(AnchorWindow.fallsBetweenAnchors(
+                from, LocalDateTime.of(2026, 9, 1, 9, 0), from, fromEntered, to, toEntered))
+                .as("день первого якоря, записано ДО него — его число это уже содержит")
+                .isFalse();
+
+        assertThat(AnchorWindow.fallsBetweenAnchors(
+                to, LocalDateTime.of(2026, 9, 5, 9, 0), from, fromEntered, to, toEntered))
+                .as("день второго якоря, записано ДО сверки — попало в его число, интервал его содержит")
+                .isTrue();
+
+        assertThat(AnchorWindow.fallsBetweenAnchors(
+                to, LocalDateTime.of(2026, 9, 5, 18, 0), from, fromEntered, to, toEntered))
+                .as("день второго якоря, записано ПОСЛЕ сверки — в его число не попало, "
+                        + "и посчитанный остаток не имеет права его содержать")
+                .isFalse();
+
+        assertThat(AnchorWindow.fallsBetweenAnchors(
+                LocalDate.of(2026, 9, 3), LocalDateTime.of(2026, 9, 3, 12, 0),
+                from, fromEntered, to, toEntered))
+                .as("между якорями по дате — считается без оглядки на время")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("время записи неизвестно (синтетика, старые тесты) — день якоря решается как было")
     void unknownEntryTime_fallsBackToOldRule() {
         assertThat(AnchorWindow.countsTowardBalance(

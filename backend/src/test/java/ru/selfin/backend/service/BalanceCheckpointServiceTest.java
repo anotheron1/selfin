@@ -179,6 +179,32 @@ class BalanceCheckpointServiceTest {
     }
 
     @Test
+    @DisplayName("Дрейф не считает факт дня ТЕКУЩЕГО якоря, записанный после него")
+    void drift_ignoresFactRecordedAfterCurrentAnchor() {
+        // Симметрия нижней границе. Число из банка, прочитанное в 12:00, не может содержать
+        // трату, записанную в 18:00 того же дня, — значит и computedBalance не имеет права её
+        // содержать, иначе дрейф покажет расхождение, которого нет.
+        BalanceCheckpoint c1 = cp(LocalDate.of(2026, 9, 1), 10_000,
+                LocalDateTime.of(2026, 9, 1, 10, 0));
+        BalanceCheckpoint c2 = cp(LocalDate.of(2026, 9, 5), 10_000,
+                LocalDateTime.of(2026, 9, 5, 12, 0));
+        when(repository.findAllByOrderByDateDesc()).thenReturn(List.of(c2, c1));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5)))
+                .thenReturn(List.of(fact(LocalDate.of(2026, 9, 5), EventType.EXPENSE, 2_000,
+                        LocalDateTime.of(2026, 9, 5, 18, 0))));
+
+        BalanceCheckpointDto d2 = find(service.findAll(), c2.getId());
+
+        assertThat(d2.computedBalance())
+                .as("трата записана ПОСЛЕ сверки — в число 10 000 она попасть не могла")
+                .isEqualByComparingTo(BigDecimal.valueOf(10_000));
+        assertThat(d2.drift())
+                .as("расхождения нет, и дрейф обязан молчать")
+                .isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
     @DisplayName("ANO-9 Task 2.4: дрейф считается внутри счёта, а не по глобальной цепочке чекпоинтов")
     void driftIsScopedPerAccount_notGlobalChain() {
         LocalDateTime t = LocalDateTime.of(2026, 4, 1, 12, 0);

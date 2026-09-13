@@ -38,9 +38,11 @@ public class BalanceCheckpointService {
      * что у {@link PocketEngine#calculate} и {@link AccountBalanceService#balanceAt});
      * drift = amount − computedBalance. Один range-запрос фактов на всю историю.
      *
-     * <p>После ANO-82 день предыдущего якоря исключается по времени ЗАПИСИ, а не по дате:
-     * факт, записанный после ввода якоря, в его число попасть не мог и обязан участвовать
-     * в дрейфе — иначе дрейф показывал бы расхождение там, где его нет.
+     * <p>После ANO-82 обе границы окна решаются по времени ЗАПИСИ, а не по дате, и это
+     * несимметрично только на первый взгляд. Дрейф сравнивает посчитанный остаток с числом
+     * ВТОРОГО якоря, поэтому факт обязан быть уже вне числа {@code prev} и ещё внутри числа
+     * {@code cur}. Пропустить верхнюю границу — значит включить в расчёт трату, записанную
+     * после сверки, и показать расхождение там, где его нет (найдено ревью PR #41).
      *
      * <p><b>Цепочка группируется по счёту (Task 2.4).</b> Дрейф второго и последующих
      * чекпоинтов каждого счёта считается от ПРЕДЫДУЩЕГО чекпоинта ТОГО ЖЕ счёта, а не
@@ -94,12 +96,14 @@ public class BalanceCheckpointService {
                 }
                 BalanceCheckpoint prev = group.get(i + 1);
                 // Граница окна — одна на все три места, живёт в AnchorWindow (ANO-82).
-                // День prev исключается не «потому что день якоря», а потому что запись
-                // существовала в момент сверки; записанное позже в то число попасть не могло.
+                // Дрейфу нужны ОБЕ границы по времени записи: он сравнивает посчитанный
+                // остаток с числом ВТОРОГО якоря, а не с сегодняшним днём. Трата, записанная
+                // после сверки, в это число не попала — и в computedBalance ей не место.
                 BigDecimal delta = facts.stream()
-                        .filter(e -> AnchorWindow.countsTowardBalance(
+                        .filter(e -> AnchorWindow.fallsBetweenAnchors(
                                 e.getDate(), e.getCreatedAt(),
-                                prev.getDate(), prev.getCreatedAt(), cur.getDate()))
+                                prev.getDate(), prev.getCreatedAt(),
+                                cur.getDate(), cur.getCreatedAt()))
                         .map(e -> signed(e.getType(), e.getFactAmount()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal computed = prev.getAmount().add(delta);
