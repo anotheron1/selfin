@@ -193,6 +193,27 @@ class FundMoneyFlowIT {
     }
 
     @Test
+    @DisplayName("ANO-156: «потрачено» списывает деньги движением, а не флагом")
+    void delete_spent_writesCompensatingMovement() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=SPENT", fundId))
+                .andExpect(status().isNoContent());
+
+        assertThat(movementSum(fundId))
+                .as("деньги ушли из копилки — это обязано быть записано движением")
+                .isEqualByComparingTo("0");
+        assertThat(fundBalance(fundId))
+                .as("поле и сумма движений не имеют права разъезжаться")
+                .isEqualByComparingTo("0");
+        assertThat(fundTransferEvents(fundId))
+                .as("события возврата быть не должно: деньги потрачены, а не возвращены")
+                .isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("ANO-86: пустая копилка удаляется без выбора")
     void delete_emptyFund_needsNoChoice() throws Exception {
         String fundId = createFund("Пустая");
@@ -328,6 +349,23 @@ class FundMoneyFlowIT {
         return jdbc.queryForObject(
                 "SELECT current_balance FROM target_funds WHERE id = ?::uuid",
                 BigDecimal.class, fundId);
+    }
+
+    /** Сумма живых движений копилки — то самое, что складывает запрос суммы копилок. */
+    private BigDecimal movementSum(String fundId) {
+        return jdbc.queryForObject(
+                "SELECT COALESCE(SUM(amount), 0) FROM fund_transactions"
+                        + " WHERE fund_id = ?::uuid AND is_deleted = false",
+                BigDecimal.class, fundId);
+    }
+
+    /** Живых событий FUND_TRANSFER у копилки: «вернуть» добавляет второе, «потрачено» — нет. */
+    private int fundTransferEvents(String fundId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT count(*) FROM financial_events WHERE target_fund_id = ?::uuid"
+                        + " AND is_deleted = false AND type = 'FUND_TRANSFER'",
+                Integer.class, fundId);
+        return n == null ? 0 : n;
     }
 
     private boolean isDeleted(String fundId) {

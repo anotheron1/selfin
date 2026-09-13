@@ -225,6 +225,24 @@ public class TargetFundService {
                 // перевод состоялся и деньги вернулись, переписывать прошлое незачем.
                 eventRepository.findAllByTargetFundIdAndDeletedFalse(id)
                         .forEach(e -> e.setDescription(fund.getName()));
+
+                // ANO-156: деньги ушли из копилки СЕГОДНЯ, и это обязано быть движением, а не
+                // флагом. Раньше их «списывал» фильтр t.fund.deleted в запросе суммы копилок —
+                // но флаг «удалена сейчас» применялся и ко всем прошлым датам, а
+                // BaselineTimelineBuilder.buildPastPoints зовёт cashLiquidAt для каждого
+                // прошлого месяца. Удаление копилки переписывало историю ликвида задним
+                // числом, от даты первого взноса.
+                //
+                // Событие FUND_TRANSFER здесь НЕ создаётся, в отличие от ветки RETURN: счёт
+                // потерял эти деньги ещё при первом переводе, и возвращать их некуда — они
+                // потрачены на цель. Создать событие значило бы вернуть несуществующее.
+                transactionRepository.save(FundTransaction.builder()
+                        .fund(fund)
+                        .idempotencyKey(UUID.randomUUID())
+                        .amount(balance.negate())
+                        .transactionDate(LocalDate.now())
+                        .build());
+                fund.setCurrentBalance(BigDecimal.ZERO);
             }
         }
         fund.setDeleted(true);
