@@ -33,6 +33,7 @@ import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -60,6 +61,8 @@ public class TargetFundService {
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
     private final WishlistArtifactService wishlistArtifactService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -124,7 +127,7 @@ public class TargetFundService {
         // собственное поле не двигалось (переводы запрещены), и без переноса цель после
         // отвязки прыгнула бы к протухшему числу — обычно к нулю (найдено ревью чанка 3).
         if (fund.getAccountId() != null && dto.accountId() == null) {
-            fund.setCurrentBalance(accountBalanceService.fundBalanceAt(fund, LocalDate.now()));
+            fund.setCurrentBalance(accountBalanceService.fundBalanceAt(fund, LocalDate.now(clock)));
         }
         fund.setAccountId(validateAccountLink(dto.accountId(), fund.getId()));
         return toDto(fundRepository.save(fund));
@@ -240,7 +243,7 @@ public class TargetFundService {
                         .fund(fund)
                         .idempotencyKey(UUID.randomUUID())
                         .amount(balance.negate())
-                        .transactionDate(LocalDate.now())
+                        .transactionDate(LocalDate.now(clock))
                         .build());
                 fund.setCurrentBalance(BigDecimal.ZERO);
             }
@@ -351,16 +354,13 @@ public class TargetFundService {
         // отстаёт от реальности, и жёсткий отказ наказывал бы за неточный ввод, что запрещает
         // правило 5. Человек, у которого деньги реально есть, обязан суметь их отложить.
         //
-        // NB ANO-39: LocalDate.now() здесь — прямой вызов, 36-е место. Clock в этот сервис не
-        // инжектится, а половинчатая миграция одного сервиса хуже честных 36 мест. При
-        // инъекции Clock не пропустить: это денежный путь, тот же, где живёт ANO-125.
         // ANO-157: и только если у продукта ЕСТЬ основания судить. Без якоря и без фактов
         // свободные деньги равны нулю не потому, что их нет, а потому что мы не знаем. Ноль
         // из незнания продукт читал как ноль-знание и запрещал действие — то же правило 5,
         // нарушенное с другой стороны: человек, ничего не вводивший, упирался в стену на
         // первом же действии и не узнавал почему.
         if (amount.signum() > 0 && !confirm) {
-            LocalDate today = LocalDate.now();
+            LocalDate today = LocalDate.now(clock);
             // Проверка оснований стоит ПЕРЕД подсчётом: у человека без якоря и фактов это
             // ещё и самый дешёвый путь — считать свободные деньги незачем, их не с чем
             // сравнивать.
@@ -397,7 +397,7 @@ public class TargetFundService {
                 .fund(fund)
                 .idempotencyKey(idempotencyKey)
                 .amount(amount)
-                .transactionDate(LocalDate.now())
+                .transactionDate(LocalDate.now(clock))
                 .build();
         transactionRepository.save(tx);
 
@@ -408,7 +408,7 @@ public class TargetFundService {
                 .type(EventType.FUND_TRANSFER)
                 .status(EventStatus.EXECUTED)
                 .factAmount(amount)
-                .date(LocalDate.now())
+                .date(LocalDate.now(clock))
                 .category(category)
                 .targetFundId(fund.getId())
                 .description("В копилку: " + fund.getName())
@@ -451,7 +451,7 @@ public class TargetFundService {
                 .fund(fund)
                 .idempotencyKey(idempotencyKey)
                 .amount(amount)
-                .transactionDate(LocalDate.now())
+                .transactionDate(LocalDate.now(clock))
                 .build();
         transactionRepository.save(tx);
 
@@ -481,7 +481,7 @@ public class TargetFundService {
      * @see #calcEstimatedCompletion(TargetFund)
      */
     public TargetFundDto toDto(TargetFund f) {
-        BigDecimal balance = accountBalanceService.fundBalanceAt(f, LocalDate.now());
+        BigDecimal balance = accountBalanceService.fundBalanceAt(f, LocalDate.now(clock));
         return new TargetFundDto(
                 f.getId(), f.getName(), f.getTargetAmount(),
                 balance, f.getAccountId(), f.getStatus(), f.getPriority(),
@@ -526,7 +526,7 @@ public class TargetFundService {
         if (remaining.compareTo(BigDecimal.ZERO) <= 0)
             return null;
 
-        LocalDate threeMonthsAgo = LocalDate.now().minusMonths(3);
+        LocalDate threeMonthsAgo = LocalDate.now(clock).minusMonths(3);
         List<FundTransaction> recent = transactionRepository
                 .findByFundIdAndDeletedFalseAndTransactionDateAfter(fund.getId(), threeMonthsAgo);
 
@@ -543,6 +543,6 @@ public class TargetFundService {
             return null;
 
         long monthsLeft = remaining.divide(avgMonthly, 0, RoundingMode.CEILING).longValue();
-        return LocalDate.now().plusMonths(monthsLeft);
+        return LocalDate.now(clock).plusMonths(monthsLeft);
     }
 }

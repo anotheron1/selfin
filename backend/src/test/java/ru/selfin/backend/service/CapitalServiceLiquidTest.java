@@ -25,6 +25,7 @@ import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -60,7 +61,8 @@ class CapitalServiceLiquidTest {
     void setUp() {
         AccountBalanceService accountBalanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
-        service = new CapitalService(itemRepo, revRepo, checkpointRepo, fundTxRepo, accountBalanceService);
+        service = new CapitalService(itemRepo, revRepo, checkpointRepo, fundTxRepo,
+                accountBalanceService, Clock.systemDefaultZone());
     }
 
     private static BalanceCheckpoint checkpoint(Account account, LocalDate date, String amount) {

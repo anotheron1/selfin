@@ -29,6 +29,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.UUID;
@@ -55,6 +56,8 @@ public class WishlistConversionService {
     private final RecurringRuleService recurringRuleService;
     private final CategoryRepository categoryRepository;
     private final AccountBalanceService accountBalanceService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /** Имя системной категории для платежей по кредиту (recurring PMT). */
     private static final String CREDIT_CATEGORY_NAME = "Кредит";
@@ -97,7 +100,7 @@ public class WishlistConversionService {
      */
     @Transactional
     public ConvertWishlistResponseDto applyAndFix(UUID itemId, SandboxFixRequestDto req) {
-        return applyAndFix(itemId, req, LocalDate.now());
+        return applyAndFix(itemId, req, LocalDate.now(clock));
     }
 
     /** Тестовый вход с явным «сегодня»: раскладка взносов календарно-зависима. */

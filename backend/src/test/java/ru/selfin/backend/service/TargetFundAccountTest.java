@@ -24,6 +24,7 @@ import ru.selfin.backend.repository.TargetFundRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -62,7 +63,8 @@ class TargetFundAccountTest {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
         service = new TargetFundService(fundRepo, txRepo, eventRepo, categoryRepo,
-                accountRepo, balanceService, mock(WishlistArtifactService.class));
+                accountRepo, balanceService, mock(WishlistArtifactService.class),
+                Clock.systemDefaultZone());
     }
 
     private static TargetFund fund(UUID accountId, String storedBalance) {

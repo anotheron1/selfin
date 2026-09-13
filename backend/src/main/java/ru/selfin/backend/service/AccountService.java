@@ -20,6 +20,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -47,16 +48,18 @@ public class AccountService {
     private final BalanceCheckpointRepository checkpointRepository;
     private final TargetFundRepository fundRepository;
     private final AccountBalanceService accountBalanceService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     public List<AccountDto> findAll() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         return accountRepository.findAllActiveWithPurpose().stream()
                 .map(a -> toDto(a, today))
                 .toList();
     }
 
     public AccountDto get(UUID id) {
-        return toDto(activeById(id), LocalDate.now());
+        return toDto(activeById(id), LocalDate.now(clock));
     }
 
     @Transactional
@@ -71,7 +74,7 @@ public class AccountService {
                 .sortOrder(dto.sortOrder() != null ? dto.sortOrder() : 100)
                 .build();
         validate(account);
-        return toDto(accountRepository.save(account), LocalDate.now());
+        return toDto(accountRepository.save(account), LocalDate.now(clock));
     }
 
     @Transactional
@@ -86,7 +89,7 @@ public class AccountService {
         account.setAvailableFloor(dto.availableFloor());
         if (dto.sortOrder() != null) account.setSortOrder(dto.sortOrder());
         validate(account);
-        return toDto(accountRepository.save(account), LocalDate.now());
+        return toDto(accountRepository.save(account), LocalDate.now(clock));
     }
 
     /**
@@ -127,14 +130,14 @@ public class AccountService {
         Account target = activeById(id);
         requireEligibleAsDefault(target);
         if (target.isDefaultAccount()) {
-            return toDto(target, LocalDate.now());
+            return toDto(target, LocalDate.now(clock));
         }
         accountRepository.findByDefaultAccountTrueAndDeletedFalse().ifPresent(old -> {
             old.setDefaultAccount(false);
             accountRepository.saveAndFlush(old);
         });
         target.setDefaultAccount(true);
-        return toDto(accountRepository.save(target), LocalDate.now());
+        return toDto(accountRepository.save(target), LocalDate.now(clock));
     }
 
     /**

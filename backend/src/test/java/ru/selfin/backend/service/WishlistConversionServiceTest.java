@@ -12,6 +12,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,7 +35,8 @@ class WishlistConversionServiceTest {
             mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class);
     private final WishlistConversionService service =
             new WishlistConversionService(eventRepo, fundRepo, recurringRuleService, categoryRepo,
-                    new AccountBalanceService(accountRepo, checkpointRepo, eventRepo));
+                    new AccountBalanceService(accountRepo, checkpointRepo, eventRepo),
+                    Clock.systemDefaultZone());
 
     private FinancialEvent openWishlist(UUID id) {
         Category cat = Category.builder().id(UUID.randomUUID()).name("Прочее").build();

@@ -17,6 +17,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.RecurringRuleRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -40,7 +41,7 @@ class RecurringRuleServiceTest {
         ruleRepo = mock(RecurringRuleRepository.class);
         eventRepo = mock(FinancialEventRepository.class);
         generator = new RecurringEventGenerator();    // real — пусть выдаёт настоящие даты
-        service = new RecurringRuleService(ruleRepo, eventRepo, generator);
+        service = new RecurringRuleService(ruleRepo, eventRepo, generator, Clock.systemDefaultZone());
         category = Category.builder().id(UUID.randomUUID()).build();
 
         // ruleRepo.save returns its argument with id

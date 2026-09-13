@@ -23,6 +23,7 @@ import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -47,6 +48,8 @@ public class WishlistSimulationService {
     private final TargetFundRepository fundRepository;
     private final UserSettingsService userSettingsService;
     private final CapitalService capitalService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /** Результат расчёта копилки: delta + выведенный месячный взнос. */
     public record SavingsResult(List<MonthDeltaDto> delta, BigDecimal monthlyContribution) {}
@@ -253,7 +256,7 @@ public class WishlistSimulationService {
         // cashLiquidAt, а не liquidAt: вклад в ограничения хотелок не входит (ANO-46). Потолок
         // кредита от этого падает — банк вклад учёл бы, а мы нет; принято осознанно, чтобы
         // «распечатать вклад» оставалось решением пользователя, а не молчаливым допущением.
-        BigDecimal currentCapital = capitalService.cashLiquidAt(LocalDate.now());
+        BigDecimal currentCapital = capitalService.cashLiquidAt(LocalDate.now(clock));
 
         // Max wishlist: 6 months income
         BigDecimal maxWishlist = monthlyIncomeAvg.multiply(BigDecimal.valueOf(6));

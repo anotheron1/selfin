@@ -11,6 +11,7 @@ import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
@@ -31,7 +32,7 @@ class PredictionServiceStatsTest {
     void setUp() {
         eventRepo = mock(FinancialEventRepository.class);
         // PredictionService имеет одну зависимость: FinancialEventRepository (проверено в коде).
-        service = new PredictionService(eventRepo);
+        service = new PredictionService(eventRepo, Clock.systemDefaultZone());
         cat = Category.builder().id(UUID.randomUUID()).name("Продукты").build();
     }
 

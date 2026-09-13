@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.BudgetSnapshotDto;
 import ru.selfin.backend.service.BudgetSnapshotService;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -19,13 +20,15 @@ import java.util.List;
 public class BudgetSnapshotController {
 
     private final BudgetSnapshotService snapshotService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     @Operation(summary = "Создать снимок бюджета", description = "Фиксирует все плановые события указанного месяца. " +
             "Идемпотентен: повторный вызов для одного месяца вернёт существующий снимок.")
     @PostMapping
     public BudgetSnapshotDto create(
             @Parameter(description = "Дата в месяце для снимка (по умолчанию — сегодня)") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return snapshotService.createSnapshot(date != null ? date : LocalDate.now());
+        return snapshotService.createSnapshot(date != null ? date : LocalDate.now(clock));
     }
 
     @Operation(summary = "Получить список снимков", description = "Возвращает снимки за последние 12 месяцев, отсортированные по дате создания (новые первые)")

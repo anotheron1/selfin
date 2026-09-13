@@ -17,6 +17,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.RecurringRuleRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -28,6 +29,8 @@ public class RecurringRuleService {
     private final RecurringRuleRepository ruleRepo;
     private final FinancialEventRepository eventRepo;
     private final RecurringEventGenerator generator;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /**
      * @param rule   created and persisted rule (id assigned)
@@ -58,7 +61,7 @@ public class RecurringRuleService {
 
         LocalDate horizonEnd = cfg.endDate() != null
                 ? cfg.endDate()
-                : LocalDate.now().plusMonths(36);
+                : LocalDate.now(clock).plusMonths(36);
         List<FinancialEvent> events = generator.generate(rule, cfg.startDate(), horizonEnd);
         // Propagate targetFundId to ALL events (FUND_TRANSFER recurring needs it on every row).
         events.forEach(e -> e.setTargetFundId(targetFundId));
@@ -88,7 +91,7 @@ public class RecurringRuleService {
 
         LocalDate horizonEnd = locked.getEndDate() != null
                 ? locked.getEndDate()
-                : LocalDate.now().plusMonths(36);
+                : LocalDate.now(clock).plusMonths(36);
 
         eventRepo.softDeletePlanEventsByRuleFromDate(locked.getId(), from);
         java.util.Set<LocalDate> executed = eventRepo.findExecutedDatesByRule(locked.getId());
@@ -191,7 +194,7 @@ public class RecurringRuleService {
         if (cfg.startDate() == null) {
             throw new IllegalArgumentException("startDate is required");
         }
-        if (cfg.startDate().isBefore(LocalDate.now())) {
+        if (cfg.startDate().isBefore(LocalDate.now(clock))) {
             throw new IllegalArgumentException("startDate must be today or later (I3)");
         }
         if (cfg.frequency() == ru.selfin.backend.model.enums.RecurringFrequency.YEARLY

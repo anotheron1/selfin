@@ -11,6 +11,7 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -30,7 +31,7 @@ class FundPlannerServiceTest {
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
         recurringRuleService = mock(RecurringRuleService.class);
-        service = new FundPlannerService(eventRepository, recurringRuleService);
+        service = new FundPlannerService(eventRepository, recurringRuleService, Clock.systemDefaultZone());
         // По умолчанию просроченных обязательных планов нет
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
         // По умолчанию FACT-записей текущего месяца нет

@@ -13,6 +13,7 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -27,6 +28,8 @@ public class FundPlannerService {
 
     private final FinancialEventRepository eventRepository;
     private final RecurringRuleService recurringRuleService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /**
      * Возвращает агрегацию плановых событий по месяцам на 36 месяцев вперёд
@@ -38,7 +41,7 @@ public class FundPlannerService {
         // Ленивое расширение бессрочных правил (REQUIRES_NEW; см. spec Секция 2).
         // Errors must NOT fail the read — log and continue with whatever events exist.
         try {
-            recurringRuleService.extendIndefiniteRules(LocalDate.now().plusMonths(36));
+            recurringRuleService.extendIndefiniteRules(LocalDate.now(clock).plusMonths(36));
         } catch (Exception e) {
             log.warn("Lazy-extend of indefinite rules failed; continuing with current events: {}",
                     e.getMessage());
@@ -49,7 +52,7 @@ public class FundPlannerService {
                 eventRepository.findAllByDeletedFalseAndStatusNot(EventStatus.CANCELLED);
 
         YearMonth current = YearMonth.now();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
 
         // FACT-записи текущего месяца (для фактических агрегатов)
         LocalDate monthStart = current.atDay(1);
