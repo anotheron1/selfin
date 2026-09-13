@@ -215,10 +215,26 @@ public class TargetFundService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Fund holds " + balance + "; pass money=RETURN or money=SPENT");
             }
+            // ANO-156, найдено ревью PR #42. Выбытие компенсирует ЗАПИСАННЫЕ ДВИЖЕНИЯ, а не
+            // поле current_balance. Поле может с ними разойтись: update() при отвязке копилки
+            // от счёта переносит в него остаток СЧЁТА, не создавая движения.
+            //
+            // Раньше разницу прятал фильтр t.fund.deleted в запросе суммы копилок. С ANO-156
+            // фильтра нет, и остаток виден в cashLiquidAt навсегда, за каждую дату. Замерено:
+            // компенсация по полю оставляла −460 000 при записанных 20 000.
+            //
+            // Для «вернуть» это ещё и вопрос честности: со счёта ушло ровно записанное, и
+            // вернуть надо его. Возврат по раздутому полю создал бы деньги, которых не было.
+            BigDecimal recorded = transactionRepository.sumLiveByFundId(id);
+            fund.setCurrentBalance(recorded);
+
             if (disposal == FundMoneyDisposal.RETURN) {
-                // Обратный перевод на всю сумму: деньги возвращаются в свободные, кармашек и
-                // остаток растут. confirm=true — подтверждать тут нечего, это возврат своих же.
-                doTransfer(id, UUID.randomUUID(), balance.negate(), true);
+                // Обратный перевод на всю записанную сумму: деньги возвращаются в свободные,
+                // кармашек и остаток растут. confirm=true — подтверждать нечего, это возврат
+                // своих же.
+                if (recorded.signum() != 0) {
+                    doTransfer(id, UUID.randomUUID(), recorded.negate(), true);
+                }
             } else {
                 // Деньги потрачены на цель. Журнал обязан назвать это тратой, а не
                 // перемещением в место, которого больше нет: строка «В копилку: Отпуск»
@@ -239,12 +255,14 @@ public class TargetFundService {
                 // Событие FUND_TRANSFER здесь НЕ создаётся, в отличие от ветки RETURN: счёт
                 // потерял эти деньги ещё при первом переводе, и возвращать их некуда — они
                 // потрачены на цель. Создать событие значило бы вернуть несуществующее.
-                transactionRepository.save(FundTransaction.builder()
-                        .fund(fund)
-                        .idempotencyKey(UUID.randomUUID())
-                        .amount(balance.negate())
-                        .transactionDate(LocalDate.now(clock))
-                        .build());
+                if (recorded.signum() != 0) {
+                    transactionRepository.save(FundTransaction.builder()
+                            .fund(fund)
+                            .idempotencyKey(UUID.randomUUID())
+                            .amount(recorded.negate())
+                            .transactionDate(LocalDate.now(clock))
+                            .build());
+                }
                 fund.setCurrentBalance(BigDecimal.ZERO);
             }
         }

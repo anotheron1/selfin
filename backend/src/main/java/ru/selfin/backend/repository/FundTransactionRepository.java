@@ -50,4 +50,23 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
               AND t.fund.accountId IS NULL
             """)
     BigDecimal sumEnvelopeFundsByTransactionDateLessThanEqual(@Param("date") LocalDate date);
+
+    /**
+     * Сумма живых движений ОДНОЙ копилки (ANO-156, найдено ревью PR #42).
+     *
+     * <p>Выбытие копилки обязано обнулить именно эту сумму: её складывает
+     * {@link #sumEnvelopeFundsByTransactionDateLessThanEqual}, и с ANO-156 фильтра по
+     * удалённости там нет — любой остаток виден в капитале навсегда, за каждую дату.
+     *
+     * <p><b>Поле {@code current_balance} для этого не годится.</b> Оно может разойтись с
+     * движениями: {@code TargetFundService.update} при отвязке копилки от счёта переносит в
+     * поле остаток СЧЁТА, не создавая движения. Компенсация по полю оставляла разницу —
+     * замерено на живой базе: −460 000 вместо нуля.
+     */
+    @Query("""
+            SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
+            WHERE t.fund.id = :fundId
+              AND t.deleted = false
+            """)
+    BigDecimal sumLiveByFundId(@Param("fundId") UUID fundId);
 }
