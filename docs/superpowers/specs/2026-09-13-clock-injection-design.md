@@ -27,9 +27,11 @@
 | что | сколько |
 |---|---|
 | прямых вызовов в `service` и `controller` | **39** (38 `LocalDate.now()` + 1 `LocalDateTime.now()`) |
-| классов | 12 |
+| классов | **14** — 11 сервисов и 3 контроллера |
 | тестов, конструирующих эти сервисы вручную | **10 вызовов в 10 файлах** |
 | уже мигрировано | `FinancialEventService` — образец в репозитории |
+
+Поимённо: `TargetFundService` (10), `AccountService` (6), `CapitalService` (4), `RecurringRuleService` (3), `BaselineTimelineBuilder` (3), `AnalyticsController` (3), `FundPlannerService` (2), `PocketController` (2), `WishlistSimulationService`, `WishlistConversionService`, `PredictionService`, `BudgetSnapshotService`, `BudgetSnapshotController`, `BalanceCheckpointService` — по одному.
 
 Шесть вызовов из 39 — в контроллерах, которые конструирует Spring: их тесты не трогаются вовсе.
 
