@@ -81,6 +81,16 @@ describe('buildWatchdogAlert', () => {
         expect(alert?.forecastNote).toEqual({ date: '2026-07-18', deficit: 9000 });
     });
 
+    it('ANO-80: прогнозный минимум ПОЗЖЕ планового, но глубже — оговорка всё равно есть', () => {
+        // Замер на эталонном стенде: минимум по планам 12.10, с обычными тратами — 14.10.
+        // Признак оговорки — «глубже», а не «раньше»; текст плашки обязан говорить то же.
+        const alert = buildWatchdogAlert(
+            watchdog(-130712, '2026-10-12', softMin(-226991, '2026-10-14')), null);
+
+        expect(alert?.kind).toBe('PLAN');
+        expect(alert?.forecastNote).toEqual({ date: '2026-10-14', deficit: 226991 });
+    });
+
     it('ANO-80: с обычными тратами не глубже — оговорки нет', () => {
         const alert = buildWatchdogAlert(
             watchdog(-4500, '2026-07-22', softMin(-4500, '2026-07-22')), null);

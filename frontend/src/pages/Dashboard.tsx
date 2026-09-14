@@ -274,8 +274,12 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                             {watchdogAlert.drivenBy && <> («{watchdogAlert.drivenBy}»)</>}
                         </p>
                         {watchdogAlert.forecastNote && (
+                            // Оговорка показывается по признаку «ГЛУБЖЕ», а не «раньше»: на
+                            // эталонном стенде прогнозный минимум оказался позже планового
+                            // (14.10 против 12.10), и слово «раньше» было бы неправдой.
                             <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                                С обычными тратами — раньше, {fmtLocalDate(watchdogAlert.forecastNote.date)}
+                                С обычными тратами — глубже: {fmt(watchdogAlert.forecastNote.deficit)}
+                                {' '}к {fmtLocalDate(watchdogAlert.forecastNote.date)}
                             </p>
                         )}
                         {watchdogAlert.beyondChart && (
