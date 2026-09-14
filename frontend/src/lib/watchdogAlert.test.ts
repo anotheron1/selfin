@@ -10,11 +10,13 @@ function watchdog(minBalance: number, minDate = '2026-07-22'): PocketResponse {
         checkpointDate: '2026-07-01',
         horizon: { type: 'SECOND_INCOME', endDate: '2026-07-25', label: 'до 2-го дохода 25.07', fallback: false },
         minPoint: { date: minDate, balance: minBalance, drivenBy: minBalance < 0 ? 'Аренда' : null },
+        minPointWithForecast: null,
         breakdown: [],
         trajectory: [],
         wishlistCandidates: [],
         pocketAfterCreditRestore: null,
         pocketWithDeposits: null,
+        pocketWithForecast: null,
     };
 }
 
