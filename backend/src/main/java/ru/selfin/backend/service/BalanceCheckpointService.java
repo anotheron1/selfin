@@ -15,6 +15,7 @@ import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +31,8 @@ public class BalanceCheckpointService {
     private final BalanceCheckpointRepository repository;
     private final FinancialEventRepository eventRepository;
     private final AccountRepository accountRepository;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /**
      * История чекпоинтов, от свежих к старым, с дрейфом каждого интервала (ANO-15 §4):
@@ -136,7 +139,7 @@ public class BalanceCheckpointService {
         if (dto.accountId() != null) {
             checkpoint.setAccount(resolveAccount(dto.accountId()));
         }
-        checkpoint.setUpdatedAt(LocalDateTime.now());
+        checkpoint.setUpdatedAt(LocalDateTime.now(clock));
         return toDto(repository.save(checkpoint), null, null);
     }
 

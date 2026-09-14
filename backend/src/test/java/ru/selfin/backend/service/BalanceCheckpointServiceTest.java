@@ -21,6 +21,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -48,7 +49,8 @@ class BalanceCheckpointServiceTest {
         eventRepository = mock(FinancialEventRepository.class);
         accountRepository = mock(AccountRepository.class);
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        service = new BalanceCheckpointService(repository, eventRepository, accountRepository);
+        service = new BalanceCheckpointService(repository, eventRepository, accountRepository,
+                Clock.systemDefaultZone());
     }
 
     private static BalanceCheckpoint cp(LocalDate date, long amount, LocalDateTime createdAt) {

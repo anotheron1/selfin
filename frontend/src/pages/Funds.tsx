@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
+import { needsConfirmation } from '../lib/transferConfirm';
 import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
@@ -195,10 +196,21 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const num = amountValue(amount);   // ANO-33: сумма может быть выражением
-        if (!num || num <= 0 || num > pocketBalance) return;
+        // ANO-157: по сумме кармашка больше не отказываем. Достаточно ли денег — знает
+        // бэкенд, у которого есть и якоря, и факты; здесь остаётся только «сумма введена».
+        if (!num || num <= 0) return;
         setLoading(true);
         try {
-            await transferToFund(fund.id, num);
+            try {
+                await transferToFund(fund.id, num);
+            } catch (err) {
+                // Подтверждаемый отказ — единственный, который мы предлагаем отменить.
+                // Безусловный («снять больше накопленного») пробрасываем: повтор с confirm
+                // упёрся бы в тот же отказ, а вопрос был бы враньём.
+                if (!needsConfirmation(err)) throw err;
+                if (!confirm('Это больше, чем мы считаем свободным. Отложить всё равно?')) return;
+                await transferToFund(fund.id, num, true);
+            }
             onSuccess();
             onClose();
         } finally { setLoading(false); }
@@ -221,8 +233,7 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
                     <Button
                         type="submit"
                         className="w-full"
-                        disabled={loading || !amountValue(amount)
-                            || (amountValue(amount) ?? 0) > pocketBalance}>
+                        disabled={loading || !amountValue(amount)}>
                         {loading ? 'Переводим...' : 'Перевести'}
                     </Button>
                 </form>
@@ -371,9 +382,8 @@ function EditFundModal({ fund, accounts, onClose, onSuccess }: {
 
 // ─── Карточка фонда ──────────────────────────────────────────────────────────
 
-function FundCard({ fund, pocketBalance, accountName, onTransfer, onEdit }: {
+function FundCard({ fund, accountName, onTransfer, onEdit }: {
     fund: TargetFund;
-    pocketBalance: number;
     /** Имя счёта, если копилка лежит на нём; null — виртуальный конверт (ANO-9 §3.3). */
     accountName: string | null;
     onTransfer: (f: TargetFund) => void;
@@ -401,8 +411,12 @@ function FundCard({ fund, pocketBalance, accountName, onTransfer, onEdit }: {
                 <div className="flex items-center gap-1.5">
                     <span className="text-2xl font-bold" style={{ color: 'var(--color-accent)' }}>{pct}%</span>
                     {/* У копилки на счёте перевода нет: деньги двигаются на самом счёте, а
-                        перевод создал бы вторую запись за те же рубли (бэкенд вернёт 400). */}
-                    {!reached && !fund.accountId && pocketBalance > 0 && (
+                        перевод создал бы вторую запись за те же рубли (бэкенд вернёт 400).
+                        По сумме кармашка кнопку НЕ прячем (ANO-157): ноль означает и «денег
+                        нет», и «мы про них ничего не знаем», а различает это только бэкенд —
+                        у него есть и якоря, и факты. Спрятанная кнопка была стеной без
+                        объяснения: человек, ничего не вводивший, не мог отложить вообще. */}
+                    {!reached && !fund.accountId && (
                         <Button
                             size="sm"
                             variant="outline"
@@ -513,7 +527,6 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                         <FundCard
                             key={fund.id}
                             fund={fund}
-                            pocketBalance={availableNow}
                             accountName={accounts.find(a => a.id === fund.accountId)?.name ?? null}
                             onTransfer={setTransferFund}
                             onEdit={setEditFund}

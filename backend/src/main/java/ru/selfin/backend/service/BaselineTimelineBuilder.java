@@ -21,6 +21,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -52,6 +53,8 @@ public class BaselineTimelineBuilder {
     private final CategoryRepository categoryRepository;
     private final PredictionService predictionService;
     private final CapitalService capitalService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     static final int PREDICTION_WINDOW_MONTHS = 6;
     static final int MIN_HISTORY_FOR_FAN = 3;
@@ -63,7 +66,7 @@ public class BaselineTimelineBuilder {
      */
     public TimelineSnapshot build(int horizonMonths, boolean withBreakdown) {
         YearMonth firstMonth = firstActivityMonth();
-        YearMonth currentMonth = YearMonth.now();
+        YearMonth currentMonth = YearMonth.now(clock);
         YearMonth horizonEnd = currentMonth.plusMonths(horizonMonths);
 
         Map<Category, CategoryMonthStats> statsMap = computeStatsMap();
@@ -108,7 +111,7 @@ public class BaselineTimelineBuilder {
     }
 
     StrategyTimelinePointDto buildCurrentPoint(YearMonth current) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         LocalDate monthStart = current.atDay(1);
 
         // Факты с начала месяца до сегодня
@@ -225,7 +228,7 @@ public class BaselineTimelineBuilder {
                 .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
 
         // Шаг 3: построение точек
-        BigDecimal balanceConfirmed = capitalService.cashLiquidAt(LocalDate.now());
+        BigDecimal balanceConfirmed = capitalService.cashLiquidAt(LocalDate.now(clock));
 
         // ANO-41: прогноз считается по тому же правилу, что и в кармашке — медиана это ВСЯ
         // обычная трата категории, а план её часть. Раньше здесь вычиталось sumMedian × k
@@ -445,7 +448,7 @@ public class BaselineTimelineBuilder {
         List<BreakdownItemDto> expense = new ArrayList<>(past.expenseItems());
 
         // Pro-rated прогноз
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         int daysInMonth = ym.lengthOfMonth();
         int daysRemaining = Math.max(0, daysInMonth - today.getDayOfMonth());
         double fraction = (double) daysRemaining / daysInMonth;
@@ -544,6 +547,6 @@ public class BaselineTimelineBuilder {
 
         return earliest
                 .map(YearMonth::from)
-                .orElseGet(() -> YearMonth.now().minusMonths(1));
+                .orElseGet(() -> YearMonth.now(clock).minusMonths(1));
     }
 }

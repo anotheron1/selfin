@@ -15,6 +15,7 @@ import ru.selfin.backend.model.enums.CapitalItemKind;
 import ru.selfin.backend.repository.*;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
@@ -61,6 +62,8 @@ public class CapitalService {
     private final BalanceCheckpointRepository checkpointRepo;
     private final FundTransactionRepository fundTxRepo;
     private final AccountBalanceService accountBalanceService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     // === CRUD: items ===
 
@@ -73,7 +76,7 @@ public class CapitalService {
                 .build();
         item = itemRepo.save(item);
 
-        LocalDate valuedAt = dto.initialValuedAt() != null ? dto.initialValuedAt() : LocalDate.now();
+        LocalDate valuedAt = dto.initialValuedAt() != null ? dto.initialValuedAt() : LocalDate.now(clock);
         CapitalRevaluation rev = CapitalRevaluation.builder()
                 .itemId(item.getId())
                 .value(dto.initialValue())
@@ -121,7 +124,7 @@ public class CapitalService {
         CapitalItem item = itemRepo.findActiveById(itemId)
                 .orElseThrow(() -> new ResourceNotFoundException("CapitalItem", itemId));
 
-        LocalDate valuedAt = dto.valuedAt() != null ? dto.valuedAt() : LocalDate.now();
+        LocalDate valuedAt = dto.valuedAt() != null ? dto.valuedAt() : LocalDate.now(clock);
         CapitalRevaluation rev = CapitalRevaluation.builder()
                 .itemId(item.getId())
                 .value(dto.value())
@@ -156,7 +159,7 @@ public class CapitalService {
     // === aggregates ===
 
     public CapitalSummaryDto summary() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
 
         BigDecimal liquid = liquidAt(today);
         Map<CapitalItemKind, BigDecimal> sums = sumByKindAt(today);
@@ -179,7 +182,7 @@ public class CapitalService {
     }
 
     public CapitalTrajectoryDto trajectory(LocalDate from, LocalDate to) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         LocalDate effectiveTo = to != null ? to : today;
         LocalDate effectiveFrom = from != null
                 ? from

@@ -13,6 +13,7 @@ import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.repository.BudgetSnapshotRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -30,6 +31,8 @@ public class BudgetSnapshotService {
 
     private final BudgetSnapshotRepository snapshotRepository;
     private final FinancialEventRepository eventRepository;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /**
      * ObjectMapper создаётся локально чтобы не зависеть от Spring bean конфигурации
@@ -90,7 +93,7 @@ public class BudgetSnapshotService {
      * Получить список снимков (последние 12 месяцев).
      */
     public List<BudgetSnapshotDto> getSnapshots() {
-        LocalDate since = LocalDate.now().minusMonths(12).withDayOfMonth(1);
+        LocalDate since = LocalDate.now(clock).minusMonths(12).withDayOfMonth(1);
         return snapshotRepository
                 .findAllByPeriodStartGreaterThanEqualOrderBySnapshotDateDesc(since)
                 .stream()

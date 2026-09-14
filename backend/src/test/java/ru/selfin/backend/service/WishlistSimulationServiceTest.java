@@ -16,6 +16,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
@@ -44,7 +45,8 @@ class WishlistSimulationServiceTest {
         userSettingsService = mock(UserSettingsService.class);
         capitalService = mock(CapitalService.class);
         simulationService = new WishlistSimulationService(
-                baselineBuilder, eventRepo, fundRepo, userSettingsService, capitalService);
+                baselineBuilder, eventRepo, fundRepo, userSettingsService, capitalService,
+                Clock.systemDefaultZone());
     }
 
     // Pure-math helper under test is static (no Spring context needed).

@@ -177,11 +177,15 @@ export const deleteFund = (id: string) => del(`/funds/${id}`);
  * Пополняет целевой фонд на указанную сумму.
  * Автоматически генерирует `Idempotency-Key` для защиты от двойного зачисления.
  *
- * @param fundId идентификатор фонда
- * @param amount положительная сумма пополнения
+ * @param fundId  идентификатор фонда
+ * @param amount  сумма пополнения; знаковая — отрицательная забирает обратно (ANO-87)
+ * @param confirm человек увидел предупреждение и настаивает (ANO-87 §4.2). До ANO-157 флаг
+ *                не передавался никогда, и обещанное подтверждение было недостижимо
  */
-export const transferToFund = (fundId: string, amount: number) =>
-    post<TargetFund>(`/funds/${fundId}/transfer`, { amount }, { 'Idempotency-Key': generateUUID() });
+export const transferToFund = (fundId: string, amount: number, confirm?: boolean) =>
+    post<TargetFund>(`/funds/${fundId}/transfer`,
+        confirm === undefined ? { amount } : { amount, confirm },
+        { 'Idempotency-Key': generateUUID() });
 
 // --- Snapshots ---
 

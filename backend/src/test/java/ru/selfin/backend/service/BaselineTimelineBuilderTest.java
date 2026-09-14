@@ -19,6 +19,7 @@ import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -52,7 +53,7 @@ class BaselineTimelineBuilderTest {
         capitalService = mock(CapitalService.class);
 
         builder = new BaselineTimelineBuilder(eventRepo, checkpointRepo, categoryRepo,
-                predictionService, capitalService);
+                predictionService, capitalService, Clock.systemDefaultZone());
     }
 
     @Test

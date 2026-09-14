@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FundsOverviewDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
+import ru.selfin.backend.exception.ConfirmationRequiredException;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
@@ -32,6 +33,7 @@ import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -59,6 +61,8 @@ public class TargetFundService {
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
     private final WishlistArtifactService wishlistArtifactService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
@@ -123,7 +127,7 @@ public class TargetFundService {
         // собственное поле не двигалось (переводы запрещены), и без переноса цель после
         // отвязки прыгнула бы к протухшему числу — обычно к нулю (найдено ревью чанка 3).
         if (fund.getAccountId() != null && dto.accountId() == null) {
-            fund.setCurrentBalance(accountBalanceService.fundBalanceAt(fund, LocalDate.now()));
+            fund.setCurrentBalance(accountBalanceService.fundBalanceAt(fund, LocalDate.now(clock)));
         }
         fund.setAccountId(validateAccountLink(dto.accountId(), fund.getId()));
         return toDto(fundRepository.save(fund));
@@ -211,10 +215,26 @@ public class TargetFundService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Fund holds " + balance + "; pass money=RETURN or money=SPENT");
             }
+            // ANO-156, найдено ревью PR #42. Выбытие компенсирует ЗАПИСАННЫЕ ДВИЖЕНИЯ, а не
+            // поле current_balance. Поле может с ними разойтись: update() при отвязке копилки
+            // от счёта переносит в него остаток СЧЁТА, не создавая движения.
+            //
+            // Раньше разницу прятал фильтр t.fund.deleted в запросе суммы копилок. С ANO-156
+            // фильтра нет, и остаток виден в cashLiquidAt навсегда, за каждую дату. Замерено:
+            // компенсация по полю оставляла −460 000 при записанных 20 000.
+            //
+            // Для «вернуть» это ещё и вопрос честности: со счёта ушло ровно записанное, и
+            // вернуть надо его. Возврат по раздутому полю создал бы деньги, которых не было.
+            BigDecimal recorded = transactionRepository.sumLiveByFundId(id);
+            fund.setCurrentBalance(recorded);
+
             if (disposal == FundMoneyDisposal.RETURN) {
-                // Обратный перевод на всю сумму: деньги возвращаются в свободные, кармашек и
-                // остаток растут. confirm=true — подтверждать тут нечего, это возврат своих же.
-                doTransfer(id, UUID.randomUUID(), balance.negate(), true);
+                // Обратный перевод на всю записанную сумму: деньги возвращаются в свободные,
+                // кармашек и остаток растут. confirm=true — подтверждать нечего, это возврат
+                // своих же.
+                if (recorded.signum() != 0) {
+                    doTransfer(id, UUID.randomUUID(), recorded.negate(), true);
+                }
             } else {
                 // Деньги потрачены на цель. Журнал обязан назвать это тратой, а не
                 // перемещением в место, которого больше нет: строка «В копилку: Отпуск»
@@ -224,6 +244,26 @@ public class TargetFundService {
                 // перевод состоялся и деньги вернулись, переписывать прошлое незачем.
                 eventRepository.findAllByTargetFundIdAndDeletedFalse(id)
                         .forEach(e -> e.setDescription(fund.getName()));
+
+                // ANO-156: деньги ушли из копилки СЕГОДНЯ, и это обязано быть движением, а не
+                // флагом. Раньше их «списывал» фильтр t.fund.deleted в запросе суммы копилок —
+                // но флаг «удалена сейчас» применялся и ко всем прошлым датам, а
+                // BaselineTimelineBuilder.buildPastPoints зовёт cashLiquidAt для каждого
+                // прошлого месяца. Удаление копилки переписывало историю ликвида задним
+                // числом, от даты первого взноса.
+                //
+                // Событие FUND_TRANSFER здесь НЕ создаётся, в отличие от ветки RETURN: счёт
+                // потерял эти деньги ещё при первом переводе, и возвращать их некуда — они
+                // потрачены на цель. Создать событие значило бы вернуть несуществующее.
+                if (recorded.signum() != 0) {
+                    transactionRepository.save(FundTransaction.builder()
+                            .fund(fund)
+                            .idempotencyKey(UUID.randomUUID())
+                            .amount(recorded.negate())
+                            .transactionDate(LocalDate.now(clock))
+                            .build());
+                }
+                fund.setCurrentBalance(BigDecimal.ZERO);
             }
         }
         fund.setDeleted(true);
@@ -332,21 +372,31 @@ public class TargetFundService {
         // отстаёт от реальности, и жёсткий отказ наказывал бы за неточный ввод, что запрещает
         // правило 5. Человек, у которого деньги реально есть, обязан суметь их отложить.
         //
-        // NB ANO-39: LocalDate.now() здесь — прямой вызов, 36-е место. Clock в этот сервис не
-        // инжектится, а половинчатая миграция одного сервиса хуже честных 36 мест. При
-        // инъекции Clock не пропустить: это денежный путь, тот же, где живёт ANO-125.
+        // ANO-157: и только если у продукта ЕСТЬ основания судить. Без якоря и без фактов
+        // свободные деньги равны нулю не потому, что их нет, а потому что мы не знаем. Ноль
+        // из незнания продукт читал как ноль-знание и запрещал действие — то же правило 5,
+        // нарушенное с другой стороны: человек, ничего не вводивший, упирался в стену на
+        // первом же действии и не узнавал почему.
         if (amount.signum() > 0 && !confirm) {
-            LocalDate today = LocalDate.now();
-            // Ровно то число, которое продукт САМ называет свободными деньгами: так же
-            // считает CapitalService.cashLiquidAt. Один freeMoneyAt занижает у пользователя
-            // без чекпоинта — для него существует запасной путь noAnchorFallbackAt (ANO-28),
-            // и предупреждать по числу, которое продукт свободными деньгами не считает, нельзя.
-            BigDecimal free = accountBalanceService.freeMoneyAt(today)
-                    .add(accountBalanceService.noAnchorFallbackAt(today));
-            if (amount.compareTo(free) > 0) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Account holds " + free + ", transferring " + amount
-                                + "; resend with confirm=true to proceed");
+            LocalDate today = LocalDate.now(clock);
+            // Проверка оснований стоит ПЕРЕД подсчётом: у человека без якоря и фактов это
+            // ещё и самый дешёвый путь — считать свободные деньги незачем, их не с чем
+            // сравнивать.
+            if (accountBalanceService.knowsFreeMoneyAt(today)) {
+                // Ровно то число, которое продукт САМ называет свободными деньгами: так же
+                // считает CapitalService.cashLiquidAt. Один freeMoneyAt занижает у пользователя
+                // без чекпоинта — для него существует запасной путь noAnchorFallbackAt (ANO-28),
+                // и предупреждать по числу, которое продукт свободными деньгами не считает, нельзя.
+                BigDecimal free = accountBalanceService.freeMoneyAt(today)
+                        .add(accountBalanceService.noAnchorFallbackAt(today));
+                if (amount.compareTo(free) > 0) {
+                    // Отдельный тип, а не ResponseStatusException: статус тот же 409, что у
+                    // безусловного отказа выше, и различить их фронт может только по коду в
+                    // details (ANO-157).
+                    throw new ConfirmationRequiredException(
+                            "Account holds " + free + ", transferring " + amount
+                                    + "; resend with confirm=true to proceed");
+                }
             }
         }
 
@@ -365,7 +415,7 @@ public class TargetFundService {
                 .fund(fund)
                 .idempotencyKey(idempotencyKey)
                 .amount(amount)
-                .transactionDate(LocalDate.now())
+                .transactionDate(LocalDate.now(clock))
                 .build();
         transactionRepository.save(tx);
 
@@ -376,7 +426,7 @@ public class TargetFundService {
                 .type(EventType.FUND_TRANSFER)
                 .status(EventStatus.EXECUTED)
                 .factAmount(amount)
-                .date(LocalDate.now())
+                .date(LocalDate.now(clock))
                 .category(category)
                 .targetFundId(fund.getId())
                 .description("В копилку: " + fund.getName())
@@ -419,7 +469,7 @@ public class TargetFundService {
                 .fund(fund)
                 .idempotencyKey(idempotencyKey)
                 .amount(amount)
-                .transactionDate(LocalDate.now())
+                .transactionDate(LocalDate.now(clock))
                 .build();
         transactionRepository.save(tx);
 
@@ -449,7 +499,7 @@ public class TargetFundService {
      * @see #calcEstimatedCompletion(TargetFund)
      */
     public TargetFundDto toDto(TargetFund f) {
-        BigDecimal balance = accountBalanceService.fundBalanceAt(f, LocalDate.now());
+        BigDecimal balance = accountBalanceService.fundBalanceAt(f, LocalDate.now(clock));
         return new TargetFundDto(
                 f.getId(), f.getName(), f.getTargetAmount(),
                 balance, f.getAccountId(), f.getStatus(), f.getPriority(),
@@ -494,7 +544,7 @@ public class TargetFundService {
         if (remaining.compareTo(BigDecimal.ZERO) <= 0)
             return null;
 
-        LocalDate threeMonthsAgo = LocalDate.now().minusMonths(3);
+        LocalDate threeMonthsAgo = LocalDate.now(clock).minusMonths(3);
         List<FundTransaction> recent = transactionRepository
                 .findByFundIdAndDeletedFalseAndTransactionDateAfter(fund.getId(), threeMonthsAgo);
 
@@ -511,6 +561,6 @@ public class TargetFundService {
             return null;
 
         long monthsLeft = remaining.divide(avgMonthly, 0, RoundingMode.CEILING).longValue();
-        return LocalDate.now().plusMonths(monthsLeft);
+        return LocalDate.now(clock).plusMonths(monthsLeft);
     }
 }

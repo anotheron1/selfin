@@ -4,6 +4,26 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
 
 /**
+ * Ошибка ответа API (ANO-157). До неё клиент бросал голый `Error` со строкой, и ни один
+ * экран не мог отличить 409 от 500 — а два разных 409 друг от друга тем более.
+ *
+ * Текст сообщения сохраняет прежний формат: экраны, показывающие `err.message`, не меняются.
+ *
+ * @param status  HTTP-статус ответа
+ * @param details машиночитаемые коды из `ErrorResponse.details`; пустой массив, если их нет
+ */
+export class ApiError extends Error {
+    constructor(
+        readonly status: number,
+        readonly details: string[],
+        message: string,
+    ) {
+        super(message);
+        this.name = 'ApiError';
+    }
+}
+
+/**
  * Базовый метод HTTP-запроса. Автоматически добавляет `Content-Type: application/json`
  * и обрабатывает 204 No Content (возвращает `undefined`).
  *
@@ -11,7 +31,7 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
  * @param options стандартный `RequestInit` плюс необязательный `extraHeaders` для
  *                дополнительных заголовков (например, `Idempotency-Key`)
  * @returns десериализованный JSON-ответ
- * @throws Error при HTTP-статусе 4xx/5xx
+ * @throws ApiError при HTTP-статусе 4xx/5xx
  */
 async function request<T>(path: string, options?: RequestInit & { extraHeaders?: Record<string, string> }): Promise<T> {
     const { extraHeaders, ...rest } = options ?? {};
@@ -26,11 +46,16 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
         // Причина с бэка (ErrorResponse.message) — иначе на фронте виден голый код
         // и любая 400 выглядит как «ничего не произошло» (ANO-30).
         let detail = '';
+        let details: string[] = [];
         try {
             const body = await res.json();
             detail = body?.message ?? body?.error ?? '';
+            // ANO-157: коды из ErrorResponse.details — по ним экран отличает
+            // подтверждаемый отказ от безусловного, не разбирая текст сообщения.
+            if (Array.isArray(body?.details)) details = body.details;
         } catch { /* тело не JSON — обойдёмся кодом */ }
-        throw new Error(`API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
+        throw new ApiError(res.status, details,
+            `API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
     }
     if (res.status === 204) return undefined as T;
     return res.json();

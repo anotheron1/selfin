@@ -14,6 +14,7 @@ import ru.selfin.backend.service.AnalyticsService;
 import ru.selfin.backend.service.DashboardService;
 import ru.selfin.backend.service.PredictionService;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 
@@ -30,6 +31,8 @@ public class AnalyticsController {
     private final DashboardService dashboardService;
     private final AnalyticsService analyticsService;
     private final PredictionService predictionService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     @Operation(summary = "Данные для главного дашборда", description = "Возвращает текущий баланс, прогноз конца месяца, первый день потенциального "
             +
@@ -37,7 +40,7 @@ public class AnalyticsController {
     @GetMapping("/dashboard")
     public DashboardDto getDashboard(
             @Parameter(description = "Дата расчёта (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return dashboardService.getDashboard(date != null ? date : LocalDate.now());
+        return dashboardService.getDashboard(date != null ? date : LocalDate.now(clock));
     }
 
     @Operation(summary = "Расширенный аналитический отчёт",
@@ -46,7 +49,7 @@ public class AnalyticsController {
     @GetMapping("/report")
     public AnalyticsReportDto getReport(
             @Parameter(description = "Опорная дата (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return analyticsService.getReport(date != null ? date : LocalDate.now());
+        return analyticsService.getReport(date != null ? date : LocalDate.now(clock));
     }
 
     @Operation(summary = "Многомесячный отчёт план-факт",
@@ -63,7 +66,7 @@ public class AnalyticsController {
     @GetMapping("/forecast")
     public MonthlyForecastDto getForecast(
             @Parameter(description = "Опорная дата (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        LocalDate today = date != null ? date : LocalDate.now();
+        LocalDate today = date != null ? date : LocalDate.now(clock);
         YearMonth month = YearMonth.from(today);
         return predictionService.forecastMonth(month, today);
     }

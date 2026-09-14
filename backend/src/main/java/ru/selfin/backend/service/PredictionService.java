@@ -14,6 +14,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -27,6 +28,8 @@ import java.util.stream.Collectors;
 public class PredictionService {
 
     private final FinancialEventRepository eventRepository;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     /**
      * Compute forecast for a single named category using already-fetched events.
@@ -107,7 +110,7 @@ public class PredictionService {
      * <p>Percentile-вычисление — линейная интерполяция между соседними точками отсортированного массива.
      */
     public CategoryMonthStats getStatsForCategory(Category cat, int historyWindowMonths) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         LocalDate from = today.minusMonths(historyWindowMonths).withDayOfMonth(1);
         LocalDate to = today.withDayOfMonth(1).minusDays(1);   // конец предыдущего месяца
 

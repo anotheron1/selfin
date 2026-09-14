@@ -108,6 +108,25 @@ public class GlobalExceptionHandler {
      * вместо того чтобы он попадал в generic-обработчик и превращался в 500.
      * Должен стоять ВЫШЕ @ExceptionHandler(Exception.class) — более специфичный матч.
      */
+    /**
+     * Подтверждаемый отказ (ANO-157). Статус тот же 409, что у безусловного, но в
+     * {@code details} лежит машиночитаемый код — по нему фронт решает, предлагать ли
+     * подтверждение. Без кода различить два смысла 409 можно было бы только по английской
+     * подстроке в сообщении, и текст стал бы негласным контрактом.
+     *
+     * <p>Стоит ВЫШЕ {@link #handleResponseStatus}: тип не наследует
+     * {@code ResponseStatusException} именно затем, чтобы не попасть в его ветку, где
+     * {@code details} кладётся пустым.
+     */
+    @ExceptionHandler(ru.selfin.backend.exception.ConfirmationRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleConfirmationRequired(
+            ru.selfin.backend.exception.ConfirmationRequiredException ex) {
+        log.warn("confirmation required: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of(
+                HttpStatus.CONFLICT.value(), ex.getMessage(),
+                List.of(ru.selfin.backend.exception.ConfirmationRequiredException.CODE)));
+    }
+
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
     public ResponseEntity<ErrorResponse> handleResponseStatus(
             org.springframework.web.server.ResponseStatusException ex) {

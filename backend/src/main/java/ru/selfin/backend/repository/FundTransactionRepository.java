@@ -27,21 +27,46 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
      * {@code AccountBalanceService.freeMoneyAt}/{@code semiLiquidAt}), и повторное сложение
      * дало бы задвоение (ANO-9 Task 2.3, спека §3.3/§4.4).
      *
-     * <p><b>ANO-86: фильтр {@code t.fund.deleted} обязателен.</b> Без него удалённая копилка
-     * продолжала давать деньги в ликвид: событие {@code FUND_TRANSFER} уже вычло их из
-     * остатка счёта, а движение осталось живым — и одна и та же сумма оказывалась
-     * одновременно НЕДОСТУПНОЙ (вернуть её было нечем) и ПОСЧИТАННОЙ (входила в капитал).
-     * Спека капитала ({@code 2026-05-10-capital-net-worth-design.md:66}) обещает, что
-     * {@code FUND_TRANSFER} и {@code FundTransaction} взаимно компенсируются; этот фильтр и
-     * есть условие обещания. Удаление копилки убирало одну половину компенсации и оставляло
-     * вторую.
+     * <p><b>ANO-156: фильтра по {@code t.fund.deleted} здесь НЕТ, и это важно.</b> Он стоял
+     * тут с ANO-86 и закрывал одну дыру: ветка «потрачено на цель» не писала компенсирующее
+     * движение, и деньги удалённой копилки висели в капитале вечно. Но флаг «удалена СЕЙЧАС»
+     * применялся ко ВСЕМ прошлым датам, а {@code BaselineTimelineBuilder.buildPastPoints}
+     * зовёт {@code cashLiquidAt} для каждого прошлого месяца — и удаление копилки сегодня
+     * переписывало историю ликвида от даты первого взноса.
+     *
+     * <p>Теперь обе ветки удаления пишут движение (ANO-156), и флаг здесь не нужен: сумма
+     * сама обнуляется с даты выбытия и сама сохраняет прошлое. <b>Возвращать фильтр нельзя</b>
+     * — он снова сломает историю; если удалённая копилка вдруг снова начнёт давать деньги в
+     * капитал, причину искать в отсутствующей компенсации, а не здесь.
+     *
+     * <p>Обещание спеки капитала ({@code 2026-05-10-capital-net-worth-design.md:66}) — что
+     * {@code FUND_TRANSFER} и {@code FundTransaction} взаимно компенсируются — теперь
+     * выполняется тем, чем и должно: парными записями, а не фильтром в запросе.
      */
     @Query("""
             SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
             WHERE t.deleted = false
-              AND t.fund.deleted = false
               AND t.transactionDate <= :date
               AND t.fund.accountId IS NULL
             """)
     BigDecimal sumEnvelopeFundsByTransactionDateLessThanEqual(@Param("date") LocalDate date);
+
+    /**
+     * Сумма живых движений ОДНОЙ копилки (ANO-156, найдено ревью PR #42).
+     *
+     * <p>Выбытие копилки обязано обнулить именно эту сумму: её складывает
+     * {@link #sumEnvelopeFundsByTransactionDateLessThanEqual}, и с ANO-156 фильтра по
+     * удалённости там нет — любой остаток виден в капитале навсегда, за каждую дату.
+     *
+     * <p><b>Поле {@code current_balance} для этого не годится.</b> Оно может разойтись с
+     * движениями: {@code TargetFundService.update} при отвязке копилки от счёта переносит в
+     * поле остаток СЧЁТА, не создавая движения. Компенсация по полю оставляла разницу —
+     * замерено на живой базе: −460 000 вместо нуля.
+     */
+    @Query("""
+            SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
+            WHERE t.fund.id = :fundId
+              AND t.deleted = false
+            """)
+    BigDecimal sumLiveByFundId(@Param("fundId") UUID fundId);
 }

@@ -11,7 +11,9 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,11 +28,27 @@ class FundPlannerServiceTest {
     private RecurringRuleService recurringRuleService;
     private FundPlannerService service;
 
+    /**
+     * ANO-39: 31-е число — тот самый день, в который эти тесты падали.
+     *
+     * <p>31 июля 2026 сборка на {@code main} была красной не из-за регрессии: тесты брали
+     * {@code today.plusDays(1)} как «будущее внутри месяца-0», а в последний день месяца
+     * «завтра» уезжает в месяц-1 и выпадает из агрегата. То есть они падали бы в последний
+     * день ЛЮБОГО месяца — три-четыре раза в квартал, всегда неожиданно.
+     *
+     * <p>Тогда их залечили выбором безопасного дня; причину — статический {@code now()} —
+     * не тронули. Теперь «сегодня» задаётся здесь, и краевой день проверяется КАЖДЫЙ прогон,
+     * а не в те дни, когда не повезло.
+     */
+    private static final Clock LAST_DAY_OF_MONTH = Clock.fixed(
+            LocalDate.of(2026, 1, 31).atStartOfDay(ZoneId.systemDefault()).toInstant(),
+            ZoneId.systemDefault());
+
     @BeforeEach
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
         recurringRuleService = mock(RecurringRuleService.class);
-        service = new FundPlannerService(eventRepository, recurringRuleService);
+        service = new FundPlannerService(eventRepository, recurringRuleService, LAST_DAY_OF_MONTH);
         // По умолчанию просроченных обязательных планов нет
         when(eventRepository.sumOverdueMandatoryExpenses(any(), any())).thenReturn(BigDecimal.ZERO);
         // По умолчанию FACT-записей текущего месяца нет
@@ -62,12 +80,13 @@ class FundPlannerServiceTest {
     @Test
     @DisplayName("first month plannedIncome excludes past events")
     void firstMonthExcludesPastPlannedIncome() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(LAST_DAY_OF_MONTH);   // 31.01.2026
         LocalDate yesterday = today.minusDays(1);
 
         // Месяц-0 фильтруется как [today .. конец месяца], today входит (!isBefore(today)).
-        // Берём именно today, а не today.plusDays(1): в последний день месяца «завтра»
-        // уезжает в месяц-1 и тест падал бы по календарю, а не по логике.
+        // В последний день месяца это ЕДИНСТВЕННЫЙ день, который в месяц-0 попадает:
+        // «завтра» уже февраль. Раньше эту тесноту обходили выбором дня прогона, теперь она
+        // проверяется намеренно — часы стоят на 31-м (ANO-39).
         FinancialEvent past = makeEvent(yesterday, EventType.INCOME, EventStatus.PLANNED,
                 Priority.MEDIUM, new BigDecimal("10000"), null);
         FinancialEvent notPast = makeEvent(today, EventType.INCOME, EventStatus.PLANNED,
@@ -85,13 +104,13 @@ class FundPlannerServiceTest {
     @Test
     @DisplayName("first month factExpenses includes all executed expenses (past + future)")
     void firstMonthFactExpensesIncludesPastExecuted() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(LAST_DAY_OF_MONTH);   // 31.01.2026
         LocalDate yesterday = today.minusDays(1);
 
         // V12: PLAN record for executed event (factAmount=null, status=EXECUTED)
         FinancialEvent pastPlan = makeEvent(yesterday, EventType.EXPENSE, EventStatus.EXECUTED,
                 Priority.MEDIUM, new BigDecimal("3000"), null);
-        // Ещё не прошедший план: today, а не today.plusDays(1) — см. коммент выше про месяц-0
+        // Ещё не прошедший план: в последний день месяца это только today — см. выше (ANO-39)
         FinancialEvent plannedToday = makeEvent(today, EventType.EXPENSE, EventStatus.PLANNED,
                 Priority.MEDIUM, new BigDecimal("2000"), null);
 
@@ -129,7 +148,10 @@ class FundPlannerServiceTest {
     @Test
     @DisplayName("second month is not filtered — includes all events in that month")
     void secondMonthNotFiltered() {
-        LocalDate firstDayNextMonth = LocalDate.now().plusMonths(1).withDayOfMonth(1);
+        // От тех же часов, что у сервиса: иначе тест строит событие в одном месяце, а
+        // планировщик считает другой, и совпадение зависит от дня прогона (ANO-39).
+        LocalDate firstDayNextMonth =
+                LocalDate.now(LAST_DAY_OF_MONTH).plusMonths(1).withDayOfMonth(1);
 
         FinancialEvent e = makeEvent(firstDayNextMonth, EventType.INCOME, EventStatus.PLANNED,
                 Priority.MEDIUM, new BigDecimal("8000"), null);

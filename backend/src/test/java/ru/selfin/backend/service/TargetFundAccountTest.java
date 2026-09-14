@@ -24,6 +24,7 @@ import ru.selfin.backend.repository.TargetFundRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -62,7 +63,8 @@ class TargetFundAccountTest {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
         service = new TargetFundService(fundRepo, txRepo, eventRepo, categoryRepo,
-                accountRepo, balanceService, mock(WishlistArtifactService.class));
+                accountRepo, balanceService, mock(WishlistArtifactService.class),
+                Clock.systemDefaultZone());
     }
 
     private static TargetFund fund(UUID accountId, String storedBalance) {
@@ -153,12 +155,11 @@ class TargetFundAccountTest {
                 .thenReturn(Optional.of(ru.selfin.backend.model.Category.builder()
                         .id(UUID.randomUUID()).name("Переводы в копилки").build()));
 
-        // confirm=true намеренно: предмет этого теста — что перевод в виртуальный конверт
-        // проходит, а не проверка достаточности из ANO-87. Здесь собран настоящий
-        // AccountBalanceService поверх мок-репозиториев, поэтому свободных денег у него ноль,
-        // и без подтверждения перевод упёрся бы в предупреждение — но проверялось бы уже не
-        // то, что заявлено в названии. Достаточность покрыта отдельно, в FundMoneyFlowIT.
-        service.transferToPocket(f.getId(), key, new BigDecimal("5000"), true);
+        // ANO-157: подтверждения тут больше не нужно, и это предмет проверки. У этого
+        // AccountBalanceService нет ни счетов, ни фактов — оснований судить об остатке нет,
+        // а значит нет и мнения. До ANO-157 перевод упирался в предупреждение из пустоты, и
+        // тест обходил его через confirm=true: костыль в тесте вместо починки в продукте.
+        service.transferToPocket(f.getId(), key, new BigDecimal("5000"));
 
         assertThat(f.getCurrentBalance()).isEqualByComparingTo("6000");
         verify(fundRepo).save(f);
@@ -242,6 +243,32 @@ class TargetFundAccountTest {
         assertThatThrownBy(() -> service.create(new TargetFundCreateDto("Цель",
                 new BigDecimal("100000"), null, null, null, null, null, unknown)))
                 .isInstanceOf(ru.selfin.backend.exception.ResourceNotFoundException.class);
+
+        verify(fundRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ANO-157: якорь на НОЛЬ — предупреждение остаётся, это знание, а не пустота")
+    void transferOverBalance_withZeroAnchor_stillNeedsConfirmation() {
+        // Самая острая пара к тесту выше: свободных денег ноль в обоих случаях, а исход
+        // противоположный. Там ноль означал «мы не знаем», здесь — «человек ввёл ноль».
+        // Никакая числовая проверка free == 0 эту пару не различит.
+        TargetFund f = fund(null, "0");
+        UUID key = UUID.randomUUID();
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        when(txRepo.findByIdempotencyKey(key)).thenReturn(Optional.empty());
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        when(accountRepo.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(defaultAccount));
+        when(checkpointRepo.findLatestForAccountAt(any(), any()))
+                .thenReturn(Optional.of(BalanceCheckpoint.builder()
+                        .id(UUID.randomUUID()).date(LocalDate.now()).amount(BigDecimal.ZERO)
+                        .account(defaultAccount).build()));
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+
+        assertThatThrownBy(() ->
+                service.transferToPocket(f.getId(), key, new BigDecimal("5000")))
+                .isInstanceOf(ru.selfin.backend.exception.ConfirmationRequiredException.class);
 
         verify(fundRepo, never()).save(any());
     }

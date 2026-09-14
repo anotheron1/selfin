@@ -13,6 +13,7 @@ import ru.selfin.backend.dto.pocket.sandbox.SandboxResponseDto;
 import ru.selfin.backend.service.PocketSandboxService;
 import ru.selfin.backend.service.PocketService;
 
+import java.time.Clock;
 import java.time.LocalDate;
 
 /** Кармашек — единый ответ «сколько свободно и почему» (спека §6) + примерка ANO-16. */
@@ -23,15 +24,17 @@ public class PocketController {
 
     private final PocketService pocketService;
     private final PocketSandboxService sandboxService;
+    /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
+    private final Clock clock;
 
     @GetMapping
     public PocketResultDto get(@RequestParam(required = false) String scope) {
-        return pocketService.getPocket(scope, LocalDate.now());
+        return pocketService.getPocket(scope, LocalDate.now(clock));
     }
 
     /** Примерка «что если» (спека sandbox §4): ничего не пишет, движок с подменённым входом. */
     @PostMapping("/sandbox")
     public SandboxResponseDto sandbox(@RequestBody SandboxRequestDto request) {
-        return sandboxService.simulate(request, LocalDate.now());
+        return sandboxService.simulate(request, LocalDate.now(clock));
     }
 }
