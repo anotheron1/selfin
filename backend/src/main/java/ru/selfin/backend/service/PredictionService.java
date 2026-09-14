@@ -20,7 +20,9 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -66,7 +68,10 @@ public class PredictionService {
         List<CategoryForecastDto> forecasts = new ArrayList<>();
         BigDecimal netDelta = BigDecimal.ZERO;
 
-        for (Category cat : categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()) {
+        List<Category> enabled = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
+        Map<UUID, CategoryMonthStats> stats = statsForCategories(enabled, HISTORY_WINDOW_MONTHS);
+
+        for (Category cat : enabled) {
             List<FinancialEvent> catEvents = monthEvents.stream()
                     .filter(e -> !e.isDeleted())
                     .filter(e -> e.getCategory() != null && cat.getId().equals(e.getCategory().getId()))
@@ -74,7 +79,7 @@ public class PredictionService {
 
             BigDecimal fact = sumFacts(catEvents);
             BigDecimal pendingPlans = sumPendingPlans(catEvents);
-            BigDecimal median = medianIfTrusted(cat);
+            BigDecimal median = medianIfTrusted(stats.get(cat.getId()));
 
             BigDecimal beyondPlan = median.subtract(fact).subtract(pendingPlans).max(BigDecimal.ZERO);
             BigDecimal projection = median.max(fact.add(pendingPlans));
@@ -88,8 +93,8 @@ public class PredictionService {
     }
 
     /** Медиана категории либо ноль, если месяцев наблюдения меньше порога. */
-    private BigDecimal medianIfTrusted(Category cat) {
-        CategoryMonthStats stats = getStatsForCategory(cat, HISTORY_WINDOW_MONTHS);
+    private BigDecimal medianIfTrusted(CategoryMonthStats stats) {
+        if (stats == null) return BigDecimal.ZERO;
         return stats.monthsOfHistory() >= MIN_HISTORY_MONTHS ? stats.median() : BigDecimal.ZERO;
     }
 
@@ -115,8 +120,9 @@ public class PredictionService {
      * человеком», а не «в скольких месяцах он тратил в этой категории». Редкая категория
      * порог проходит и гасит себя низкой медианой, а не отсекается порогом.
      *
-     * <p>Фильтр событий — тот же что в {@link #sumFacts}: {@code eventKind = FACT, deleted = false}.
-     * {@code EventStatus} не учитывается (все FACT-события — учётные транзакции).
+     * <p>Трата — это событие с ненулевым {@code factAmount}, любого вида. Фильтр по
+     * {@code eventKind == FACT} терял траты, записанные правкой строки плана: тот же путь,
+     * что чинится в {@link #sumFacts}. Обе половины одной формулы обязаны считать одинаково.
      *
      * <p>Если {@code monthsOfHistory < MIN_HISTORY_MONTHS}, caller не должен учитывать
      * категорию — но median всё равно вычисляется.
@@ -124,24 +130,44 @@ public class PredictionService {
      * <p>Percentile-вычисление — линейная интерполяция между соседними точками отсортированного массива.
      */
     public CategoryMonthStats getStatsForCategory(Category cat, int historyWindowMonths) {
+        return statsForCategories(List.of(cat), historyWindowMonths)
+                .getOrDefault(cat.getId(), noStats(cat.getId()));
+    }
+
+    /**
+     * То же, что {@link #getStatsForCategory}, но сразу по списку категорий и за ОДИН поход
+     * в базу на всех.
+     *
+     * <p>ANO-80: прогноз текущего месяца считается по каждой включённой категории, и
+     * поштучный вызов давал бы два запроса на категорию при каждом расчёте кармашка. На
+     * боевых данных владельца это 21 категория × 2 запроса × 2 скоупа на одну загрузку
+     * дашборда. Окно и первая трата от категории не зависят — значит, и спрашивать их
+     * по разу на категорию незачем.
+     */
+    public Map<UUID, CategoryMonthStats> statsForCategories(List<Category> categories,
+                                                            int historyWindowMonths) {
+        Map<UUID, CategoryMonthStats> result = new LinkedHashMap<>();
+        if (categories.isEmpty()) return result;
+
         LocalDate today = LocalDate.now(clock);
         YearMonth lastFull = YearMonth.from(today).minusMonths(1);
-
-        LocalDate firstFact = eventRepository.findFirstFactDate();
-        if (firstFact == null) {
-            return new CategoryMonthStats(cat.getId(), 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        LocalDate firstSpending = eventRepository.findFirstSpendingDate();
+        if (firstSpending == null) {
+            categories.forEach(c -> result.put(c.getId(), noStats(c.getId())));
+            return result;
         }
 
-        // ANO-80. Месяц первого факта отбрасывается ВСЕГДА, даже если факт пришёлся на первое
+        // ANO-80. Месяц первой траты отбрасывается ВСЕГДА, даже если она пришлась на первое
         // число: запись первого числа так же может быть занесена задним числом, как и любая
         // другая. Правило не пытается угадать, вёлся ли учёт с начала месяца, — и потому
         // проверяется тестом без оговорок. Замерено: неполный первый месяц занижал медианы
         // на 13–27 % (эталонный стенд, «Авто» 44 379 → 38 598, «Медицина» 16 615 → 12 076).
-        YearMonth firstObserved = YearMonth.from(firstFact).plusMonths(1);
+        YearMonth firstObserved = YearMonth.from(firstSpending).plusMonths(1);
         YearMonth windowStart = lastFull.minusMonths(historyWindowMonths - 1L);
         if (windowStart.isBefore(firstObserved)) windowStart = firstObserved;
         if (windowStart.isAfter(lastFull)) {
-            return new CategoryMonthStats(cat.getId(), 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+            categories.forEach(c -> result.put(c.getId(), noStats(c.getId())));
+            return result;
         }
 
         List<YearMonth> observedMonths = new ArrayList<>();
@@ -149,33 +175,42 @@ public class PredictionService {
             observedMonths.add(m);
         }
 
-        Map<YearMonth, BigDecimal> monthlyTotals = eventRepository
-                .findFactsByDateRange(windowStart.atDay(1), lastFull.atEndOfMonth()).stream()
+        Map<UUID, Map<YearMonth, BigDecimal>> spendingByCategory = eventRepository
+                .findSpendingByDateRange(windowStart.atDay(1), lastFull.atEndOfMonth()).stream()
                 .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.FACT)
-                .filter(e -> e.getCategory() != null && cat.getId().equals(e.getCategory().getId()))
+                .filter(e -> e.getCategory() != null && e.getDate() != null && e.getFactAmount() != null)
                 .collect(Collectors.groupingBy(
-                        e -> YearMonth.from(e.getDate()),
-                        Collectors.reducing(BigDecimal.ZERO,
-                                e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO,
-                                BigDecimal::add)
+                        e -> e.getCategory().getId(),
+                        Collectors.groupingBy(
+                                e -> YearMonth.from(e.getDate()),
+                                Collectors.reducing(BigDecimal.ZERO,
+                                        FinancialEvent::getFactAmount, BigDecimal::add))
                 ));
 
-        // Месяц наблюдения без траты в категории — полноценный ноль в ряду, а не пропуск.
-        // Без этого «Одежда», покупаемая раз в квартал, закладывалась бы каждый месяц целиком:
-        // на стенде такая категория давала медиану 5 283 вместо честного нуля.
-        List<BigDecimal> sorted = observedMonths.stream()
-                .map(m -> monthlyTotals.getOrDefault(m, BigDecimal.ZERO))
-                .sorted()
-                .toList();
+        for (Category cat : categories) {
+            Map<YearMonth, BigDecimal> monthlyTotals =
+                    spendingByCategory.getOrDefault(cat.getId(), Map.of());
 
-        return new CategoryMonthStats(
-                cat.getId(),
-                observedMonths.size(),
-                percentile(sorted, 0.50),
-                percentile(sorted, 0.25),
-                percentile(sorted, 0.75)
-        );
+            // Месяц наблюдения без траты в категории — полноценный ноль в ряду, а не пропуск.
+            // Без этого «Одежда», покупаемая раз в квартал, закладывалась бы каждый месяц
+            // целиком: на стенде такая категория давала медиану 5 283 вместо честного нуля.
+            List<BigDecimal> sorted = observedMonths.stream()
+                    .map(m -> monthlyTotals.getOrDefault(m, BigDecimal.ZERO))
+                    .sorted()
+                    .toList();
+
+            result.put(cat.getId(), new CategoryMonthStats(
+                    cat.getId(),
+                    observedMonths.size(),
+                    percentile(sorted, 0.50),
+                    percentile(sorted, 0.25),
+                    percentile(sorted, 0.75)));
+        }
+        return result;
+    }
+
+    private static CategoryMonthStats noStats(UUID categoryId) {
+        return new CategoryMonthStats(categoryId, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
     }
 
     /**

@@ -56,11 +56,11 @@ class PredictionServiceStatsTest {
 
     /** Первый факт пользователя — начало наблюдения; его месяц отбрасывается как неполный. */
     private void observingSince(LocalDate firstFact) {
-        when(eventRepo.findFirstFactDate()).thenReturn(firstFact);
+        when(eventRepo.findFirstSpendingDate()).thenReturn(firstFact);
     }
 
     private void facts(FinancialEvent... events) {
-        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of(events));
+        when(eventRepo.findSpendingByDateRange(any(), any())).thenReturn(List.of(events));
     }
 
     private FinancialEvent factEvent(LocalDate date, String amount) {
@@ -111,7 +111,7 @@ class PredictionServiceStatsTest {
 
     @Test
     void getStatsForCategory_with_zero_history_returns_zeros() {
-        // findFirstFactDate() не застабан — мок отдаёт null, фактов нет вовсе.
+        // findFirstSpendingDate() не застабан — мок отдаёт null, фактов нет вовсе.
         facts();
 
         CategoryMonthStats stats = service.getStatsForCategory(cat, 6);

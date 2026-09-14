@@ -21,11 +21,12 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -58,7 +59,7 @@ class PredictionServiceTest {
     void setUp() {
         eventRepo = mock(FinancialEventRepository.class);
         categoryRepo = mock(CategoryRepository.class);
-        // spy — чтобы подменять getStatsForCategory в medianOf(). Внутренние вызовы
+        // spy — чтобы подменять statsForCategories в medianOf(). Внутренние вызовы
         // forecastFromEvents идут через прокси и потому перехватываются.
         service = spy(new PredictionService(eventRepo, categoryRepo, FIXED));
         food = makeCategory("Еда / Продукты");
@@ -246,11 +247,16 @@ class PredictionServiceTest {
         when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(cats));
     }
 
-    /** Подменяет статистику категории: медиана и число месяцев наблюдения. */
+    /**
+     * Подменяет статистику категории: медиана и число месяцев наблюдения.
+     *
+     * <p>Подмена вешается на батч-метод, потому что расчёт ходит именно через него —
+     * один поход в базу на все категории вместо двух запросов на каждую.
+     */
     private void medianOf(Category c, String median, int months) {
-        doReturn(new CategoryMonthStats(c.getId(), months, new BigDecimal(median),
-                new BigDecimal(median), new BigDecimal(median)))
-                .when(service).getStatsForCategory(eq(c), anyInt());
+        doReturn(Map.of(c.getId(), new CategoryMonthStats(c.getId(), months,
+                new BigDecimal(median), new BigDecimal(median), new BigDecimal(median))))
+                .when(service).statsForCategories(anyList(), anyInt());
     }
 
     private FinancialEvent fact(Category category, LocalDate date, String amount) {
