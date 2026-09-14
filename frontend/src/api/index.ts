@@ -3,6 +3,7 @@ import type {
     Account,
     AccountCreateDto,
     AnalyticsReport,
+    ForecastReadiness,
     BalanceCheckpoint,
     BalanceCheckpointCreateDto,
     BudgetSnapshot,
@@ -129,6 +130,13 @@ export const createStandaloneFact = (dto: StandaloneFactCreateDto) =>
  */
 export const fetchDashboard = (date?: string) =>
     get<DashboardData>(`/analytics/dashboard${date ? `?date=${date}` : ''}`);
+
+/**
+ * Готовность прогноза (ANO-80): сколько месяцев наблюдения набралось и когда он появится.
+ * Нужна экрану категорий, чтобы «галочка стоит, а прогноза нет» не читалось как поломка.
+ */
+export const fetchForecastReadiness = () =>
+    get<ForecastReadiness>('/analytics/forecast-readiness');
 
 /**
  * Загружает расширенный аналитический отчёт за месяц:

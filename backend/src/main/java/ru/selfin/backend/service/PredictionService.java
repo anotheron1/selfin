@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.CategoryForecastDto;
 import ru.selfin.backend.dto.DailyForecastPointDto;
+import ru.selfin.backend.dto.ForecastReadinessDto;
 import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.strategy.CategoryMonthStats;
 import ru.selfin.backend.model.Category;
@@ -18,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -90,6 +92,33 @@ public class PredictionService {
         }
 
         return new MonthlyForecastDto(forecasts, netDelta);
+    }
+
+    /**
+     * Готовность прогноза: сколько месяцев наблюдения набралось и когда он появится.
+     *
+     * <p>ANO-80. Без этого случай «галочка стоит, а прогноза нет» читается как поломка:
+     * человек включил, ничего не изменилось, и единственный доступный ему вывод —
+     * «не работает». Экран категорий дописывает месяц готовности рядом с пометкой.
+     */
+    public ForecastReadinessDto readiness() {
+        LocalDate today = LocalDate.now(clock);
+        LocalDate firstSpending = eventRepository.findFirstSpendingDate();
+        if (firstSpending == null) {
+            // Считать не от чего: обещать месяц было бы выдумкой.
+            return new ForecastReadinessDto(0, MIN_HISTORY_MONTHS, null);
+        }
+
+        YearMonth lastFull = YearMonth.from(today).minusMonths(1);
+        YearMonth firstObserved = YearMonth.from(firstSpending).plusMonths(1);
+        int observed = (int) Math.max(0, ChronoUnit.MONTHS.between(firstObserved, lastFull) + 1);
+        if (observed >= MIN_HISTORY_MONTHS) {
+            return new ForecastReadinessDto(observed, MIN_HISTORY_MONTHS, null);
+        }
+
+        // Каждый прошедший месяц добавляет один месяц наблюдения.
+        YearMonth readyFrom = YearMonth.from(today).plusMonths(MIN_HISTORY_MONTHS - observed);
+        return new ForecastReadinessDto(observed, MIN_HISTORY_MONTHS, readyFrom.toString());
     }
 
     /** Медиана категории либо ноль, если месяцев наблюдения меньше порога. */

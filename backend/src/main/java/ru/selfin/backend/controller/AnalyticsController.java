@@ -8,6 +8,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.DashboardDto;
+import ru.selfin.backend.dto.ForecastReadinessDto;
 import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.MultiMonthReportDto;
 import ru.selfin.backend.service.AnalyticsService;
@@ -69,5 +70,13 @@ public class AnalyticsController {
         LocalDate today = date != null ? date : LocalDate.now(clock);
         YearMonth month = YearMonth.from(today);
         return predictionService.forecastMonth(month, today);
+    }
+
+    @Operation(summary = "Готовность прогноза",
+            description = "Сколько полных месяцев наблюдения набралось и с какого месяца "
+                    + "прогноз появится. Величина общая, а не покатегорийная (ANO-80).")
+    @GetMapping("/forecast-readiness")
+    public ForecastReadinessDto getForecastReadiness() {
+        return predictionService.readiness();
     }
 }

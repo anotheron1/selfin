@@ -199,6 +199,16 @@ export interface PocketResponse {
     pocketWithForecast: number | null;
 }
 
+/**
+ * Готовность прогноза (ANO-80). Величина общая, а не покатегорийная.
+ * readyFrom — месяц вида '2026-11'; null — уже готов либо считать не от чего.
+ */
+export interface ForecastReadiness {
+    monthsObserved: number;
+    monthsRequired: number;
+    readyFrom: string | null;
+}
+
 // ── Pocket sandbox (ANO-16) ──────────────────────────────────────────────────
 export type SandboxRefType = 'EVENT' | 'FUND';
 export interface SandboxRef { type: SandboxRefType; id: string; }

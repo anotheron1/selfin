@@ -4,8 +4,9 @@ import {
     fetchSnapshots, createSnapshot,
     fetchCheckpoints, createCheckpoint, updateCheckpoint, deleteCheckpoint,
     fetchAccounts,
+    fetchForecastReadiness,
 } from '../api';
-import type { Account, BalanceCheckpoint, BudgetSnapshot, Category, CategoryType } from '../types/api';
+import type { Account, BalanceCheckpoint, BudgetSnapshot, Category, CategoryType, ForecastReadiness } from '../types/api';
 import PriorityButton from '../components/PriorityButton';
 import AccountsSection from '../components/accounts/AccountsSection';
 import { Plus, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
@@ -19,6 +20,22 @@ const inputStyle = {
 };
 const today = () => new Date().toISOString().slice(0, 10);
 
+const MONTHS_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/** '2026-11' → 'ноября'. Родительный падеж: подставляется в «с ноября». */
+const monthLabel = (yearMonth: string) =>
+    MONTHS_GENITIVE[Number(yearMonth.slice(5, 7)) - 1] ?? yearMonth;
+
+/**
+ * ANO-80. Три факта, о которые иначе спотыкаются: откуда берётся прогноз, почему может
+ * не появиться сразу и что главное число кармашка он не трогает. Подписью, а не модалкой:
+ * модалка читается как предупреждение о риске, а предупреждать тут не о чем.
+ */
+const FORECAST_HINT = 'Считает, сколько обычно уходит в эту категорию за месяц — по последним '
+    + 'месяцам, включая те, когда трат не было. Нужно три месяца наблюдений. На кармашек '
+    + 'не влияет: показывается отдельным числом рядом.';
+
 export default function Settings() {
     // --- Categories ---
     const [categories, setCategories] = useState<Category[]>([]);
@@ -31,6 +48,8 @@ export default function Settings() {
     const [createForecast, setCreateForecast] = useState(false);
     const [editCatPrimaryIncome, setEditCatPrimaryIncome] = useState(false);
     const [createPrimaryIncome, setCreatePrimaryIncome] = useState(false);
+    /** ANO-80: когда прогноз станет доступен — чтобы «включил, а пусто» не читалось как поломка. */
+    const [readiness, setReadiness] = useState<ForecastReadiness | null>(null);
 
     // --- Snapshots ---
     const [snapshots, setSnapshots] = useState<BudgetSnapshot[]>([]);
@@ -56,11 +75,12 @@ export default function Settings() {
     };
 
     const load = () => fetchCategories().then(setCategories);
+    const loadReadiness = () => fetchForecastReadiness().then(setReadiness);
     const loadSnapshots = () => fetchSnapshots().then(setSnapshots);
     const loadCheckpoints = () => fetchCheckpoints().then(setCheckpoints);
     const loadAccounts = () => fetchAccounts().then(setAccounts);
 
-    useEffect(() => { load(); loadSnapshots(); loadCheckpoints(); loadAccounts(); }, []);
+    useEffect(() => { load(); loadSnapshots(); loadCheckpoints(); loadAccounts(); loadReadiness(); }, []);
 
     /**
      * Правка счетов меняет и историю остатков: удалённый счёт уходит из выбора, переименованный
@@ -363,6 +383,7 @@ export default function Settings() {
                             </button>
                         </div>
                         {type === 'EXPENSE' && (
+                            <>
                             <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
                                 style={{ color: 'var(--color-text-muted)' }}>
                                 <input
@@ -373,6 +394,11 @@ export default function Settings() {
                                 />
                                 <span className="text-xs">Отслеживать прогноз</span>
                             </label>
+                            <p className="text-[11px] leading-snug mt-1 max-w-[28rem] px-1"
+                                style={{ color: 'var(--color-text-muted)' }}>
+                                {FORECAST_HINT}
+                            </p>
+                            </>
                         )}
                         {type === 'INCOME' && (
                             <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
@@ -430,6 +456,7 @@ export default function Settings() {
                                             </button>
                                         </div>
                                         {editCatType === 'EXPENSE' && (
+                                            <>
                                             <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
                                                 style={{ color: 'var(--color-text-muted)' }}>
                                                 <input
@@ -440,6 +467,11 @@ export default function Settings() {
                                                 />
                                                 <span className="text-xs">Отслеживать прогноз</span>
                                             </label>
+                                            <p className="text-[11px] leading-snug mt-1 max-w-[28rem] px-1"
+                                                style={{ color: 'var(--color-text-muted)' }}>
+                                                {FORECAST_HINT}
+                                            </p>
+                                            </>
                                         )}
                                         {editCatType === 'INCOME' && (
                                             <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
@@ -467,7 +499,13 @@ export default function Settings() {
                                                 <span className="text-sm">
                                                     {c.name}
                                                     {c.forecastEnabled && (
-                                                        <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>· прогноз</span>
+                                                        // ANO-80: галочка стоит, а прогноза ещё нет — иначе это
+                                                        // читается как поломка. Говорим, когда он появится.
+                                                        <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>
+                                                            {readiness?.readyFrom
+                                                                ? `· прогноз — с ${monthLabel(readiness.readyFrom)}`
+                                                                : '· прогноз'}
+                                                        </span>
                                                     )}
                                                     {c.primaryIncome && (
                                                         <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>· основной</span>
