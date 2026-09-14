@@ -32,6 +32,19 @@ public class PredictionService {
     private final Clock clock;
 
     /**
+     * Сколько полных месяцев наблюдения нужно, чтобы верить медиане категории.
+     *
+     * <p>ANO-80: один порог на трёх потребителей — прогноз текущего месяца, прогноз будущих
+     * месяцев ({@code PocketInputAssembler}) и конус fan chart ({@code BaselineTimelineBuilder}).
+     * Вторую копию запрещает {@code ForecastThresholdSingleSourceTest}: разъехавшись, копии
+     * дадут экран, где прогноз в кармашке есть, а конуса рядом нет.
+     */
+    public static final int MIN_HISTORY_MONTHS = 3;
+
+    /** Окно истории для медианы — те же шесть месяцев у всех троих. */
+    public static final int HISTORY_WINDOW_MONTHS = 6;
+
+    /**
      * Compute forecast for a single named category using already-fetched events.
      * Events for other categories are ignored.
      */

@@ -261,10 +261,9 @@ public class PocketInputAssembler {
         return new Assembled(input, baselineRefs, allIncomes);
     }
 
-    /** Сколько месяцев истории нужно категории, чтобы ей верить (как у fan chart §конус). */
-    private static final int MIN_HISTORY_MONTHS = 3;
-    /** Окно истории для медианы — то же, что у траектории стратегии. */
-    private static final int HISTORY_WINDOW_MONTHS = 6;
+    // ANO-80: порог и окно жили здесь своей копией, а в конусе fan chart — своей. Обе
+    // переехали в PredictionService, потому что расходиться им нельзя: тест-сторож
+    // ForecastThresholdSingleSourceTest запрещает вторую копию.
 
     /**
      * Прогноз «сверх плана» по будущим месяцам горизонта (ANO-36).
@@ -290,8 +289,8 @@ public class PocketInputAssembler {
 
         Map<java.util.UUID, BigDecimal> medians = new java.util.LinkedHashMap<>();
         for (var cat : categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()) {
-            var stats = predictionService.getStatsForCategory(cat, HISTORY_WINDOW_MONTHS);
-            if (stats.monthsOfHistory() >= MIN_HISTORY_MONTHS) {
+            var stats = predictionService.getStatsForCategory(cat, PredictionService.HISTORY_WINDOW_MONTHS);
+            if (stats.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS) {
                 medians.put(cat.getId(), stats.median());
             }
         }
