@@ -217,8 +217,9 @@ public class PredictionService {
         for (int d = 1; d <= today.getDayOfMonth(); d++) {
             LocalDate dayDate = monthStart.withDayOfMonth(d);
 
+            // Вид события не фильтруем по той же причине, что в sumFacts: факт может лежать
+            // на строке плана.
             BigDecimal factOnDay = catEvents.stream()
-                    .filter(e -> e.getEventKind() == EventKind.FACT)
                     .filter(e -> e.getDate() != null && !e.getDate().isAfter(dayDate))
                     .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -251,9 +252,21 @@ public class PredictionService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /**
+     * Потрачено в категории — сумма {@code factAmount} по ВСЕМ событиям, любого вида.
+     *
+     * <p>ANO-80: фильтр по {@code eventKind == FACT} был неверен. Факт можно внести двумя
+     * способами: отдельным событием-ребёнком (у плана меняется только статус) и правкой той
+     * же строки плана ({@code PATCH /events/{id}/fact} ставит factAmount и переводит статус).
+     * Во втором случае трата живёт на строке вида PLAN, и фильтр по виду её терял — норма не
+     * вычитала уже ушедшие деньги и завышала прогноз ровно на них.
+     *
+     * <p>Так же считает и дашборд в {@code buildProgressBars}: сумма factAmount по всем
+     * событиям категории, без разбора вида. Двойного счёта нет — factAmount живёт либо на
+     * плане, либо на его факте-ребёнке, но не на обоих.
+     */
     private BigDecimal sumFacts(List<FinancialEvent> events) {
         return events.stream()
-                .filter(e -> e.getEventKind() == EventKind.FACT)
                 .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }

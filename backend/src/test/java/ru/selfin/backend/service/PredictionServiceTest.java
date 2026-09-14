@@ -97,18 +97,37 @@ class PredictionServiceTest {
     }
 
     @Test
-    @DisplayName("ANO-80: погашенный план не вычитается — его уже заменил факт")
-    void forecastFromEvents_executedPlan_notSubtractedTwice() {
+    @DisplayName("ANO-80: план со статусом EXECUTED не вычитается — его закрыл факт-ребёнок")
+    void forecastFromEvents_planClosedByChildFact_notSubtractedTwice() {
         enabled(food);
         medianOf(food, "50000", 5);
 
+        // Форма из боя: факт заведён отдельным событием, у плана меняется только статус.
         MonthlyForecastDto result = service.forecastFromEvents(
-                List.of(executedPlan(food, LocalDate.of(2026, 9, 3), "4000"),
+                List.of(closedPlanNoFactAmount(food, LocalDate.of(2026, 9, 3), "4000"),
                         fact(food, LocalDate.of(2026, 9, 3), "5000")),
                 LocalDate.of(2026, 9, 14));
 
         assertThat(result.netPredictionDelta())
                 .as("вычесть и план, и заменивший его факт значит посчитать трату дважды")
+                .isEqualByComparingTo("45000");
+    }
+
+    @Test
+    @DisplayName("ANO-80: факт, внесённый в строку плана, считается потраченным")
+    void forecastFromEvents_factPatchedOntoPlanRow_countsAsSpent() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+
+        // Вторая форма из боя: PATCH /events/{id}/fact ставит factAmount на ту же строку
+        // и переводит статус. Трата живёт на событии вида PLAN — фильтр по виду её терял,
+        // и норма не вычитала уже ушедшие деньги.
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(planPatchedWithFact(food, LocalDate.of(2026, 9, 3), "4000", "5000")),
+                LocalDate.of(2026, 9, 14));
+
+        assertThat(result.netPredictionDelta())
+                .as("деньги ушли: норма обязана вычесть их, а не ждать события вида FACT")
                 .isEqualByComparingTo("45000");
     }
 
@@ -250,11 +269,27 @@ class PredictionServiceTest {
                 .build();
     }
 
-    /** План, закрытый фактом: статус EXECUTED и проставленный factAmount — как в бою. */
-    private FinancialEvent executedPlan(Category category, LocalDate date, String amount) {
+    /**
+     * План, закрытый отдельным фактом-ребёнком: меняется только статус.
+     * Так работает {@code POST /events/{planId}/facts} — factAmount у плана остаётся null.
+     */
+    private FinancialEvent closedPlanNoFactAmount(Category category, LocalDate date, String amount) {
         return FinancialEvent.builder()
                 .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
-                .date(date).plannedAmount(new BigDecimal(amount)).factAmount(new BigDecimal(amount))
+                .date(date).plannedAmount(new BigDecimal(amount))
+                .eventKind(EventKind.PLAN).status(EventStatus.EXECUTED).deleted(false)
+                .build();
+    }
+
+    /**
+     * План, в строку которого внесли факт: {@code PATCH /events/{id}/fact} ставит factAmount
+     * и переводит статус в EXECUTED. Вид события остаётся PLAN.
+     */
+    private FinancialEvent planPatchedWithFact(Category category, LocalDate date,
+                                               String planned, String factual) {
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
+                .date(date).plannedAmount(new BigDecimal(planned)).factAmount(new BigDecimal(factual))
                 .eventKind(EventKind.PLAN).status(EventStatus.EXECUTED).deleted(false)
                 .build();
     }
