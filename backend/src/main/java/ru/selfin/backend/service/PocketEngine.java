@@ -100,21 +100,29 @@ public final class PocketEngine {
         List<PocketResultDto.TrajectoryPoint> trajectory = new ArrayList<>();
         BigDecimal running = currentBalance.subtract(overdue).subtract(todayExpenses);
         trajectory.add(new PocketResultDto.TrajectoryPoint(
-                in.asOfDate(), running, BigDecimal.ZERO, overdue.add(todayExpenses)));
+                in.asOfDate(), running, BigDecimal.ZERO, overdue.add(todayExpenses), null));
 
         BigDecimal minBalance = running;
         LocalDate minDate = in.asOfDate();
         String minDrivenBy = null;
         BigDecimal expensesCum = todayExpenses;
         BigDecimal incomeCum = BigDecimal.ZERO;
-        BigDecimal forecastCum = BigDecimal.ZERO;
         BigDecimal contribCum = BigDecimal.ZERO;
         java.util.LinkedHashSet<String> contribNames = new java.util.LinkedHashSet<>();
         BigDecimal expensesAtMin = todayExpenses;
         BigDecimal incomeAtMin = BigDecimal.ZERO;
-        BigDecimal forecastAtMin = BigDecimal.ZERO;
         BigDecimal contribAtMin = BigDecimal.ZERO;
         List<String> contribNamesAtMin = List.of();
+
+        // ANO-80. Вторая кумулята: тот же бегущий остаток, но с прогнозом. Главное число
+        // кармашка считается по ПЕРВОЙ — предположение не входит в сумму, которой человек
+        // распоряжается, — а вторая даёт оговорку «с обычными тратами» и отдельный, более
+        // ранний минимум для мягкой плашки разрыва.
+        BigDecimal runningForecast = running;
+        BigDecimal minForecast = runningForecast;
+        LocalDate minForecastDate = in.asOfDate();
+        String minForecastDrivenBy = null;
+        boolean hasForecast = false;
 
         for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(trajEnd); d = d.plusDays(1)) {
             BigDecimal dayIncome = BigDecimal.ZERO;
@@ -127,6 +135,7 @@ public final class PocketEngine {
                     dayIncome = dayIncome.add(amount);
                     incomeCum = incomeCum.add(amount);
                     running = running.add(amount);
+                    runningForecast = runningForecast.add(amount);
                 } else {
                     dayExpense = dayExpense.add(amount);
                     // Взносы в копилки (ANO-16 §6) — своя строка breakdown, не PLANNED_EXPENSES
@@ -137,34 +146,50 @@ public final class PocketEngine {
                         expensesCum = expensesCum.add(amount);
                     }
                     running = running.subtract(amount);
+                    runningForecast = runningForecast.subtract(amount);
                     if (amount.compareTo(dayTopExpenseAmount) > 0) {
                         dayTopExpenseAmount = amount;
                         dayTopExpense = e.description();
                     }
                 }
             }
+            // Прогноз двигает ТОЛЬКО вторую кумуляту. В dayExpense он больше не подмешивается:
+            // поле означает расход по планам, как и написано на его этикетке.
             BigDecimal dayForecast = forecastByDay.getOrDefault(d, BigDecimal.ZERO);
             if (dayForecast.signum() != 0) {
-                forecastCum = forecastCum.add(dayForecast);
-                dayExpense = dayExpense.add(dayForecast);
-                running = running.subtract(dayForecast);
+                hasForecast = true;
+                runningForecast = runningForecast.subtract(dayForecast);
             }
-            trajectory.add(new PocketResultDto.TrajectoryPoint(d, running, dayIncome, dayExpense));
+            trajectory.add(new PocketResultDto.TrajectoryPoint(d, running, dayIncome, dayExpense,
+                    hasForecast ? runningForecast : null));
             // Минимум ищем ТОЛЬКО внутри горизонта — хвост информационный (§3.9)
-            if (!d.isAfter(in.horizonEnd()) && running.compareTo(minBalance) < 0) {
-                minBalance = running;
-                minDate = d;
-                minDrivenBy = dayTopExpense;
-                expensesAtMin = expensesCum;
-                incomeAtMin = incomeCum;
-                forecastAtMin = forecastCum;
-                contribAtMin = contribCum;
-                contribNamesAtMin = List.copyOf(contribNames);
+            if (!d.isAfter(in.horizonEnd())) {
+                if (running.compareTo(minBalance) < 0) {
+                    minBalance = running;
+                    minDate = d;
+                    minDrivenBy = dayTopExpense;
+                    expensesAtMin = expensesCum;
+                    incomeAtMin = incomeCum;
+                    contribAtMin = contribCum;
+                    contribNamesAtMin = List.copyOf(contribNames);
+                }
+                if (runningForecast.compareTo(minForecast) < 0) {
+                    minForecast = runningForecast;
+                    minForecastDate = d;
+                    minForecastDrivenBy = dayTopExpense;
+                }
             }
         }
 
         BigDecimal buffer = in.bufferAmount() != null ? in.bufferAmount() : BigDecimal.ZERO;
         BigDecimal pocket = minBalance.subtract(buffer);
+
+        // ANO-80: второе число и его минимум. null, а не ноль: «оговаривать нечего» и
+        // «оговорка равна нулю» — для экрана одно и то же, и null избавляет фронт от решения.
+        BigDecimal pocketWithForecast = hasForecast ? minForecast.subtract(buffer) : null;
+        PocketResultDto.MinPoint minPointWithForecast = hasForecast
+                ? new PocketResultDto.MinPoint(minForecastDate, minForecast, minForecastDrivenBy)
+                : null;
 
         // 5а. Второе и третье числа (ANO-9 §4.2, §4.3). Оба — оговорки к кармашку, а не
         //     части его вычисления: pocket выше уже посчитан и ниже не меняется.
@@ -196,15 +221,18 @@ public final class PocketEngine {
                 .toList();
 
         List<PocketResultDto.BreakdownLine> breakdown = buildBreakdown(in, currentBalance, overdue,
-                expensesAtMin, incomeAtMin, forecastAtMin, contribAtMin, contribNamesAtMin,
-                minBalance, minDate, buffer, pocket, candidates, creditReserve);
+                expensesAtMin, incomeAtMin, contribAtMin, contribNamesAtMin,
+                minBalance, minDate, buffer, pocket, candidates, creditReserve,
+                pocketWithForecast != null ? pocketWithForecast.subtract(pocket) : null,
+                minForecastDate);
 
         return new PocketResultDto(pocket, currentBalance, buffer, in.checkpointDate(),
                 new PocketResultDto.Horizon(in.scope().type(), in.horizonEnd(),
                         horizonLabel(in), in.fallbackKind() != FallbackKind.NONE),
                 new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),
                 breakdown, trajectory, candidates,
-                pocketAfterCreditRestore, pocketWithDeposits);
+                pocketAfterCreditRestore, pocketWithDeposits,
+                pocketWithForecast, minPointWithForecast);
     }
 
     // ── правила фильтрации (спека §3.2) ─────────────────────────────────────
@@ -229,10 +257,11 @@ public final class PocketEngine {
 
     private static List<PocketResultDto.BreakdownLine> buildBreakdown(
             PocketInput in, BigDecimal currentBalance, BigDecimal overdue,
-            BigDecimal expensesAtMin, BigDecimal incomeAtMin, BigDecimal forecastAtMin,
+            BigDecimal expensesAtMin, BigDecimal incomeAtMin,
             BigDecimal contribAtMin, List<String> contribNames,
             BigDecimal minBalance, LocalDate minDate, BigDecimal buffer, BigDecimal pocket,
-            List<PocketResultDto.WishlistCandidate> candidates, BigDecimal creditReserve) {
+            List<PocketResultDto.WishlistCandidate> candidates, BigDecimal creditReserve,
+            BigDecimal forecastDifference, LocalDate minForecastDate) {
 
         List<PocketResultDto.BreakdownLine> lines = new ArrayList<>();
         String minDateLabel = DD_MM.format(minDate);
@@ -263,10 +292,6 @@ public final class PocketEngine {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.PLANNED_INCOME,
                     "Плановые доходы до " + minDateLabel, incomeAtMin, List.of()));
         }
-        if (forecastAtMin.signum() != 0) {
-            lines.add(new PocketResultDto.BreakdownLine(BreakdownType.UNPLANNED_FORECAST,
-                    "Прогноз незапланированных", forecastAtMin.negate(), in.forecastContributors()));
-        }
         lines.add(new PocketResultDto.BreakdownLine(BreakdownType.TRAJECTORY_MIN,
                 "Минимум траектории (" + minDateLabel + ")", minBalance, List.of()));
         if (buffer.signum() != 0) {
@@ -274,6 +299,19 @@ public final class PocketEngine {
                     "Буфер (настройка)", buffer.negate(), List.of()));
         }
         lines.add(new PocketResultDto.BreakdownLine(BreakdownType.POCKET, "Кармашек", pocket, List.of()));
+
+        // ANO-80: прогноз — оговорка, а не слагаемое кармашка. Стоит после POCKET по той же
+        // причине, что WISHLIST_INFO и CREDIT_RESTORE: всё до кармашка объясняет, из чего
+        // число сложилось, всё после — то, что человек может учесть, а может нет.
+        //
+        // В строке — РАЗНИЦА между двумя числами экрана, а не прогноз, накопленный к минимуму.
+        // Минимумы стоят на разных днях, и «прогноз до минимума» с разницей чисел не сошёлся
+        // бы: человек увидел бы две величины, которые не бьются. Разница сходится всегда.
+        if (forecastDifference != null && forecastDifference.signum() != 0) {
+            lines.add(new PocketResultDto.BreakdownLine(BreakdownType.UNPLANNED_FORECAST,
+                    "С обычными тратами до " + DD_MM.format(minForecastDate),
+                    forecastDifference, in.forecastContributors()));
+        }
 
         // ПОСЛЕ POCKET, рядом с WISHLIST_INFO: строка информационная и в инвариант не входит.
         // Порядок здесь — не про рендер, а про смысл: всё до кармашка объясняет, из чего он

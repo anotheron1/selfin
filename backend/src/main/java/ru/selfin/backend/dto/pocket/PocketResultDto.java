@@ -34,7 +34,21 @@ public record PocketResultDto(
          * {@code null}, когда вкладов нет. Показывать мелким: вклад распечатывают в трудный
          * момент, а не планируют им жить, поэтому это сноска, а не третий равноправный ответ.
          */
-        BigDecimal pocketWithDeposits
+        BigDecimal pocketWithDeposits,
+        /**
+         * «Кармашек с обычными тратами» (ANO-80) = минимум прогнозной кумуляты − буфер.
+         *
+         * <p>{@code null}, когда прогноза по горизонту нет вовсе. Причин три — галочка не
+         * стоит нигде, порог наблюдения не пройден, норма целиком покрыта планами, — и
+         * различать их ответу незачем: экран во всех трёх случаях делает одно и то же.
+         *
+         * <p>Прогноз — предположение, и потому он оговорка к главному числу, а не часть его.
+         * До ANO-80 он входил в {@code pocket} молча, и человек распоряжался числом, в
+         * котором сидела догадка продукта о его тратах.
+         */
+        BigDecimal pocketWithForecast,
+        /** Минимум прогнозной кумуляты; {@code null} там же, где и число выше. */
+        MinPoint minPointWithForecast
 ) {
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}
     /**
@@ -43,8 +57,18 @@ public record PocketResultDto(
      * минимум создан размазкой прогноза незапланированных) или у события нет описания.
      */
     public record MinPoint(LocalDate date, BigDecimal balance, String drivenBy) {}
-    /** Точка траектории с дневными суммами (спека §3.6, дополнение 2026-07-04): прогноз входит в expense. */
-    public record TrajectoryPoint(LocalDate date, BigDecimal balance, BigDecimal income, BigDecimal expense) {}
+    /**
+     * Точка траектории с дневными суммами (спека §3.6, дополнение 2026-07-04).
+     *
+     * <p>ANO-80: {@code expense} — расход ПО ПЛАНАМ. Раньше в него подмешивался прогноз, что
+     * противоречило имени поля; дневной прогноз теперь берётся разностью двух балансов.
+     *
+     * @param balanceWithForecast вторая линия графика, «с обычными тратами»; {@code null}
+     *                            в точках, где прогноз ещё не накоплен, и на всём горизонте,
+     *                            если прогноза нет вовсе
+     */
+    public record TrajectoryPoint(LocalDate date, BigDecimal balance, BigDecimal income,
+                                  BigDecimal expense, BigDecimal balanceWithForecast) {}
     public record BreakdownLine(BreakdownType type, String label, BigDecimal amount, List<String> details) {}
     public record WishlistCandidate(java.util.UUID id, String description,
                                     BigDecimal plannedAmount, LocalDate date, boolean fixed) {}

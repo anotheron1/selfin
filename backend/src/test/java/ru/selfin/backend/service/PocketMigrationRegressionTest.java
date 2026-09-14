@@ -169,14 +169,26 @@ class PocketMigrationRegressionTest {
         // 25.03: 40 600 + 45 000(Зарплата) − 100            = 85 500
         // ...остаток горизонта монотонно растёт (только −100/день форекаста)
         // Минимум траектории = 40 600 на 24.03 — строго ниже дня 0 (50 000), т.е. провал НЕ в нулевом дне.
-        assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 24));
-        assertThat(r.minPoint().balance()).isEqualByComparingTo(dec(40_600));
-        // На 24.03 у дня нет собственного события (только размазанный форекаст) — drivenBy пуст,
-        // типовой продакшен-случай (см. PocketEngineTest.minPointDrivenBy, "smeared" ветка).
-        assertThat(r.minPoint().drivenBy()).isNull();
+        // ANO-80: минимумов два. Главный считается БЕЗ прогноза и потому стоит на 22.03 —
+        // в день последнего планового расхода до зарплаты:
+        //   50 000 +15 000(12.03) −10 000(14.03) −6 000(16.03) −4 000(взнос 18.03) −3 000(22.03)
+        //   = 42 000, дальше только рост (зарплата 25.03).
+        assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 22));
+        assertThat(r.minPoint().balance()).isEqualByComparingTo(dec(42_000));
+        assertThat(r.minPoint().drivenBy())
+                .as("главный минимум больше не создаётся размазкой — у него есть виновник")
+                .isEqualTo("Кафе");
 
-        // ── 4. pocket = min − буфер = 40 600 − 5 000 = 35 600 ──
-        assertThat(r.pocket()).isEqualByComparingTo(dec(35_600));
+        // Прогнозный минимум — на два дня позже и на 1 400 ниже: 100/день с 11.03 по 24.03.
+        assertThat(r.minPointWithForecast().date()).isEqualTo(LocalDate.of(2026, 3, 24));
+        assertThat(r.minPointWithForecast().balance()).isEqualByComparingTo(dec(40_600));
+        assertThat(r.minPointWithForecast().drivenBy())
+                .as("у дня 24.03 своего события нет — размазка виновника не имеет")
+                .isNull();
+
+        // ── 4. pocket = min − буфер = 42 000 − 5 000 = 37 000; с обычными тратами 35 600 ──
+        assertThat(r.pocket()).isEqualByComparingTo(dec(37_000));
+        assertThat(r.pocketWithForecast()).isEqualByComparingTo(dec(35_600));
 
         // ── 5. Полный список типов строк breakdown, порядок = порядок рендера (BreakdownType) ──
         assertThat(r.breakdown()).extracting(PocketResultDto.BreakdownLine::type).containsExactly(
@@ -185,10 +197,11 @@ class PocketMigrationRegressionTest {
                 BreakdownType.PLANNED_EXPENSES,
                 BreakdownType.SAVINGS_CONTRIBUTIONS,
                 BreakdownType.PLANNED_INCOME,
-                BreakdownType.UNPLANNED_FORECAST,
                 BreakdownType.TRAJECTORY_MIN,
                 BreakdownType.BUFFER,
                 BreakdownType.POCKET,
+                // ANO-80: прогноз переехал за кармашек, к прочим оговоркам
+                BreakdownType.UNPLANNED_FORECAST,
                 BreakdownType.WISHLIST_INFO);
 
         // ── 6. Суммы всех строк breakdown (суммы-ДО-минимума, т.е. только события ≤ 24.03) ──
@@ -197,20 +210,20 @@ class PocketMigrationRegressionTest {
         // OVERDUE_RESERVE = −overdue = −4 000 (единственная просрочка)
         assertThat(line(r, BreakdownType.OVERDUE_RESERVE).amount()).isEqualByComparingTo(dec(-4_000));
         // PLANNED_EXPENSES = −(Такси 1 000 + Аренда 10 000 + ЖКХ 6 000 + Кафе 3 000) = −20 000
-        // (все четыре расхода ≤ 24.03; взнос в копилку сюда НЕ входит — своя строка)
+        // (все четыре расхода ≤ 22.03; взнос в копилку сюда НЕ входит — своя строка)
         assertThat(line(r, BreakdownType.PLANNED_EXPENSES).amount()).isEqualByComparingTo(dec(-20_000));
-        // SAVINGS_CONTRIBUTIONS = −4 000 (взнос "Египет" 18.03, ≤ 24.03)
+        // SAVINGS_CONTRIBUTIONS = −4 000 (взнос "Египет" 18.03, ≤ 22.03)
         assertThat(line(r, BreakdownType.SAVINGS_CONTRIBUTIONS).amount()).isEqualByComparingTo(dec(-4_000));
-        // PLANNED_INCOME = +15 000 (Аванс 12.03 ≤ 24.03; Зарплата 25.03 ПОСЛЕ минимума — не входит)
+        // PLANNED_INCOME = +15 000 (Аванс 12.03 ≤ 22.03; Зарплата 25.03 ПОСЛЕ минимума — не входит)
         assertThat(line(r, BreakdownType.PLANNED_INCOME).amount()).isEqualByComparingTo(dec(15_000));
-        // UNPLANNED_FORECAST = −(100 × 14 дней с 11.03 по 24.03 включительно) = −1 400
+        // UNPLANNED_FORECAST = разница двух чисел = 35 600 − 37 000 = −1 400
         assertThat(line(r, BreakdownType.UNPLANNED_FORECAST).amount()).isEqualByComparingTo(dec(-1_400));
-        // TRAJECTORY_MIN = 40 600
-        assertThat(line(r, BreakdownType.TRAJECTORY_MIN).amount()).isEqualByComparingTo(dec(40_600));
+        // TRAJECTORY_MIN = 42 000
+        assertThat(line(r, BreakdownType.TRAJECTORY_MIN).amount()).isEqualByComparingTo(dec(42_000));
         // BUFFER = −5 000
         assertThat(line(r, BreakdownType.BUFFER).amount()).isEqualByComparingTo(dec(-5_000));
-        // POCKET = 35 600
-        assertThat(line(r, BreakdownType.POCKET).amount()).isEqualByComparingTo(dec(35_600));
+        // POCKET = 37 000
+        assertThat(line(r, BreakdownType.POCKET).amount()).isEqualByComparingTo(dec(37_000));
         // WISHLIST_INFO = 12 000 (хотелка "Ноутбук", информационная строка, не вычтена)
         assertThat(line(r, BreakdownType.WISHLIST_INFO).amount()).isEqualByComparingTo(dec(12_000));
 
@@ -235,7 +248,7 @@ class PocketMigrationRegressionTest {
     }
 
     @Test
-    @DisplayName("ИНВАРИАНТ: STARTING−OVERDUE−EXPENSES−CONTRIB+INCOME−FORECAST=MIN, MIN−BUFFER=POCKET")
+    @DisplayName("ИНВАРИАНТ: STARTING−OVERDUE−EXPENSES−CONTRIB+INCOME=MIN, MIN−BUFFER=POCKET")
     void breakdownInvariant_holdsAlgebraically() {
         PocketResultDto r = PocketEngine.calculate(referenceInput());
 
@@ -254,15 +267,21 @@ class PocketMigrationRegressionTest {
         BigDecimal forecast = amountOrZero(r, BreakdownType.UNPLANNED_FORECAST);
         BigDecimal buffer = amountOrZero(r, BreakdownType.BUFFER);
 
-        BigDecimal computedMin = starting.add(overdue).add(expenses).add(contrib).add(income).add(forecast);
+        // ANO-80: прогноз вышел из инварианта — он оговорка за строкой POCKET, а не слагаемое
+        // кармашка. Его собственное тождество проверяется отдельно ниже.
+        BigDecimal computedMin = starting.add(overdue).add(expenses).add(contrib).add(income);
         assertThat(computedMin)
-                .as("STARTING − OVERDUE − EXPENSES − CONTRIB + INCOME − FORECAST = MIN")
+                .as("STARTING − OVERDUE − EXPENSES − CONTRIB + INCOME = MIN")
                 .isEqualByComparingTo(r.minPoint().balance());
 
         BigDecimal computedPocket = r.minPoint().balance().add(buffer);
         assertThat(computedPocket)
                 .as("MIN − BUFFER = POCKET")
                 .isEqualByComparingTo(r.pocket());
+
+        assertThat(r.pocket().add(forecast))
+                .as("POCKET + строка прогноза = кармашек с обычными тратами")
+                .isEqualByComparingTo(r.pocketWithForecast());
 
         // На данном сценарии инвариант нетривиален: все шесть слагаемых ненулевые.
         assertThat(overdue.signum()).isNotZero();
