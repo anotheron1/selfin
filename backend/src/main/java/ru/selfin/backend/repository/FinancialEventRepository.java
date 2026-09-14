@@ -89,6 +89,22 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         @Param("endDate") LocalDate endDate);
 
     /**
+     * Дата самого раннего факта-расхода по ВСЕМ категориям; {@code null}, если фактов нет.
+     *
+     * <p>ANO-80: задаёт начало окна наблюдения. Окно общее, а не покатегорийное — оно
+     * отвечает на вопрос «давно ли человек ведёт учёт», а не «давно ли он покупает одежду».
+     * Покатегорийное окно означало бы, что редкая категория считается по своим же редким
+     * месяцам и потому выглядит регулярной.
+     */
+    @Query("""
+        SELECT MIN(e.date) FROM FinancialEvent e
+        WHERE e.deleted = false
+          AND e.eventKind = ru.selfin.backend.model.EventKind.FACT
+          AND e.type = ru.selfin.backend.model.enums.EventType.EXPENSE
+        """)
+    LocalDate findFirstFactDate();
+
+    /**
      * Просроченные обязательные (HIGH) расходы текущего месяца, которые ещё не исполнены
      * и не имеют привязанного FACT-ребёнка (чтобы не резервировать дважды).
      * Используется для резервирования в балансе кармашка и прогнозах.
