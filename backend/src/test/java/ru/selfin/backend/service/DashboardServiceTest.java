@@ -171,7 +171,7 @@ class DashboardServiceTest {
 
         CategoryForecastDto catForecast = new CategoryForecastDto(
                 "Еда", new BigDecimal("15000"), new BigDecimal("20000"),
-                new BigDecimal("35000"), List.of());
+                new BigDecimal("35000"), BigDecimal.ZERO, List.of());
         when(predictionService.forecastFromEvents(any(), eq(today)))
                 .thenReturn(new MonthlyForecastDto(List.of(catForecast), BigDecimal.ZERO));
 

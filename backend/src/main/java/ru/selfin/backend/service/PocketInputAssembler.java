@@ -341,9 +341,11 @@ public class PocketInputAssembler {
      * но вывод — голые имена категорий, без сумм «(+3к)».
      */
     private List<String> buildContributors(MonthlyForecastDto forecast) {
+        // ANO-80: виновник — тот, кто реально даёт вклад. Отбор по «plannedLimit == 0» был
+        // верен, пока категория с планом давала ноль по построению; теперь она отдаёт разницу
+        // между нормой и планом, и такой отбор молча прятал бы её из объяснения.
         return forecast.categories().stream()
-                .filter(c -> c.plannedLimit().signum() == 0
-                        && c.projectionAmount().compareTo(c.currentFact()) > 0)
+                .filter(c -> c.beyondPlan().signum() > 0)
                 .map(CategoryForecastDto::categoryName)
                 .toList();
     }

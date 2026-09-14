@@ -1,187 +1,268 @@
 package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import ru.selfin.backend.dto.CategoryForecastDto;
+import ru.selfin.backend.dto.DailyForecastPointDto;
 import ru.selfin.backend.dto.MonthlyForecastDto;
+import ru.selfin.backend.dto.strategy.CategoryMonthStats;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.EventKind;           // NOTE: EventKind is in model package, NOT model.enums
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
+import ru.selfin.backend.model.enums.EventStatus;
+import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
-import ru.selfin.backend.model.EventKind;           // NOTE: EventKind is in model package, NOT model.enums
+import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
+/**
+ * Вклад прогноза текущего месяца в кармашек.
+ *
+ * <p>ANO-80 заменил механизм целиком. Было: дневной темп {@code факт / номер дня},
+ * достроенный на остаток месяца, и особый случай «в категории есть план → вклад ноль».
+ * Стало: норма по истории минус то, что уже стоит в пути денег.
+ *
+ * <p>Здесь проверяется ФОРМУЛА вклада. Медиана подменяется через spy — у неё свой класс
+ * тестов ({@link PredictionServiceStatsTest}), и подсовывать сюда пять месяцев фактов
+ * значило бы перепроверять её во второй раз.
+ */
 class PredictionServiceTest {
 
-    @Mock
-    private FinancialEventRepository eventRepository;
+    /** «Сегодня» по умолчанию — 14 сентября 2026; отдельные тесты передают свою дату. */
+    private static final Clock FIXED = Clock.fixed(
+            LocalDate.of(2026, 9, 14).atStartOfDay(ZoneId.systemDefault()).toInstant(),
+            ZoneId.systemDefault());
 
-    @InjectMocks
-    private PredictionService predictionService;
-
-    private Category foodCategory;
+    private FinancialEventRepository eventRepo;
+    private CategoryRepository categoryRepo;
+    private PredictionService service;
+    private Category food;
 
     @BeforeEach
     void setUp() {
-        foodCategory = Category.builder()
-                .id(UUID.randomUUID())
-                .name("Еда / Продукты")
-                .type(CategoryType.EXPENSE)
-                .priority(Priority.MEDIUM)
-                .forecastEnabled(true)
-                .deleted(false)
-                .build();
+        eventRepo = mock(FinancialEventRepository.class);
+        categoryRepo = mock(CategoryRepository.class);
+        // spy — чтобы подменять getStatsForCategory в medianOf(). Внутренние вызовы
+        // forecastFromEvents идут через прокси и потому перехватываются.
+        service = spy(new PredictionService(eventRepo, categoryRepo, FIXED));
+        food = makeCategory("Еда / Продукты");
     }
 
-    // ── Hybrid B: plan events present ─────────────────────────────────────────
+    // ── ANO-80: формула вклада ─────────────────────────────────────────────────
 
     @Test
-    void forecast_hybridB_factPlusRemainingPlans() {
-        // Month: April (30 days). Today = day 8.
-        // Plan events: 4 × 10k = 40k total, weeks 1-4
-        // Fact: 30k in week 1 (overspend)
-        // Remaining PLAN events after today: weeks 2-4 = 30k
-        // Expected projection: 30k + 30k = 60k
-        LocalDate today = LocalDate.of(2026, 4, 8);
-        LocalDate week2 = LocalDate.of(2026, 4, 15);
-        LocalDate week3 = LocalDate.of(2026, 4, 22);
-        LocalDate week4 = LocalDate.of(2026, 4, 29);
+    @DisplayName("ANO-80: планов нет — вклад равен норме минус потраченное")
+    void forecastFromEvents_noPlans_contributesMedianMinusFact() {
+        enabled(food);
+        medianOf(food, "50000", 5);
 
-        FinancialEvent plan1 = planEvent(foodCategory, LocalDate.of(2026, 4, 1), new BigDecimal("10000"));
-        FinancialEvent plan2 = planEvent(foodCategory, week2, new BigDecimal("10000"));
-        FinancialEvent plan3 = planEvent(foodCategory, week3, new BigDecimal("10000"));
-        FinancialEvent plan4 = planEvent(foodCategory, week4, new BigDecimal("10000"));
-        FinancialEvent fact1 = factEvent(foodCategory, LocalDate.of(2026, 4, 5), new BigDecimal("30000"));
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(fact(food, LocalDate.of(2026, 9, 5), "23444")),
+                LocalDate.of(2026, 9, 5));
 
-        List<FinancialEvent> events = List.of(plan1, plan2, plan3, plan4, fact1);
-
-        CategoryForecastDto result = predictionService.forecast("Еда / Продукты", events, today);
-
-        assertThat(result.projectionAmount()).isEqualByComparingTo(new BigDecimal("60000"));
-        assertThat(result.currentFact()).isEqualByComparingTo(new BigDecimal("30000"));
-        assertThat(result.plannedLimit()).isEqualByComparingTo(new BigDecimal("40000"));
+        assertThat(result.netPredictionDelta())
+                .as("дневной темп дал бы 117 220: 23 444 / 5 дней × 25 оставшихся")
+                .isEqualByComparingTo("26556");
     }
 
     @Test
-    void forecast_hybridB_nofutureRemainingPlans_projectionEqualsCurrentFact() {
-        // All plan events are in the past, no remaining plans
-        // Projection = fact + 0 remaining plans = just the fact
-        LocalDate today = LocalDate.of(2026, 4, 28);
-        FinancialEvent plan1 = planEvent(foodCategory, LocalDate.of(2026, 4, 1), new BigDecimal("40000"));
-        FinancialEvent fact1 = factEvent(foodCategory, LocalDate.of(2026, 4, 5), new BigDecimal("35000"));
+    @DisplayName("ANO-80: план не отключает категорию — отдаётся разница между нормой и планом")
+    void forecastFromEvents_withPlan_contributesMedianMinusPlan() {
+        enabled(food);
+        medianOf(food, "50000", 5);
 
-        CategoryForecastDto result = predictionService.forecast("Еда / Продукты",
-                List.of(plan1, fact1), today);
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(plan(food, LocalDate.of(2026, 9, 20), "40000")),
+                LocalDate.of(2026, 9, 14));
 
-        assertThat(result.projectionAmount()).isEqualByComparingTo(new BigDecimal("35000"));
-    }
-
-    // ── Linear A: no plan events ───────────────────────────────────────────────
-
-    @Test
-    void forecast_linearA_extrapolatesFromDailyRate() {
-        // No PLAN events. Today = day 10 of 30. Spent 5000.
-        // dailyRate = 5000/10 = 500/day. Remaining = 20 days.
-        // projection = 5000 + 500*20 = 15000
-        LocalDate today = LocalDate.of(2026, 4, 10);
-        FinancialEvent fact1 = factEvent(foodCategory, LocalDate.of(2026, 4, 5), new BigDecimal("5000"));
-
-        CategoryForecastDto result = predictionService.forecast("Еда / Продукты",
-                List.of(fact1), today);
-
-        assertThat(result.projectionAmount()).isEqualByComparingTo(new BigDecimal("15000"));
-    }
-
-    // ── Edge cases ─────────────────────────────────────────────────────────────
-
-    @Test
-    void forecast_noFacts_noPlans_projectionIsZero() {
-        LocalDate today = LocalDate.of(2026, 4, 5);
-
-        CategoryForecastDto result = predictionService.forecast("Еда / Продукты",
-                List.of(), today);
-
-        assertThat(result.projectionAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.netPredictionDelta())
+                .as("до ANO-80 категория с планом давала ноль, сколько бы сверх него ни тратилось")
+                .isEqualByComparingTo("10000");
     }
 
     @Test
-    void forecast_dayOne_noFacts_projectionIsZero() {
-        LocalDate today = LocalDate.of(2026, 4, 1);
+    @DisplayName("ANO-80: погашенный план не вычитается — его уже заменил факт")
+    void forecastFromEvents_executedPlan_notSubtractedTwice() {
+        enabled(food);
+        medianOf(food, "50000", 5);
 
-        CategoryForecastDto result = predictionService.forecast("Еда / Продукты",
-                List.of(), today);
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(executedPlan(food, LocalDate.of(2026, 9, 3), "4000"),
+                        fact(food, LocalDate.of(2026, 9, 3), "5000")),
+                LocalDate.of(2026, 9, 14));
 
-        assertThat(result.projectionAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.netPredictionDelta())
+                .as("вычесть и план, и заменивший его факт значит посчитать трату дважды")
+                .isEqualByComparingTo("45000");
     }
 
-    // ── netPredictionDelta ─────────────────────────────────────────────────────
+    @Test
+    @DisplayName("ANO-80: просроченный план вычитается наравне с будущим")
+    void forecastFromEvents_overduePlan_subtracted() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(plan(food, LocalDate.of(2026, 9, 2), "40000")),
+                LocalDate.of(2026, 9, 14));
+
+        assertThat(result.netPredictionDelta())
+                .as("просрочка удержана в траектории строкой брони — норма обязана её учесть")
+                .isEqualByComparingTo("10000");
+    }
 
     @Test
-    void forecastFromEvents_deltaOnlyFromLinearCategories() {
-        LocalDate today = LocalDate.of(2026, 4, 10);
+    @DisplayName("ANO-80: потрачено больше нормы — вклад ноль, а не отрицательное число")
+    void forecastFromEvents_spentAboveMedian_contributesZero() {
+        enabled(food);
+        medianOf(food, "50000", 5);
 
-        Category catA = makeCategory("Еда / Продукты", true);
-        Category catB = makeCategory("Прочее", true);
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(fact(food, LocalDate.of(2026, 9, 5), "70000")),
+                LocalDate.of(2026, 9, 5));
 
-        // catA: plan-based, fact=30k, remaining plan=30k → projection=60k, delta=0
-        FinancialEvent planA = planEvent(catA, LocalDate.of(2026, 4, 1), new BigDecimal("40000"));
-        FinancialEvent factA = factEvent(catA, LocalDate.of(2026, 4, 5), new BigDecimal("30000"));
+        assertThat(result.netPredictionDelta()).isEqualByComparingTo("0");
+    }
 
-        // catB: linear, fact=5000 over 10 days, dailyRate=500, remaining=20 days → future=10000
-        FinancialEvent factB = factEvent(catB, LocalDate.of(2026, 4, 5), new BigDecimal("5000"));
+    @Test
+    @DisplayName("ANO-80: наблюдений меньше трёх — прогноза нет вовсе")
+    void forecastFromEvents_belowThreshold_noForecast() {
+        enabled(food);
+        medianOf(food, "50000", 2);
 
-        MonthlyForecastDto result = predictionService.forecastFromEvents(
-                List.of(planA, factA, factB), today);
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(fact(food, LocalDate.of(2026, 9, 5), "23444")),
+                LocalDate.of(2026, 9, 5));
 
-        // Delta = only catB's extrapolated future = 10000
-        assertThat(result.netPredictionDelta()).isEqualByComparingTo(new BigDecimal("10000"));
+        assertThat(result.netPredictionDelta())
+                .as("это и есть симптом ANO-80: у нового пользователя оснований нет")
+                .isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("ANO-80: категория без событий месяца всё равно даёт норму")
+    void forecastFromEvents_categoryWithoutMonthEvents_stillContributes() {
+        enabled(food);
+        medianOf(food, "15851", 5);
+
+        MonthlyForecastDto result = service.forecastFromEvents(List.of(), LocalDate.of(2026, 9, 14));
+
+        assertThat(result.netPredictionDelta())
+                .as("обход идёт по включённым категориям, а не по событиям месяца: "
+                        + "дневной темп молчал, пока человек ничего не внёс")
+                .isEqualByComparingTo("15851");
+    }
+
+    @Test
+    @DisplayName("ANO-80: выключенная галочка — категории в расчёте нет")
+    void forecastFromEvents_forecastDisabled_contributesNothing() {
+        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
+
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(fact(food, LocalDate.of(2026, 9, 5), "23444")),
+                LocalDate.of(2026, 9, 5));
+
+        assertThat(result.netPredictionDelta()).isEqualByComparingTo("0");
+        assertThat(result.categories()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ANO-80: вклад лежит в ответе — категория с планом остаётся виновником")
+    void forecastFromEvents_beyondPlan_isCarriedInTheResponse() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+
+        var category = service.forecastFromEvents(
+                        List.of(plan(food, LocalDate.of(2026, 9, 20), "40000")),
+                        LocalDate.of(2026, 9, 14))
+                .categories().get(0);
+
+        assertThat(category.beyondPlan())
+                .as("разбивка отбирала виновников по «плана нет»; теперь вклад есть и при плане")
+                .isEqualByComparingTo("10000");
+        assertThat(category.plannedLimit())
+                .as("предпосылка теста: план у категории действительно есть")
+                .isEqualByComparingTo("40000");
+    }
+
+    @Test
+    @DisplayName("ANO-80: линия спарклайна — планка нормы, а не кривая от номера дня")
+    void forecastFromEvents_history_isFlatUntilFactCrossesMedian() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+
+        List<DailyForecastPointDto> history = service
+                .forecastFromEvents(List.of(fact(food, LocalDate.of(2026, 9, 3), "60000")),
+                        LocalDate.of(2026, 9, 5))
+                .categories().get(0).history();
+
+        // usingComparatorForType обязателен: BigDecimal.equals различает 50000 и 50000.00,
+        // а медиана приходит из percentile со своей шкалой. Сравнивать нужно значения.
+        assertThat(history).extracting(DailyForecastPointDto::projectedTotal)
+                .usingComparatorForType(BigDecimal::compareTo, BigDecimal.class)
+                .as("до траты — планка нормы; после — факт, который её перерос")
+                .containsExactly(new BigDecimal("50000"), new BigDecimal("50000"),
+                        new BigDecimal("60000"), new BigDecimal("60000"), new BigDecimal("60000"));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private FinancialEvent planEvent(Category category, LocalDate date, BigDecimal amount) {
+    private void enabled(Category... cats) {
+        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(cats));
+    }
+
+    /** Подменяет статистику категории: медиана и число месяцев наблюдения. */
+    private void medianOf(Category c, String median, int months) {
+        doReturn(new CategoryMonthStats(c.getId(), months, new BigDecimal(median),
+                new BigDecimal(median), new BigDecimal(median)))
+                .when(service).getStatsForCategory(eq(c), anyInt());
+    }
+
+    private FinancialEvent fact(Category category, LocalDate date, String amount) {
         return FinancialEvent.builder()
-                .id(UUID.randomUUID())
-                .category(category)
-                .date(date)
-                .eventKind(EventKind.PLAN)
-                .plannedAmount(amount)
-                .deleted(false)
+                .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
+                .date(date).factAmount(new BigDecimal(amount))
+                .eventKind(EventKind.FACT).status(EventStatus.EXECUTED).deleted(false)
                 .build();
     }
 
-    private FinancialEvent factEvent(Category category, LocalDate date, BigDecimal amount) {
+    private FinancialEvent plan(Category category, LocalDate date, String amount) {
         return FinancialEvent.builder()
-                .id(UUID.randomUUID())
-                .category(category)
-                .date(date)
-                .eventKind(EventKind.FACT)
-                .factAmount(amount)
-                .deleted(false)
+                .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
+                .date(date).plannedAmount(new BigDecimal(amount))
+                .eventKind(EventKind.PLAN).status(EventStatus.PLANNED).deleted(false)
                 .build();
     }
 
-    private Category makeCategory(String name, boolean forecastEnabled) {
+    /** План, закрытый фактом: статус EXECUTED и проставленный factAmount — как в бою. */
+    private FinancialEvent executedPlan(Category category, LocalDate date, String amount) {
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
+                .date(date).plannedAmount(new BigDecimal(amount)).factAmount(new BigDecimal(amount))
+                .eventKind(EventKind.PLAN).status(EventStatus.EXECUTED).deleted(false)
+                .build();
+    }
+
+    private Category makeCategory(String name) {
         return Category.builder()
-                .id(UUID.randomUUID())
-                .name(name)
-                .type(CategoryType.EXPENSE)
-                .priority(Priority.MEDIUM)
-                .forecastEnabled(forecastEnabled)
-                .deleted(false)
+                .id(UUID.randomUUID()).name(name).type(CategoryType.EXPENSE)
+                .priority(Priority.MEDIUM).forecastEnabled(true).deleted(false)
                 .build();
     }
 }

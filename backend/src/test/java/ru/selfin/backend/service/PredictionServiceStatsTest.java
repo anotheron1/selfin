@@ -9,6 +9,7 @@ import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.repository.CategoryRepository;
 
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -49,7 +50,7 @@ class PredictionServiceStatsTest {
     @BeforeEach
     void setUp() {
         eventRepo = mock(FinancialEventRepository.class);
-        service = new PredictionService(eventRepo, FIXED);
+        service = new PredictionService(eventRepo, mock(CategoryRepository.class), FIXED);
         cat = Category.builder().id(UUID.randomUUID()).name("Продукты").build();
     }
 

@@ -10,10 +10,11 @@ import ru.selfin.backend.dto.strategy.CategoryMonthStats;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.EventKind;
+import ru.selfin.backend.model.enums.EventStatus;
+import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -28,6 +29,8 @@ import java.util.stream.Collectors;
 public class PredictionService {
 
     private final FinancialEventRepository eventRepository;
+    /** ANO-80: обход прогноза идёт по включённым категориям, а не по событиям месяца. */
+    private final CategoryRepository categoryRepository;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
 
@@ -45,59 +48,49 @@ public class PredictionService {
     public static final int HISTORY_WINDOW_MONTHS = 6;
 
     /**
-     * Compute forecast for a single named category using already-fetched events.
-     * Events for other categories are ignored.
-     */
-    public CategoryForecastDto forecast(String categoryName,
-                                        List<FinancialEvent> monthEvents,
-                                        LocalDate today) {
-        List<FinancialEvent> catEvents = monthEvents.stream()
-                .filter(e -> categoryName.equals(e.getCategory().getName()))
-                .filter(e -> !e.isDeleted())
-                .toList();
-
-        int daysInMonth = today.lengthOfMonth();
-        int daysElapsed = today.getDayOfMonth(); // 1-based: day 1 = 1 day elapsed
-
-        BigDecimal currentFact = sumFacts(catEvents);
-        BigDecimal plannedLimit = sumAllPlans(catEvents);
-        boolean hasPlans = catEvents.stream().anyMatch(e -> e.getEventKind() == EventKind.PLAN);
-
-        BigDecimal projection = computeProjection(catEvents, currentFact,
-                hasPlans, daysElapsed, daysInMonth, today);
-
-        List<DailyForecastPointDto> history = buildHistory(catEvents, hasPlans, daysElapsed, daysInMonth, today);
-
-        return new CategoryForecastDto(categoryName, currentFact, plannedLimit, projection, history);
-    }
-
-    /**
-     * Compute forecasts for all forecast_enabled EXPENSE categories in already-fetched events.
-     * Use this from DashboardService and TargetFundService to avoid double-fetching events.
+     * Прогноз по всем категориям с включённой галочкой.
+     *
+     * <p>ANO-80: обход идёт по КАТЕГОРИЯМ, а не по событиям месяца. До этой задачи категория
+     * без единого факта в текущем месяце не попадала в расчёт вовсе — прогноз появлялся
+     * только после первой траты и тут же раздувал её дневным темпом. Норма известна заранее
+     * и не ждёт, пока человек что-нибудь купит.
+     *
+     * <p>Формула на категорию:
+     * <pre>сверх плана = max(0, медиана − потрачено в месяце − непогашенные планы месяца)</pre>
+     *
+     * Медиана — это ВСЯ обычная трата месяца, а факт и план — её части, уже стоящие в пути
+     * денег: факт ушёл со счёта, план удержан траекторией (просроченный — строкой брони).
+     * Тот же принцип уже действовал для будущих месяцев (ANO-36), но до текущего не доехал.
      */
     public MonthlyForecastDto forecastFromEvents(List<FinancialEvent> monthEvents, LocalDate today) {
-        Map<String, List<FinancialEvent>> byCategory = monthEvents.stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getCategory().isForecastEnabled())
-                .collect(Collectors.groupingBy(e -> e.getCategory().getName()));
-
         List<CategoryForecastDto> forecasts = new ArrayList<>();
         BigDecimal netDelta = BigDecimal.ZERO;
 
-        for (Map.Entry<String, List<FinancialEvent>> entry : byCategory.entrySet()) {
-            CategoryForecastDto cat = forecast(entry.getKey(), entry.getValue(), today);
-            forecasts.add(cat);
+        for (Category cat : categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()) {
+            List<FinancialEvent> catEvents = monthEvents.stream()
+                    .filter(e -> !e.isDeleted())
+                    .filter(e -> e.getCategory() != null && cat.getId().equals(e.getCategory().getId()))
+                    .toList();
 
-            // Delta contribution: only linear categories (no PLAN events in month)
-            boolean hasPlans = entry.getValue().stream()
-                    .anyMatch(e -> e.getEventKind() == EventKind.PLAN);
-            if (!hasPlans && cat.projectionAmount().compareTo(cat.currentFact()) > 0) {
-                BigDecimal extrapolatedFuture = cat.projectionAmount().subtract(cat.currentFact());
-                netDelta = netDelta.add(extrapolatedFuture);
-            }
+            BigDecimal fact = sumFacts(catEvents);
+            BigDecimal pendingPlans = sumPendingPlans(catEvents);
+            BigDecimal median = medianIfTrusted(cat);
+
+            BigDecimal beyondPlan = median.subtract(fact).subtract(pendingPlans).max(BigDecimal.ZERO);
+            BigDecimal projection = median.max(fact.add(pendingPlans));
+
+            forecasts.add(new CategoryForecastDto(cat.getName(), fact, sumAllPlans(catEvents),
+                    projection, beyondPlan, buildHistory(catEvents, median, pendingPlans, today)));
+            netDelta = netDelta.add(beyondPlan);
         }
 
         return new MonthlyForecastDto(forecasts, netDelta);
+    }
+
+    /** Медиана категории либо ноль, если месяцев наблюдения меньше порога. */
+    private BigDecimal medianIfTrusted(Category cat) {
+        CategoryMonthStats stats = getStatsForCategory(cat, HISTORY_WINDOW_MONTHS);
+        return stats.monthsOfHistory() >= MIN_HISTORY_MONTHS ? stats.median() : BigDecimal.ZERO;
     }
 
     /**
@@ -206,42 +199,22 @@ public class PredictionService {
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
-    private BigDecimal computeProjection(List<FinancialEvent> catEvents,
-                                          BigDecimal currentFact,
-                                          boolean hasPlans,
-                                          int daysElapsed,
-                                          int daysInMonth,
-                                          LocalDate today) {
-        if (hasPlans) {
-            BigDecimal remainingPlans = catEvents.stream()
-                    .filter(e -> e.getEventKind() == EventKind.PLAN)
-                    .filter(e -> e.getDate() != null && e.getDate().isAfter(today))
-                    .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            return currentFact.add(remainingPlans);
-        }
-
-        // Linear A — guard against daysElapsed=0 or no facts
-        if (daysElapsed == 0 || currentFact.compareTo(BigDecimal.ZERO) == 0) {
-            return BigDecimal.ZERO;
-        }
-
-        int remainingDays = daysInMonth - daysElapsed;
-        BigDecimal dailyRate = currentFact.divide(
-                BigDecimal.valueOf(daysElapsed), 4, RoundingMode.HALF_UP);
-        return currentFact.add(dailyRate.multiply(BigDecimal.valueOf(remainingDays)))
-                .setScale(0, RoundingMode.HALF_UP);
-    }
-
+    /**
+     * Линия спарклайна: факт по дням и планка обычного месяца.
+     *
+     * <p>ANO-80: раньше проекция пересчитывалась от номера дня и потому извивалась — одна и
+     * та же трата рисовала разную кривую в зависимости от даты записи. Теперь это
+     * горизонтальная планка, к которой ползёт факт; пересечение планки означает «в этом
+     * месяце выходит дороже обычного» и видно без чисел.
+     */
     private List<DailyForecastPointDto> buildHistory(List<FinancialEvent> catEvents,
-                                                      boolean hasPlans,
-                                                      int daysElapsed,
-                                                      int daysInMonth,
-                                                      LocalDate today) {
+                                                     BigDecimal median,
+                                                     BigDecimal pendingPlans,
+                                                     LocalDate today) {
         List<DailyForecastPointDto> points = new ArrayList<>();
         LocalDate monthStart = today.withDayOfMonth(1);
 
-        for (int d = 1; d <= daysElapsed; d++) {
+        for (int d = 1; d <= today.getDayOfMonth(); d++) {
             LocalDate dayDate = monthStart.withDayOfMonth(d);
 
             BigDecimal factOnDay = catEvents.stream()
@@ -250,28 +223,32 @@ public class PredictionService {
                     .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            BigDecimal projOnDay;
-            if (hasPlans) {
-                BigDecimal remainingAfterD = catEvents.stream()
-                        .filter(e -> e.getEventKind() == EventKind.PLAN)
-                        .filter(e -> e.getDate() != null && e.getDate().isAfter(dayDate))
-                        .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                projOnDay = factOnDay.add(remainingAfterD);
-            } else if (factOnDay.compareTo(BigDecimal.ZERO) == 0) {
-                projOnDay = BigDecimal.ZERO;
-            } else {
-                int remaining = daysInMonth - d;
-                BigDecimal dailyRate = factOnDay.divide(
-                        BigDecimal.valueOf(d), 4, RoundingMode.HALF_UP);
-                projOnDay = factOnDay.add(dailyRate.multiply(BigDecimal.valueOf(remaining)))
-                        .setScale(0, RoundingMode.HALF_UP);
-            }
-
-            points.add(new DailyForecastPointDto(d, factOnDay, projOnDay));
+            points.add(new DailyForecastPointDto(d, factOnDay,
+                    median.max(factOnDay.add(pendingPlans))));
         }
 
         return points;
+    }
+
+    /**
+     * Непогашенные планы месяца — то, что траектория кармашка уже удерживает.
+     *
+     * <p>Предикат намеренно повторяет {@code PocketEngine.isPendingPlan}: вычитать из нормы
+     * надо ровно то, что уже стоит в пути денег, — не больше и не меньше. Разойдись эти два
+     * места, и трата посчиталась бы дважды либо пропала.
+     *
+     * <p>Отсюда и проверка {@code factAmount == null}: план, закрытый фактом, движок пендингом
+     * не считает, и вычитать его нельзя — его уже заменил факт. На эталонном стенде в сентябре
+     * ровно один такой план, и первый замер без этой проверки дал по «Авто» 16 000 вместо
+     * 12 000.
+     */
+    private BigDecimal sumPendingPlans(List<FinancialEvent> events) {
+        return events.stream()
+                .filter(e -> e.getFactAmount() == null)
+                .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .filter(e -> e.getStatus() == EventStatus.PLANNED)
+                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private BigDecimal sumFacts(List<FinancialEvent> events) {
