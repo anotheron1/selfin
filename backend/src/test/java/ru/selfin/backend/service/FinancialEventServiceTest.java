@@ -104,6 +104,66 @@ class FinancialEventServiceTest {
         verify(eventRepository, times(2)).save(any());
     }
 
+    // ====== ANO-155: факт значит «деньги ушли» — в будущем они уйти не могли ======
+
+    @Test
+    @DisplayName("ANO-155: связанный факт с будущей датой — 400, ничего не сохранено")
+    void createLinkedFact_futureDate_throws400_andSavesNothing() {
+        // Такой факт не попадал в остаток (окно по asOfDate) и при этом снимал план
+        // с траектории: расход исчезал с обеих сторон, кармашек рос на сумму плана.
+        UUID planId = UUID.randomUUID();
+        FinancialEvent plan = aPlan(planId, category(), EventStatus.PLANNED);
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+
+        assertThatThrownBy(() -> service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now().plusDays(1), new BigDecimal("5480"), null, null, null)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("must not be in the future");
+
+        verify(eventRepository, never()).save(any());
+        assertThat(plan.getStatus())
+                .as("план обязан остаться нетронутым: факта-то не появилось")
+                .isEqualTo(EventStatus.PLANNED);
+    }
+
+    // Границу «сегодня можно» держит createLinkedFact_success_createsFact — он пишет
+    // факт сегодняшним числом. Отдельной формы не заводим, чтобы не дублировать.
+
+    @Test
+    @DisplayName("ANO-155: внеплановый факт с будущей датой — 400")
+    void createStandaloneFact_futureDate_throws400() {
+        Category cat = category();
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+
+        assertThatThrownBy(() -> service.createStandaloneFact(new StandaloneFactCreateDto(
+                LocalDate.now().plusDays(1), cat.getId(), EventType.EXPENSE,
+                new BigDecimal("300"), null, null, null)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("must not be in the future");
+
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ANO-155: внеплановый факт сегодняшним числом принимается")
+    void createStandaloneFact_todayDate_isAccepted() {
+        // Граница включительно: сегодня деньги уйти уже могли.
+        Category cat = category();
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> {
+            FinancialEvent e = i.getArgument(0);
+            if (e.getId() == null) e.setId(UUID.randomUUID());
+            return e;
+        });
+
+        FinancialEventDto result = service.createStandaloneFact(new StandaloneFactCreateDto(
+                LocalDate.now(), cat.getId(), EventType.EXPENSE,
+                new BigDecimal("300"), null, null, null));
+
+        assertThat(result.eventKind()).isEqualTo(EventKind.FACT);
+        assertThat(result.date()).isEqualTo(LocalDate.now());
+    }
+
     @Test
     @DisplayName("createLinkedFact: без priority в DTO — наследует от плана")
     void createLinkedFact_noPriority_inheritsPlanPriority() {
