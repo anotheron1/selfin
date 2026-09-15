@@ -1,6 +1,15 @@
 package ru.selfin.backend.service;
 
+import ru.selfin.backend.dto.pocket.EventSnapshot;
+import ru.selfin.backend.model.EventKind;
+import ru.selfin.backend.model.FinancialEvent;
+
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Непогашенная часть плана — единственное место правила (ANO-155).
@@ -31,5 +40,46 @@ public final class PlanRemainder {
         BigDecimal p = planned != null ? planned : BigDecimal.ZERO;
         BigDecimal s = settled != null ? settled : BigDecimal.ZERO;
         return p.subtract(s).max(BigDecimal.ZERO);
+    }
+
+    /**
+     * Сколько по каждому плану погашено фактами-детьми (строки БД).
+     *
+     * <p>Группировка живёт здесь по той же причине, что и вычитание: после ревью #45 она
+     * понадобилась третьему месту (мостик стартового баланса в {@code AnalyticsService}),
+     * а три копии шестистрочного цикла разъезжаются ровно так же, как разъехались две
+     * копии предиката.
+     *
+     * @param events события в рассматриваемом окне; факты вне окна не учитываются
+     * @return сумма фактов по идентификатору родительского плана
+     */
+    public static Map<UUID, BigDecimal> settledByPlan(Collection<FinancialEvent> events) {
+        return group(events,
+                e -> e.getEventKind() == EventKind.FACT ? e.getParentEventId() : null,
+                FinancialEvent::getFactAmount);
+    }
+
+    /**
+     * То же для снимков движка.
+     *
+     * @param events снимки событий в траектории
+     * @return сумма фактов по идентификатору родительского плана
+     */
+    public static Map<UUID, BigDecimal> settledBySnapshots(Collection<EventSnapshot> events) {
+        return group(events,
+                e -> e.eventKind() == EventKind.FACT ? e.parentEventId() : null,
+                EventSnapshot::factAmount);
+    }
+
+    private static <T> Map<UUID, BigDecimal> group(Collection<T> items,
+                                                   Function<T, UUID> parentId,
+                                                   Function<T, BigDecimal> amount) {
+        Map<UUID, BigDecimal> settled = new HashMap<>();
+        for (T item : items) {
+            UUID parent = parentId.apply(item);
+            BigDecimal value = amount.apply(item);
+            if (parent != null && value != null) settled.merge(parent, value, BigDecimal::add);
+        }
+        return settled;
     }
 }

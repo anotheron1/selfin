@@ -17,7 +17,6 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -75,13 +74,7 @@ public final class PocketEngine {
         // обязательство, а уменьшает его на свою сумму — как «частично оплачен» в
         // платёжном календаре. Раньше первый же факт снимал план целиком, и чек на 300
         // освобождал резерв продуктов на 20 000.
-        Map<UUID, BigDecimal> settled = new HashMap<>();
-        for (EventSnapshot e : in.events()) {
-            if (e.eventKind() == EventKind.FACT && e.parentEventId() != null
-                    && e.factAmount() != null) {
-                settled.merge(e.parentEventId(), e.factAmount(), BigDecimal::add);
-            }
-        }
+        Map<UUID, BigDecimal> settled = PlanRemainder.settledBySnapshots(in.events());
 
         // 2. День 0: − резерв просрочки − плановые расходы сегодняшнего дня.
         //    Плановые доходы с датой ≤ asOfDate НЕ учитываются (консервативная асимметрия §3.3.2).

@@ -41,26 +41,44 @@ class PlanRemainderSingleSourceTest {
     }
 
     @Test
-    @DisplayName("ANO-155: оба потребителя зовут общее правило")
-    void bothConsumersCallTheRule() throws IOException {
+    @DisplayName("ANO-155: все потребители зовут общее правило")
+    void everyConsumerCallsTheRule() throws IOException {
         assertThat(read("ru/selfin/backend/service/PocketEngine.java"))
                 .as("движок обязан удерживать остаток, а не полную сумму")
                 .contains("PlanRemainder.of(");
         assertThat(read("ru/selfin/backend/service/PredictionService.java"))
                 .as("норма обязана вычитать ровно то, что удерживает движок")
                 .contains("PlanRemainder.of(");
+        assertThat(read("ru/selfin/backend/service/AnalyticsService.java"))
+                .as("мостик стартового баланса обязан вычитать остаток, иначе план и его "
+                        + "факт уходят из баланса дважды (ревью #45)")
+                .contains("PlanRemainder.of(");
+    }
+
+    @Test
+    @DisplayName("ревью #45: факты по родителю суммируют тоже в одном месте")
+    void settlementGrouping_livesInOnePlace() throws IOException {
+        // Третий потребитель появился уже на ревью — а три копии шестистрочного цикла
+        // расходятся ровно так же, как разошлись две копии предиката.
+        assertThat(filesMatching(Pattern.compile("merge\\([^;]*arentEventId\\(\\)")))
+                .as("группировка фактов по плану обязана жить в PlanRemainder")
+                .isEmpty();
     }
 
     /** Файлы, где из плановой суммы что-то вычитают в обход общего правила. */
     private List<String> filesSubtractingFromPlanned() throws IOException {
-        Pattern subtract = Pattern.compile("lannedAmount\\(\\)[^;]*\\.subtract\\(");
+        return filesMatching(Pattern.compile("lannedAmount\\(\\)[^;]*\\.subtract\\("));
+    }
+
+    /** Файлы main вне держателя правила, где встречается запрещённый образец. */
+    private List<String> filesMatching(Pattern forbidden) throws IOException {
         try (Stream<Path> files = Files.walk(MAIN)) {
             return files
                     .filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> !p.getFileName().toString().equals(RULE_HOLDER))
                     .filter(p -> {
                         try {
-                            return subtract.matcher(Files.readString(p)).find();
+                            return forbidden.matcher(Files.readString(p)).find();
                         } catch (IOException e) {
                             throw new IllegalStateException(p.toString(), e);
                         }

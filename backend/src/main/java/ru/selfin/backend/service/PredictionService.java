@@ -22,7 +22,6 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -319,24 +318,12 @@ public class PredictionService {
      */
     private BigDecimal sumHeldPlans(List<FinancialEvent> events, LocalDate today,
                                     Set<UUID> reservedOverdueIds) {
-        Map<UUID, BigDecimal> settled = settledByPlan(events);
+        Map<UUID, BigDecimal> settled = PlanRemainder.settledByPlan(events);
         return events.stream()
                 .filter(e -> isPendingPlan(e, settled))
                 .filter(e -> heldByMoneyPath(e, today, reservedOverdueIds))
                 .map(e -> PlanRemainder.of(e.getPlannedAmount(), settled.get(e.getId())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    /** Сколько по каждому плану погашено фактами-детьми (ANO-155). */
-    private static Map<UUID, BigDecimal> settledByPlan(List<FinancialEvent> events) {
-        Map<UUID, BigDecimal> settled = new HashMap<>();
-        for (FinancialEvent e : events) {
-            if (e.getEventKind() == EventKind.FACT && e.getParentEventId() != null
-                    && e.getFactAmount() != null) {
-                settled.merge(e.getParentEventId(), e.getFactAmount(), BigDecimal::add);
-            }
-        }
-        return settled;
     }
 
     /**

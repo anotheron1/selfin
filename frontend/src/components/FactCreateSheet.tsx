@@ -36,7 +36,9 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
         if (!isOpen) {
             onClose();
         } else {
-            setDate(new Date().toISOString().slice(0, 10));
+            // Ревью #45: сброс обязан класть ту же дату, что и умолчание, — иначе
+            // повторное открытие ставило UTC-дату мимо границы `max`, которая местная.
+            setDate(todayIso(new Date()));
             setAmount('');
             setDescription('');
             setPriority(planPriority);

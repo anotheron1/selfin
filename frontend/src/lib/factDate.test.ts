@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { canRecordFact, todayIso } from './factDate';
 
 describe('canRecordFact (ANO-155)', () => {
@@ -35,5 +36,19 @@ describe('todayIso (ANO-155)', () => {
 
     it('дополняет месяц и день нулями', () => {
         expect(todayIso(new Date(2026, 0, 5))).toBe('2026-01-05');
+    });
+});
+
+describe('формы факта берут «сегодня» одним способом (ревью #45)', () => {
+    // В быстром добавлении умолчание даты считалось по UTC, а граница «не позже сегодня» —
+    // по местной дате. Западнее Гринвича после полуночи по UTC форма объявляла будущим
+    // собственное умолчание и прятала поле факта, пока дату не поправят руками. Сторож
+    // читает исходник: поведенческого теста на это нет — компонентных тестов в проекте нет.
+    const forms = ['../components/Fab.tsx', '../components/FactCreateSheet.tsx'];
+
+    it.each(forms)('%s не берёт дату из toISOString()', (file) => {
+        const src = readFileSync(new URL(file, import.meta.url), 'utf8');
+        expect(src).not.toMatch(/toISOString\(\)\s*\.slice/);
+        expect(src).toContain('todayIso(');
     });
 });

@@ -196,6 +196,91 @@ class PocketControllerIT {
         }
     }
 
+    // ── Ревью #45: погашение меняет не только появление факта ────────────────
+    //
+    // Статус плана — производная, и юниты на моках её честность не проверяют:
+    // они не видят ни транзакции, ни того, что запрос агрегата обязан увидеть
+    // только что записанную правку. Дефект того же класса на прошлой сессии
+    // поймал ровно интеграционный, а 408 юнитов прошли зелёными.
+
+    @Test
+    void review45_factEditedDown_remainderReturnsToTrajectory() throws Exception {
+        String cat = createCategory("IT-review45-a", "EXPENSE");
+        String plan = createExpense(cat, LocalDate.now().plusDays(7), 20_000, "IT edit down");
+        try {
+            BigDecimal afterPlan = pocket();
+            String fact = recordFact(plan, 20_000);
+            try {
+                // Гасим план целиком, потом правим чек: ушло всего 300.
+                mockMvc.perform(patch("/api/v1/events/" + fact + "/fact")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {"factAmount":300}
+                                        """))
+                        .andExpect(status().isOk());
+
+                assertThat(pocket())
+                        .as("19 700 снова в пути денег: план закрытым не остаётся")
+                        .isEqualByComparingTo(afterPlan);
+            } finally {
+                deleteEvent(fact);
+            }
+        } finally {
+            deleteEvent(plan);
+        }
+    }
+
+    @Test
+    void review45_oneOfTwoFactsDeleted_remainderReturnsToTrajectory() throws Exception {
+        String cat = createCategory("IT-review45-b", "EXPENSE");
+        String plan = createExpense(cat, LocalDate.now().plusDays(7), 20_000, "IT delete one");
+        try {
+            BigDecimal afterPlan = pocket();
+            String first = recordFact(plan, 12_000);
+            String second = recordFact(plan, 8_000);
+            try {
+                deleteEvent(second);   // осталось погашено 12 000 из 20 000
+
+                assertThat(pocket())
+                        .as("8 000 снова удержаны: фактов осталось меньше, чем было")
+                        .isEqualByComparingTo(afterPlan);
+            } finally {
+                deleteEvent(first);
+            }
+        } finally {
+            deleteEvent(plan);
+        }
+    }
+
+    @Test
+    void review45_plannedAmountRaised_newRemainderIsHeld() throws Exception {
+        String cat = createCategory("IT-review45-c", "EXPENSE");
+        LocalDate date = LocalDate.now().plusDays(7);
+        String plan = createExpense(cat, date, 20_000, "IT raise");
+        try {
+            BigDecimal afterPlan = pocket();
+            String fact = recordFact(plan, 20_000);
+            try {
+                // Счёт оказался больше: план поднимают до 30 000 поверх уплаченного.
+                mockMvc.perform(put("/api/v1/events/" + plan)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {"date":"%s","categoryId":"%s","type":"EXPENSE",
+                                         "plannedAmount":30000,"priority":"MEDIUM","description":"IT raise"}
+                                        """.formatted(date, cat)))
+                        .andExpect(status().isOk());
+
+                assertThat(pocket())
+                        .as("добавленные 10 000 обязаны уйти из кармашка")
+                        .isEqualByComparingTo(afterPlan.subtract(new BigDecimal("10000")));
+            } finally {
+                deleteEvent(fact);
+            }
+        } finally {
+            deleteEvent(plan);
+        }
+    }
+
     @Test
     void ano155_groceriesPlan_firstReceiptDoesNotReleaseWholePlan() throws Exception {
         // Дефект Б в чистом виде: он срабатывает БЕЗ всяких будущих дат.

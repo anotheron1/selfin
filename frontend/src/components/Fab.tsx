@@ -16,8 +16,13 @@ import { canRecordFact, todayIso } from '../lib/factDate';
  * При успешном сохранении вызывает `onSuccess` для обновления данных родителя.
  */
 function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+    // ANO-155 + ревью #45: умолчание и граница «сегодня» берутся из ОДНОГО источника.
+    // toISOString() даёт дату по UTC: восточнее Гринвича она вечером отстаёт на день
+    // (форма предлагала вчера), западнее — ночью опережает, и тогда собственное
+    // умолчание формы читалось как будущее, а поле факта исчезало до правки даты руками.
+    const today = todayIso(new Date());
     const [form, setForm] = useState<Partial<FinancialEventCreateDto>>({
-        date: new Date().toISOString().slice(0, 10),
+        date: today,
         type: 'EXPENSE',
         priority: 'MEDIUM',
     });
@@ -27,7 +32,6 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     const [factAmountLocal, setFactAmountLocal] = useState<string>('');
     const [loading, setLoading] = useState(false);
     // ANO-155: факт значит «деньги ушли» — у события с будущей датой его быть не может.
-    const today = todayIso(new Date());
     const factAllowed = !form.date || canRecordFact(form.date, today);
     const [error, setError] = useState<string | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
