@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { composeTimeline, scaleDelta, riskZones, calcPMT } from './wishlistUtils';
+import { composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion } from './wishlistUtils';
 import type { MonthDelta } from '../../types/api';
 
 describe('calcPMT', () => {
@@ -86,5 +86,23 @@ describe('riskZones', () => {
     it('combined risk takes the worse of the two', () => {
         const zones = riskZones([{ account: 50000, capital: 900000 }], thresholds, monthlyExpenses);
         expect(zones[0]).toBe('red');   // account=yellow, capital=red → red
+    });
+});
+
+describe('canConfirmConversion (ANO-138)', () => {
+    it('плановое событие без срока подтвердить нельзя', () => {
+        expect(canConfirmConversion('PLAN_EVENT', '')).toBe(false);
+    });
+
+    it('плановое событие со сроком подтвердить можно', () => {
+        expect(canConfirmConversion('PLAN_EVENT', '2026-12-01')).toBe(true);
+    });
+
+    it('копилке срок в этом диалоге не нужен: фонд без targetDate — законное состояние', () => {
+        expect(canConfirmConversion('FUND', '')).toBe(true);
+    });
+
+    it('кредиту срок в этом диалоге не нужен', () => {
+        expect(canConfirmConversion('FUND_WITH_CREDIT', '')).toBe(true);
     });
 });

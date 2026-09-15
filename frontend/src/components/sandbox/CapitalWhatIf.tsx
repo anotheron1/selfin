@@ -126,11 +126,12 @@ export default function CapitalWhatIf() {
         call(item.id, status).then(refetch).catch(refetch);
     };
 
-    const handleFixConfirm = (target: ConvertTarget, createRecurringPayments: boolean) => {
+    const handleFixConfirm = (target: ConvertTarget, createRecurringPayments: boolean,
+                              planDate?: string) => {
         if (!fixItem) return;
         const item = fixItem;
         setFixItem(null);
-        convertWishlistItem(item.id, { sourceKind: item.kind, target, createRecurringPayments })
+        convertWishlistItem(item.id, { sourceKind: item.kind, target, createRecurringPayments, planDate })
             .then(refetch)
             .catch(refetch);
     };

@@ -74,3 +74,18 @@ function worse(a: RiskLevel, b: RiskLevel): RiskLevel {
     const rank = { green: 0, yellow: 1, red: 2 };
     return rank[a] >= rank[b] ? a : b;
 }
+
+// ── Конверсия хотелки (ANO-138) ───────────────────────────────────────────────
+
+export type ConvertTarget = 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT';
+
+/**
+ * ANO-138: «Плановое событие» без срока подтвердить нельзя — пустая дата уводила план
+ * в невидимость: Бюджет, /strategy и кармашек выбирают события по диапазону дат.
+ *
+ * Копилке и кредиту срок в этом диалоге не нужен: фонд без targetDate — законное
+ * состояние (V4, «null = не указана»), он виден на экране и дату можно поставить потом.
+ */
+export function canConfirmConversion(target: ConvertTarget, planDate: string): boolean {
+    return target !== 'PLAN_EVENT' || planDate !== '';
+}
