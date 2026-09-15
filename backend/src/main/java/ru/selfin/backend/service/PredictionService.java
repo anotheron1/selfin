@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -318,18 +319,38 @@ public class PredictionService {
      */
     private BigDecimal sumHeldPlans(List<FinancialEvent> events, LocalDate today,
                                     Set<UUID> reservedOverdueIds) {
+        Map<UUID, BigDecimal> settled = settledByPlan(events);
         return events.stream()
-                .filter(PredictionService::isPendingPlan)
+                .filter(e -> isPendingPlan(e, settled))
                 .filter(e -> heldByMoneyPath(e, today, reservedOverdueIds))
-                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
+                .map(e -> PlanRemainder.of(e.getPlannedAmount(), settled.get(e.getId())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    /** Ещё не исполнен: предикат {@code PocketEngine.isPendingPlan}, слово в слово. */
-    private static boolean isPendingPlan(FinancialEvent e) {
+    /** Сколько по каждому плану погашено фактами-детьми (ANO-155). */
+    private static Map<UUID, BigDecimal> settledByPlan(List<FinancialEvent> events) {
+        Map<UUID, BigDecimal> settled = new HashMap<>();
+        for (FinancialEvent e : events) {
+            if (e.getEventKind() == EventKind.FACT && e.getParentEventId() != null
+                    && e.getFactAmount() != null) {
+                settled.merge(e.getParentEventId(), e.getFactAmount(), BigDecimal::add);
+            }
+        }
+        return settled;
+    }
+
+    /**
+     * Ещё не погашен: предикат {@code PocketEngine.isPendingPlan}, условие в условие.
+     *
+     * <p>ANO-155: план с непогашенным остатком остаётся в пути денег, поэтому вычитать из
+     * нормы надо остаток, а не полную сумму. Арифметика остатка — в {@link PlanRemainder},
+     * здесь только отбор.
+     */
+    private static boolean isPendingPlan(FinancialEvent e, Map<UUID, BigDecimal> settled) {
         return e.getFactAmount() == null
                 && e.getEventKind() == EventKind.PLAN
-                && e.getStatus() == EventStatus.PLANNED;
+                && e.getStatus() == EventStatus.PLANNED
+                && PlanRemainder.of(e.getPlannedAmount(), settled.get(e.getId())).signum() > 0;
     }
 
     /**

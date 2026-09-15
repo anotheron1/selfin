@@ -266,11 +266,11 @@ public final class PocketEngine {
                 && remainderOf(e, settled).signum() > 0;
     }
 
-    /** Непогашенная часть плана: {@code max(0, план − сумма фактов)} (ANO-155). */
+    /** Непогашенная часть плана (ANO-155). Правило живёт в {@link PlanRemainder}, не здесь. */
     private static BigDecimal remainderOf(EventSnapshot e, Map<UUID, BigDecimal> settled) {
-        BigDecimal planned = e.plannedAmount() != null ? e.plannedAmount() : BigDecimal.ZERO;
-        if (e.id() == null) return planned;   // синтетика: детей у неё не бывает
-        return planned.subtract(settled.getOrDefault(e.id(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+        // Синтетика (взносы копилок, примерка) детей не имеет — id у неё null.
+        BigDecimal paid = e.id() == null ? null : settled.get(e.id());
+        return PlanRemainder.of(e.plannedAmount(), paid);
     }
 
     /** Фильтр хотелок для траектории: обычные события + датированные FIXED-неконвертированные. */
