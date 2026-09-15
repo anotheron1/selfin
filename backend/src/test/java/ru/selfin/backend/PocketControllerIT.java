@@ -131,6 +131,95 @@ class PocketControllerIT {
         });
     }
 
+    // ── ANO-155: факт гасит план на свою сумму ───────────────────────────────
+
+    /** Записывает факт к плану. Дата — сегодня: в будущем деньги уйти не могли. */
+    private String recordFact(String planId, long amount) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","factAmount":%d}
+                                """.formatted(LocalDate.now(), amount)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
+    }
+
+    private String createExpense(String categoryId, LocalDate date, long amount, String desc) throws Exception {
+        return createEvent("""
+                {"date":"%s","categoryId":"%s","type":"EXPENSE",
+                 "plannedAmount":%d,"priority":"MEDIUM","description":"%s"}
+                """.formatted(date, categoryId, amount, desc));
+    }
+
+    @Test
+    void ano155_factBelowPlan_pocketUnchanged_remainderStillHeld() throws Exception {
+        // Из тела задачи: факт 5 480 на план 6 000. Раньше кармашек РОС на 6 000 —
+        // план уходил из траектории, а факт не попадал в остаток.
+        String cat = createCategory("IT-ano155-a", "EXPENSE");
+        String plan = createExpense(cat, LocalDate.now().plusDays(7), 6_000, "IT plan a");
+        try {
+            BigDecimal afterPlan = pocket();
+
+            String fact = recordFact(plan, 5_480);
+            try {
+                assertThat(pocket())
+                        .as("потратил ровно то, что собирался: 5 480 ушло, 520 ещё удержано")
+                        .isEqualByComparingTo(afterPlan);
+            } finally {
+                deleteEvent(fact);
+            }
+        } finally {
+            deleteEvent(plan);
+        }
+    }
+
+    @Test
+    void ano155_factAbovePlan_pocketFallsByOverspend() throws Exception {
+        // Из тела задачи: факт 7 300 на план 6 000. Раньше кармашек рос на 6 000,
+        // хотя человек потратил на 1 300 БОЛЬШЕ запланированного.
+        String cat = createCategory("IT-ano155-b", "EXPENSE");
+        String plan = createExpense(cat, LocalDate.now().plusDays(7), 6_000, "IT plan b");
+        try {
+            BigDecimal afterPlan = pocket();
+
+            String fact = recordFact(plan, 7_300);
+            try {
+                assertThat(pocket())
+                        .as("перерасход обязан уменьшать кармашек, а не увеличивать")
+                        .isEqualByComparingTo(afterPlan.subtract(new BigDecimal("1300")));
+            } finally {
+                deleteEvent(fact);
+            }
+        } finally {
+            deleteEvent(plan);
+        }
+    }
+
+    @Test
+    void ano155_groceriesPlan_firstReceiptDoesNotReleaseWholePlan() throws Exception {
+        // Дефект Б в чистом виде: он срабатывает БЕЗ всяких будущих дат.
+        // Чек на 300 не имеет права освободить резерв продуктов на 20 000.
+        String cat = createCategory("IT-ano155-c", "EXPENSE");
+        String plan = createExpense(cat, LocalDate.now().plusDays(7), 20_000, "IT groceries");
+        try {
+            BigDecimal afterPlan = pocket();
+
+            String first = recordFact(plan, 300);
+            String second = recordFact(plan, 300);
+            try {
+                assertThat(pocket())
+                        .as("два чека по 300 не освобождают 19 400 остатка")
+                        .isEqualByComparingTo(afterPlan);
+            } finally {
+                deleteEvent(second);
+                deleteEvent(first);
+            }
+        } finally {
+            deleteEvent(plan);
+        }
+    }
+
     // ── SECOND_INCOME e2e (ANO-14 §4) ────────────────────────────────────────
 
     @Test

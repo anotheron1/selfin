@@ -147,6 +147,22 @@ public class FinancialEventService {
     }
 
     /**
+     * Факт значит «деньги ушли». В будущем они уйти не могли, поэтому дата факта — не
+     * позже сегодня (ANO-155). Граница включительно: сегодня деньги уйти уже могли.
+     *
+     * <p>Запрет стоит на ВВОДЕ, а не в расчёте: окно остатка право, отсекая факты позже
+     * {@code asOfDate} — банковское число их содержать не может. Пропущенный сюда факт с
+     * будущей датой не попадал в остаток и при этом снимал родительский план с траектории:
+     * расход исчезал с обеих сторон разом, и кармашек рос ровно на сумму плана.
+     */
+    private void requireNotFuture(LocalDate date) {
+        if (date != null && date.isAfter(LocalDate.now(clock))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "fact date must not be in the future: " + date);
+        }
+    }
+
+    /**
      * Возвращает все не-удалённые события с заданным приоритетом, отсортированные по createdAt.
      *
      * @param priority фильтр приоритета
@@ -274,22 +290,6 @@ public class FinancialEventService {
      * @throws ResourceNotFoundException если PLAN не найден или удалён
      */
     @Transactional
-    /**
-     * Факт значит «деньги ушли». В будущем они уйти не могли, поэтому дата факта — не
-     * позже сегодня (ANO-155). Граница включительно: сегодня деньги уйти уже могли.
-     *
-     * <p>Запрет стоит на ВВОДЕ, а не в расчёте: окно остатка право, отсекая факты позже
-     * {@code asOfDate} — банковское число их содержать не может. Пропущенный сюда факт с
-     * будущей датой не попадал в остаток и при этом снимал родительский план с траектории:
-     * расход исчезал с обеих сторон разом, и кармашек рос ровно на сумму плана.
-     */
-    private void requireNotFuture(LocalDate date) {
-        if (date != null && date.isAfter(LocalDate.now(clock))) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "fact date must not be in the future: " + date);
-        }
-    }
-
     public FinancialEventDto createLinkedFact(UUID planId, FactCreateDto dto) {
         FinancialEvent plan = eventRepository.findById(planId)
                 .filter(e -> !e.isDeleted() && e.getEventKind() == EventKind.PLAN)
