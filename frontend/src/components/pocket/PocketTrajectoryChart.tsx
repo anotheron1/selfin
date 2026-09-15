@@ -5,6 +5,7 @@ import {
     buildLinePoints,
     buildMinAnnotation,
     computeDomain,
+    forecastSeries,
     fmtDayMonth,
     makeScales,
     pickTicks,
@@ -32,11 +33,16 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
 
     const geom = useMemo(() => {
         const balances = trajectory.map(p => p.balance);
-        const domain = computeDomain(balances);
+        const forecast = forecastSeries(trajectory);
+        // ANO-80: домен считается по ОБЕИМ линиям — иначе пунктир уходит за нижнюю границу.
+        const domain = computeDomain(forecast ? [...balances, ...forecast] : balances);
         const n = trajectory.length;
         const { x, y } = makeScales(n, domain, W, PAD_X, TOP, FLOOR);
         const line = buildLinePoints(balances, W, PAD_X, TOP, FLOOR, domain);
-        return { domain, x, y, line, n };
+        const forecastLine = forecast
+            ? buildLinePoints(forecast, W, PAD_X, TOP, FLOOR, domain)
+            : null;
+        return { domain, x, y, line, forecastLine, n };
     }, [trajectory]);
 
     // Смена горизонта (скоуп/рефреш) делает старый индекс дня бессмысленным — сбрасываем.
@@ -46,7 +52,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
 
     if (trajectory.length === 0) return null;
 
-    const { domain, x, y, line, n } = geom;
+    const { domain, x, y, line, forecastLine, n } = geom;
     const yZero = y(0);
     const yBuffer = y(Math.min(buffer, domain.max));
     // Информационный хвост (§3.9): дни за горизонтом рисуются приглушённо
@@ -118,6 +124,15 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                             stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="2 4" />
                     </>
                 )}
+                {/*
+                  ANO-80: вторая линия — «с обычными тратами». Пунктиром на этом графике уже
+                  нарисованы буфер, граница горизонта и метка минимума, то есть всё, что не
+                  является самой траекторией; предположение читается так же, без нового словаря.
+                */}
+                {forecastLine && (
+                    <polyline points={forecastLine} fill="none" stroke={LINE} strokeWidth={1.5}
+                        strokeDasharray="5 4" opacity={0.65} strokeLinejoin="round" />
+                )}
                 {/* Точки дней — только на коротких горизонтах */}
                 {n <= 31 && trajectory.map((p, i) => (
                     <circle key={p.date} cx={x(i)} cy={y(p.balance)} r={2} fill={LINE}
@@ -182,6 +197,13 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                     <span className="inline-block w-3.5 h-0.5 rounded" style={{ background: LINE }} />
                     остаток
                 </span>
+                {forecastLine && (
+                    <span className="flex items-center gap-1.5">
+                        <span className="inline-block w-3.5 h-0.5 rounded"
+                            style={{ background: LINE, opacity: 0.65 }} />
+                        с обычными тратами
+                    </span>
+                )}
                 {showBufferZone(buffer) && (
                     <span className="flex items-center gap-1.5">
                         <span className="inline-block w-2 h-2 rounded-sm" style={{ background: AMBER, opacity: 0.6 }} />

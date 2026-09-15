@@ -42,7 +42,7 @@ class DashboardServiceTest {
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
         predictionService = mock(PredictionService.class);
-        when(predictionService.forecastFromEvents(any(), any()))
+        when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         dashboardService = new DashboardService(eventRepository, predictionService);
     }
@@ -171,8 +171,8 @@ class DashboardServiceTest {
 
         CategoryForecastDto catForecast = new CategoryForecastDto(
                 "Еда", new BigDecimal("15000"), new BigDecimal("20000"),
-                new BigDecimal("35000"), List.of());
-        when(predictionService.forecastFromEvents(any(), eq(today)))
+                new BigDecimal("35000"), BigDecimal.ZERO, List.of());
+        when(predictionService.forecastFromEvents(any(), any(), eq(today)))
                 .thenReturn(new MonthlyForecastDto(List.of(catForecast), BigDecimal.ZERO));
 
         List<DashboardDto.CategoryProgressBar> bars = dashboardService.buildProgressBars(
@@ -197,7 +197,7 @@ class DashboardServiceTest {
                 .type(EventType.EXPENSE)
                 .eventKind(EventKind.PLAN).plannedAmount(new BigDecimal("30000")).deleted(false).build();
 
-        when(predictionService.forecastFromEvents(any(), eq(today)))
+        when(predictionService.forecastFromEvents(any(), any(), eq(today)))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
 
         List<DashboardDto.CategoryProgressBar> bars = dashboardService.buildProgressBars(

@@ -193,8 +193,8 @@ public class PocketInputAssembler {
         // 3. Просрочка (без границы месяца, но строго ПОСЛЕ якоря — ANO-28: план старше
         //    чекпоинта уже «съеден» числом из банка, резерв был бы задвоением)
         //    и хотелки (отдельные выборки, спека §3.1, §3.4)
-        List<EventSnapshot> overdue = eventRepository.findOverdueMandatoryExpenses(from, asOfDate)
-                .stream().map(EventSnapshot::from).toList();
+        List<FinancialEvent> overdueEvents = eventRepository.findOverdueMandatoryExpenses(from, asOfDate);
+        List<EventSnapshot> overdue = overdueEvents.stream().map(EventSnapshot::from).toList();
 
         // ANO-79: та же выборка при других границах даёт ДОПОЛНИТЕЛЬНОЕ множество — просрочку,
         // которую последний ре-якорь удержал вне резерва. Движок её не вычитает, а объясняет:
@@ -227,7 +227,10 @@ public class PocketInputAssembler {
         LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
         List<FinancialEvent> monthEvents = eventRepository
                 .findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
-        MonthlyForecastDto forecast = predictionService.forecastFromEvents(monthEvents, asOfDate);
+        // ANO-80: прогнозу передаётся ИМЕННО ТОТ список просрочки, который удержан резервом.
+        // Иначе норма вычитала бы планы, не стоящие в пути денег, и второе число выходило бы
+        // оптимистичнее правды (найдено ревью PR #43).
+        MonthlyForecastDto forecast = predictionService.forecastFromEvents(monthEvents, overdueEvents, asOfDate);
         BigDecimal delta = forecast.netPredictionDelta().max(BigDecimal.ZERO);
         List<String> contributors = buildContributors(forecast);
 
@@ -261,10 +264,9 @@ public class PocketInputAssembler {
         return new Assembled(input, baselineRefs, allIncomes);
     }
 
-    /** Сколько месяцев истории нужно категории, чтобы ей верить (как у fan chart §конус). */
-    private static final int MIN_HISTORY_MONTHS = 3;
-    /** Окно истории для медианы — то же, что у траектории стратегии. */
-    private static final int HISTORY_WINDOW_MONTHS = 6;
+    // ANO-80: порог и окно жили здесь своей копией, а в конусе fan chart — своей. Обе
+    // переехали в PredictionService, потому что расходиться им нельзя: тест-сторож
+    // ForecastThresholdSingleSourceTest запрещает вторую копию.
 
     /**
      * Прогноз «сверх плана» по будущим месяцам горизонта (ANO-36).
@@ -290,8 +292,8 @@ public class PocketInputAssembler {
 
         Map<java.util.UUID, BigDecimal> medians = new java.util.LinkedHashMap<>();
         for (var cat : categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()) {
-            var stats = predictionService.getStatsForCategory(cat, HISTORY_WINDOW_MONTHS);
-            if (stats.monthsOfHistory() >= MIN_HISTORY_MONTHS) {
+            var stats = predictionService.getStatsForCategory(cat, PredictionService.HISTORY_WINDOW_MONTHS);
+            if (stats.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS) {
                 medians.put(cat.getId(), stats.median());
             }
         }
@@ -342,9 +344,11 @@ public class PocketInputAssembler {
      * но вывод — голые имена категорий, без сумм «(+3к)».
      */
     private List<String> buildContributors(MonthlyForecastDto forecast) {
+        // ANO-80: виновник — тот, кто реально даёт вклад. Отбор по «plannedLimit == 0» был
+        // верен, пока категория с планом давала ноль по построению; теперь она отдаёт разницу
+        // между нормой и планом, и такой отбор молча прятал бы её из объяснения.
         return forecast.categories().stream()
-                .filter(c -> c.plannedLimit().signum() == 0
-                        && c.projectionAmount().compareTo(c.currentFact()) > 0)
+                .filter(c -> c.beyondPlan().signum() > 0)
                 .map(CategoryForecastDto::categoryName)
                 .toList();
     }

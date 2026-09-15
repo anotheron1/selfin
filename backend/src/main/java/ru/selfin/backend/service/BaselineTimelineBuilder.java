@@ -56,8 +56,8 @@ public class BaselineTimelineBuilder {
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
 
-    static final int PREDICTION_WINDOW_MONTHS = 6;
-    static final int MIN_HISTORY_FOR_FAN = 3;
+
+
     static final int MIN_CATEGORIES_FOR_FAN = 3;
 
     /**
@@ -72,7 +72,7 @@ public class BaselineTimelineBuilder {
         Map<Category, CategoryMonthStats> statsMap = computeStatsMap();
 
         boolean fanEnabled = statsMap.values().stream()
-                .filter(s -> s.monthsOfHistory() >= MIN_HISTORY_FOR_FAN)
+                .filter(s -> s.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS)
                 .count() >= MIN_CATEGORIES_FOR_FAN;
 
         List<StrategyTimelinePointDto> past = buildPastPoints(firstMonth, currentMonth);
@@ -90,7 +90,7 @@ public class BaselineTimelineBuilder {
         }
 
         return new TimelineSnapshot(firstMonth, currentMonth, horizonEnd,
-                PREDICTION_WINDOW_MONTHS, fanEnabled, all);
+                PredictionService.HISTORY_WINDOW_MONTHS, fanEnabled, all);
     }
 
     // === MOVED VERBATIM FROM StrategyTimelineService ===
@@ -105,7 +105,7 @@ public class BaselineTimelineBuilder {
         List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
         Map<Category, CategoryMonthStats> result = new LinkedHashMap<>();
         for (Category cat : forecastCats) {
-            result.put(cat, predictionService.getStatsForCategory(cat, PREDICTION_WINDOW_MONTHS));
+            result.put(cat, predictionService.getStatsForCategory(cat, PredictionService.HISTORY_WINDOW_MONTHS));
         }
         return result;
     }
@@ -202,7 +202,7 @@ public class BaselineTimelineBuilder {
 
         // Шаг 1: вычисляем агрегаты из предвычисленного statsMap
         List<CategoryMonthStats> eligibleStats = statsMap.values().stream()
-                .filter(s -> s.monthsOfHistory() >= MIN_HISTORY_FOR_FAN)
+                .filter(s -> s.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS)
                 .toList();
 
         BigDecimal sumMedian = eligibleStats.stream()

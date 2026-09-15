@@ -64,7 +64,9 @@ public class DashboardService {
      * @return список прогресс-баров, отсортированных по имени категории
      */
     List<DashboardDto.CategoryProgressBar> buildProgressBars(List<FinancialEvent> events, LocalDate today) {
-        MonthlyForecastDto forecast = predictionService.forecastFromEvents(events, today);
+        // Прогресс-барам нужны projectionAmount и history, а не вклад в кармашек, поэтому
+        // брони просрочки здесь нет: её знает только сборщик входа кармашка.
+        MonthlyForecastDto forecast = predictionService.forecastFromEvents(events, List.of(), today);
         Map<String, CategoryForecastDto> forecastByCategory = forecast.categories().stream()
                 .collect(Collectors.toMap(CategoryForecastDto::categoryName, f -> f));
 

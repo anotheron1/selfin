@@ -5,14 +5,37 @@ import {
     buildLinePoints,
     buildMinAnnotation,
     computeDomain,
+    forecastSeries,
     pickTicks,
     showBufferZone,
     showDangerZone,
     type TrajPoint,
 } from './trajectoryChart';
 
-const pt = (date: string, balance: number, income = 0, expense = 0): TrajPoint =>
-    ({ date, balance, income, expense });
+const pt = (date: string, balance: number, income = 0, expense = 0,
+            balanceWithForecast: number | null = null): TrajPoint =>
+    ({ date, balance, income, expense, balanceWithForecast });
+
+describe('forecastSeries (ANO-80)', () => {
+    it('прогноза нет — ряда нет, рисовать нечего', () => {
+        expect(forecastSeries([pt('2026-03-01', 100), pt('2026-03-02', 90)])).toBeNull();
+    });
+
+    it('прогноз есть — ряд той же длины, что основной', () => {
+        expect(forecastSeries([
+            pt('2026-03-01', 100),
+            pt('2026-03-02', 90, 0, 0, 80),
+            pt('2026-03-03', 80, 0, 0, 60),
+        ])).toEqual([100, 80, 60]);
+    });
+
+    it('дни до накопления прогноза берут основной баланс, чтобы линия не рвалась', () => {
+        // Первая точка траектории — сегодня, прогноз на неё не размазывается: там null.
+        // Подставить ноль значило бы уронить линию в пол на первом же дне.
+        expect(forecastSeries([pt('2026-03-01', 100), pt('2026-03-02', 90, 0, 0, 70)])![0])
+            .toBe(100);
+    });
+});
 
 describe('computeDomain', () => {
     it('всегда включает ноль снизу', () => {

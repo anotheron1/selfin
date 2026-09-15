@@ -168,8 +168,14 @@ export interface PocketResponse {
     checkpointDate: string | null;
     horizon: { type: PocketScopeType; endDate: string; label: string; fallback: boolean };
     minPoint: { date: string; balance: number; drivenBy: string | null };
+    /** Минимум «с обычными тратами» (ANO-80); null — прогноза нет. */
+    minPointWithForecast: { date: string; balance: number; drivenBy: string | null } | null;
     breakdown: { type: BreakdownType; label: string; amount: number; details: string[] }[];
-    trajectory: { date: string; balance: number; income: number; expense: number }[];
+    trajectory: {
+        date: string; balance: number; income: number; expense: number;
+        /** Вторая линия графика (ANO-80); null — прогноза на этой точке ещё/вовсе нет. */
+        balanceWithForecast: number | null;
+    }[];
     wishlistCandidates: {
         id: string; description: string | null;
         plannedAmount: number | null; date: string | null; fixed: boolean;
@@ -185,6 +191,22 @@ export interface PocketResponse {
      * null — вкладов нет. Мелким шрифтом: это сноска, а не третий равноправный ответ.
      */
     pocketWithDeposits: number | null;
+    /**
+     * «Кармашек с обычными тратами» (ANO-80) — оговорка к главному числу, не замена ему.
+     * null, когда прогноза нет: галочки не стоят, порог наблюдения не пройден либо норма
+     * целиком покрыта планами. Экран во всех трёх случаях делает одно и то же.
+     */
+    pocketWithForecast: number | null;
+}
+
+/**
+ * Готовность прогноза (ANO-80). Величина общая, а не покатегорийная.
+ * readyFrom — месяц вида '2026-11'; null — уже готов либо считать не от чего.
+ */
+export interface ForecastReadiness {
+    monthsObserved: number;
+    monthsRequired: number;
+    readyFrom: string | null;
 }
 
 // ── Pocket sandbox (ANO-16) ──────────────────────────────────────────────────

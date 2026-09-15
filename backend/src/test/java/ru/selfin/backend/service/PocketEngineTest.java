@@ -452,7 +452,11 @@ class PocketEngineTest {
         // Окно 2.03..15.03 (горизонт раньше конца месяца) = 14 дней, прогноз 1 400 → 100/день
         PocketInput in = base().forecast(1_400, "Продукты").build();
         PocketResultDto r = PocketEngine.calculate(in);
-        assertThat(r.pocket()).isEqualByComparingTo(dec(8_600)); // min в конце: 10 000 − 1 400
+
+        // ANO-80: величина и размазка прежние, но живут во ВТОРОМ числе. Главное число
+        // прогноза не видит — предположение не входит в сумму, которой распоряжаются.
+        assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
+        assertThat(r.pocketWithForecast()).isEqualByComparingTo(dec(8_600)); // 10 000 − 1 400
         PocketResultDto.BreakdownLine f = line(r, BreakdownType.UNPLANNED_FORECAST);
         assertThat(f.amount()).isEqualByComparingTo(dec(-1_400));
         assertThat(f.details()).containsExactly("Продукты");
@@ -472,10 +476,15 @@ class PocketEngineTest {
                 .monthsScope(3, horizon)
                 .futureForecast(april, 30_000).build();
 
-        BigDecimal endWithout = lastBalance(PocketEngine.calculate(without));
-        BigDecimal endWith = lastBalance(PocketEngine.calculate(with));
+        PocketResultDto rWithout = PocketEngine.calculate(without);
+        PocketResultDto rWith = PocketEngine.calculate(with);
 
-        assertThat(endWithout.subtract(endWith))
+        // ANO-80: прогноз гнёт ВТОРУЮ линию. Основная от него не зависит вовсе — иначе
+        // главное число и график противоречили бы друг другу на одном экране.
+        assertThat(lastBalance(rWith))
+                .as("основная линия — только планы, прогноз её не трогает")
+                .isEqualByComparingTo(lastBalance(rWithout));
+        assertThat(lastBalance(rWith).subtract(lastForecastBalance(rWith)))
                 .as("за апрель должно уйти ровно 30 000 сверх плана")
                 .isEqualByComparingTo("30000");
     }
@@ -483,6 +492,11 @@ class PocketEngineTest {
     private static BigDecimal lastBalance(ru.selfin.backend.dto.pocket.PocketResultDto r) {
         var t = r.trajectory();
         return t.get(t.size() - 1).balance();
+    }
+
+    private static BigDecimal lastForecastBalance(ru.selfin.backend.dto.pocket.PocketResultDto r) {
+        var t = r.trajectory();
+        return t.get(t.size() - 1).balanceWithForecast();
     }
 
     @Test
@@ -522,7 +536,8 @@ class PocketEngineTest {
         PocketResultDto.TrajectoryPoint mar5 = r.trajectory().stream()
                 .filter(p -> p.date().equals(LocalDate.of(2026, 3, 5))).findFirst().orElseThrow();
         assertThat(mar5.income()).isEqualByComparingTo(dec(20_000));
-        assertThat(mar5.expense()).isEqualByComparingTo(dec(3_100)); // 3 000 + 100 прогноза
+        // ANO-80: прогноз больше не подмешивается в expense — поле означает расход по планам.
+        assertThat(mar5.expense()).isEqualByComparingTo(dec(3_000));
 
         // Инвариант: balance(i) = balance(i-1) + income(i) − expense(i) — на каждой точке после нулевой
         for (int i = 1; i < r.trajectory().size(); i++) {
@@ -551,11 +566,18 @@ class PocketEngineTest {
         PocketResultDto flat = PocketEngine.calculate(base().build());
         assertThat(flat.minPoint().drivenBy()).isNull();
 
-        // Типовой продакшен-случай: минимум создан размазкой прогноза (событий в день минимума нет)
-        // → минимум НЕ в день 0, но drivenBy всё равно null
+        // ANO-80 убрал случай «минимум создан размазкой прогноза, виновника нет»: главный
+        // минимум прогноза не видит и потому всегда стоит на конкретном плановом расходе.
+        // Размазка двигает только прогнозный минимум — у него виновника действительно нет.
         PocketResultDto smeared = PocketEngine.calculate(base().forecast(1_400, "Продукты").build());
-        assertThat(smeared.minPoint().date()).isNotEqualTo(TODAY);
+        assertThat(smeared.minPoint().date())
+                .as("плановых расходов нет — главный минимум остаётся в дне 0")
+                .isEqualTo(TODAY);
         assertThat(smeared.minPoint().drivenBy()).isNull();
+        assertThat(smeared.minPointWithForecast().date())
+                .as("прогнозный минимум размазка всё же двигает")
+                .isNotEqualTo(TODAY);
+        assertThat(smeared.minPointWithForecast().drivenBy()).isNull();
     }
 
     // ── без чекпоинта ────────────────────────────────────────────────────────
@@ -649,10 +671,16 @@ class PocketEngineTest {
                 .build();
         PocketResultDto r = PocketEngine.calculate(in);
 
-        // Весь размаз (1 день окна) лёг на 2.03; дни хвоста — нулевой расход
-        assertThat(r.trajectory().get(1).expense()).isEqualByComparingTo(dec(1_000));
-        for (int i = 2; i < r.trajectory().size(); i++) {
-            assertThat(r.trajectory().get(i).expense()).isEqualByComparingTo(dec(0));
+        // ANO-80: прогноз ушёл из expense (поле означает расход по планам) и виден расхождением
+        // двух линий. Весь размаз (1 день окна) лёг на 2.03; в хвосте расхождение не растёт.
+        assertThat(r.trajectory().get(1).expense())
+                .as("расход по планам в этот день нулевой — 1 000 были прогнозом")
+                .isEqualByComparingTo(dec(0));
+        for (int i = 1; i < r.trajectory().size(); i++) {
+            PocketResultDto.TrajectoryPoint p = r.trajectory().get(i);
+            assertThat(p.balance().subtract(p.balanceWithForecast()))
+                    .as("расхождение линий набрано в окне и в хвост не протекает")
+                    .isEqualByComparingTo(dec(1_000));
         }
     }
 
@@ -701,14 +729,17 @@ class PocketEngineTest {
                 .forecast(900, "Продукты")
                 .build());
 
-        // STARTING − EXPENSES − CONTRIB + INCOME − FORECAST(≤min) = MIN
+        // ANO-80: STARTING − EXPENSES − CONTRIB + INCOME = MIN. Прогноза в этой сумме больше
+        // нет — он стоит за строкой POCKET как оговорка и в инвариант не входит.
         BigDecimal starting = line(r, BreakdownType.STARTING_BALANCE).amount();
         BigDecimal expenses = line(r, BreakdownType.PLANNED_EXPENSES).amount();
         BigDecimal contrib = line(r, BreakdownType.SAVINGS_CONTRIBUTIONS).amount();
         BigDecimal income = line(r, BreakdownType.PLANNED_INCOME).amount();
-        BigDecimal forecast = line(r, BreakdownType.UNPLANNED_FORECAST).amount();
-        assertThat(starting.add(expenses).add(contrib).add(income).add(forecast))
+        assertThat(starting.add(expenses).add(contrib).add(income))
                 .isEqualByComparingTo(r.minPoint().balance());
+        assertThat(indexOf(r, BreakdownType.UNPLANNED_FORECAST))
+                .as("строка прогноза существует, но стоит после кармашка")
+                .isGreaterThan(indexOf(r, BreakdownType.POCKET));
         assertThat(line(r, BreakdownType.SAVINGS_CONTRIBUTIONS).label())
                 .isEqualTo("Взносы в копилки (2 шт)");
         assertThat(line(r, BreakdownType.SAVINGS_CONTRIBUTIONS).details())
@@ -727,5 +758,85 @@ class PocketEngineTest {
 
         assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 5));
         assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.SAVINGS_CONTRIBUTIONS);
+    }
+
+    // ── ANO-80: две кумуляты ───────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("ANO-80: кармашек равен минимуму БЕЗ прогноза, хотя прогноз есть")
+    void pocket_ignoresForecast_whileSecondNumberCountsIt() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .forecast(30_000, "Продукты")
+                .build());
+
+        assertThat(r.pocket())
+                .as("главное число — только факты и планы: предположение им не распоряжаются")
+                .isEqualByComparingTo("10000");
+        assertThat(r.pocketWithForecast())
+                .as("оговорка — то же число с обычными тратами")
+                .isEqualByComparingTo("-20000");
+    }
+
+    @Test
+    @DisplayName("ANO-80: POCKET + строка прогноза = второе число, даже когда минимумы в разные дни")
+    void breakdown_forecastLine_isDifferenceBetweenTwoNumbers() {
+        // План 50 000 10.03 топит траекторию раньше, чем это делает размазанный прогноз:
+        // минимум без прогноза — 10.03, минимум с прогнозом — в конце горизонта 15.03.
+        PocketResultDto r = PocketEngine.calculate(base()
+                .events(planNamed(EventType.EXPENSE, LocalDate.of(2026, 3, 10), 50_000, "Шины"))
+                .forecast(30_000, "Продукты")
+                .build());
+
+        assertThat(r.minPoint().date())
+                .as("предпосылка теста: минимумы действительно в разные дни")
+                .isNotEqualTo(r.minPointWithForecast().date());
+
+        BigDecimal forecastLine = line(r, BreakdownType.UNPLANNED_FORECAST).amount();
+        assertThat(r.pocket().add(forecastLine))
+                .as("два числа на экране обязаны отличаться ровно на эту строку")
+                .isEqualByComparingTo(r.pocketWithForecast());
+    }
+
+    @Test
+    @DisplayName("ANO-80: строка прогноза стоит ПОСЛЕ кармашка и в инвариант не входит")
+    void breakdown_forecastLine_sitsAfterPocket() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .events(plan(EventType.EXPENSE, LocalDate.of(2026, 3, 3), 1_500, Priority.MEDIUM))
+                .forecast(900, "Продукты")
+                .build());
+
+        assertThat(indexOf(r, BreakdownType.UNPLANNED_FORECAST))
+                .as("до кармашка — из чего он сложился; после — оговорки")
+                .isGreaterThan(indexOf(r, BreakdownType.POCKET));
+
+        BigDecimal starting = line(r, BreakdownType.STARTING_BALANCE).amount();
+        BigDecimal expenses = line(r, BreakdownType.PLANNED_EXPENSES).amount();
+        assertThat(starting.add(expenses))
+                .as("инвариант сходится БЕЗ прогноза: он больше не слагаемое кармашка")
+                .isEqualByComparingTo(r.minPoint().balance());
+    }
+
+    @Test
+    @DisplayName("ANO-80: прогноза нет — три поля null, а не нули")
+    void noForecast_secondNumberIsNull() {
+        PocketResultDto r = PocketEngine.calculate(base().build());
+
+        assertThat(r.pocketWithForecast()).isNull();
+        assertThat(r.minPointWithForecast()).isNull();
+        assertThat(r.trajectory()).allSatisfy(p ->
+                assertThat(p.balanceWithForecast()).isNull());
+        assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.UNPLANNED_FORECAST);
+    }
+
+    @Test
+    @DisplayName("ANO-80: прогнозная линия идёт ниже основной всюду, где прогноз накоплен")
+    void forecastLine_staysBelowPlainLine() {
+        PocketResultDto r = PocketEngine.calculate(base()
+                .forecast(30_000, "Продукты")
+                .build());
+
+        assertThat(r.trajectory().stream().skip(1))
+                .allSatisfy(p -> assertThat(p.balanceWithForecast())
+                        .isLessThan(p.balance()));
     }
 }

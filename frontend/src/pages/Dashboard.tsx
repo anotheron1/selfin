@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchDashboard, fetchEvents, fetchPocket } from '../api';
 import type { DashboardData, DailyForecastPoint, FinancialEvent, PocketResponse } from '../types/api';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import PocketCard from '../components/PocketCard';
 import PocketTrajectoryChart from '../components/pocket/PocketTrajectoryChart';
@@ -262,7 +262,7 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
             )}
 
             {/* Алерт кассового разрыва — из minPoint сторожевого скоупа SECOND_INCOME (ANO-14 §5) */}
-            {watchdogAlert && (
+            {watchdogAlert && watchdogAlert.kind === 'PLAN' && (
                 <div className="rounded-xl p-4 flex gap-3 items-start"
                     style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid var(--color-danger)' }}>
                     <AlertTriangle size={18} style={{ color: 'var(--color-danger)', flexShrink: 0, marginTop: 2 }} />
@@ -273,9 +273,43 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                             <b>{fmt(watchdogAlert.deficit)}</b>
                             {watchdogAlert.drivenBy && <> («{watchdogAlert.drivenBy}»)</>}
                         </p>
+                        {watchdogAlert.forecastNote && (
+                            // Оговорка показывается по признаку «ГЛУБЖЕ», а не «раньше»: на
+                            // эталонном стенде прогнозный минимум оказался позже планового
+                            // (14.10 против 12.10), и слово «раньше» было бы неправдой.
+                            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                                С обычными тратами — глубже: {fmt(watchdogAlert.forecastNote.deficit)}
+                                {' '}к {fmtLocalDate(watchdogAlert.forecastNote.date)}
+                            </p>
+                        )}
                         {watchdogAlert.beyondChart && (
                             <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                                 Разрыв за пределами графика — переключись на «2-й доход»
+                            </p>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/*
+              ANO-80: предупреждение по прогнозу — другого рода, чем по плану, и оттенком
+              формулировки это не передать. Слово «дефицит» занято твёрдым случаем и здесь
+              не используется. «Около» и «может» стоят не для мягкости, а потому что это
+              правда о том, чем продукт располагает (правило 3). Речь о деньгах, не о
+              человеке (правило 12).
+            */}
+            {watchdogAlert && watchdogAlert.kind === 'FORECAST' && (
+                <div className="rounded-xl p-4 flex gap-3 items-start"
+                    style={{ background: 'rgba(239,159,39,0.10)', border: '1px solid #EF9F27' }}>
+                    <Info size={18} style={{ color: '#EF9F27', flexShrink: 0, marginTop: 2 }} />
+                    <div>
+                        <p className="text-sm" style={{ color: 'var(--color-text)' }}>
+                            До {fmtLocalDate(watchdogAlert.date)} по планам хватает. С обычными
+                            тратами — впритык: около <b>{fmt(watchdogAlert.deficit)}</b> может не хватить.
+                        </p>
+                        {watchdogAlert.beyondChart && (
+                            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                                Это за пределами графика — переключись на «2-й доход»
                             </p>
                         )}
                     </div>

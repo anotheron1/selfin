@@ -89,6 +89,47 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         @Param("endDate") LocalDate endDate);
 
     /**
+     * Дата самой ранней траты по ВСЕМ категориям; {@code null}, если трат нет.
+     *
+     * <p>ANO-80: задаёт начало окна наблюдения. Окно общее, а не покатегорийное — оно
+     * отвечает на вопрос «давно ли человек ведёт учёт», а не «давно ли он покупает одежду».
+     * Покатегорийное окно означало бы, что редкая категория считается по своим же редким
+     * месяцам и потому выглядит регулярной.
+     *
+     * <p>Признак траты — {@code factAmount IS NOT NULL}, а НЕ вид события. Факт живёт либо на
+     * отдельном событии вида FACT, либо на строке плана, если его внесли через
+     * {@code PATCH /events/{id}/fact}. Фильтр по виду терял второй путь целиком: человек,
+     * который отмечает траты прямо в плане, не имел бы ни одного месяца наблюдения и не
+     * получил бы прогноза никогда.
+     */
+    @Query("""
+        SELECT MIN(e.date) FROM FinancialEvent e
+        WHERE e.deleted = false
+          AND e.factAmount IS NOT NULL
+          AND e.type = ru.selfin.backend.model.enums.EventType.EXPENSE
+        """)
+    LocalDate findFirstSpendingDate();
+
+    /**
+     * Траты-расходы в диапазоне дат: всё, что несёт {@code factAmount}, любого вида события.
+     *
+     * <p>ANO-80. Отличается от {@link #findFactsByDateRange} предикатом: там «событие вида
+     * FACT», здесь «событие, по которому ушли деньги». Для медианы верен второй — иначе
+     * траты, записанные правкой строки плана, в историю не попадают и норма занижается.
+     * Старый запрос не трогаем: у него пять других потребителей со своей семантикой.
+     */
+    @Query("""
+        SELECT e FROM FinancialEvent e
+        WHERE e.deleted = false
+          AND e.factAmount IS NOT NULL
+          AND e.type = ru.selfin.backend.model.enums.EventType.EXPENSE
+          AND e.date >= :startDate AND e.date <= :endDate
+        """)
+    List<FinancialEvent> findSpendingByDateRange(
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate);
+
+    /**
      * Просроченные обязательные (HIGH) расходы текущего месяца, которые ещё не исполнены
      * и не имеют привязанного FACT-ребёнка (чтобы не резервировать дважды).
      * Используется для резервирования в балансе кармашка и прогнозах.

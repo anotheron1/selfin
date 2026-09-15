@@ -26,6 +26,18 @@ export function computeDomain(balances: number[]): Domain {
     return { min, max };
 }
 
+/**
+ * Ряд второй линии графика (ANO-80): «с обычными тратами».
+ *
+ * null, когда прогноза нет вовсе — рисовать нечего. Точки, где прогноз ещё не накоплен
+ * (нулевой день траектории), берут основной баланс: подстановка нуля уронила бы линию
+ * в пол на первом же дне и нарисовала бы обрыв, которого нет.
+ */
+export function forecastSeries(trajectory: TrajPoint[]): number[] | null {
+    if (!trajectory.some(p => p.balanceWithForecast != null)) return null;
+    return trajectory.map(p => p.balanceWithForecast ?? p.balance);
+}
+
 /** Красная зона «разрыв» — только когда траектория реально уходит под ноль. */
 export function showDangerZone(domain: Domain): boolean {
     return domain.min < 0;
