@@ -285,7 +285,7 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest=WishlistConve
 
 **Interfaces:** ничего в Java-коде не меняется.
 
-- [ ] **Step 1: Написать миграцию**
+- [x] **Step 1: Написать миграцию**
 
 ```sql
 -- ANO-138: вернуть в обсуждение хотелки, чья конверсия создала событие с пустой датой.
@@ -330,7 +330,7 @@ UPDATE financial_events s
  WHERE s.id = b.src_id;
 ```
 
-- [ ] **Step 2: Написать тест по образцу `DisposedFundMigrationIT`**
+- [x] **Step 2: Написать тест по образцу `DisposedFundMigrationIT`**
 
 Прогоном Flyway миграцию не проверить: на Testcontainers её очередь наступает на пустых таблицах, и любое утверждение о результате зелено по построению. Поэтому проверяется **то же SQL на тех же данных** — тело миграции копируется в тест дословно.
 
@@ -348,33 +348,37 @@ class DatelessConversionMigrationIT {
 
     @Test
     @DisplayName("пара «FIXED-хотелка → событие с пустой датой» разбирается: событие удалено, хотелка OPEN")
-    void migration_returnsBrokenPairToDiscussion() { /* ... */ }
+    void brokenPair_isReturnedToDiscussion() { /* ... */ }
 
     @Test
     @DisplayName("здоровая конверсия не трогается: событие со сроком остаётся, хотелка FIXED")
-    void migration_leavesHealthyConversionAlone() { /* ... */ }
+    void healthyConversion_isLeftAlone() { /* ... */ }
 
     @Test
     @DisplayName("сирота с пустой датой не трогается: доказать её происхождение нечем")
-    void migration_leavesOrphanAlone() { /* ... */ }
+    void orphan_isLeftAlone() { /* ... */ }
 }
 ```
 
 Второй тест обязателен: без него миграция «пометить удалёнными все события с пустой датой» прошла бы зелёной.
 
-- [ ] **Step 3: Прогнать интеграционные**
+- [x] **Step 3: Прогнать интеграционные**
 
 ```bash
 cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q verify -Dit.test=DatelessConversionMigrationIT
 ```
 
-- [ ] **Step 4: Мутации миграции**
+- [x] **Step 4: Мутации миграции**
 
 | мутация | обязан покраснеть |
 |---|---|
-| убрать `converted_to_event_id = NULL` | тест на повторную готовность пары |
-| убрать `AND e.date IS NULL` | `migration_leavesHealthyConversionAlone` |
-| заменить `JOIN` на выборку всех событий с пустой датой | `migration_leavesOrphanAlone` |
+| убрать `converted_to_event_id = NULL` | `brokenPair_isReturnedToDiscussion` — **проверено, 1 падение** на утверждении про снятую ссылку |
+| убрать `AND e.date IS NULL` | `healthyConversion_isLeftAlone` — **проверено, 1 падение** |
+| `LEFT JOIN`, ведущий от события (грести всё с пустой датой мимо связи) | `orphan_isLeftAlone` — **проверено, 1 падение** |
+
+Мутации вносятся в **копию SQL внутри теста**: именно она исполняется. Дисциплина «скопировано дословно» — то, что связывает её с `V25`; расхождение ловится только чтением.
+
+**Грабля, стоившая проверки.** После `git checkout --` файл возвращается с CRLF, и многострочный шаблон `perl -0pi` с `\n` молча не матчится — правка «применяется» без эффекта. Поймано обязательным `grep` на результат. Для многострочных шаблонов писать `\r?\n`.
 
 Коммит.
 
