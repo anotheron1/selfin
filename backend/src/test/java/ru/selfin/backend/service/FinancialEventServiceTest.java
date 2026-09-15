@@ -71,7 +71,7 @@ class FinancialEventServiceTest {
     }
 
     @Test
-    @DisplayName("createLinkedFact: создаёт FACT запись и переводит план в EXECUTED")
+    @DisplayName("createLinkedFact: создаёт FACT запись и привязывает её к плану")
     void createLinkedFact_success_createsFact() {
         UUID planId = UUID.randomUUID();
         Category cat = category();
@@ -100,8 +100,129 @@ class FinancialEventServiceTest {
         assertThat(result.eventKind()).isEqualTo(EventKind.FACT);
         assertThat(result.parentEventId()).isEqualTo(planId);
         assertThat(result.factAmount()).isEqualByComparingTo(BigDecimal.TEN);
+        // ANO-155: десятка из пяти тысяч обязательство не закрывает — план остаётся
+        // в PLANNED с остатком. Смысл статуса проверяют partialFact_keepsPlanPlanned
+        // и factCoveringPlan_marksExecuted.
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
+        verify(eventRepository, times(1)).save(any());
+    }
+
+    // ====== ANO-155: статус значит «погашен полностью», а не «тронут» ======
+
+    /** Заглушка агрегата фактов по плану. */
+    private static FactAggregateProjection agg(UUID planId, String total) {
+        return new FactAggregateProjection() {
+            public UUID getParentEventId() { return planId; }
+            public Long getCount() { return 1L; }
+            public BigDecimal getTotalAmount() { return new BigDecimal(total); }
+        };
+    }
+
+    @Test
+    @DisplayName("ANO-155: частичный факт оставляет план в PLANNED — остаток ещё впереди")
+    void partialFact_keepsPlanPlanned() {
+        UUID planId = UUID.randomUUID();
+        FinancialEvent plan = aPlan(planId, category(), EventStatus.PLANNED);   // план 5 000
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(List.of(agg(planId, "300")));
+
+        service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now(), new BigDecimal("300"), null, null, null));
+
+        assertThat(plan.getStatus())
+                .as("чек на 300 из 5 000 не закрывает обязательство")
+                .isEqualTo(EventStatus.PLANNED);
+    }
+
+    @Test
+    @DisplayName("ANO-155: факт на всю сумму переводит план в EXECUTED")
+    void factCoveringPlan_marksExecuted() {
+        UUID planId = UUID.randomUUID();
+        FinancialEvent plan = aPlan(planId, category(), EventStatus.PLANNED);
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(List.of(agg(planId, "5000")));
+
+        service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now(), new BigDecimal("5000"), null, null, null));
+
         assertThat(plan.getStatus()).isEqualTo(EventStatus.EXECUTED);
-        verify(eventRepository, times(2)).save(any());
+    }
+
+    @Test
+    @DisplayName("ANO-155: переплата тоже закрывает план")
+    void overpayingFact_marksExecuted() {
+        UUID planId = UUID.randomUUID();
+        FinancialEvent plan = aPlan(planId, category(), EventStatus.PLANNED);
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(List.of(agg(planId, "7300")));
+
+        service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now(), new BigDecimal("7300"), null, null, null));
+
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.EXECUTED);
+    }
+
+    // ====== ANO-155: факт значит «деньги ушли» — в будущем они уйти не могли ======
+
+    @Test
+    @DisplayName("ANO-155: связанный факт с будущей датой — 400, ничего не сохранено")
+    void createLinkedFact_futureDate_throws400_andSavesNothing() {
+        // Такой факт не попадал в остаток (окно по asOfDate) и при этом снимал план
+        // с траектории: расход исчезал с обеих сторон, кармашек рос на сумму плана.
+        UUID planId = UUID.randomUUID();
+        FinancialEvent plan = aPlan(planId, category(), EventStatus.PLANNED);
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+
+        assertThatThrownBy(() -> service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now().plusDays(1), new BigDecimal("5480"), null, null, null)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("must not be in the future");
+
+        verify(eventRepository, never()).save(any());
+        assertThat(plan.getStatus())
+                .as("план обязан остаться нетронутым: факта-то не появилось")
+                .isEqualTo(EventStatus.PLANNED);
+    }
+
+    // Границу «сегодня можно» держит createLinkedFact_success_createsFact — он пишет
+    // факт сегодняшним числом. Отдельной формы не заводим, чтобы не дублировать.
+
+    @Test
+    @DisplayName("ANO-155: внеплановый факт с будущей датой — 400")
+    void createStandaloneFact_futureDate_throws400() {
+        Category cat = category();
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+
+        assertThatThrownBy(() -> service.createStandaloneFact(new StandaloneFactCreateDto(
+                LocalDate.now().plusDays(1), cat.getId(), EventType.EXPENSE,
+                new BigDecimal("300"), null, null, null)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("must not be in the future");
+
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ANO-155: внеплановый факт сегодняшним числом принимается")
+    void createStandaloneFact_todayDate_isAccepted() {
+        // Граница включительно: сегодня деньги уйти уже могли.
+        Category cat = category();
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> {
+            FinancialEvent e = i.getArgument(0);
+            if (e.getId() == null) e.setId(UUID.randomUUID());
+            return e;
+        });
+
+        FinancialEventDto result = service.createStandaloneFact(new StandaloneFactCreateDto(
+                LocalDate.now(), cat.getId(), EventType.EXPENSE,
+                new BigDecimal("300"), null, null, null));
+
+        assertThat(result.eventKind()).isEqualTo(EventKind.FACT);
+        assertThat(result.date()).isEqualTo(LocalDate.now());
     }
 
     @Test
@@ -610,7 +731,167 @@ class FinancialEventServiceTest {
         assertThat(e.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);  // unchanged, no exception
     }
 
+    // ====== Ревью #45: статус плана — производная погашения, а не отметка «тронут» ======
+    //
+    // Статус пересчитывался только в момент создания факта. Но погашение меняют ещё три
+    // правки: факт можно уменьшить, факт можно удалить (оставив другие), плановую сумму
+    // можно поднять. После любой из них план оставался EXECUTED с положительным остатком —
+    // а и движок кармашка, и норма прогноза держат только PLANNED. Деньги, которые человек
+    // ещё должен, исчезали с экрана ровно тем же способом, что чинит ANO-155.
+
+    @Test
+    @DisplayName("ревью #45: уменьшенный факт снова открывает план")
+    void factEditedDown_reopensPlan() {
+        UUID planId = UUID.randomUUID();
+        UUID factId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.EXECUTED);          // план 5 000
+        FinancialEvent fact = aLinkedFact(factId, planId, cat, new BigDecimal("5000"));
+        when(eventRepository.findById(factId)).thenReturn(Optional.of(fact));
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
+                .thenReturn(List.of(agg(planId, "300")));
+
+        service.updateFact(factId, new FinancialEventUpdateFactDto(new BigDecimal("300"), null, null));
+
+        assertThat(plan.getStatus())
+                .as("погашено 300 из 5 000 — 4 700 человек ещё должен")
+                .isEqualTo(EventStatus.PLANNED);
+    }
+
+    @Test
+    @DisplayName("ревью #45: снятая отметка факта снова открывает план")
+    void factCleared_reopensPlan() {
+        UUID planId = UUID.randomUUID();
+        UUID factId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.EXECUTED);
+        FinancialEvent fact = aLinkedFact(factId, planId, cat, new BigDecimal("5000"));
+        when(eventRepository.findById(factId)).thenReturn(Optional.of(fact));
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
+                .thenReturn(Collections.emptyList());
+
+        service.updateFact(factId, new FinancialEventUpdateFactDto(null, null, null));
+
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
+    }
+
+    @Test
+    @DisplayName("ревью #45: удаление одного из двух фактов снова открывает план")
+    void oneOfSeveralFactsDeleted_reopensPlan() {
+        // Старое правило возвращало план в PLANNED, только если фактов не осталось ВОВСЕ:
+        // у плана 5 000, погашенного парой 2 000 + 3 000, удаление трёшки оставляло
+        // EXECUTED — и 3 000 долга пропадали из кармашка.
+        UUID planId = UUID.randomUUID();
+        UUID factId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.EXECUTED);
+        FinancialEvent fact = aLinkedFact(factId, planId, cat, new BigDecimal("3000"));
+        when(eventRepository.findById(factId)).thenReturn(Optional.of(fact));
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
+                .thenReturn(List.of(agg(planId, "2000")));   // осталась двушка
+
+        service.delete(factId, ScopeEnum.THIS);
+
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
+    }
+
+    @Test
+    @DisplayName("ревью #45: поднятая плановая сумма снова открывает план")
+    void plannedAmountRaisedAboveSettled_reopensPlan() {
+        UUID planId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.EXECUTED);          // 5 000, погашен
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
+                .thenReturn(List.of(agg(planId, "5000")));
+
+        service.update(planId, ScopeEnum.THIS, new FinancialEventCreateDto(
+                LocalDate.now(), cat.getId(), EventType.EXPENSE, new BigDecimal("9000"),
+                Priority.HIGH, null, null, null, null));
+
+        assertThat(plan.getStatus())
+                .as("счёт оказался больше — 4 000 остались непогашенными")
+                .isEqualTo(EventStatus.PLANNED);
+    }
+
+    @Test
+    @DisplayName("ревью #45: сниженная до уплаченного плановая сумма закрывает план")
+    void plannedAmountLoweredToSettled_closesPlan() {
+        // Производная работает в обе стороны, иначе правило превратилось бы в храповик.
+        UUID planId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.PLANNED);
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
+                .thenReturn(List.of(agg(planId, "300")));
+
+        service.update(planId, ScopeEnum.THIS, new FinancialEventCreateDto(
+                LocalDate.now(), cat.getId(), EventType.EXPENSE, new BigDecimal("300"),
+                Priority.HIGH, null, null, null, null));
+
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.EXECUTED);
+    }
+
+    @Test
+    @DisplayName("ревью #45: план с собственным фактом (легаси PATCH) статус не меняет")
+    void planWithOwnFact_keepsExecutedOnUpdate() {
+        // Легаси-путь: факт лежит в строке самого плана, детей у него нет. Пересчёт по
+        // детям увидел бы ноль погашенного и «открыл» бы исполненный план — расход
+        // посчитался бы дважды. Ровно поэтому движок и здесь смотрит на factAmount плана.
+        UUID planId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.EXECUTED);
+        plan.setFactAmount(new BigDecimal("5000"));
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.update(planId, ScopeEnum.THIS, new FinancialEventCreateDto(
+                LocalDate.now(), cat.getId(), EventType.EXPENSE, new BigDecimal("9000"),
+                Priority.HIGH, null, null, null, null));
+
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.EXECUTED);
+        verify(eventRepository, never()).findFactAggregatesByPlanIds(any());
+    }
+
+    @Test
+    @DisplayName("ревью #45: у плана без плановой суммы статус не трогаем")
+    void planWithoutPlannedAmount_keepsStatus() {
+        // Обязательства нет — измерять нечего, и «погашен полностью» утверждать не о чем.
+        // Такие заглушки чистила V13; правило записано, чтобы пересчёт не выдавал
+        // «исполнено» строке, в которой исполнять нечего.
+        UUID planId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aPlan(planId, cat, EventStatus.PLANNED);
+        plan.setPlannedAmount(null);
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.createLinkedFact(planId,
+                new FactCreateDto(LocalDate.now(), new BigDecimal("300"), null, null, null));
+
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
+        verify(eventRepository, never()).findFactAggregatesByPlanIds(any());
+    }
+
     // --- helpers ---
+
+    private FinancialEvent aLinkedFact(UUID id, UUID planId, Category cat, BigDecimal amount) {
+        return FinancialEvent.builder()
+                .id(id).eventKind(EventKind.FACT).parentEventId(planId).category(cat)
+                .type(EventType.EXPENSE).factAmount(amount).date(LocalDate.now())
+                .status(EventStatus.EXECUTED).priority(Priority.HIGH).deleted(false).build();
+    }
 
     private Category category() {
         return Category.builder()

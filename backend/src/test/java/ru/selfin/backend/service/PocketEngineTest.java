@@ -78,6 +78,18 @@ class PocketEngineTest {
                 ru.selfin.backend.dto.pocket.SyntheticKind.SAVINGS_CONTRIBUTION);
     }
 
+    /** План с известным id — чтобы к нему можно было привязать факт (ANO-155). */
+    private static EventSnapshot planWithId(UUID id, EventType type, LocalDate date, long amount) {
+        return new EventSnapshot(id, date, type, EventKind.PLAN, EventStatus.PLANNED,
+                Priority.MEDIUM, dec(amount), null, null, false, "plan", null, null, null);
+    }
+
+    /** Факт, привязанный к плану: гасит обязательство на свою сумму (ANO-155). */
+    private static EventSnapshot factFor(UUID planId, EventType type, LocalDate date, long amount) {
+        return new EventSnapshot(UUID.randomUUID(), date, type, EventKind.FACT, EventStatus.EXECUTED,
+                Priority.MEDIUM, null, dec(amount), null, false, "fact", null, null, planId);
+    }
+
     private static BigDecimal dec(long v) { return BigDecimal.valueOf(v); }
 
     private static PocketInputBuilder base() { return PocketInputBuilder.create(); }
@@ -166,6 +178,78 @@ class PocketEngineTest {
         // До зп трат нет: траектория 10 000 → min в день 0 → 5-го +зп. Min = 10 000.
         assertThat(r.currentBalance()).isEqualByComparingTo(dec(10_000));
         assertThat(r.minPoint().balance()).isEqualByComparingTo(dec(10_000));
+        assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
+    }
+
+    // ====== ANO-155: факт гасит план на свою сумму, а не снимает целиком ======
+
+    @Test
+    @DisplayName("ANO-155: частичный факт оставляет остаток плана удержанным")
+    void partialFact_leavesRemainderReserved() {
+        // Продукты 20 000 на 10.03, чек 300 сегодня. Раньше план уходил целиком и
+        // кармашек вырастал на 19 700 ровно тогда, когда человек только начал тратить.
+        UUID planId = UUID.randomUUID();
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(planWithId(planId, EventType.EXPENSE, LocalDate.of(2026, 3, 10), 20_000),
+                        factFor(planId, EventType.EXPENSE, TODAY, 300))
+                .build();
+
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.currentBalance())
+                .as("чек уже ушёл со счёта")
+                .isEqualByComparingTo(dec(9_700));
+        assertThat(r.pocket())
+                .as("удерживается 19 700 — не ноль (план снят) и не 20 000 (чек не зачтён)")
+                .isEqualByComparingTo(dec(-10_000));
+    }
+
+    @Test
+    @DisplayName("ANO-155: факт на всю сумму снимает план целиком")
+    void fullFact_releasesPlanEntirely() {
+        UUID planId = UUID.randomUUID();
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(planWithId(planId, EventType.EXPENSE, LocalDate.of(2026, 3, 10), 6_000),
+                        factFor(planId, EventType.EXPENSE, TODAY, 6_000))
+                .build();
+
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.pocket())
+                .as("обязательство погашено полностью — удерживать нечего")
+                .isEqualByComparingTo(dec(4_000));
+    }
+
+    @Test
+    @DisplayName("ANO-155: переплата даёт остаток ноль, а не отрицательный")
+    void overpay_givesZeroRemainder_notNegative() {
+        // Отрицательный остаток ВЕРНУЛ бы деньги в кармашек: потратил больше — стало больше.
+        UUID planId = UUID.randomUUID();
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(planWithId(planId, EventType.EXPENSE, LocalDate.of(2026, 3, 10), 6_000),
+                        factFor(planId, EventType.EXPENSE, TODAY, 7_300))
+                .build();
+
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.pocket())
+                .as("10 000 − 7 300; переплата не возвращается прибавкой")
+                .isEqualByComparingTo(dec(2_700));
+    }
+
+    @Test
+    @DisplayName("ANO-155: легаси-план с собственным factAmount по-прежнему не удерживается")
+    void planWithOwnFactAmount_staysExcluded() {
+        // Путь PATCH /events/{id}/fact пишет число в сам план и ставит EXECUTED.
+        // Такие строки удерживать нельзя — иначе расход посчитается дважды.
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(new EventSnapshot(UUID.randomUUID(), LocalDate.of(2026, 3, 10),
+                        EventType.EXPENSE, EventKind.PLAN, EventStatus.EXECUTED, Priority.MEDIUM,
+                        dec(20_000), dec(5_000), null, false, "легаси", null, null, null))
+                .build();
+
+        PocketResultDto r = PocketEngine.calculate(in);
+
         assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
     }
 

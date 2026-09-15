@@ -21,6 +21,9 @@ import java.util.UUID;
  *                      дня якоря, существовавший в момент сверки, от записанного после неё —
  *                      см. {@code AnchorWindow}. {@code null} у синтетики и у старых вызовов:
  *                      тогда день якоря решается по дате, как до ANO-82.
+ * @param parentEventId у факта — план, который он гасит (ANO-155). Движку нужно, чтобы
+ *                      считать непогашенный остаток плана: факт не замещает обязательство,
+ *                      а уменьшает его на свою сумму. {@code null} у планов и у синтетики.
  */
 public record EventSnapshot(
         UUID id,
@@ -35,8 +38,19 @@ public record EventSnapshot(
         boolean converted,
         String description,
         SyntheticKind syntheticKind,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        UUID parentEventId
 ) {
+    /** Сигнатура до ANO-155 — у таких вызовов родителя нет. */
+    public EventSnapshot(UUID id, LocalDate date, EventType type, EventKind eventKind,
+                         EventStatus status, Priority priority, BigDecimal plannedAmount,
+                         BigDecimal factAmount, WishlistStatus wishlistStatus,
+                         boolean converted, String description, SyntheticKind syntheticKind,
+                         LocalDateTime createdAt) {
+        this(id, date, type, eventKind, status, priority, plannedAmount, factAmount,
+                wishlistStatus, converted, description, syntheticKind, createdAt, null);
+    }
+
     /** Старая сигнатура (реальное событие, syntheticKind = null) — щадит существующие тесты. */
     public EventSnapshot(UUID id, LocalDate date, EventType type, EventKind eventKind,
                          EventStatus status, Priority priority, BigDecimal plannedAmount,
@@ -60,6 +74,6 @@ public record EventSnapshot(
                 e.getId(), e.getDate(), e.getType(), e.getEventKind(), e.getStatus(),
                 e.getPriority(), e.getPlannedAmount(), e.getFactAmount(), e.getWishlistStatus(),
                 e.getConvertedToEventId() != null || e.getConvertedToFundId() != null,
-                e.getDescription(), null, e.getCreatedAt());
+                e.getDescription(), null, e.getCreatedAt(), e.getParentEventId());
     }
 }

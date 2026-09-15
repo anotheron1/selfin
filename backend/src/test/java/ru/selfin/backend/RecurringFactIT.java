@@ -53,10 +53,13 @@ class RecurringFactIT {
     void factOnRecurringPlan_succeeds() throws Exception {
         Recurring r = createMonthlyRule("Ипотека");
 
-        // Ровно тот запрос, что падал: дата факта совпадает с датой планового платежа.
+        // Ровно тот запрос, что падал (ANO-91: факт наследовал recurring_rule_id и садился
+        // на чужой уникальный ключ). Дата факта — сегодня: план заведён на завтра, а факт
+        // в будущем запрещён (ANO-155). Суть воспроизведения — факт на порождённом правилом
+        // плане, а не его дата.
         mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(factBody(r.planDate, 23598)))
+                        .content(factBody(LocalDate.now().toString(), 23598)))
                 .andExpect(status().isOk());
     }
 
@@ -67,7 +70,7 @@ class RecurringFactIT {
 
         String resp = mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(factBody(r.planDate, 500)))
+                        .content(factBody(LocalDate.now().toString(), 500)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String factId = objectMapper.readTree(resp).get("id").asText();
@@ -92,11 +95,11 @@ class RecurringFactIT {
         // ключ (rule_id, date), что и первый.
         mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(factBody(r.planDate, 3000)))
+                        .content(factBody(LocalDate.now().toString(), 3000)))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(factBody(r.planDate, 2000)))
+                        .content(factBody(LocalDate.now().toString(), 2000)))
                 .andExpect(status().isOk());
 
         Integer facts = jdbc.queryForObject(

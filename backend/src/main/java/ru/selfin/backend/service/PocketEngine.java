@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -69,16 +70,22 @@ public final class PocketEngine {
         // безадресные факты к ним не применяются — они относятся к дефолтному счёту.
         currentBalance = currentBalance.add(in.otherAccountsBalanceOrZero());
 
+        // ANO-155: сколько по каждому плану уже погашено фактами. Факт не замещает
+        // обязательство, а уменьшает его на свою сумму — как «частично оплачен» в
+        // платёжном календаре. Раньше первый же факт снимал план целиком, и чек на 300
+        // освобождал резерв продуктов на 20 000.
+        Map<UUID, BigDecimal> settled = PlanRemainder.settledBySnapshots(in.events());
+
         // 2. День 0: − резерв просрочки − плановые расходы сегодняшнего дня.
         //    Плановые доходы с датой ≤ asOfDate НЕ учитываются (консервативная асимметрия §3.3.2).
         BigDecimal overdue = in.overdueEvents().stream()
                 .map(EventSnapshot::plannedAmount).filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal todayExpenses = in.events().stream()
-                .filter(PocketEngine::isPendingPlan)
+                .filter(e -> isPendingPlan(e, settled))
                 .filter(e -> e.wishlistStatus() == null)
                 .filter(e -> in.asOfDate().equals(e.date()) && e.type() != EventType.INCOME)
-                .map(EventSnapshot::plannedAmount).filter(Objects::nonNull)
+                .map(e -> remainderOf(e, settled))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // 3. Прогноз незапланированных по дням: текущий месяц (§3.5) + будущие месяцы (ANO-36).
@@ -90,7 +97,7 @@ public final class PocketEngine {
         //    Диапазон — до конца траектории с хвостом (§3.9), не только до горизонта.
         LocalDate trajEnd = trajectoryEnd(in.asOfDate(), in.horizonEnd());
         Map<LocalDate, List<EventSnapshot>> futureByDay = in.events().stream()
-                .filter(PocketEngine::isPendingPlan)
+                .filter(e -> isPendingPlan(e, settled))
                 .filter(PocketEngine::allowedInTrajectory)
                 .filter(e -> e.date() != null
                         && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(trajEnd))
@@ -130,7 +137,8 @@ public final class PocketEngine {
             BigDecimal dayTopExpenseAmount = BigDecimal.ZERO;
             String dayTopExpense = null;
             for (EventSnapshot e : futureByDay.getOrDefault(d, List.of())) {
-                BigDecimal amount = e.plannedAmount() != null ? e.plannedAmount() : BigDecimal.ZERO;
+                // ANO-155: удерживается непогашенный остаток, а не полная плановая сумма.
+                BigDecimal amount = remainderOf(e, settled);
                 if (e.type() == EventType.INCOME) {
                     dayIncome = dayIncome.add(amount);
                     incomeCum = incomeCum.add(amount);
@@ -237,10 +245,25 @@ public final class PocketEngine {
 
     // ── правила фильтрации (спека §3.2) ─────────────────────────────────────
 
-    /** PLAN(PLANNED) без факта — ещё не исполнен, участвует в прогнозе. */
-    private static boolean isPendingPlan(EventSnapshot e) {
+    /**
+     * PLAN(PLANNED) с непогашенным остатком — он ещё стоит в пути денег.
+     *
+     * <p>ANO-155: условие «без факта» осталось, но значит теперь другое. {@code factAmount}
+     * у самого плана — легаси-путь PATCH, такие строки удерживать нельзя (расход посчитался
+     * бы дважды). А вот привязанные факты-дети гасят план ПОСТЕПЕННО, и пока остаток
+     * положителен, план обязан удерживаться.
+     */
+    private static boolean isPendingPlan(EventSnapshot e, Map<UUID, BigDecimal> settled) {
         return e.factAmount() == null
-                && e.eventKind() == EventKind.PLAN && e.status() == EventStatus.PLANNED;
+                && e.eventKind() == EventKind.PLAN && e.status() == EventStatus.PLANNED
+                && remainderOf(e, settled).signum() > 0;
+    }
+
+    /** Непогашенная часть плана (ANO-155). Правило живёт в {@link PlanRemainder}, не здесь. */
+    private static BigDecimal remainderOf(EventSnapshot e, Map<UUID, BigDecimal> settled) {
+        // Синтетика (взносы копилок, примерка) детей не имеет — id у неё null.
+        BigDecimal paid = e.id() == null ? null : settled.get(e.id());
+        return PlanRemainder.of(e.plannedAmount(), paid);
     }
 
     /** Фильтр хотелок для траектории: обычные события + датированные FIXED-неконвертированные. */

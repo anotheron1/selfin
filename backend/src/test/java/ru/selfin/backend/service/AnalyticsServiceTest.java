@@ -280,6 +280,30 @@ class AnalyticsServiceTest {
         assertThat(report.cashFlow().get(0).runningBalance()).isEqualByComparingTo(BigDecimal.valueOf(50_000));
     }
 
+    @Test
+    @DisplayName("ревью #45: частично погашенный план идёт в мостик остатком, а не полной суммой")
+    void getReport_partiallySettledPlanInBridge_isNotCountedTwice() {
+        // ANO-155 оставил такой план в PLANNED — и мостик, который пропускает только
+        // PLAN(EXECUTED), стал вычитать из стартового баланса и план целиком, и его факт.
+        // До ANO-155 первый же факт закрывал план, и двойного счёта не получалось.
+        LocalDate asOfDate = LocalDate.of(2026, 4, 9);
+        LocalDate checkpointDate = LocalDate.of(2026, 3, 20);
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        anchorDefaultAccountAt(defaultAccount, checkpointDate, 30_000, asOfDate);
+
+        FinancialEvent plan = expenseOn("Продукты", LocalDate.of(2026, 3, 25), bd(20_000), null);
+        FinancialEvent fact = factFor(plan, LocalDate.of(2026, 3, 26), bd(300));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(
+                eq(checkpointDate), eq(LocalDate.of(2026, 3, 31)))).thenReturn(List.of(plan, fact));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(
+                eq(LocalDate.of(2026, 4, 1)), eq(LocalDate.of(2026, 4, 30)))).thenReturn(List.of());
+
+        AnalyticsReportDto report = service.getReport(asOfDate);
+
+        // 30 000 − 300 (ушло) − 19 700 (ещё должен) = 10 000. Двойной счёт дал бы 9 700.
+        assertThat(report.cashFlow().get(0).runningBalance()).isEqualByComparingTo(bd(10_000));
+    }
+
     // ─── buildPriorityBreakdown ───────────────────────────────────────────────
 
     @Test
@@ -307,6 +331,22 @@ class AnalyticsServiceTest {
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────
+
+    /** Факт-ребёнок, гасящий план на свою сумму (ANO-155). */
+    private FinancialEvent factFor(FinancialEvent plan, LocalDate date, BigDecimal amount) {
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID())
+                .date(date)
+                .category(plan.getCategory())
+                .type(plan.getType())
+                .eventKind(EventKind.FACT)
+                .parentEventId(plan.getId())
+                .factAmount(amount)
+                .status(EventStatus.EXECUTED)
+                .priority(Priority.MEDIUM)
+                .deleted(false)
+                .build();
+    }
 
     private FinancialEvent makeEvent(EventKind kind, Priority priority, CategoryType catType,
             BigDecimal planned, BigDecimal fact) {

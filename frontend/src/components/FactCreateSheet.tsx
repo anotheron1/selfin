@@ -5,6 +5,7 @@ import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { createLinkedFact } from '../api';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../lib/priority';
+import { canRecordFact, todayIso } from '../lib/factDate';
 import type { FactCreateDto, Priority } from '../types/api';
 
 interface Props {
@@ -17,7 +18,9 @@ interface Props {
 }
 
 export default function FactCreateSheet({ planId, planDescription, planPriority, open, onClose, onCreated }: Props) {
-    const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+    // ANO-155: местная дата, не UTC — toISOString() ночью уводил умолчание на день назад.
+    const today = todayIso(new Date());
+    const [date, setDate] = useState(today);
     const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState<Priority>(planPriority);
@@ -33,7 +36,9 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
         if (!isOpen) {
             onClose();
         } else {
-            setDate(new Date().toISOString().slice(0, 10));
+            // Ревью #45: сброс обязан класть ту же дату, что и умолчание, — иначе
+            // повторное открытие ставило UTC-дату мимо границы `max`, которая местная.
+            setDate(todayIso(new Date()));
             setAmount('');
             setDescription('');
             setPriority(planPriority);
@@ -75,7 +80,9 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
                     <div>
                         <label className="text-xs text-muted-foreground block mb-1">Дата</label>
-                        <Input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+                        {/* ANO-155: факт значит «деньги ушли» — позже сегодня они уйти не могли. */}
+                        <Input type="date" value={date} max={today}
+                               onChange={e => setDate(e.target.value)} required />
                     </div>
                     <div>
                         <label className="text-xs text-muted-foreground block mb-1">Фактическая сумма, ₽</label>
@@ -129,7 +136,8 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
                             onChange={e => setDescription(e.target.value)}
                         />
                     </div>
-                    <Button type="submit" className="w-full" disabled={loading}>
+                    <Button type="submit" className="w-full"
+                            disabled={loading || !canRecordFact(date, today)}>
                         {loading ? 'Сохраняю...' : 'Сохранить факт'}
                     </Button>
                 </form>

@@ -115,6 +115,26 @@ class PredictionServiceTest {
     }
 
     @Test
+    @DisplayName("ANO-155: частично погашенный план вычитается остатком, а не полной суммой")
+    void forecastFromEvents_partiallySettledPlan_subtractsOnlyRemainder() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+
+        // Продукты 20 000 на 20-е, чек 300 третьего. Норма обязана вычесть 19 700 —
+        // ровно то, что удерживает траектория. Вычтет 20 000 — прогноз оптимистичнее
+        // правды; вычтет ноль — трата посчитана дважды.
+        UUID planId = UUID.randomUUID();
+        MonthlyForecastDto result = forecast(
+                List.of(planWithId(planId, food, LocalDate.of(2026, 9, 20), "20000"),
+                        factFor(planId, food, LocalDate.of(2026, 9, 3), "300")),
+                LocalDate.of(2026, 9, 14));
+
+        assertThat(result.netPredictionDelta())
+                .as("50 000 − 300 потрачено − 19 700 удержано")
+                .isEqualByComparingTo("30000");
+    }
+
+    @Test
     @DisplayName("ANO-80: факт, внесённый в строку плана, считается потраченным")
     void forecastFromEvents_factPatchedOntoPlanRow_countsAsSpent() {
         enabled(food);
@@ -327,6 +347,24 @@ class PredictionServiceTest {
         return FinancialEvent.builder()
                 .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
                 .date(date).factAmount(new BigDecimal(amount))
+                .eventKind(EventKind.FACT).status(EventStatus.EXECUTED).deleted(false)
+                .build();
+    }
+
+    /** План с известным id — чтобы к нему можно было привязать факт (ANO-155). */
+    private FinancialEvent planWithId(UUID id, Category category, LocalDate date, String amount) {
+        return FinancialEvent.builder()
+                .id(id).category(category).type(EventType.EXPENSE)
+                .date(date).plannedAmount(new BigDecimal(amount))
+                .eventKind(EventKind.PLAN).status(EventStatus.PLANNED).deleted(false)
+                .build();
+    }
+
+    /** Факт, привязанный к плану: гасит его на свою сумму (ANO-155). */
+    private FinancialEvent factFor(UUID planId, Category category, LocalDate date, String amount) {
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
+                .date(date).factAmount(new BigDecimal(amount)).parentEventId(planId)
                 .eventKind(EventKind.FACT).status(EventStatus.EXECUTED).deleted(false)
                 .build();
     }

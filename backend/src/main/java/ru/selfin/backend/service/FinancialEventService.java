@@ -147,6 +147,22 @@ public class FinancialEventService {
     }
 
     /**
+     * Факт значит «деньги ушли». В будущем они уйти не могли, поэтому дата факта — не
+     * позже сегодня (ANO-155). Граница включительно: сегодня деньги уйти уже могли.
+     *
+     * <p>Запрет стоит на ВВОДЕ, а не в расчёте: окно остатка право, отсекая факты позже
+     * {@code asOfDate} — банковское число их содержать не может. Пропущенный сюда факт с
+     * будущей датой не попадал в остаток и при этом снимал родительский план с траектории:
+     * расход исчезал с обеих сторон разом, и кармашек рос ровно на сумму плана.
+     */
+    private void requireNotFuture(LocalDate date) {
+        if (date != null && date.isAfter(LocalDate.now(clock))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "fact date must not be in the future: " + date);
+        }
+    }
+
+    /**
      * Возвращает все не-удалённые события с заданным приоритетом, отсортированные по createdAt.
      *
      * @param priority фильтр приоритета
@@ -166,6 +182,7 @@ public class FinancialEventService {
         Category category = categoryRepository.findById(dto.categoryId())
                 .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
+        requireNotFuture(dto.date());
 
         FinancialEvent fact = FinancialEvent.builder()
                 .idempotencyKey(UUID.randomUUID())
@@ -215,7 +232,11 @@ public class FinancialEventService {
         if (scope == ScopeEnum.THIS) {
             Category category = resolveCategoryForUpdate(dto);
             applyDto(event, dto, category);
-            return toDto(eventRepository.save(event), null, null);
+            FinancialEvent saved = eventRepository.save(event);
+            // Ревью #45: плановую сумму только что могли поднять поверх уже уплаченного —
+            // тогда обязательство снова открыто, и статус обязан это сказать.
+            resettlePlan(saved);
+            return toDto(saved, null, null);
         }
 
         // FOLLOWING / ALL
@@ -264,7 +285,8 @@ public class FinancialEventService {
 
     /**
      * Создаёт FACT-запись, привязанную к существующему PLAN-событию.
-     * Родительский PLAN переводится в статус EXECUTED (если был PLANNED).
+     * Статус родительского PLAN пересчитывается по погашению ({@link #resettlePlan}):
+     * EXECUTED — только когда факты покрыли плановую сумму.
      * FACT наследует категорию и тип от PLAN.
      *
      * @param planId идентификатор родительского PLAN-события
@@ -277,6 +299,7 @@ public class FinancialEventService {
         FinancialEvent plan = eventRepository.findById(planId)
                 .filter(e -> !e.isDeleted() && e.getEventKind() == EventKind.PLAN)
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent (PLAN)", planId));
+        requireNotFuture(dto.date());
 
         FinancialEvent fact = FinancialEvent.builder()
                 .idempotencyKey(UUID.randomUUID())
@@ -308,18 +331,57 @@ public class FinancialEventService {
 
         FinancialEvent savedFact = eventRepository.save(fact);
 
-        if (plan.getStatus() == EventStatus.PLANNED) {
-            plan.setStatus(EventStatus.EXECUTED);
-            eventRepository.save(plan);
-        }
+        resettlePlan(plan);
 
         return toDto(savedFact, null, plan);
     }
 
     /**
+     * Приводит статус плана к погашению: {@code EXECUTED} значит «погашен полностью»,
+     * а не «тронут» (ANO-155).
+     *
+     * <p>Раньше статус ставился ПЕРВЫМ ЖЕ фактом безусловно, и понятия «исполнен частично»
+     * не было: чек на 300 снимал резерв продуктов на 20 000 целиком.
+     *
+     * <p><b>Почему пересчёт, а не отметка (ревью #45).</b> Погашение меняет не только
+     * появление факта: факт можно уменьшить или снять, один из нескольких — удалить,
+     * а плановую сумму — поднять. Статус, выставленный один раз при создании, после любой
+     * из этих правок остаётся {@code EXECUTED} при положительном остатке, — и движок
+     * кармашка вместе с нормой прогноза (оба держат только {@code PLANNED}) теряют деньги,
+     * которые человек ещё должен. Поэтому статус пересчитывается на КАЖДОЙ правке,
+     * влияющей на остаток, и всегда в обе стороны.
+     *
+     * <p>Два случая пропускаются намеренно. Собственный {@code factAmount} в строке плана —
+     * легаси-путь PATCH: там статус не про детей, и пересчёт по ним «открыл» бы исполненный
+     * план (расход посчитался бы дважды — ровно та проверка, что стоит в движковом
+     * {@code isPendingPlan}). План без плановой суммы обязательства не несёт: измерять
+     * нечего, и «погашен полностью» про него утверждать не о чем.
+     */
+    private void resettlePlan(FinancialEvent plan) {
+        if (plan.getFactAmount() != null || plan.getPlannedAmount() == null) return;
+        if (plan.getStatus() == EventStatus.CANCELLED) return;
+
+        BigDecimal settled = eventRepository.findFactAggregatesByPlanIds(List.of(plan.getId())).stream()
+                .findFirst()
+                .map(FactAggregateProjection::getTotalAmount)
+                .filter(Objects::nonNull)
+                .orElse(BigDecimal.ZERO);
+        EventStatus target = PlanRemainder.of(plan.getPlannedAmount(), settled).signum() == 0
+                ? EventStatus.EXECUTED : EventStatus.PLANNED;
+        if (plan.getStatus() != target) {
+            plan.setStatus(target);
+            eventRepository.save(plan);
+        }
+    }
+
+    /**
      * Обновляет фактическую сумму события (PATCH-семантика).
-     * Автоматически переключает статус: PLANNED ↔ EXECUTED в зависимости от наличия factAmount.
+     * Автоматически переключает статус самой записи: PLANNED ↔ EXECUTED по наличию factAmount.
      * Для FUND_TRANSFER при первичном заполнении факта инициирует перевод в копилку.
+     *
+     * <p>Единственный путь правки уже записанного FACT (экран правки транзакции). Если у
+     * записи есть родительский план, его статус пересчитывается по новому погашению
+     * ({@link #resettlePlan}): уменьшенный или снятый факт снова открывает обязательство.
      *
      * @param id  идентификатор события
      * @param dto новая фактическая сумма (может быть {@code null} для отмены)
@@ -356,7 +418,15 @@ public class FinancialEventService {
         log.info("fact_patch event_id={} category={} fact_old={} fact_new={} delta={}",
                 id, event.getCategory().getName(), oldFact, dto.factAmount(), delta);
 
-        return toDto(eventRepository.save(event), null, null);
+        FinancialEvent saved = eventRepository.save(event);
+        // Ревью #45: это единственный путь правки уже записанного факта. Уменьшенный или
+        // снятый факт гасит план меньше, чем гасил, — родитель обязан снова открыться.
+        if (saved.getEventKind() == EventKind.FACT && saved.getParentEventId() != null) {
+            eventRepository.findById(saved.getParentEventId())
+                    .filter(p -> !p.isDeleted())
+                    .ifPresent(this::resettlePlan);
+        }
+        return toDto(saved, null, null);
     }
 
     /**
@@ -436,7 +506,8 @@ public class FinancialEventService {
      * с сохранением контрактов плана-факта:
      * <ul>
      *   <li>PLAN с привязанными активными FACT-записями → 409 CONFLICT;</li>
-     *   <li>удаление последнего FACT → PLAN возвращается в статус PLANNED.</li>
+     *   <li>удаление FACT → статус родительского PLAN пересчитывается по оставшемуся
+     *       погашению ({@link #resettlePlan}), а не только при удалении последнего.</li>
      * </ul>
      * FOLLOWING/ALL — делегирует в ruleService.deleteScope.
      *
@@ -471,16 +542,13 @@ public class FinancialEventService {
             eventRepository.save(event);
             eventRepository.flush();
 
-            // If deleting a FACT, revert parent PLAN to PLANNED if it has no other FACTs
+            // Удалили факт — план погашен меньше, чем был. Ревью #45: раньше план
+            // возвращался в PLANNED, только если фактов не осталось ВОВСЕ, и удаление
+            // одного из нескольких оставляло его закрытым с непогашенным остатком.
             if (event.getEventKind() == EventKind.FACT && event.getParentEventId() != null) {
-                eventRepository.findById(event.getParentEventId()).ifPresent(plan -> {
-                    List<FactAggregateProjection> aggs =
-                            eventRepository.findFactAggregatesByPlanIds(List.of(plan.getId()));
-                    if (aggs.isEmpty() || aggs.get(0).getCount() == 0) {
-                        plan.setStatus(EventStatus.PLANNED);
-                        eventRepository.save(plan);
-                    }
-                });
+                eventRepository.findById(event.getParentEventId())
+                        .filter(p -> !p.isDeleted())
+                        .ifPresent(this::resettlePlan);
             }
             return;
         }

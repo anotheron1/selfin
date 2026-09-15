@@ -162,11 +162,13 @@ class FinancialEventControllerIT {
                 .andExpect(jsonPath("$.parentEventId").value(planId))
                 .andExpect(jsonPath("$.factAmount").value(4850));
 
-        // Проверяем, что план теперь EXECUTED
+        // ANO-155: 4 850 из 5 000 обязательство не закрывают — план остаётся PLANNED
+        // с остатком 150. Статус значит «погашен полностью», а не «тронут»: раньше его
+        // ставил первый же факт, и чек на 300 снимал резерв продуктов на 20 000.
         String today = LocalDate.now().toString();
         mockMvc.perform(get("/api/v1/events?startDate=" + today + "&endDate=" + today))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id == '" + planId + "')].status").value("EXECUTED"));
+                .andExpect(jsonPath("$[?(@.id == '" + planId + "')].status").value("PLANNED"));
     }
 
     @Test

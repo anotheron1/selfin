@@ -336,15 +336,35 @@ public class AnalyticsService {
      * V12-совместимая суммарная знаковая сумма списка событий.
      * Пропускает PLAN(EXECUTED) — их вклад уже учтён через FACT-записи.
      *
+     * <p>Ревью #45: частично погашенный план остаётся PLANNED (ANO-155), и в мостик он
+     * обязан идти НЕПОГАШЕННЫМ ОСТАТКОМ. Иначе из стартового баланса вычитаются и план
+     * целиком, и его факт: чек на 300 по плану 20 000 уносил 20 300 вместо 20 000.
+     * До ANO-155 такой план закрывался первым же фактом, и двойного счёта не выходило.
+     *
      * @param events список событий (может содержать и PLAN, и FACT записи)
      * @return алгебраическая сумма знаковых сумм без двойного учёта
      * @see #signedAmount(FinancialEvent)
      */
     private BigDecimal effectiveNetSum(List<FinancialEvent> events) {
+        Map<UUID, BigDecimal> settled = PlanRemainder.settledByPlan(events);
         return events.stream()
                 .filter(e -> !(e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.EXECUTED))
-                .map(this::signedAmount)
+                .map(e -> netAmount(e, settled))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Знаковая сумма с поправкой на погашение: у плана с фактами-детьми в окне — остаток.
+     *
+     * <p>Собственный {@code factAmount} в строке плана — легаси-путь PATCH, там детей нет
+     * и поправке взяться неоткуда. Факт-ребёнок вне окна мостика в {@code settled} не
+     * попадает, и это верно: на конец окна его ещё не случилось.
+     */
+    private BigDecimal netAmount(FinancialEvent e, Map<UUID, BigDecimal> settled) {
+        if (e.getEventKind() != EventKind.PLAN || e.getFactAmount() != null) return signedAmount(e);
+        // Без фактов-детей остаток равен плановой сумме — ровно то, что дал бы signedAmount.
+        BigDecimal remainder = PlanRemainder.of(e.getPlannedAmount(), settled.get(e.getId()));
+        return e.getType() == EventType.INCOME ? remainder : remainder.negate();
     }
 
     /**
