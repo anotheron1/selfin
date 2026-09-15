@@ -226,6 +226,80 @@ class WishlistControllerIT {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ANO-138 — хотелка без срока: воспроизведение из тела задачи
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void convert_wishlistWithoutDate_returns400_andChangesNothing() throws Exception {
+        // Ровно тот путь, которым заведена задача: хотелка «когда-нибудь», человек жмёт
+        // «Зафиксировать» и оставляет предвыбранное «Плановое событие».
+        FinancialEvent src = eventRepository.save(datelessWishlist("Ноут когда-нибудь"));
+
+        mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceKind":"WISHLIST","target":"PLAN_EVENT"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        FinancialEvent reloaded = eventRepository.findById(src.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus())
+                .as("хотелка обязана остаться в обсуждении: плана-то не появилось")
+                .isEqualTo(WishlistStatus.OPEN);
+        assertThat(reloaded.getConvertedToEventId()).isNull();
+
+        assertThat(eventRepository.findAll().stream().filter(e -> !e.isDeleted()).count())
+                .as("никакого артефакта в базе: раньше здесь оседало событие с пустой датой")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void convert_wishlistWithPlanDate_createsVisibleEvent() throws Exception {
+        // «Событие создано» и «событие видно» — разные утверждения, и дефект жил ровно
+        // на их расхождении. Поэтому проверяем выборкой за месяц, а не фактом сохранения.
+        FinancialEvent src = eventRepository.save(datelessWishlist("Ноут со сроком"));
+        LocalDate chosen = LocalDate.now().plusMonths(2);
+
+        String resp = mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceKind":"WISHLIST","target":"PLAN_EVENT","planDate":"%s"}
+                                """.formatted(chosen)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        UUID artifactId = UUID.fromString(om.readTree(resp).get("convertedTo").get("id").asText());
+        assertThat(eventRepository.findById(artifactId).orElseThrow().getDate())
+                .as("в план уехал срок из диалога")
+                .isEqualTo(chosen);
+
+        String listJson = mockMvc.perform(get("/api/v1/events")
+                        .param("startDate", chosen.withDayOfMonth(1).toString())
+                        .param("endDate", chosen.withDayOfMonth(chosen.lengthOfMonth()).toString()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<Map<String, Object>> events = om.readValue(listJson, List.class);
+        assertThat(events.stream().anyMatch(e -> artifactId.toString().equals(e.get("id"))))
+                .as("план виден в выборке за свой месяц — то, чего не случалось с пустой датой")
+                .isTrue();
+    }
+
+    /** Хотелка «когда-нибудь»: срок не задан — законное состояние (WishlistCreateDto.date). */
+    private FinancialEvent datelessWishlist(String description) {
+        return FinancialEvent.builder()
+                .priority(Priority.LOW)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .type(EventType.EXPENSE)
+                .eventKind(EventKind.PLAN)
+                .status(EventStatus.PLANNED)
+                .plannedAmount(new BigDecimal("150000"))
+                .date(null)
+                .category(seededExpenseCategory())
+                .description(description)
+                .build();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Task 4.4 — double conversion returns 409
     // ─────────────────────────────────────────────────────────────────────────
 

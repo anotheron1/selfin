@@ -396,7 +396,7 @@ cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q verify -Dit
 **Interfaces:**
 - Produces: `canConfirmConversion(target, planDate): boolean`; `onConfirm(target, createRecurring, planDate)`.
 
-- [ ] **Step 1: Падающий тест на чистую функцию**
+- [x] **Step 1: Падающий тест на чистую функцию**
 
 В `wishlistUtils.test.ts`:
 
@@ -419,9 +419,9 @@ describe('canConfirmConversion (ANO-138)', () => {
 
 Два последних случая — не формальность: без них правка «требовать срок всегда» сломала бы копилку и прошла зелёной.
 
-- [ ] **Step 2: `npm test` — падает**
+- [x] **Step 2: `npm test` — падает**
 
-- [ ] **Step 3: Функция**
+- [x] **Step 3: Функция**
 
 ```ts
 /**
@@ -434,7 +434,7 @@ export function canConfirmConversion(target: ConvertTarget, planDate: string): b
 }
 ```
 
-- [ ] **Step 4: Поле в диалоге**
+- [x] **Step 4: Поле в диалоге**
 
 В `FixWishlistDialog`: состояние `planDate`, сбрасываемое в `useEffect` вместе с остальными — `setPlanDate(item.targetDate ?? '')`. Поле показывать при `target === 'PLAN_EVENT'`, кнопку подтверждения гасить по `canConfirmConversion`.
 
@@ -465,7 +465,7 @@ export function canConfirmConversion(target: ConvertTarget, planDate: string): b
 
 Подпись нейтральная намеренно: правило 12 запрещает упрёки, «укажи срок, иначе не выйдет» — упрёк.
 
-- [ ] **Step 5: Проброс до API**
+- [x] **Step 5: Проброс до API**
 
 `CapitalWhatIf.handleFixConfirm` получает третий аргумент и кладёт его в тело:
 
@@ -478,7 +478,7 @@ export function canConfirmConversion(target: ConvertTarget, planDate: string): b
 
 В `api/index.ts` — `planDate?: string` в теле `convertWishlistItem`.
 
-- [ ] **Step 6: `npm test` и `tsc`**
+- [x] **Step 6: `npm test` и `tsc`**
 
 ```bash
 cd frontend && npm test && npx tsc --noEmit
@@ -493,7 +493,7 @@ cd frontend && npm test && npx tsc --noEmit
 **Files:**
 - Modify: `backend/src/test/java/ru/selfin/backend/WishlistControllerIT.java`
 
-- [ ] **Step 1: Два теста**
+- [x] **Step 1: Два теста**
 
 ```java
     @Test
@@ -517,13 +517,13 @@ cd frontend && npm test && npx tsc --noEmit
 
 Второй тест — не дубль юнита: он проверяет то, из-за чего задача заведена. «Событие создано» и «событие видно» — разные утверждения, и ровно на этом расхождении дефект и жил.
 
-- [ ] **Step 2: Прогнать**
+- [x] **Step 2: Прогнать**
 
 ```bash
 cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q verify -Dit.test=WishlistControllerIT
 ```
 
-- [ ] **Step 3: Полный прогон**
+- [x] **Step 3: Полный прогон**
 
 ```bash
 cd backend && rm -rf target/test-classes
