@@ -6,14 +6,6 @@ import type { RiskLevel } from './wishlistUtils';
 import type { ItemOverride } from './useWishlistSimulation';
 import type { WishlistItem, WishlistStatus } from '../../types/api';
 
-export interface ItemPersistPatch {
-    amount: number;
-    /** Отсутствует, если у элемента нет срока и его сейчас не задавали (ANO-29). */
-    targetDate?: string;
-    rate?: number;
-    termMonths?: number;
-}
-
 interface Props {
     items: WishlistItem[];
     activeMap: Record<string, boolean>;
@@ -26,7 +18,6 @@ interface Props {
     onAmountChange: (id: string, amount: number) => void;
     onDateChange: (id: string, date: string) => void;
     onParamsRecompute: (item: WishlistItem, req: RecomputeRequest) => void;
-    onPersist: (item: WishlistItem, patch: ItemPersistPatch) => void;
     onFix: (item: WishlistItem) => void;
     onDelete: (item: WishlistItem) => void;
     onStatusChange: (item: WishlistItem, status: WishlistStatus) => void;
@@ -50,7 +41,6 @@ function renderCard(item: WishlistItem, p: Props) {
             onAmountChange={a => p.onAmountChange(item.id, a)}
             onDateChange={d => p.onDateChange(item.id, d)}
             onParamsRecompute={req => p.onParamsRecompute(item, req)}
-            onPersist={patch => p.onPersist(item, patch)}
             onFix={() => p.onFix(item)}
             onDelete={() => p.onDelete(item)}
             onStatusChange={s => p.onStatusChange(item, s)}

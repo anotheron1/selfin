@@ -10,10 +10,20 @@ import {
     type RiskLevel,
 } from './wishlistUtils';
 
-/** Локальный override одного item'а: позиции слайдеров + (опционально) пересчитанная delta. */
+/**
+ * Локальный override одного item'а: позиции слайдеров, подкрученные параметры кредита
+ * и (опционально) пересчитанная delta.
+ *
+ * <p>ANO-139: это и есть примерка. Ничего из перечисленного не записано — в базу оно
+ * попадёт только при фиксации, и ровно в том составе, который соберёт {@code fixPatch}.
+ * Раньше ставка и срок сюда не доезжали вовсе: карточка держала их у себя и писала
+ * напрямую по blur.
+ */
 export interface ItemOverride {
     amount?: number;
     targetDate?: string;
+    rate?: number;
+    termMonths?: number;
     delta?: MonthDelta[];
 }
 
@@ -26,6 +36,8 @@ export interface WishlistSimulationActions {
     setDateOverride: (id: string, date: string) => void;
     /** Карточка пересчитала delta на бэке (смена параметров) и проталкивает её обратно. */
     applyRecomputedDelta: (id: string, delta: MonthDelta[]) => void;
+    /** Подкрученные ставка/срок кредита — запоминаем до фиксации (ANO-139). */
+    setCreditOverride: (id: string, rate?: number, termMonths?: number) => void;
 }
 
 export interface UseWishlistSimulationResult {
@@ -104,9 +116,13 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
         setOverrideMap(prev => ({ ...prev, [id]: { ...prev[id], delta } }));
     }, []);
 
+    const setCreditOverride = useCallback((id: string, rate?: number, termMonths?: number) => {
+        setOverrideMap(prev => ({ ...prev, [id]: { ...prev[id], rate, termMonths } }));
+    }, []);
+
     const actions = useMemo<WishlistSimulationActions>(
-        () => ({ toggleItem, setAmountOverride, setDateOverride, applyRecomputedDelta }),
-        [toggleItem, setAmountOverride, setDateOverride, applyRecomputedDelta],
+        () => ({ toggleItem, setAmountOverride, setDateOverride, applyRecomputedDelta, setCreditOverride }),
+        [toggleItem, setAmountOverride, setDateOverride, applyRecomputedDelta, setCreditOverride],
     );
 
     // FUTURE-сегмент baseline → BaselinePoint[] (balance → account, index i ⟷ monthIndex i).

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -32,11 +32,11 @@ interface Props {
     onAmountChange: (amount: number) => void;
     /** Живое изменение даты (слайдер). */
     onDateChange: (date: string) => void;
-    /** Параметры изменились — родитель пересчитывает delta на бэке. */
+    /**
+     * Параметры изменились — родитель пересчитывает delta на бэке и запоминает
+     * подкрученные ставку/срок в примерке (в запись они уйдут только при фиксации).
+     */
     onParamsRecompute: (req: RecomputeRequest) => void;
-    /** Отпустили слайдер/изменили параметры — персист через updateEvent/updateFund. */
-    /** targetDate отсутствует, если у элемента нет срока и его сейчас не задавали. */
-    onPersist: (patch: { amount: number; targetDate?: string; rate?: number; termMonths?: number }) => void;
     onFix: () => void;
     onDelete: () => void;
     onStatusChange: (status: WishlistStatus) => void;
@@ -44,8 +44,6 @@ interface Props {
 
 const MIN_OFFSET = 1;
 const MAX_OFFSET = 36;
-/** Дебаунс сетевого персиста: стрелки клавиатуры на слайдере шлют onKeyUp на каждый шаг — коалесцируем в один PUT. */
-const PERSIST_DEBOUNCE_MS = 500;
 
 /** "YYYY-MM" + N месяцев → "YYYY-MM". */
 function addMonths(ym: string, n: number): string {
@@ -68,20 +66,30 @@ function offsetOf(targetDate: string, currentMonth: string): number {
 /**
  * Карточка одного item'а: чекбокс активности + название + риск-бейдж + кнопка Fix,
  * два слайдера (сумма / дата), для кредита — раскрываемые параметры (ставка/срок),
- * строка с PMT/взносом. Живые изменения идут через onAmount/onDateChange (масштаб delta),
- * персист — через onPersist при отпускании слайдера.
+ * строка с PMT/взносом.
+ *
+ * <p>ANO-139: карточка НИЧЕГО не пишет. Раньше отпускание ползунка слало PUT, и
+ * «посмотреть» с «изменить» были одним жестом: подвигал сумму — сумма хотелки
+ * изменилась навсегда, а вернуть прежнюю нечем, кроме как вспомнить её. Спека
+ * песочницы (2026-07-18, строка 7) требует обратного: «пощёлкал, покрутил, ничего
+ * не сохранилось», а запись делает отдельная кнопка «зафиксировать».
+ *
+ * <p>Изменения уходят наверх как примерка: сумма и дата — через onAmount/onDateChange,
+ * ставка и срок — через onParamsRecompute. Что из этого попадёт в запись при фиксации,
+ * решает {@code fixPatch} в wishlistUtils.
  */
 export default function WishlistItemCard(props: Props) {
     const {
         item, active, amountOverride, dateOverride, soloRisk, amountMax, currentMonth,
-        onToggleActive, onAmountChange, onDateChange, onParamsRecompute, onPersist,
+        onToggleActive, onAmountChange, onDateChange, onParamsRecompute,
         onFix, onDelete, onStatusChange,
     } = props;
 
     const amount = amountOverride ?? item.amount;
     // Дата может отсутствовать (хотелка/копилка без срока) — подставляем ближайший
-    // допустимый месяц, иначе слайдер и подпись падали на null (ANO-29).
-    // Реальная запись даты произойдёт только если пользователь тронет слайдер.
+    // допустимый месяц, иначе слайдер и подпись падали на null (ANO-29). Подставная
+    // дата остаётся видом: в запись она не уйдёт, пока ползунок не тронут — это
+    // решает fixPatch в момент фиксации.
     const hasDate = (dateOverride ?? item.targetDate) != null;
     const targetDate = dateOverride ?? item.targetDate
         ?? `${addMonths(currentMonth, MIN_OFFSET)}-01`;
@@ -108,28 +116,6 @@ export default function WishlistItemCard(props: Props) {
         termMonths: term ? Number(term) : undefined,
         ...over,
     });
-
-    // Дебаунс ТОЛЬКО сетевого персиста. Локальное состояние (слайдер + override) обновляется
-    // синхронно в onChange — здесь дебаунсим только PUT, чтобы серии нажатий стрелок схлопывались.
-    const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    useEffect(() => () => {
-        if (persistTimer.current) clearTimeout(persistTimer.current);
-    }, []);
-
-    const persist = (over: { amount?: number; targetDate?: string } = {}) => {
-        // Значения резолвим в момент вызова (актуальный closure), отправляем по трейлинг-таймеру.
-        // Дата уходит только если она реально есть или её сейчас задали слайдером: у элемента
-        // без срока targetDate — подставной фолбэк (ANO-29), и записывать его молча нельзя.
-        const date = over.targetDate ?? (hasDate ? targetDate : undefined);
-        const patch = {
-            amount: over.amount ?? amount,
-            targetDate: date,
-            rate: isCredit && rate ? Number(rate) : undefined,
-            termMonths: isCredit && term ? Number(term) : undefined,
-        };
-        if (persistTimer.current) clearTimeout(persistTimer.current);
-        persistTimer.current = setTimeout(() => onPersist(patch), PERSIST_DEBOUNCE_MS);
-    };
 
     // PMT/contribution строка: для кредита локально считаем PMT (мгновенный отклик),
     // иначе показываем месячный взнос копилки из item.
@@ -198,9 +184,6 @@ export default function WishlistItemCard(props: Props) {
                     step={Math.max(1, Math.round(sliderMax / 100))}
                     value={amount}
                     onChange={e => onAmountChange(Number(e.target.value))}
-                    onMouseUp={() => persist()}
-                    onTouchEnd={() => persist()}
-                    onKeyUp={() => persist()}
                     className="w-full h-2 rounded-full cursor-pointer accent-[hsl(var(--primary))]"
                 />
             </div>
@@ -225,9 +208,6 @@ export default function WishlistItemCard(props: Props) {
                         const next = `${addMonths(currentMonth, Number(e.target.value))}-01`;
                         onDateChange(next);
                     }}
-                    onMouseUp={() => persist()}
-                    onTouchEnd={() => persist()}
-                    onKeyUp={() => persist()}
                     className="w-full h-2 rounded-full cursor-pointer accent-[hsl(var(--primary))]"
                 />
             </div>
@@ -256,10 +236,7 @@ export default function WishlistItemCard(props: Props) {
                             step="0.01"
                             value={rate}
                             onChange={e => setRate(e.target.value)}
-                            onBlur={() => {
-                                onParamsRecompute(buildRecomputeReq({ rate: rate ? Number(rate) : undefined }));
-                                persist();
-                            }}
+                            onBlur={() => onParamsRecompute(buildRecomputeReq({ rate: rate ? Number(rate) : undefined }))}
                             className="h-8 text-sm"
                         />
                     </div>
@@ -271,10 +248,7 @@ export default function WishlistItemCard(props: Props) {
                             step="1"
                             value={term}
                             onChange={e => setTerm(e.target.value)}
-                            onBlur={() => {
-                                onParamsRecompute(buildRecomputeReq({ termMonths: term ? Number(term) : undefined }));
-                                persist();
-                            }}
+                            onBlur={() => onParamsRecompute(buildRecomputeReq({ termMonths: term ? Number(term) : undefined }))}
                             className="h-8 text-sm"
                         />
                     </div>
