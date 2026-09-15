@@ -257,6 +257,48 @@ class WishlistConversionServiceTest {
     }
 
     @Test
+    void convert_planDateOverridesSourceDate() {
+        // Срок, введённый в диалоге фиксации: у хотелки его нет и выдумывать нельзя (ANO-29).
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlistWithoutDate(id);
+        LocalDate chosen = TODAY.plusMonths(2);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        stubEventSave();
+
+        service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false, null, chosen), TODAY);
+
+        ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
+        verify(eventRepo, atLeast(1)).save(cap.capture());
+        assertThat(cap.getAllValues()).anySatisfy(e -> {
+            assertThat(e.getEventKind()).isEqualTo(EventKind.PLAN);
+            assertThat(e.getDate())
+                    .as("в план уехал срок из диалога, а не пустота хотелки")
+                    .isEqualTo(chosen);
+        });
+        assertThat(src.getDate())
+                .as("исходная хотелка срока не получает: она уходит в архив как решённая")
+                .isNull();
+    }
+
+    @Test
+    void convert_withoutPlanDate_usesSourceDate() {
+        // Старый клиент, не знающий про planDate, на хотелке со сроком работает как раньше.
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        stubEventSave();
+
+        service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false), TODAY);
+
+        ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
+        verify(eventRepo, atLeast(1)).save(cap.capture());
+        assertThat(cap.getAllValues()).anySatisfy(e ->
+                assertThat(e.getDate()).isEqualTo(src.getDate()));
+    }
+
+    @Test
     void convert_wishlistWithTodayDate_throws400() {
         // Сегодняшний план не резервируется (PocketInputAssembler берёт date > asOfDate),
         // то есть дал бы тот же невидимый финал.

@@ -36,7 +36,7 @@
 - Consumes: `requireFutureDate(LocalDate, LocalDate)` — существует, не меняется.
 - Produces: `convertFromEvent` ветка `PLAN_EVENT` отвечает 400 на дату `null` / не в будущем.
 
-- [ ] **Step 1: Проверить, что существующий тест `/fix` действительно сенситивен**
+- [x] **Step 1: Проверить, что существующий тест `/fix` действительно сенситивен**
 
 При написании плана `fix_pastOrMissingDateWithoutStretch_throws400_andSavesNothing` был оценён по имени как «несущий две приметы». Это оказалось неверно: в теле три отдельных `assertThatThrownBy` — прошлая дата, сегодняшняя (`TODAY`) и пустая. Снятие любой половины проверки его красит: без ветки `date == null` прилетит `NullPointerException` вместо `ResponseStatusException`; замена `!date.isAfter(today)` на `date.isBefore(today)` перестаёт ронять случай «сегодня».
 
@@ -46,7 +46,7 @@
 cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest=WishlistConversionServiceTest
 ```
 
-- [ ] **Step 2: Завести тестовый вход с явным «сегодня»**
+- [x] **Step 2: Завести тестовый вход с явным «сегодня»**
 
 `convertFromEvent` становится календарно-зависимым, а `convertItem` берёт «сегодня» из `clock`. В этом же классе уже есть образец — package-private перегрузка `applyAndFix(UUID, SandboxFixRequestDto, LocalDate)` с комментарием «Тестовый вход с явным «сегодня»». Повторить её для конверсии, чтобы тесты не зависели от системной даты:
 
@@ -63,7 +63,7 @@ cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest
 
 Публичный `convertItem` делегирует в неё с `LocalDate.now(clock)`. `convertFromEvent` получает параметр `today`; `convertFromFund` не трогаем — дат он не проверяет.
 
-- [ ] **Step 3: Написать падающие тесты на `/convert`**
+- [x] **Step 3: Написать падающие тесты на `/convert`**
 
 Помощник рядом с `openWishlist`:
 
@@ -127,11 +127,11 @@ cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest
     }
 ```
 
-- [ ] **Step 4: Прогнать — должны падать**
+- [x] **Step 4: Прогнать — должны падать**
 
 Ожидание: FAIL, все три. Сейчас `convertFromEvent` дату не смотрит: первый тест упадёт на том, что исключения нет вовсе и `save` был вызван.
 
-- [ ] **Step 5: Поставить проверку**
+- [x] **Step 5: Поставить проверку**
 
 В `convertFromEvent`, ветка `PLAN_EVENT`:
 
@@ -145,7 +145,7 @@ cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest
                         src.getCategory(), src.getPlannedAmount(), planDate, src.getDescription());
 ```
 
-- [ ] **Step 6: Прогнать — зелено, затем мутации**
+- [x] **Step 6: Прогнать — зелено, затем мутации**
 
 ```bash
 cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest=WishlistConversionServiceTest
@@ -155,11 +155,10 @@ cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest
 
 | мутация | обязан покраснеть |
 |---|---|
-| убрать вызов `requireFutureDate` из `convertFromEvent` | все три теста Шага 4 |
-| `requireFutureDate(src.getDate(), LocalDate.now(clock).minusYears(1))` | `convert_wishlistWithPastDate`, `convert_wishlistWithTodayDate` |
-| вернуть `src.getDate()` в `buildPlanEvent` мимо проверенной переменной | `convert_wishlistWithoutDate` |
+| `LocalDate planDate = src.getDate()` (убрать вызов проверки) | все три теста Шага 3 — **проверено, 3 падения** |
+| `requireFutureDate(src.getDate(), today.minusYears(1))` | `convert_wishlistWithPastDate`, `convert_wishlistWithTodayDate` — **проверено, 2 падения; тест на пустую дату остался зелёным, как и должно** |
 
-Третья мутация — не формальность: она ловит случай, когда проверка вызвана, но её результат не использован.
+Третья мутация («вернуть `src.getDate()` в `buildPlanEvent` мимо проверенной переменной») здесь **невозможна**: пока `planDate` в запросе нет, проверенная переменная и `src.getDate()` — одно и то же значение, и правка тождественна оригиналу. Перенесена в Задачу 2, где `convert_planDateOverridesSourceDate` делает её осмысленной.
 
 ---
 

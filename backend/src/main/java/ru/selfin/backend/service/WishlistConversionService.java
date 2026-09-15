@@ -224,7 +224,8 @@ public class WishlistConversionService {
                 // Пустая дата давала событие, невидимое в Бюджете, /strategy и кармашке
                 // (все выборки идут по диапазону дат), а хотелка при этом уходила в FIXED:
                 // введённое пропадало молча.
-                LocalDate planDate = requireFutureDate(src.getDate(), today);
+                LocalDate planDate = requireFutureDate(
+                        req.planDate() != null ? req.planDate() : src.getDate(), today);
                 FinancialEvent created = buildPlanEvent(
                         src.getCategory(), src.getPlannedAmount(), planDate, src.getDescription());
                 FinancialEvent saved = eventRepository.save(created);
