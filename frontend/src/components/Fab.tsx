@@ -8,6 +8,7 @@ import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import RecurringFields from './RecurringFields';
+import { canRecordFact, todayIso } from '../lib/factDate';
 
 /**
  * Модальная форма быстрого добавления транзакции (bottom sheet).
@@ -25,6 +26,9 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     const [plannedAmountLocal, setPlannedAmountLocal] = useState<string>('');
     const [factAmountLocal, setFactAmountLocal] = useState<string>('');
     const [loading, setLoading] = useState(false);
+    // ANO-155: факт значит «деньги ушли» — у события с будущей датой его быть не может.
+    const today = todayIso(new Date());
+    const factAllowed = !form.date || canRecordFact(form.date, today);
     const [error, setError] = useState<string | null>(null);
     const [categories, setCategories] = useState<Category[]>([]);
     const [catLoading, setCatLoading] = useState(true);
@@ -205,18 +209,27 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         }}
                     />
 
-                    {/* Фактическая сумма */}
-                    <AmountInput
-                        placeholder={isFundTransfer ? 'Сумма (если уже перевёл), ₽' : 'Сумма (факт, если уже произошло), ₽'}
-                        value={factAmountLocal}
-                        onChange={setFactAmountLocal}
-                    />
+                    {/* Фактическая сумма. ANO-155: у события с будущей датой факта быть не
+                        может — деньги ещё не ушли. Раньше поле оставалось, и факт молча
+                        наследовал будущую дату события: расход исчезал из расчёта целиком. */}
+                    {factAllowed && (
+                        <AmountInput
+                            placeholder={isFundTransfer ? 'Сумма (если уже перевёл), ₽' : 'Сумма (факт, если уже произошло), ₽'}
+                            value={factAmountLocal}
+                            onChange={setFactAmountLocal}
+                        />
+                    )}
 
                     {/* Дата */}
                     <Input
                         type="date"
                         value={form.date || ''}
-                        onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                        onChange={e => {
+                            const next = e.target.value;
+                            // Уехали в будущее — введённый факт больше не про эти деньги.
+                            if (next && !canRecordFact(next, today)) setFactAmountLocal('');
+                            setForm(f => ({ ...f, date: next }));
+                        }}
                     />
 
                     {/* Название транзакции */}
