@@ -172,7 +172,7 @@ cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest
 **Interfaces:**
 - Produces: `ConvertWishlistRequestDto.planDate()` — `null` означает «взять срок хотелки».
 
-- [ ] **Step 1: Написать падающие тесты**
+- [x] **Step 1: Написать падающие тесты**
 
 ```java
     @Test
@@ -220,11 +220,11 @@ cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest
 
 Второй тест обязан быть: без него правка «всегда брать `planDate`» прошла бы молча и сломала совместимость.
 
-- [ ] **Step 2: Прогнать — не компилируется**
+- [x] **Step 2: Прогнать — не компилируется**
 
 Ожидание: пятикомпонентного конструктора нет.
 
-- [ ] **Step 3: Добавить компонент в DTO**
+- [x] **Step 3: Добавить компонент в DTO**
 
 ```java
 /**
@@ -252,7 +252,7 @@ public record ConvertWishlistRequestDto(
 }
 ```
 
-- [ ] **Step 4: Прочитать компонент в сервисе**
+- [x] **Step 4: Прочитать компонент в сервисе**
 
 ```java
                 LocalDate planDate = requireFutureDate(
@@ -260,7 +260,7 @@ public record ConvertWishlistRequestDto(
                         LocalDate.now(clock));
 ```
 
-- [ ] **Step 5: Прогнать весь класс, затем мутации**
+- [x] **Step 5: Прогнать весь класс, затем мутации**
 
 ```bash
 cd backend && rm -rf target/test-classes
@@ -271,9 +271,9 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -q test -Dtest=WishlistConve
 
 | мутация | обязан покраснеть |
 |---|---|
-| `req.planDate()` → всегда `src.getDate()` | `convert_planDateOverridesSourceDate` |
-| `req.planDate() != null ? ... : null` (убрать запасной путь) | `convert_withoutPlanDate_usesSourceDate` |
-| дописать `src.setDate(planDate)` перед сохранением источника | `convert_planDateOverridesSourceDate` (последнее утверждение) |
+| `req.planDate()` → всегда `src.getDate()` | `convert_planDateOverridesSourceDate` — **проверено, 1 ошибка** (400 «date is required»). Сюда же переехала третья мутация Задачи 1 |
+| `req.planDate(), today` (убрать запасной путь) | `convert_withoutPlanDate_usesSourceDate` — **проверено, 4 падения**: запасной путь несущий |
+| дописать `src.setDate(planDate)` в ветке `PLAN_EVENT` | `convert_planDateOverridesSourceDate` — **проверено, ровно последнее утверждение** |
 
 ---
 
