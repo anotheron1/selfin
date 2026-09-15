@@ -52,7 +52,7 @@ class PocketServiceTest {
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
-        when(predictionService.forecastFromEvents(any(), any()))
+        when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
         when(fundRepository.findByWishlistStatusAndDeletedFalse(any())).thenReturn(List.of());
@@ -173,7 +173,7 @@ class PocketServiceTest {
     @Test
     @DisplayName("Отрицательная netPredictionDelta зажимается в 0")
     void negativeForecast_clamped() {
-        when(predictionService.forecastFromEvents(any(), any()))
+        when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), new BigDecimal("-500")));
         PocketResultDto r = pocketService.getPocket(null, TODAY);
         assertThat(r.breakdown()).noneMatch(l ->

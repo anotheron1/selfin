@@ -193,8 +193,8 @@ public class PocketInputAssembler {
         // 3. Просрочка (без границы месяца, но строго ПОСЛЕ якоря — ANO-28: план старше
         //    чекпоинта уже «съеден» числом из банка, резерв был бы задвоением)
         //    и хотелки (отдельные выборки, спека §3.1, §3.4)
-        List<EventSnapshot> overdue = eventRepository.findOverdueMandatoryExpenses(from, asOfDate)
-                .stream().map(EventSnapshot::from).toList();
+        List<FinancialEvent> overdueEvents = eventRepository.findOverdueMandatoryExpenses(from, asOfDate);
+        List<EventSnapshot> overdue = overdueEvents.stream().map(EventSnapshot::from).toList();
 
         // ANO-79: та же выборка при других границах даёт ДОПОЛНИТЕЛЬНОЕ множество — просрочку,
         // которую последний ре-якорь удержал вне резерва. Движок её не вычитает, а объясняет:
@@ -227,7 +227,10 @@ public class PocketInputAssembler {
         LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
         List<FinancialEvent> monthEvents = eventRepository
                 .findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
-        MonthlyForecastDto forecast = predictionService.forecastFromEvents(monthEvents, asOfDate);
+        // ANO-80: прогнозу передаётся ИМЕННО ТОТ список просрочки, который удержан резервом.
+        // Иначе норма вычитала бы планы, не стоящие в пути денег, и второе число выходило бы
+        // оптимистичнее правды (найдено ревью PR #43).
+        MonthlyForecastDto forecast = predictionService.forecastFromEvents(monthEvents, overdueEvents, asOfDate);
         BigDecimal delta = forecast.netPredictionDelta().max(BigDecimal.ZERO);
         List<String> contributors = buildContributors(forecast);
 

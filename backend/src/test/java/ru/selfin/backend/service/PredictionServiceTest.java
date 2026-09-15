@@ -73,7 +73,7 @@ class PredictionServiceTest {
         enabled(food);
         medianOf(food, "50000", 5);
 
-        MonthlyForecastDto result = service.forecastFromEvents(
+        MonthlyForecastDto result = forecast(
                 List.of(fact(food, LocalDate.of(2026, 9, 5), "23444")),
                 LocalDate.of(2026, 9, 5));
 
@@ -88,7 +88,7 @@ class PredictionServiceTest {
         enabled(food);
         medianOf(food, "50000", 5);
 
-        MonthlyForecastDto result = service.forecastFromEvents(
+        MonthlyForecastDto result = forecast(
                 List.of(plan(food, LocalDate.of(2026, 9, 20), "40000")),
                 LocalDate.of(2026, 9, 14));
 
@@ -104,7 +104,7 @@ class PredictionServiceTest {
         medianOf(food, "50000", 5);
 
         // Форма из боя: факт заведён отдельным событием, у плана меняется только статус.
-        MonthlyForecastDto result = service.forecastFromEvents(
+        MonthlyForecastDto result = forecast(
                 List.of(closedPlanNoFactAmount(food, LocalDate.of(2026, 9, 3), "4000"),
                         fact(food, LocalDate.of(2026, 9, 3), "5000")),
                 LocalDate.of(2026, 9, 14));
@@ -123,7 +123,7 @@ class PredictionServiceTest {
         // Вторая форма из боя: PATCH /events/{id}/fact ставит factAmount на ту же строку
         // и переводит статус. Трата живёт на событии вида PLAN — фильтр по виду её терял,
         // и норма не вычитала уже ушедшие деньги.
-        MonthlyForecastDto result = service.forecastFromEvents(
+        MonthlyForecastDto result = forecast(
                 List.of(planPatchedWithFact(food, LocalDate.of(2026, 9, 3), "4000", "5000")),
                 LocalDate.of(2026, 9, 14));
 
@@ -133,18 +133,66 @@ class PredictionServiceTest {
     }
 
     @Test
-    @DisplayName("ANO-80: просроченный план вычитается наравне с будущим")
-    void forecastFromEvents_overduePlan_subtracted() {
+    @DisplayName("ANO-80: просроченный план вычитается, если его удержала бронь")
+    void forecastFromEvents_overduePlan_reserved_isSubtracted() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+        FinancialEvent overdue = plan(food, LocalDate.of(2026, 9, 2), "40000");
+
+        MonthlyForecastDto result = service.forecastFromEvents(
+                List.of(overdue), List.of(overdue), LocalDate.of(2026, 9, 14));
+
+        assertThat(result.netPredictionDelta())
+                .as("бронь удержала эти деньги — норма обязана их учесть")
+                .isEqualByComparingTo("10000");
+    }
+
+    @Test
+    @DisplayName("ANO-80: просроченный план БЕЗ брони не вычитается — он не стоит в пути денег")
+    void forecastFromEvents_overduePlan_notReserved_isNotSubtracted() {
         enabled(food);
         medianOf(food, "50000", 5);
 
+        // Найдено ревью PR #43. План MEDIUM, датированный раньше сегодня и не исполненный,
+        // не лежит НИГДЕ: в будущие дни движка не попадает по дате, в расход сегодняшнего
+        // дня — тоже, а бронь берёт только HIGH и только после якоря. Вычесть его значило
+        // бы сделать второе число оптимистичнее правды и проглотить предупреждение.
         MonthlyForecastDto result = service.forecastFromEvents(
                 List.of(plan(food, LocalDate.of(2026, 9, 2), "40000")),
+                List.of(), LocalDate.of(2026, 9, 14));
+
+        assertThat(result.netPredictionDelta())
+                .as("деньги не удержаны нигде — норма остаётся полной")
+                .isEqualByComparingTo("50000");
+    }
+
+    @Test
+    @DisplayName("ANO-80: хотелка OPEN не вычитается — траектория её не держит")
+    void forecastFromEvents_openWishlistPlan_isNotSubtracted() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+
+        MonthlyForecastDto result = forecast(
+                List.of(wishlistPlan(food, LocalDate.of(2026, 9, 20), "40000")),
                 LocalDate.of(2026, 9, 14));
 
         assertThat(result.netPredictionDelta())
-                .as("просрочка удержана в траектории строкой брони — норма обязана её учесть")
-                .isEqualByComparingTo("10000");
+                .as("allowedInTrajectory отсеивает неFIXED-хотелки; норма обязана так же")
+                .isEqualByComparingTo("50000");
+    }
+
+    @Test
+    @DisplayName("ANO-80: окно медианы считается от переданной даты, а не от часов")
+    void forecastFromEvents_statsAnchoredToRequestedDate() {
+        enabled(food);
+        medianOf(food, "50000", 5);
+
+        forecast(List.of(), LocalDate.of(2026, 7, 15));
+
+        // Найдено ревью PR #43: /analytics/forecast?date=... просит июль, а медиана
+        // считалась по августу включительно — данные из будущего относительно запроса.
+        org.mockito.Mockito.verify(service)
+                .statsForCategories(anyList(), anyInt(), org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 7, 15)));
     }
 
     @Test
@@ -153,7 +201,7 @@ class PredictionServiceTest {
         enabled(food);
         medianOf(food, "50000", 5);
 
-        MonthlyForecastDto result = service.forecastFromEvents(
+        MonthlyForecastDto result = forecast(
                 List.of(fact(food, LocalDate.of(2026, 9, 5), "70000")),
                 LocalDate.of(2026, 9, 5));
 
@@ -166,7 +214,7 @@ class PredictionServiceTest {
         enabled(food);
         medianOf(food, "50000", 2);
 
-        MonthlyForecastDto result = service.forecastFromEvents(
+        MonthlyForecastDto result = forecast(
                 List.of(fact(food, LocalDate.of(2026, 9, 5), "23444")),
                 LocalDate.of(2026, 9, 5));
 
@@ -181,7 +229,7 @@ class PredictionServiceTest {
         enabled(food);
         medianOf(food, "15851", 5);
 
-        MonthlyForecastDto result = service.forecastFromEvents(List.of(), LocalDate.of(2026, 9, 14));
+        MonthlyForecastDto result = forecast(List.of(), LocalDate.of(2026, 9, 14));
 
         assertThat(result.netPredictionDelta())
                 .as("обход идёт по включённым категориям, а не по событиям месяца: "
@@ -194,7 +242,7 @@ class PredictionServiceTest {
     void forecastFromEvents_forecastDisabled_contributesNothing() {
         when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
 
-        MonthlyForecastDto result = service.forecastFromEvents(
+        MonthlyForecastDto result = forecast(
                 List.of(fact(food, LocalDate.of(2026, 9, 5), "23444")),
                 LocalDate.of(2026, 9, 5));
 
@@ -208,7 +256,7 @@ class PredictionServiceTest {
         enabled(food);
         medianOf(food, "50000", 5);
 
-        var category = service.forecastFromEvents(
+        var category = forecast(
                         List.of(plan(food, LocalDate.of(2026, 9, 20), "40000")),
                         LocalDate.of(2026, 9, 14))
                 .categories().get(0);
@@ -227,9 +275,9 @@ class PredictionServiceTest {
         enabled(food);
         medianOf(food, "50000", 5);
 
-        List<DailyForecastPointDto> history = service
-                .forecastFromEvents(List.of(fact(food, LocalDate.of(2026, 9, 3), "60000")),
-                        LocalDate.of(2026, 9, 5))
+        List<DailyForecastPointDto> history = forecast(
+                List.of(fact(food, LocalDate.of(2026, 9, 3), "60000")),
+                LocalDate.of(2026, 9, 5))
                 .categories().get(0).history();
 
         // usingComparatorForType обязателен: BigDecimal.equals различает 50000 и 50000.00,
@@ -243,8 +291,24 @@ class PredictionServiceTest {
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
+    /** Расчёт без брони просрочки — случай дашборда и эндпоинта /forecast. */
+    private MonthlyForecastDto forecast(List<FinancialEvent> monthEvents, LocalDate today) {
+        return service.forecastFromEvents(monthEvents, List.of(), today);
+    }
+
     private void enabled(Category... cats) {
         when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(cats));
+    }
+
+    /** Хотелка со статусом OPEN: в траекторию движок её не берёт. */
+    private FinancialEvent wishlistPlan(Category category, LocalDate date, String amount) {
+        return FinancialEvent.builder()
+                .id(UUID.randomUUID()).category(category).type(EventType.EXPENSE)
+                .date(date).plannedAmount(new BigDecimal(amount))
+                .eventKind(EventKind.PLAN).status(EventStatus.PLANNED)
+                .wishlistStatus(ru.selfin.backend.model.enums.WishlistStatus.OPEN)
+                .priority(Priority.LOW).deleted(false)
+                .build();
     }
 
     /**
@@ -256,7 +320,7 @@ class PredictionServiceTest {
     private void medianOf(Category c, String median, int months) {
         doReturn(Map.of(c.getId(), new CategoryMonthStats(c.getId(), months,
                 new BigDecimal(median), new BigDecimal(median), new BigDecimal(median))))
-                .when(service).statsForCategories(anyList(), anyInt());
+                .when(service).statsForCategories(anyList(), anyInt(), org.mockito.ArgumentMatchers.any());
     }
 
     private FinancialEvent fact(Category category, LocalDate date, String amount) {

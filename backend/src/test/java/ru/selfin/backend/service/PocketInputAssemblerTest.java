@@ -60,7 +60,7 @@ class PocketInputAssemblerTest {
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
         when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
-        when(predictionService.forecastFromEvents(any(), any()))
+        when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         when(fundRepository.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED))
                 .thenReturn(List.of());

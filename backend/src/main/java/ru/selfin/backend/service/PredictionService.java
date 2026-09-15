@@ -12,6 +12,7 @@ import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.enums.EventStatus;
+import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -24,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -66,12 +68,17 @@ public class PredictionService {
      * денег: факт ушёл со счёта, план удержан траекторией (просроченный — строкой брони).
      * Тот же принцип уже действовал для будущих месяцев (ANO-36), но до текущего не доехал.
      */
-    public MonthlyForecastDto forecastFromEvents(List<FinancialEvent> monthEvents, LocalDate today) {
+    public MonthlyForecastDto forecastFromEvents(List<FinancialEvent> monthEvents,
+                                                 List<FinancialEvent> reservedOverdue,
+                                                 LocalDate today) {
         List<CategoryForecastDto> forecasts = new ArrayList<>();
         BigDecimal netDelta = BigDecimal.ZERO;
 
+        Set<UUID> reservedIds = reservedOverdue.stream()
+                .map(FinancialEvent::getId).collect(Collectors.toSet());
+
         List<Category> enabled = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
-        Map<UUID, CategoryMonthStats> stats = statsForCategories(enabled, HISTORY_WINDOW_MONTHS);
+        Map<UUID, CategoryMonthStats> stats = statsForCategories(enabled, HISTORY_WINDOW_MONTHS, today);
 
         for (Category cat : enabled) {
             List<FinancialEvent> catEvents = monthEvents.stream()
@@ -80,7 +87,7 @@ public class PredictionService {
                     .toList();
 
             BigDecimal fact = sumFacts(catEvents);
-            BigDecimal pendingPlans = sumPendingPlans(catEvents);
+            BigDecimal pendingPlans = sumHeldPlans(catEvents, today, reservedIds);
             BigDecimal median = medianIfTrusted(stats.get(cat.getId()));
 
             BigDecimal beyondPlan = median.subtract(fact).subtract(pendingPlans).max(BigDecimal.ZERO);
@@ -134,7 +141,9 @@ public class PredictionService {
         LocalDate start = month.atDay(1);
         LocalDate end = month.atEndOfMonth();
         List<FinancialEvent> events = eventRepository.findAllByDeletedFalseAndDateBetween(start, end);
-        return forecastFromEvents(events, today);
+        // Брони просрочки у этого пути нет: эндпоинт отвечает про месяц, а не про кармашек.
+        // Планы раньше сегодня из нормы не вычитаются — и это верно, они нигде не удержаны.
+        return forecastFromEvents(events, List.of(), today);
     }
 
     /**
@@ -159,7 +168,7 @@ public class PredictionService {
      * <p>Percentile-вычисление — линейная интерполяция между соседними точками отсортированного массива.
      */
     public CategoryMonthStats getStatsForCategory(Category cat, int historyWindowMonths) {
-        return statsForCategories(List.of(cat), historyWindowMonths)
+        return statsForCategories(List.of(cat), historyWindowMonths, LocalDate.now(clock))
                 .getOrDefault(cat.getId(), noStats(cat.getId()));
     }
 
@@ -174,11 +183,11 @@ public class PredictionService {
      * по разу на категорию незачем.
      */
     public Map<UUID, CategoryMonthStats> statsForCategories(List<Category> categories,
-                                                            int historyWindowMonths) {
+                                                            int historyWindowMonths,
+                                                            LocalDate today) {
         Map<UUID, CategoryMonthStats> result = new LinkedHashMap<>();
         if (categories.isEmpty()) return result;
 
-        LocalDate today = LocalDate.now(clock);
         YearMonth lastFull = YearMonth.from(today).minusMonths(1);
         LocalDate firstSpending = eventRepository.findFirstSpendingDate();
         if (firstSpending == null) {
@@ -307,13 +316,58 @@ public class PredictionService {
      * ровно один такой план, и первый замер без этой проверки дал по «Авто» 16 000 вместо
      * 12 000.
      */
-    private BigDecimal sumPendingPlans(List<FinancialEvent> events) {
+    private BigDecimal sumHeldPlans(List<FinancialEvent> events, LocalDate today,
+                                    Set<UUID> reservedOverdueIds) {
         return events.stream()
-                .filter(e -> e.getFactAmount() == null)
-                .filter(e -> e.getEventKind() == EventKind.PLAN)
-                .filter(e -> e.getStatus() == EventStatus.PLANNED)
+                .filter(PredictionService::isPendingPlan)
+                .filter(e -> heldByMoneyPath(e, today, reservedOverdueIds))
                 .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** Ещё не исполнен: предикат {@code PocketEngine.isPendingPlan}, слово в слово. */
+    private static boolean isPendingPlan(FinancialEvent e) {
+        return e.getFactAmount() == null
+                && e.getEventKind() == EventKind.PLAN
+                && e.getStatus() == EventStatus.PLANNED;
+    }
+
+    /**
+     * Стоит ли план в пути денег — то есть удержан ли он траекторией или бронью просрочки.
+     *
+     * <p>ANO-80, найдено ревью PR #43. Вычитать из нормы можно ровно то, что уже удержано:
+     * вычтешь лишнее — второе число выйдет оптимистичнее правды и может проглотить
+     * предупреждение о разрыве. План со статусом {@code PLANNED}, датированный раньше
+     * сегодня и НЕ мандаторный, не удерживается нигде: в будущие дни движка он не попадает
+     * по дате, в расход сегодняшнего дня — тоже, а бронь просрочки берёт только
+     * {@code priority = HIGH} и только после якоря.
+     *
+     * <p>Три ветки зеркалят три шага движка и ничего не добавляют от себя:
+     *
+     * <ol>
+     *   <li>день позже сегодня — движок держит план в {@code futureByDay}, с тем же
+     *       фильтром хотелок {@code allowedInTrajectory};</li>
+     *   <li>ровно сегодня — держит в {@code todayExpenses}, и там фильтр строже:
+     *       хотелки исключены целиком;</li>
+     *   <li>раньше сегодня — держит только бронь, и её состав приходит списком от
+     *       вызывающего. Правило брони (HIGH, после якоря, без факта-ребёнка) здесь
+     *       НЕ повторяется: копия предиката из девяти условий — ровно та болезнь,
+     *       которую ANO-23 называет по имени.</li>
+     * </ol>
+     */
+    private static boolean heldByMoneyPath(FinancialEvent e, LocalDate today,
+                                           Set<UUID> reservedOverdueIds) {
+        if (e.getDate() == null) return false;
+        if (e.getDate().isAfter(today)) return allowedInTrajectory(e);
+        if (e.getDate().isEqual(today)) return e.getWishlistStatus() == null;
+        return reservedOverdueIds.contains(e.getId());
+    }
+
+    /** Фильтр хотелок для траектории: копия {@code PocketEngine.allowedInTrajectory}. */
+    private static boolean allowedInTrajectory(FinancialEvent e) {
+        if (e.getWishlistStatus() == null) return true;
+        return e.getWishlistStatus() == WishlistStatus.FIXED
+                && e.getConvertedToEventId() == null && e.getConvertedToFundId() == null;
     }
 
     /**
