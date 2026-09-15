@@ -326,8 +326,21 @@ public class FinancialEventService {
 
         FinancialEvent savedFact = eventRepository.save(fact);
 
-        if (plan.getStatus() == EventStatus.PLANNED) {
-            plan.setStatus(EventStatus.EXECUTED);
+        // ANO-155: план закрывается, только когда факты покрыли его сумму. Раньше статус
+        // ставился ПЕРВЫМ ЖЕ фактом безусловно, и понятия «исполнен частично» не было:
+        // чек на 300 снимал резерв продуктов на 20 000 целиком. Статус теперь значит
+        // «погашен полностью», а не «тронут», — и ровно на это смотрит движок кармашка.
+        BigDecimal settled = eventRepository.findFactAggregatesByPlanIds(List.of(planId)).stream()
+                .findFirst()
+                .map(FactAggregateProjection::getTotalAmount)
+                .filter(Objects::nonNull)
+                .orElse(BigDecimal.ZERO);
+        BigDecimal planned = plan.getPlannedAmount() != null
+                ? plan.getPlannedAmount() : BigDecimal.ZERO;
+        EventStatus target = settled.compareTo(planned) >= 0
+                ? EventStatus.EXECUTED : EventStatus.PLANNED;
+        if (plan.getStatus() != EventStatus.CANCELLED && plan.getStatus() != target) {
+            plan.setStatus(target);
             eventRepository.save(plan);
         }
 
