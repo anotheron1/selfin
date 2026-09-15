@@ -73,13 +73,20 @@ public class WishlistConversionService {
      * @param req    параметры конверсии
      * @return ссылка на созданный артефакт + новый статус
      * @throws ResourceNotFoundException 404, если источник не найден
-     * @throws ResponseStatusException   409, если источник уже сконвертирован
+     * @throws ResponseStatusException   409, если источник уже сконвертирован;
+     *                                   400, если у плана нет срока или он не в будущем
      */
     @Transactional
     public ConvertWishlistResponseDto convertItem(UUID itemId, ConvertWishlistRequestDto req) {
+        return convertItem(itemId, req, LocalDate.now(clock));
+    }
+
+    /** Тестовый вход с явным «сегодня»: проверка даты плана календарно-зависима. */
+    @Transactional
+    ConvertWishlistResponseDto convertItem(UUID itemId, ConvertWishlistRequestDto req, LocalDate today) {
         boolean fromEvent = "WISHLIST".equals(req.sourceKind());
         return fromEvent
-                ? convertFromEvent(itemId, req)
+                ? convertFromEvent(itemId, req, today)
                 : convertFromFund(itemId, req);
     }
 
@@ -200,7 +207,8 @@ public class WishlistConversionService {
 
     // ====== WISHLIST event source ======
 
-    private ConvertWishlistResponseDto convertFromEvent(UUID itemId, ConvertWishlistRequestDto req) {
+    private ConvertWishlistResponseDto convertFromEvent(UUID itemId, ConvertWishlistRequestDto req,
+                                                        LocalDate today) {
         FinancialEvent src = eventRepository.findById(itemId)
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", itemId));
@@ -212,8 +220,14 @@ public class WishlistConversionService {
 
         switch (req.target()) {
             case "PLAN_EVENT" -> {
+                // ANO-138: срок обязан быть в будущем — ровно то же правило, что на /fix.
+                // Пустая дата давала событие, невидимое в Бюджете, /strategy и кармашке
+                // (все выборки идут по диапазону дат), а хотелка при этом уходила в FIXED:
+                // введённое пропадало молча.
+                LocalDate planDate = requireFutureDate(
+                        req.planDate() != null ? req.planDate() : src.getDate(), today);
                 FinancialEvent created = buildPlanEvent(
-                        src.getCategory(), src.getPlannedAmount(), src.getDate(), src.getDescription());
+                        src.getCategory(), src.getPlannedAmount(), planDate, src.getDescription());
                 FinancialEvent saved = eventRepository.save(created);
                 src.setConvertedToEventId(saved.getId());
                 convertedTo = new WishlistItemDto.ConvertedToDto("EVENT", saved.getId());

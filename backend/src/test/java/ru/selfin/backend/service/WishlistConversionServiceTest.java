@@ -46,6 +46,13 @@ class WishlistConversionServiceTest {
                 .date(LocalDate.now().plusMonths(6)).description("Ноут").build();
     }
 
+    /** Хотелка «когда-нибудь»: срок не задан — законное состояние (WishlistCreateDto.date). */
+    private FinancialEvent openWishlistWithoutDate(UUID id) {
+        FinancialEvent e = openWishlist(id);
+        e.setDate(null);
+        return e;
+    }
+
     @Test
     void convert_wishlistToPlanEvent_createsEventAndFixesSource() {
         UUID id = UUID.randomUUID();
@@ -210,6 +217,100 @@ class WishlistConversionServiceTest {
         assertThatThrownBy(() -> service.convertItem(id,
                 new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false)))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    // ====== ANO-138: конверсия обязана требовать срок ======
+
+    @Test
+    void convert_wishlistWithoutDate_throws400_andSavesNothing() {
+        // Пустая дата давала плановое событие, невидимое в Бюджете, /strategy и кармашке:
+        // все выборки идут по диапазону дат. Хотелка при этом уходила в FIXED.
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlistWithoutDate(id);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+
+        assertThatThrownBy(() -> service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("date is required");
+
+        assertThat(src.getWishlistStatus())
+                .as("хотелка обязана остаться в обсуждении: артефакта не появилось")
+                .isEqualTo(WishlistStatus.OPEN);
+        assertThat(src.getConvertedToEventId()).isNull();
+        verify(eventRepo, never()).save(any());
+    }
+
+    @Test
+    void convert_wishlistWithPastDate_throws400() {
+        // Обещание спеки 2026-05-29-wishlist-planning-design.md:409 — на пути /convert
+        // оно не было исполнено так же, как и проверка пустой даты.
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        src.setDate(TODAY.minusDays(1));
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+
+        assertThatThrownBy(() -> service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("must be in the future");
+    }
+
+    @Test
+    void convert_planDateOverridesSourceDate() {
+        // Срок, введённый в диалоге фиксации: у хотелки его нет и выдумывать нельзя (ANO-29).
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlistWithoutDate(id);
+        LocalDate chosen = TODAY.plusMonths(2);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        stubEventSave();
+
+        service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false, null, chosen), TODAY);
+
+        ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
+        verify(eventRepo, atLeast(1)).save(cap.capture());
+        assertThat(cap.getAllValues()).anySatisfy(e -> {
+            assertThat(e.getEventKind()).isEqualTo(EventKind.PLAN);
+            assertThat(e.getDate())
+                    .as("в план уехал срок из диалога, а не пустота хотелки")
+                    .isEqualTo(chosen);
+        });
+        assertThat(src.getDate())
+                .as("исходная хотелка срока не получает: она уходит в архив как решённая")
+                .isNull();
+    }
+
+    @Test
+    void convert_withoutPlanDate_usesSourceDate() {
+        // Старый клиент, не знающий про planDate, на хотелке со сроком работает как раньше.
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+        stubEventSave();
+
+        service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false), TODAY);
+
+        ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
+        verify(eventRepo, atLeast(1)).save(cap.capture());
+        assertThat(cap.getAllValues()).anySatisfy(e ->
+                assertThat(e.getDate()).isEqualTo(src.getDate()));
+    }
+
+    @Test
+    void convert_wishlistWithTodayDate_throws400() {
+        // Сегодняшний план не резервируется (PocketInputAssembler берёт date > asOfDate),
+        // то есть дал бы тот же невидимый финал.
+        UUID id = UUID.randomUUID();
+        FinancialEvent src = openWishlist(id);
+        src.setDate(TODAY);
+        when(eventRepo.findById(id)).thenReturn(Optional.of(src));
+
+        assertThatThrownBy(() -> service.convertItem(id,
+                new ConvertWishlistRequestDto("WISHLIST", "PLAN_EVENT", false), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("must be in the future");
     }
 
     // ====== ANO-34 §1: фиксация переносит параметры примерки ======

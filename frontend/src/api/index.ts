@@ -311,6 +311,8 @@ export const convertWishlistItem = (itemId: string, body: {
     createRecurringPayments?: boolean;
     /** ANO-16 §8: дата цели создаваемой копилки (фиксация растянутой примерки). */
     fundTargetDate?: string;
+    /** ANO-138: срок создаваемого плана; без него бэкенд отвечает 400, а не молчит. */
+    planDate?: string;
 }) => post<ConvertResponse>(`/wishlist/items/${itemId}/convert`, body);
 
 /**

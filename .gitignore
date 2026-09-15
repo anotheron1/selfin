@@ -4,3 +4,6 @@
 # Claude/Superpowers internals
 .claude/worktrees/
 .superpowers/
+
+# Инструкции сторонних агентов: копия CLAUDE.md, которую кладёт чужой инструмент
+AGENTS.md

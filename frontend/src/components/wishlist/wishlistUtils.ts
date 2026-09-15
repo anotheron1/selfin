@@ -74,3 +74,28 @@ function worse(a: RiskLevel, b: RiskLevel): RiskLevel {
     const rank = { green: 0, yellow: 1, red: 2 };
     return rank[a] >= rank[b] ? a : b;
 }
+
+// ── Конверсия хотелки (ANO-138) ───────────────────────────────────────────────
+
+export type ConvertTarget = 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT';
+
+/**
+ * ANO-138: «Плановое событие» подтверждается только со сроком строго в будущем.
+ *
+ * Пустая дата уводила план в невидимость: Бюджет, /strategy и кармашек выбирают
+ * события по диапазону дат. Прошедшая и сегодняшняя отвергаются сервером
+ * (`requireFutureDate`) — граница здесь ровно та же, чтобы форма не предлагала
+ * того, что сервер не примет: ошибку человек всё равно не увидит, пока не починен
+ * ANO-141.
+ *
+ * Копилке и кредиту срок в этом диалоге не нужен: фонд без targetDate — законное
+ * состояние (V4, «null = не указана»), он виден на экране и дату можно поставить потом.
+ *
+ * Даты сравниваются как строки: ISO-формат yyyy-mm-dd лексикографически совпадает
+ * с календарным порядком.
+ */
+export function canConfirmConversion(target: ConvertTarget, planDate: string,
+                                     todayIso: string): boolean {
+    if (target !== 'PLAN_EVENT') return true;
+    return planDate !== '' && planDate > todayIso;
+}
