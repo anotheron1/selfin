@@ -43,6 +43,11 @@ export default function FixWishlistDialog({ open, item, onClose, onConfirm, onFi
     // ANO-138: срок плана. У хотелки «когда-нибудь» его нет — спрашиваем здесь,
     // выдумывать дату нельзя (ANO-29).
     const [planDate, setPlanDate] = useState(item.targetDate ?? '');
+    // Граница та же, что у серверного requireFutureDate: строго завтра и дальше.
+    const t = new Date();
+    const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    const minDate = new Date(t.getTime() + 24 * 60 * 60 * 1000);
+    const minIso = `${minDate.getFullYear()}-${String(minDate.getMonth() + 1).padStart(2, '0')}-${String(minDate.getDate()).padStart(2, '0')}`;
 
     // Сброс на дефолт при открытии/смене item'а.
     useEffect(() => {
@@ -80,6 +85,7 @@ export default function FixWishlistDialog({ open, item, onClose, onConfirm, onFi
                             <Input
                                 type="date"
                                 value={planDate}
+                                min={minIso}
                                 onChange={e => setPlanDate(e.target.value)}
                             />
                             <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
@@ -103,7 +109,7 @@ export default function FixWishlistDialog({ open, item, onClose, onConfirm, onFi
                         Зафиксировать без конверсии
                     </Button>
                     <Button
-                        disabled={!canConfirmConversion(target, planDate)}
+                        disabled={!canConfirmConversion(target, planDate, todayIso)}
                         onClick={() => onConfirm(target, createRecurring, planDate || undefined)}
                     >
                         Зафиксировать
