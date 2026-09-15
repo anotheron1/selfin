@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion } from './wishlistUtils';
-import type { MonthDelta } from '../../types/api';
+import { readFileSync } from 'node:fs';
+import {
+    composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch,
+} from './wishlistUtils';
+import type { MonthDelta, WishlistItem } from '../../types/api';
 
 describe('calcPMT', () => {
     it('computes the annuity payment for a positive rate', () => {
@@ -120,5 +123,66 @@ describe('canConfirmConversion (ANO-138)', () => {
 
     it('кредиту срок в этом диалоге не нужен', () => {
         expect(canConfirmConversion('FUND_WITH_CREDIT', '', TODAY)).toBe(true);
+    });
+});
+
+describe('fixPatch (ANO-139)', () => {
+    // Примерка перестала писать по жесту, и запись переехала на «Зафиксировать».
+    // Значит в неё обязано уйти ровно то, что человек видит на экране: иначе он
+    // подкрутил до 120 000, нажал «зафиксировать» и получил план на записанные 50 000.
+    const wish = (over: Partial<WishlistItem> = {}): WishlistItem => ({
+        id: 'i1', kind: 'WISHLIST', name: 'Велокресло', amount: 50000,
+        targetDate: '2026-12-01', status: 'OPEN', convertedTo: null, delta: [],
+        ...over,
+    });
+
+    it('без примерки уходит записанное', () => {
+        expect(fixPatch(wish(), undefined)).toEqual({ amount: 50000, targetDate: '2026-12-01' });
+    });
+
+    it('подкрученная сумма важнее записанной', () => {
+        expect(fixPatch(wish(), { amount: 120000 }).amount).toBe(120000);
+    });
+
+    it('подкрученный срок важнее записанного', () => {
+        expect(fixPatch(wish(), { targetDate: '2027-03-01' }).targetDate).toBe('2027-03-01');
+    });
+
+    it('ноль — законная сумма, а не «ничего не подкручивали»', () => {
+        // Через || вместо ?? нуль схлопнулся бы в записанные 50 000.
+        expect(fixPatch(wish(), { amount: 0 }).amount).toBe(0);
+    });
+
+    it('у хотелки без срока даты в патче нет: выдумывать дату нельзя (ANO-29)', () => {
+        // Ползунок показывает подставной ближайший месяц — он не значит «человек назначил срок».
+        expect(fixPatch(wish({ targetDate: null }), undefined).targetDate).toBeUndefined();
+    });
+
+    it('у хотелки без срока подкрученный срок уходит: его задали руками', () => {
+        expect(fixPatch(wish({ targetDate: null }), { targetDate: '2027-01-01' }).targetDate)
+            .toBe('2027-01-01');
+    });
+
+    it('кредитные параметры: подкрученные важнее записанных, записанные важнее пустоты', () => {
+        const credit = wish({ kind: 'CREDIT', rate: 16.5, termMonths: 60 });
+        expect(fixPatch(credit, { rate: 21 })).toEqual({
+            amount: 50000, targetDate: '2026-12-01', rate: 21, termMonths: 60,
+        });
+    });
+
+    it('нулевая ставка не подменяется записанной', () => {
+        const credit = wish({ kind: 'CREDIT', rate: 16.5, termMonths: 60 });
+        expect(fixPatch(credit, { rate: 0 }).rate).toBe(0);
+    });
+});
+
+describe('примерка не пишет по жесту (ANO-139)', () => {
+    // Сторож по исходнику: компонентных тестов в проекте нет, а вернуть персист
+    // на отпускание ползунка — правка в одну строку. Та же техника, что нашла
+    // второе место записи даты в ANO-155.
+    it('карточка примерки не содержит записи в базу', () => {
+        const src = readFileSync(new URL('./WishlistItemCard.tsx', import.meta.url), 'utf8');
+        expect(src).not.toMatch(/persist/i);
+        expect(src).not.toMatch(/updateEvent|updateFund/);
     });
 });

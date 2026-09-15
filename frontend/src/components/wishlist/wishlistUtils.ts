@@ -99,3 +99,46 @@ export function canConfirmConversion(target: ConvertTarget, planDate: string,
     if (target !== 'PLAN_EVENT') return true;
     return planDate !== '' && planDate > todayIso;
 }
+
+// ── Фиксация примерки (ANO-139) ───────────────────────────────────────────────
+
+/** Что человек подкрутил ползунками и полями. Пусто — ничего не трогал. */
+export interface TrialParams {
+    amount?: number;
+    targetDate?: string;
+    rate?: number;
+    termMonths?: number;
+}
+
+/** Что уходит в запись при фиксации. */
+export interface FixPatch {
+    amount: number;
+    /** Отсутствует, если срока нет и его не задавали: выдумывать дату нельзя (ANO-29). */
+    targetDate?: string;
+    rate?: number;
+    termMonths?: number;
+}
+
+/**
+ * ANO-139: примерка перестала писать по жесту, и запись переехала на «Зафиксировать».
+ * Отсюда правило: в запись уходит ровно то, что человек видит на экране.
+ *
+ * Без этого «зафиксировать» после подкрутки создало бы план на ЗАПИСАННУЮ сумму:
+ * человек видел 120 000, а получил 50 000 — тот же класс дефекта, только злее.
+ *
+ * Срок — только настоящий: у хотелки «когда-нибудь» его нет, ползунок показывает
+ * подставной ближайший месяц, и молча записывать его нельзя (ANO-29).
+ *
+ * Подстановка через `??`, а не `||`: ноль — законная сумма и законная ставка.
+ */
+export function fixPatch(
+    item: { amount: number; targetDate: string | null; rate?: number | null; termMonths?: number | null },
+    trial: TrialParams | undefined,
+): FixPatch {
+    return {
+        amount: trial?.amount ?? item.amount,
+        targetDate: trial?.targetDate ?? item.targetDate ?? undefined,
+        rate: trial?.rate ?? item.rate ?? undefined,
+        termMonths: trial?.termMonths ?? item.termMonths ?? undefined,
+    };
+}

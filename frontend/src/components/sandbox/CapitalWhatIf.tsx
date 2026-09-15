@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useWishlistSimulation } from '../wishlist/useWishlistSimulation';
 import WishlistThresholdsHeader from '../wishlist/WishlistThresholdsHeader';
 import WishlistImpactChart from '../wishlist/WishlistImpactChart';
-import WishlistItemList, { type ItemPersistPatch } from '../wishlist/WishlistItemList';
+import WishlistItemList from '../wishlist/WishlistItemList';
 import FixWishlistDialog, { type ConvertTarget } from '../wishlist/FixWishlistDialog';
 import DeleteWishlistDialog from '../wishlist/DeleteWishlistDialog';
 import { type RecomputeRequest } from '../wishlist/WishlistItemCard';
 import {
-    composeTimeline, riskZones, scaleDelta,
+    composeTimeline, riskZones, scaleDelta, fixPatch,
     type ActiveItem, type BaselinePoint, type RiskLevel,
 } from '../wishlist/wishlistUtils';
 import {
@@ -87,6 +87,9 @@ export default function CapitalWhatIf() {
     // --- Callbacks ---
 
     const handleParamsRecompute = (item: WishlistItem, req: RecomputeRequest) => {
+        // ANO-139: подкрученные ставка/срок запоминаются как примерка. Раньше карточка
+        // писала их в базу прямо по blur — здесь они только доезжают до fixPatch.
+        actions.setCreditOverride(item.id, req.rate, req.termMonths);
         recomputeWishlistItem({
             kind: req.kind, amount: req.amount, targetDate: req.targetDate,
             rate: req.rate, termMonths: req.termMonths,
@@ -95,30 +98,41 @@ export default function CapitalWhatIf() {
             .catch(() => {/* старая delta остаётся; не блокируем UI */});
     };
 
-    const handlePersist = (item: WishlistItem, patch: ItemPersistPatch) => {
+    /**
+     * Переносит подкрученные параметры в запись — единственная запись этого блока (ANO-139).
+     *
+     * <p>Возвращает промис намеренно: конверсия читает СОХРАНЁННУЮ сумму
+     * (`convertFromEvent` берёт `src.getPlannedAmount()`), поэтому она обязана идти
+     * строго после записи, иначе человек увидит план на прежнее число.
+     *
+     * @param explicitDate дата, названная в диалоге фиксации (только для PLAN_EVENT).
+     *                     Она главнее подкрученной: это последний явный выбор человека,
+     *                     и ровно она уйдёт в создаваемый план.
+     */
+    const persistTrial = (item: WishlistItem, explicitDate?: string): Promise<unknown> => {
+        const patch = fixPatch(item, overrideMap[item.id]);
+        const date = explicitDate ?? patch.targetDate;
         if (item.kind === 'WISHLIST') {
             // PUT /events требует дату. У хотелки без срока её нет, а выдумывать нельзя
-            // (ANO-29) — сохраняем только когда дату реально задали слайдером.
-            const date = patch.targetDate ?? item.targetDate;
-            if (!date) return;
-            updateEvent(item.id, {
+            // (ANO-29): без даты не пишем вовсе.
+            if (!date) return Promise.resolve();
+            return updateEvent(item.id, {
                 date,
                 categoryId: item.categoryId ?? undefined,
                 type: 'EXPENSE',
                 priority: 'LOW',
                 plannedAmount: patch.amount,
                 description: item.name,
-            }).catch(() => {/* визуальное состояние уже применено; refetch не насилуем */});
-        } else {
-            updateFund(item.id, {
-                name: item.name,
-                targetAmount: patch.amount,
-                targetDate: patch.targetDate,
-                purchaseType: item.kind === 'CREDIT' ? 'CREDIT' : 'SAVINGS',
-                creditRate: patch.rate,
-                creditTermMonths: patch.termMonths,
-            }).catch(() => {/* idem */});
+            });
         }
+        return updateFund(item.id, {
+            name: item.name,
+            targetAmount: patch.amount,
+            targetDate: date,
+            purchaseType: item.kind === 'CREDIT' ? 'CREDIT' : 'SAVINGS',
+            creditRate: patch.rate,
+            creditTermMonths: patch.termMonths,
+        });
     };
 
     const handleStatusChange = (item: WishlistItem, status: WishlistStatus) => {
@@ -131,7 +145,12 @@ export default function CapitalWhatIf() {
         if (!fixItem) return;
         const item = fixItem;
         setFixItem(null);
-        convertWishlistItem(item.id, { sourceKind: item.kind, target, createRecurringPayments, planDate })
+        // Сначала запись подкрученного, только потом конверсия: иначе план создастся
+        // на прежнюю сумму. Если запись не прошла — не конвертируем: план на устаревшем
+        // числе хуже, чем несработавшая кнопка.
+        persistTrial(item, planDate)
+            .then(() => convertWishlistItem(item.id,
+                { sourceKind: item.kind, target, createRecurringPayments, planDate }))
             .then(refetch)
             .catch(refetch);
     };
@@ -140,7 +159,9 @@ export default function CapitalWhatIf() {
         if (!fixItem) return;
         const item = fixItem;
         setFixItem(null);
-        handleStatusChange(item, 'FIXED');
+        persistTrial(item)
+            .then(() => handleStatusChange(item, 'FIXED'))
+            .catch(refetch);
     };
 
     const handleDeleteConfirm = (alsoArtifact: boolean) => {
@@ -224,7 +245,6 @@ export default function CapitalWhatIf() {
                         onAmountChange={actions.setAmountOverride}
                         onDateChange={actions.setDateOverride}
                         onParamsRecompute={handleParamsRecompute}
-                        onPersist={handlePersist}
                         onFix={setFixItem}
                         onDelete={setDeleteItem}
                         onStatusChange={handleStatusChange}
@@ -236,7 +256,13 @@ export default function CapitalWhatIf() {
             {fixItem && (
                 <FixWishlistDialog
                     open={!!fixItem}
-                    item={fixItem}
+                    /* ANO-139: диалог обязан показывать подкрученное — человек фиксирует
+                       то, на что смотрел, а не то, что записано. */
+                    item={{
+                        ...fixItem,
+                        amount: fixPatch(fixItem, overrideMap[fixItem.id]).amount,
+                        targetDate: fixPatch(fixItem, overrideMap[fixItem.id]).targetDate ?? null,
+                    }}
                     onClose={() => setFixItem(null)}
                     onConfirm={handleFixConfirm}
                     onFixWithoutConversion={handleFixWithoutConversion}
