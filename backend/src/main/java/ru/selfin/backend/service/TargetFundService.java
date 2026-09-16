@@ -123,11 +123,23 @@ public class TargetFundService {
         if (dto.purchaseType() != null) fund.setPurchaseType(dto.purchaseType());
         fund.setCreditRate(dto.creditRate());
         fund.setCreditTermMonths(dto.creditTermMonths());
-        // Отвязка от счёта фиксирует накопленное на копилке. Пока копилка жила на счёте, её
-        // собственное поле не двигалось (переводы запрещены), и без переноса цель после
-        // отвязки прыгнула бы к протухшему числу — обычно к нулю (найдено ревью чанка 3).
+        // ANO-158: отвязка снимает ярлык, а не переносит чужие деньги. Копилке возвращается
+        // ровно её собственная история переводов.
+        //
+        // Раньше сюда клался ОСТАТОК СЧЁТА: копилка начинала заявлять деньги, которых в неё
+        // никто не переводил, — они лежали на счёте и оставались свободными. Замер на стенде
+        // дал поле 55 000 при движениях 20 000. Капитал не врал (он складывает движения),
+        // врали экран и кнопки: диалог удаления спрашивал про 55 000, а возвращал 20 000.
+        //
+        // Писать при отвязке компенсирующее движение нельзя — деньги на счёте уже посчитаны,
+        // и капитал начал бы считать их дважды. Поэтому именно поле, и именно по движениям.
+        //
+        // Следствие названо владельцу и принято: копилка, жившая на счёте с рождения, после
+        // отвязки пуста. Строка §8 спеки ANO-9 («накопленное переносится в собственное поле»)
+        // отменена решением от 16.09.2026 — см. поправку в самой спеке.
         if (fund.getAccountId() != null && dto.accountId() == null) {
-            fund.setCurrentBalance(accountBalanceService.fundBalanceAt(fund, LocalDate.now(clock)));
+            fund.setCurrentBalance(transactionRepository.sumLiveByFundId(id));
+            applyStatusByBalance(fund);
         }
         fund.setAccountId(validateAccountLink(dto.accountId(), fund.getId()));
         return toDto(fundRepository.save(fund));
@@ -142,6 +154,20 @@ public class TargetFundService {
      * подконвертов внутри счёта — сознательно не делаем; кому нужны две, оставляет их
      * виртуальными конвертами.
      */
+    /**
+     * «Цель достигнута» — производная от накопленного, а не отметка.
+     *
+     * <p>Пересчитывается в ОБЕ стороны: после снятия из копилки или после отвязки от счёта
+     * она может перестать быть достигнутой, и оставлять её {@code REACHED} значило бы врать
+     * на экране (ANO-87). Правило живёт в одном месте — двух копий «слово в слово» этому
+     * репозиторию уже хватило (ANO-155).
+     */
+    private void applyStatusByBalance(TargetFund fund) {
+        fund.setStatus(fund.getTargetAmount() != null
+                && fund.getCurrentBalance().compareTo(fund.getTargetAmount()) >= 0
+                ? FundStatus.REACHED : FundStatus.FUNDING);
+    }
+
     private UUID validateAccountLink(UUID accountId, UUID selfId) {
         if (accountId == null) return null;
         Account account = accountRepository.findById(accountId)
@@ -403,11 +429,7 @@ public class TargetFundService {
         BigDecimal oldBalance = fund.getCurrentBalance();
         BigDecimal newBalance = oldBalance.add(amount);
         fund.setCurrentBalance(newBalance);
-        // Статус пересчитывается в ОБЕ стороны: после снятия копилка может перестать быть
-        // достигнутой, и оставлять её REACHED значило бы врать на экране (ANO-87).
-        fund.setStatus(fund.getTargetAmount() != null
-                && newBalance.compareTo(fund.getTargetAmount()) >= 0
-                ? FundStatus.REACHED : FundStatus.FUNDING);
+        applyStatusByBalance(fund);
         fundRepository.save(fund);
 
         // Сохраняем транзакцию для истории и расчёта прогноза
