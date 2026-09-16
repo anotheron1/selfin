@@ -107,7 +107,11 @@ export default function Analytics() {
                         </div>
                         {showPlanFact && <PlanFactSection planFact={analytics.planFact} />}
                         {showPlanFact && <CategoryProgressSection />}
-                        {analytics.priorityBreakdown && (
+                        {/* «Структура месяца» — тот же разбор прошлого и с теми же оценками
+                            («сэкономил», «перерасход», «0 из 5 выполнена»), поэтому живёт
+                            под тем же раскрытием. Найдено на стенде: свернуть один отчёт
+                            и оставить рядом второй значило бы закрыть ANO-122 на словах. */}
+                        {showPlanFact && analytics.priorityBreakdown && (
                             <BudgetStructureSection
                                 breakdown={analytics.priorityBreakdown}
                                 wishlistItems={lowEvents}
