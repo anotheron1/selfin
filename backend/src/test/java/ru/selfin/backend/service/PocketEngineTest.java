@@ -204,6 +204,89 @@ class PocketEngineTest {
                 .isEqualByComparingTo(dec(-10_000));
     }
 
+    // ====== ANO-119: список того, что движок удержал ======
+    //
+    // Блок «осталось потратить» на дашборде — это объяснение главного числа, а не
+    // вторая выборка рядом с ним. Поэтому список собирает сам движок тем же обходом
+    // и теми же суммами: две копии правила отбора в этом репозитории уже расходились
+    // (ANO-82, ANO-155).
+
+    @Test
+    @DisplayName("ANO-119: в списке просрочка, сегодня и будущее до горизонта — хвост за ним не в счёт")
+    void upcoming_holdsOverdueTodayAndFuture_notTheTail() {
+        PocketInput in = base()
+                .checkpointDate(TODAY.minusDays(10))
+                .horizon(LocalDate.of(2026, 3, 15))
+                .overdue(planNamed(EventType.EXPENSE, TODAY.minusDays(5), 4_000, "Коммуналка"))
+                .events(planNamed(EventType.EXPENSE, TODAY, 300, "Продукты"),
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 3, 10), 23_600, "Ипотека"),
+                        planNamed(EventType.INCOME, LocalDate.of(2026, 3, 12), 75_000, "Зарплата"),
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 4, 20), 8_000, "Автосервис"))
+                .build();
+
+        List<PocketResultDto.UpcomingItem> out = PocketEngine.calculate(in).upcoming();
+
+        assertThat(out).extracting(PocketResultDto.UpcomingItem::description)
+                .as("доход в списке трат не нужен, а расход за горизонтом ещё не наш")
+                .containsExactly("Коммуналка", "Продукты", "Ипотека");
+        assertThat(out.get(0).overdue()).isTrue();
+        assertThat(out.get(1).overdue()).isFalse();
+        assertThat(out.get(2).amount()).isEqualByComparingTo(dec(23_600));
+    }
+
+    @Test
+    @DisplayName("ANO-119: информационный хвост за горизонтом в список не идёт")
+    void upcoming_stopsAtHorizon_notAtTrajectoryTail() {
+        // Траектория тянется минимум на 7 дней (§3.9), даже когда горизонт ближе. Этот
+        // хвост кармашек не вычитает, и показывать его как «осталось потратить» значило
+        // бы обещать вычет, которого нет.
+        PocketInput in = base()
+                .horizon(TODAY.plusDays(3))
+                .events(planNamed(EventType.EXPENSE, TODAY.plusDays(2), 5_000, "В горизонте"),
+                        planNamed(EventType.EXPENSE, TODAY.plusDays(6), 9_000, "В хвосте"))
+                .build();
+
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.upcoming()).extracting(PocketResultDto.UpcomingItem::description)
+                .containsExactly("В горизонте");
+        assertThat(r.trajectory())
+                .as("в траектории хвост при этом есть — она длиннее горизонта")
+                .anyMatch(p -> p.date().equals(TODAY.plusDays(6)));
+    }
+
+    @Test
+    @DisplayName("ANO-119: в список идёт непогашенный остаток плана, а не полная сумма")
+    void upcoming_partiallySettledPlan_showsRemainder() {
+        UUID planId = UUID.randomUUID();
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(planWithId(planId, EventType.EXPENSE, LocalDate.of(2026, 3, 10), 20_000),
+                        factFor(planId, EventType.EXPENSE, TODAY, 8_000))
+                .build();
+
+        List<PocketResultDto.UpcomingItem> out = PocketEngine.calculate(in).upcoming();
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).amount())
+                .as("8 000 уже ушли — впереди 12 000")
+                .isEqualByComparingTo(dec(12_000));
+    }
+
+    @Test
+    @DisplayName("ANO-119: зафиксированная хотелка в списке помечена, а не спрятана")
+    void upcoming_marksWishlist() {
+        PocketInput in = base()
+                .events(wishlist(WishlistStatus.FIXED, LocalDate.of(2026, 3, 10), 20_000, false))
+                .build();
+
+        List<PocketResultDto.UpcomingItem> out = PocketEngine.calculate(in).upcoming();
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).wishlist())
+                .as("намерение стоит рядом со счетами, но не равно им")
+                .isTrue();
+    }
+
     @Test
     @DisplayName("ANO-155: факт на всю сумму снимает план целиком")
     void fullFact_releasesPlanEntirely() {

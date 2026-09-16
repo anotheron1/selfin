@@ -48,7 +48,16 @@ public record PocketResultDto(
          */
         BigDecimal pocketWithForecast,
         /** Минимум прогнозной кумуляты; {@code null} там же, где и число выше. */
-        MinPoint minPointWithForecast
+        MinPoint minPointWithForecast,
+        /**
+         * «Осталось потратить» (ANO-119) — то, что движок удержал в пути денег на этом
+         * горизонте, строками. Блок на дашборде показывает ровно это.
+         *
+         * <p>Не отдельная выборка рядом с числом, а побочный продукт того же обхода:
+         * правило отбора, живущее в двух экземплярах, однажды расходится — так было
+         * в ANO-82 и ANO-155.
+         */
+        List<UpcomingItem> upcoming
 ) {
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}
     /**
@@ -72,4 +81,17 @@ public record PocketResultDto(
     public record BreakdownLine(BreakdownType type, String label, BigDecimal amount, List<String> details) {}
     public record WishlistCandidate(java.util.UUID id, String description,
                                     BigDecimal plannedAmount, LocalDate date, boolean fixed) {}
+
+    /**
+     * Строка блока «осталось потратить» (ANO-119).
+     *
+     * @param amount       непогашенный остаток плана, а не полная плановая сумма (ANO-155)
+     * @param categoryName имя категории; движку не видно, подставляет {@code PocketService}
+     * @param overdue      дата прошла, а факта нет — такие кармашек держит бронью и
+     *                     показывает отдельной группой
+     * @param wishlist     зафиксированная хотелка: стоит рядом со счетами, но счётом не является
+     */
+    public record UpcomingItem(java.util.UUID id, LocalDate date, String categoryName,
+                               BigDecimal amount, String description,
+                               boolean overdue, boolean wishlist) {}
 }
