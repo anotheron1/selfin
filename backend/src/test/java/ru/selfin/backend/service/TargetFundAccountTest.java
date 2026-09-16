@@ -212,26 +212,112 @@ class TargetFundAccountTest {
         verify(fundRepo, never()).save(any());
     }
 
+    // ====== ANO-158: отвязка снимает ярлык, а не забирает чужие деньги ======
+    //
+    // Решение владельца 16.09.2026, вариант Б. До него отвязка клала в поле копилки
+    // ОСТАТОК СЧЁТА: копилка заявляла деньги, которых в неё никто не переводил, а лежали
+    // они на счёте и оставались свободными. Замер на стенде: поле 55 000 при движениях
+    // 20 000. Капитал при этом не врал (он считает движения) — врали экран и кнопки:
+    // диалог удаления спрашивал про 55 000, а возвращал 20 000.
+    //
+    // Теперь привязка и отвязка — это ярлык, а не перемещение денег. Копилке возвращается
+    // ровно её собственная история переводов. Строка §8 спеки ANO-9, требовавшая обратного,
+    // отменена владельцем — см. поправку в 2026-08-12-accounts-skeleton-design.md.
+
     @Test
-    @DisplayName("Отвязка от счёта переносит накопленное в собственное поле копилки, а не "
-            + "возвращает её к протухшему нулю")
-    void unlinkFromAccount_carriesBalanceOver() {
+    @DisplayName("ANO-158: отвязка возвращает копилке её СОБСТВЕННЫЕ движения, а не остаток счёта")
+    void unlinkFromAccount_restoresOwnMovements_notAccountBalance() {
         Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
-        LocalDate today = LocalDate.now();
         TargetFund f = fund(deposit.getId(), "0");
 
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
-        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
-        when(checkpointRepo.findLatestForAccountAt(deposit.getId(), today))
-                .thenReturn(Optional.of(checkpoint(deposit, today.minusDays(2), "300000")));
+        when(txRepo.sumLiveByFundId(f.getId())).thenReturn(new BigDecimal("20000"));
         when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
 
         TargetFundDto out = service.update(f.getId(), new TargetFundCreateDto("На квартиру",
                 new BigDecimal("1000000"), null, null, null, null, null, null));
 
         assertThat(f.getAccountId()).isNull();
-        assertThat(f.getCurrentBalance()).isEqualByComparingTo("300000");
-        assertThat(out.currentBalance()).isEqualByComparingTo("300000");
+        assertThat(f.getCurrentBalance())
+                .as("в копилку переводили 20 000 — столько она и держит")
+                .isEqualByComparingTo("20000");
+        assertThat(out.currentBalance()).isEqualByComparingTo("20000");
+    }
+
+    @Test
+    @DisplayName("ANO-158: копилка, жившая на счёте с рождения, после отвязки пуста")
+    void unlinkFromAccount_withoutMovements_isEmpty() {
+        // Следствие решения Б, названное владельцу прямо: прогресс упадёт до нуля. Это не
+        // потеря — деньги как лежали на счёте, так и лежат, просто цель перестала
+        // присваивать себе чужой остаток.
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        TargetFund f = fund(deposit.getId(), "0");
+
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        when(txRepo.sumLiveByFundId(f.getId())).thenReturn(BigDecimal.ZERO);
+        when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.update(f.getId(), new TargetFundCreateDto("На квартиру",
+                new BigDecimal("1000000"), null, null, null, null, null, null));
+
+        assertThat(f.getCurrentBalance()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("ANO-158: отвязка снимает «цель достигнута», если накопленного меньше цели")
+    void unlinkFromAccount_dropsReachedWhenBelowTarget() {
+        // Пока копилка жила на счёте с миллионом, она числилась REACHED. После отвязки у неё
+        // 20 000 из 1 000 000 — оставить REACHED значило бы врать на экране (правило ANO-87).
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        TargetFund f = fund(deposit.getId(), "0");
+        f.setStatus(FundStatus.REACHED);
+
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        when(txRepo.sumLiveByFundId(f.getId())).thenReturn(new BigDecimal("20000"));
+        when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.update(f.getId(), new TargetFundCreateDto("На квартиру",
+                new BigDecimal("1000000"), null, null, null, null, null, null));
+
+        assertThat(f.getStatus()).isEqualTo(FundStatus.FUNDING);
+    }
+
+    @Test
+    @DisplayName("ANO-158: правка копилки без отвязки поля баланса не трогает")
+    void updateWithoutUnlink_leavesBalanceAlone() {
+        // Отвязка — единственный повод пересчитать поле. Переименование копилки на счёте
+        // не должно ни звать движения, ни двигать баланс.
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        TargetFund f = fund(deposit.getId(), "7000");
+
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(f));
+        when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.update(f.getId(), new TargetFundCreateDto("Другое имя",
+                new BigDecimal("1000000"), null, null, null, null, null, deposit.getId()));
+
+        assertThat(f.getCurrentBalance()).isEqualByComparingTo("7000");
+        verify(txRepo, never()).sumLiveByFundId(any());
+    }
+
+    @Test
+    @DisplayName("ANO-158: правка виртуального конверта поля баланса не трогает")
+    void updateVirtualEnvelope_leavesBalanceAlone() {
+        // Пересчёт поля — событие отвязки, а не любой правки. У конверта, который на счёте
+        // никогда не жил, поле и так истина: трогать его — значит на ровном месте заменить
+        // накопленное суммой движений, а они расходятся у строк, созданных до ANO-156.
+        TargetFund f = fund(null, "7000");
+
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.update(f.getId(), new TargetFundCreateDto("Другое имя",
+                new BigDecimal("1000000"), null, null, null, null, null, null));
+
+        assertThat(f.getCurrentBalance()).isEqualByComparingTo("7000");
+        verify(txRepo, never()).sumLiveByFundId(any());
     }
 
     @Test

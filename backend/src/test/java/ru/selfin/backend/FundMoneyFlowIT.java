@@ -192,19 +192,20 @@ class FundMoneyFlowIT {
     @Test
     @DisplayName("ANO-156: компенсация считается по ДВИЖЕНИЯМ, а не по полю баланса")
     void delete_spent_compensatesRecordedMovements_notStoredField() throws Exception {
-        // Поле current_balance и сумма движений МОГУТ разойтись: update() при отвязке копилки
-        // от счёта переносит остаток счёта в поле, не создавая движения. Компенсация по полю
+        // Поле current_balance и сумма движений МОГУТ разойтись, и компенсация по полю
         // оставила бы в сумме движений остаток — а он теперь, без фильтра по deleted, виден
         // в cashLiquidAt навсегда (найдено ревью PR #42).
+        //
+        // ANO-158 (16.09.2026): расхождение больше НЕ создаётся отвязкой от счёта — отвязка
+        // возвращает копилке её собственные движения. Прежняя подготовка теста (привязать,
+        // отвязать) теперь даёт сошедшиеся числа и предмет проверки не воспроизводит.
+        // Поэтому расхождение вносится прямо в поле: ровно так выглядят строки, созданные
+        // старой отвязкой до починки, и именно их продукт обязан пережить.
         anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
         transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
 
-        String accountId = jdbc.queryForObject(
-                "SELECT id::text FROM accounts WHERE is_default = true AND is_deleted = false",
-                String.class);
-        updateFund(fundId, accountId);   // на счёт: поле перестаёт быть источником правды
-        updateFund(fundId, null);        // и обратно: в поле ложится остаток СЧЁТА, движения не тронуты
+        jdbc.update("UPDATE target_funds SET current_balance = 480000 WHERE id = ?::uuid", fundId);
 
         assertThat(fundBalance(fundId))
                 .as("предпосылка теста: поле и движения действительно разошлись")
@@ -217,6 +218,29 @@ class FundMoneyFlowIT {
                 .as("после выбытия сумма движений обязана быть нулём — иначе остаток "
                         + "навсегда сидит в капитале за каждую дату")
                 .isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("ANO-158: отвязка от счёта возвращает копилке её движения, а не остаток счёта")
+    void unlink_restoresOwnMovements_notAccountBalance() throws Exception {
+        // Юниты на моках этого не покажут: там сумма движений — заглушка. Здесь она настоящая.
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        String accountId = jdbc.queryForObject(
+                "SELECT id::text FROM accounts WHERE is_default = true AND is_deleted = false",
+                String.class);
+        updateFund(fundId, accountId);   // на счёт: поле перестаёт быть источником правды
+        updateFund(fundId, null);        // и обратно
+
+        assertThat(fundBalance(fundId))
+                .as("в копилку переводили 20 000 — столько она и держит; остаток счёта (480 000) "
+                        + "остаётся деньгами счёта")
+                .isEqualByComparingTo("20000");
+        assertThat(movementSum(fundId))
+                .as("поле и движения обязаны сойтись: одно число за одни деньги")
+                .isEqualByComparingTo(fundBalance(fundId));
     }
 
     @Test
