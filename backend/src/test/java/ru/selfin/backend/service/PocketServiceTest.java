@@ -63,7 +63,55 @@ class PocketServiceTest {
 
         pocketService = new PocketService(new PocketInputAssembler(eventRepository,
                 settingsService, predictionService, recurringRuleService,
-                fundRepository, categoryRepository, accountBalanceService));
+                fundRepository, categoryRepository, accountBalanceService), eventRepository);
+    }
+
+    /** Плановый расход с категорией — для проверки имён в списке «осталось потратить». */
+    private static ru.selfin.backend.model.FinancialEvent planIn(String categoryName,
+                                                                 LocalDate date, long amount) {
+        ru.selfin.backend.model.Category cat = ru.selfin.backend.model.Category.builder()
+                .id(java.util.UUID.randomUUID()).name(categoryName)
+                .type(ru.selfin.backend.model.enums.CategoryType.EXPENSE).build();
+        return ru.selfin.backend.model.FinancialEvent.builder()
+                .id(java.util.UUID.randomUUID()).date(date).category(cat)
+                .type(ru.selfin.backend.model.enums.EventType.EXPENSE)
+                .eventKind(ru.selfin.backend.model.EventKind.PLAN)
+                .status(ru.selfin.backend.model.enums.EventStatus.PLANNED)
+                .priority(ru.selfin.backend.model.enums.Priority.MEDIUM)
+                .plannedAmount(BigDecimal.valueOf(amount))
+                .description(categoryName + " описание")
+                .deleted(false).build();
+    }
+
+    @Test
+    @DisplayName("ANO-119: сервис подставляет имена категорий, не меняя порядок строк")
+    void upcoming_getsCategoryNames_inOriginalOrder() {
+        // Движку имена не видны: он работает на плоских снимках без JPA. Подставить их —
+        // работа сервиса, и подставить надо СВОЕЙ строке, а не по порядку выдачи из базы.
+        var ipoteka = planIn("Ипотека", TODAY.plusDays(3), 23_600);
+        var produkty = planIn("Продукты", TODAY.plusDays(1), 8_000);
+        incomeDates(LocalDate.of(2026, 3, 15));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(ipoteka, produkty));
+        when(eventRepository.findAllById(any())).thenReturn(List.of(ipoteka, produkty));
+
+        PocketResultDto r = pocketService.getPocket(null, TODAY);
+
+        assertThat(r.upcoming())
+                .extracting(PocketResultDto.UpcomingItem::categoryName)
+                .as("порядок списка задаёт движок — по датам, а не порядок выдачи из базы")
+                .containsExactly("Продукты", "Ипотека");
+    }
+
+    @Test
+    @DisplayName("ANO-119: пустой список имён не запрашивает")
+    void upcoming_empty_doesNotQueryNames() {
+        incomeDates(LocalDate.of(2026, 3, 15));
+
+        PocketResultDto r = pocketService.getPocket(null, TODAY);
+
+        assertThat(r.upcoming()).isEmpty();
+        verify(eventRepository, never()).findAllById(any());
     }
 
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */

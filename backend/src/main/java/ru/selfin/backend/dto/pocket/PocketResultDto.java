@@ -59,6 +59,16 @@ public record PocketResultDto(
          */
         List<UpcomingItem> upcoming
 ) {
+    /**
+     * Копия с подставленными именами категорий (ANO-119). Имена знает сервис, а не движок:
+     * у движка на входе плоские снимки без JPA.
+     */
+    public PocketResultDto withUpcoming(List<UpcomingItem> named) {
+        return new PocketResultDto(pocket, currentBalance, buffer, checkpointDate, horizon,
+                minPoint, breakdown, trajectory, wishlistCandidates, pocketAfterCreditRestore,
+                pocketWithDeposits, pocketWithForecast, minPointWithForecast, named);
+    }
+
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}
     /**
      * Точка минимума; drivenBy = описание самого крупного планового расхода дня минимума.
