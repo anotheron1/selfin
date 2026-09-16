@@ -88,6 +88,32 @@ public final class PocketEngine {
                 .map(e -> remainderOf(e, settled))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // 2а. ANO-119: те же строки, что удержаны выше и ниже, — списком для экрана.
+        //     Собирается здесь, а не отдельной выборкой рядом: правило отбора, живущее
+        //     в двух экземплярах, однажды расходится (ANO-82, ANO-155). Фильтры взяты
+        //     ровно те же, что у сумм, — включая «сегодня хотелки не держим».
+        //     Хвост за горизонтом (§3.9) в список НЕ идёт: он информационный, кармашек
+        //     его не вычитает, и показывать его как «осталось потратить» значило бы
+        //     обещать вычет, которого нет.
+        List<PocketResultDto.UpcomingItem> upcoming = new ArrayList<>();
+        for (EventSnapshot e : in.overdueEvents()) {
+            upcoming.add(upcomingOf(e,
+                    e.plannedAmount() != null ? e.plannedAmount() : BigDecimal.ZERO, true));
+        }
+        in.events().stream()
+                .filter(e -> isPendingPlan(e, settled))
+                .filter(e -> e.wishlistStatus() == null)
+                .filter(e -> in.asOfDate().equals(e.date()) && e.type() != EventType.INCOME)
+                .forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
+        in.events().stream()
+                .filter(e -> isPendingPlan(e, settled))
+                .filter(PocketEngine::allowedInTrajectory)
+                .filter(e -> e.type() != EventType.INCOME)
+                .filter(e -> e.date() != null
+                        && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(in.horizonEnd()))
+                .sorted(java.util.Comparator.comparing(EventSnapshot::date))
+                .forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
+
         // 3. Прогноз незапланированных по дням: текущий месяц (§3.5) + будущие месяцы (ANO-36).
         //    Обе части — одна и та же величина «сверх плана», просто из разных источников:
         //    текущий месяц из дневного темпа, будущие — из медианы по истории.
@@ -240,7 +266,7 @@ public final class PocketEngine {
                 new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),
                 breakdown, trajectory, candidates,
                 pocketAfterCreditRestore, pocketWithDeposits,
-                pocketWithForecast, minPointWithForecast);
+                pocketWithForecast, minPointWithForecast, upcoming);
     }
 
     // ── правила фильтрации (спека §3.2) ─────────────────────────────────────
@@ -257,6 +283,16 @@ public final class PocketEngine {
         return e.factAmount() == null
                 && e.eventKind() == EventKind.PLAN && e.status() == EventStatus.PLANNED
                 && remainderOf(e, settled).signum() > 0;
+    }
+
+    /**
+     * Строка списка «осталось потратить» (ANO-119). Имя категории движку не видно —
+     * он работает на плоских снимках без JPA; подставляет {@code PocketService}.
+     */
+    private static PocketResultDto.UpcomingItem upcomingOf(EventSnapshot e, BigDecimal amount,
+                                                           boolean overdue) {
+        return new PocketResultDto.UpcomingItem(e.id(), e.date(), null, amount,
+                e.description(), overdue, e.wishlistStatus() != null);
     }
 
     /** Непогашенная часть плана (ANO-155). Правило живёт в {@link PlanRemainder}, не здесь. */

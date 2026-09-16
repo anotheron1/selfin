@@ -196,6 +196,36 @@ class PocketControllerIT {
         }
     }
 
+    /** ANO-119: список «осталось потратить» несёт имя категории и остаток плана. */
+    @Test
+    void ano119_upcoming_hasCategoryNameAndRemainder() throws Exception {
+        // Юнит движка проверяет отбор, юнит сервиса — подстановку имён. Здесь важно,
+        // что эти двое сходятся на живой базе: имя приходит из категории события, а
+        // сумма — остаток после частичного погашения.
+        String cat = createCategory("IT-ano119", "EXPENSE");
+        String plan = createExpense(cat, LocalDate.now().plusDays(3), 20_000, "IT предстоящее");
+        try {
+            String fact = recordFact(plan, 8_000);
+            try {
+                JsonNode row = null;
+                for (JsonNode n : getPocket(null).get("upcoming")) {
+                    if (plan.equals(n.get("id").asText())) row = n;
+                }
+
+                assertThat(row).as("план в горизонте обязан быть в списке").isNotNull();
+                assertThat(row.get("categoryName").asText()).isEqualTo("IT-ano119");
+                assertThat(new BigDecimal(row.get("amount").asText()))
+                        .as("8 000 уже ушли — впереди 12 000")
+                        .isEqualByComparingTo("12000");
+                assertThat(row.get("overdue").asBoolean()).isFalse();
+            } finally {
+                deleteEvent(fact);
+            }
+        } finally {
+            deleteEvent(plan);
+        }
+    }
+
     // ── Ревью #45: погашение меняет не только появление факта ────────────────
     //
     // Статус плана — производная, и юниты на моках её честность не проверяют:

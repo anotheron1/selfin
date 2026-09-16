@@ -20,6 +20,7 @@ function watchdog(
         breakdown: [],
         trajectory: [],
         wishlistCandidates: [],
+        upcoming: [],
         pocketAfterCreditRestore: null,
         pocketWithDeposits: null,
         pocketWithForecast: minPointWithForecast ? minPointWithForecast.balance : null,
