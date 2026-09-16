@@ -160,6 +160,23 @@ export type BreakdownType =
     // OVERDUE_RELEASED — сколько перестало бронироваться из-за ре-якоря (ANO-79).
     | 'OVERDUE_RELEASED' | 'CREDIT_RESTORE' | 'WISHLIST_INFO';
 
+/**
+ * Строка блока «осталось потратить» (ANO-119).
+ *
+ * `amount` — непогашенный остаток плана, а не полная плановая сумма (ANO-155).
+ * `overdue` — дата прошла, а факта нет: кармашек держит это бронью.
+ * `wishlist` — зафиксированная хотелка: стоит рядом со счетами, но счётом не является.
+ */
+export interface UpcomingItem {
+    id: string | null;
+    date: string;
+    categoryName: string | null;
+    amount: number;
+    description: string | null;
+    overdue: boolean;
+    wishlist: boolean;
+}
+
 export interface PocketResponse {
     pocket: number;
     currentBalance: number;
@@ -180,6 +197,12 @@ export interface PocketResponse {
         id: string; description: string | null;
         plannedAmount: number | null; date: string | null; fixed: boolean;
     }[];
+    /**
+     * «Осталось потратить» (ANO-119): строки, которые движок удержал на этом горизонте.
+     * Блок дашборда показывает ровно их — это объяснение главного числа, а не вторая
+     * выборка рядом с ним.
+     */
+    upcoming: UpcomingItem[];
     /**
      * «Свободно, если вернуть карты к планке» (ANO-9 §4.2) = pocket − резерв возврата.
      * null — возвращать нечего: планок нет либо доступное уже выше них. Может быть

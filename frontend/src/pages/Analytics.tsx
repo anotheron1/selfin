@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchMultiMonthReport, fetchAnalyticsReport, fetchWishlist } from '../api';
+import CategoryProgressSection from '../components/analytics/CategoryProgressSection';
 import type { AnalyticsReport, FinancialEvent, MultiMonthReport, MultiMonthRow } from '../types/api';
 import { favourableDelta, favourableFromDelta, deltaColor, deltaSign } from '../lib/planFact';
 import BudgetStructureSection from '../components/BudgetStructureSection';
@@ -33,6 +34,8 @@ function getDateRange(preset: '3m' | '6m' | '12m'): { startDate: string; endDate
 
 export default function Analytics() {
     const [preset, setPreset] = useState<Preset>('1m');
+    /** ANO-122: отчёт отклонений раскрывается действием — запрет 2 действует и здесь. */
+    const [showPlanFact, setShowPlanFact] = useState(false);
     const [report, setReport] = useState<MultiMonthReport | null>(null);
     const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
     const [loading, setLoading] = useState(true);
@@ -89,7 +92,21 @@ export default function Analytics() {
             {!loading && preset === '1m' && analytics && (
                 <ScrollArea className="flex-1">
                     <div className="px-4 pb-6 space-y-5">
-                        <PlanFactSection planFact={analytics.planFact} />
+                        {/* ANO-119/ANO-122: отчёт отклонений раскрывается действием, а не
+                            встречает человека сам. Запрет 2 — «только по явному запросу»,
+                            и «Аналитика» тут не исключение: она открывалась именно им. */}
+                        <div className="rounded-2xl overflow-hidden"
+                            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                            <button onClick={() => setShowPlanFact(v => !v)}
+                                className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium">
+                                <span>Как прошёл месяц</span>
+                                <span style={{ color: 'var(--color-text-muted)' }}>
+                                    {showPlanFact ? 'свернуть' : 'посмотреть'}
+                                </span>
+                            </button>
+                        </div>
+                        {showPlanFact && <PlanFactSection planFact={analytics.planFact} />}
+                        {showPlanFact && <CategoryProgressSection />}
                         {analytics.priorityBreakdown && (
                             <BudgetStructureSection
                                 breakdown={analytics.priorityBreakdown}

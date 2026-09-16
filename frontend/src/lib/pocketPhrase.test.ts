@@ -19,6 +19,7 @@ function make(overrides: Partial<PocketResponse> = {}): PocketResponse {
             { date: '2026-07-15', balance: 129000, income: 93000, expense: 0, balanceWithForecast: null },
         ],
         wishlistCandidates: [],
+        upcoming: [],
         // Второе и третье числа кармашка (ANO-9 §4.2–§4.3) на фразу не влияют: фраза
         // отвечает про основное число, а эти два — оговорки к нему.
         pocketAfterCreditRestore: null,
