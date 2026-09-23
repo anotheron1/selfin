@@ -1,0 +1,133 @@
+name: CI
+
+# Проверки на каждый PR (ANO-26). Время прогона ограничением не является — гоняется всё,
+# и полный прогон больше не нужно повторять в сессии разработки.
+# Спека: docs/superpowers/specs/2026-09-23-ci-on-pr-design.md
+on:
+  pull_request:
+    # labeled/unlabeled — чтобы метка «меняет-данные» перезапускала проверку миграций.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Фронт — типы и тесты
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Типы
+        run: npx tsc
+      - name: Тесты
+        run: npm test
+
+  backend:
+    name: Бэк — юниты и интеграционные
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: mvnw verify
+        run: ./mvnw -B -ntp verify
+      - name: Покрытие строк — в сводку прогона
+        run: >
+          awk -F, 'NR > 1 { missed += $8; covered += $9 }
+          END { printf "Покрытие строк, юниты и интеграционные вместе: **%.2f%%** (%d из %d)\n",
+          100 * covered / (missed + covered), covered, missed + covered }'
+          target/site/jacoco-merged/jacoco.csv >> "$GITHUB_STEP_SUMMARY"
+      - name: Отчёты тестов — при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
+          retention-days: 7
+
+  image-frontend:
+    name: Образ фронта собирается
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          cache-from: type=gha,scope=ci-frontend
+          cache-to: type=gha,mode=max,scope=ci-frontend
+
+  migrations:
+    name: Миграции на данных — main → PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Код PR
+        uses: actions/checkout@v4
+        with:
+          path: head
+      - name: Код main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: docker/setup-buildx-action@v3
+      - name: Образ бэка из main
+        uses: docker/build-push-action@v6
+        with:
+          context: ./base/backend
+          load: true
+          tags: selfin-backend:base
+          cache-from: type=gha,scope=ci-backend
+          cache-to: type=gha,mode=max,scope=ci-backend
+      - name: Образ бэка из PR
+        uses: docker/build-push-action@v6
+        with:
+          context: ./head/backend
+          load: true
+          tags: selfin-backend:head
+          cache-from: type=gha,scope=ci-backend
+          cache-to: type=gha,mode=max,scope=ci-backend
+      # Сеятель обязан совпадать с API того бэка, которому пишет, а пишет он бэку main.
+      # Пока в main его нет, берётся из PR — так первый PR загружает сам себя.
+      - name: Сеятель — из main, если он там уже есть
+        run: |
+          if [ -f base/tools/seed-synthetic.mjs ]; then
+            echo "SEEDER=base/tools/seed-synthetic.mjs" >> "$GITHUB_ENV"
+          else
+            echo "SEEDER=head/tools/seed-synthetic.mjs" >> "$GITHUB_ENV"
+            echo "В main сеятеля ещё нет — взят из PR." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      # Метка «меняет-данные» — PR меняет живые данные намеренно: расхождение показывается, но не валит.
+      - name: Миграции PR на базе с данными main
+        env:
+          CI_DATA_CHANGE_EXPECTED: ${{ contains(github.event.pull_request.labels.*.name, 'меняет-данные') }}
+        run: bash head/tools/ci-migrations.sh selfin-backend:base selfin-backend:head "$SEEDER" base head
