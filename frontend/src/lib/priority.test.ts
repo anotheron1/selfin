@@ -15,7 +15,7 @@ describe('характер плановой строки: имена на экр
 
     it('имена и подпись поля — ровно те, что в каноне', () => {
         expect(PRIORITY_ORDER.map((p) => PRIORITY_DOT_CONFIG[p].name))
-            .toEqual(['Обязательство', 'Ожидание', 'Хотелка']);
+            .toEqual(['Бронь', 'Ожидание', 'Хотелка']);
         for (const p of PRIORITY_ORDER) expect(section).toContain(`**${PRIORITY_DOT_CONFIG[p].name}**`);
         expect(section).toContain(`«${PRIORITY_FIELD_LABEL}»`);
     });

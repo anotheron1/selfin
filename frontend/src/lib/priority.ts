@@ -12,7 +12,7 @@ import type { Priority } from '../types/api';
  * Подсказки нарочно без «превышения» и «перерасхода»: эти слова в словаре сторожа (productRules.test.ts).
  */
 export const PRIORITY_DOT_CONFIG: Record<Priority, { color: string; name: string; plural: string; hint: string }> = {
-    HIGH:   { color: '#f87171', name: 'Обязательство', plural: 'Обязательства', hint: 'сумма и дата известны заранее' },
+    HIGH:   { color: '#f87171', name: 'Бронь',         plural: 'Брони',         hint: 'сумма и дата известны заранее' },
     MEDIUM: { color: '#facc15', name: 'Ожидание',      plural: 'Ожидания',      hint: 'сумма примерная, тратится по ходу' },
     LOW:    { color: '#60a5fa', name: 'Хотелка',       plural: 'Хотелки',       hint: 'если влезет' },
 };
