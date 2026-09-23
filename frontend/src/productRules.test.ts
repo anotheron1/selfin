@@ -220,6 +220,14 @@ describe('словарь правил продукта на строках ин�
         expect(fresh.map(show).join('\n'), 'новые нарушения правил продукта').toBe('');
     });
 
+    it('характер плановой строки не называется очерёдностью (канон, «Характер плановой строки»)', () => {
+        // Точное сравнение, а не основа: «средний» законно живёт в «среднем расходе».
+        const orderWords = ['высокий', 'средний', 'низкий'];
+        const found = STRINGS.filter((s) => orderWords.includes(s.text.trim().toLowerCase()));
+        expect(found.map((s) => `  ${s.file}:${s.line}  ${JSON.stringify(s.text.trim())}`).join('\n'),
+            'имена характера — в lib/priority.ts').toBe('');
+    });
+
     it('долги только сокращаются: запись, которая находит меньше записанного, устарела', () => {
         const stale = [...recorded].flatMap(([id, count]) => {
             const now = counted.get(id)?.length ?? 0;

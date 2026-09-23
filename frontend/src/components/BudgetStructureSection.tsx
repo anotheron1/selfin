@@ -1,4 +1,5 @@
 import type { AnalyticsReport, FinancialEvent } from '../types/api';
+import { PRIORITY_DOT_CONFIG } from '../lib/priority';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 0 }).format(n) + ' ₽';
@@ -91,7 +92,7 @@ export default function BudgetStructureSection({ breakdown, wishlistItems }: Pro
             {/* Card 1: HIGH */}
             <div style={cardStyle}>
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-semibold" style={{ color: 'var(--color-danger)' }}>Обязательные</span>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--color-danger)' }}>{PRIORITY_DOT_CONFIG.HIGH.plural}</span>
                     <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         {fmt(b.highFact)} / {fmt(b.highPlanned)}
                     </span>
@@ -111,7 +112,7 @@ export default function BudgetStructureSection({ breakdown, wishlistItems }: Pro
             {/* Card 2: MEDIUM — stack bar */}
             <div style={cardStyle}>
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>Прочие расходы</span>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>{PRIORITY_DOT_CONFIG.MEDIUM.plural}</span>
                     <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         {fmt(b.mediumFact)} · {mediumShare}% бюджета
                     </span>
@@ -131,9 +132,9 @@ export default function BudgetStructureSection({ breakdown, wishlistItems }: Pro
                 )}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {[
-                        { label: `обязат. ${highShare}%`, color: 'var(--color-danger)' },
-                        { label: `прочие ${mediumShare}%`, color: 'var(--color-text-muted)' },
-                        { label: `хотелки ${lowShare}%`, color: 'var(--color-accent)' },
+                        { label: `${PRIORITY_DOT_CONFIG.HIGH.plural.toLowerCase()} ${highShare}%`, color: 'var(--color-danger)' },
+                        { label: `${PRIORITY_DOT_CONFIG.MEDIUM.plural.toLowerCase()} ${mediumShare}%`, color: 'var(--color-text-muted)' },
+                        { label: `${PRIORITY_DOT_CONFIG.LOW.plural.toLowerCase()} ${lowShare}%`, color: 'var(--color-accent)' },
                         !isOverspent
                             ? { label: `остаток ${remainder}%`, color: 'var(--color-border)', border: '1px solid var(--color-text-muted)' }
                             : null,

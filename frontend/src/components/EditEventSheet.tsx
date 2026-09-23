@@ -8,6 +8,7 @@ import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import EditEventScopePicker from './EditEventScopePicker';
 import DeleteRecurringDialog from './DeleteRecurringDialog';
+import { PRIORITY_DOT_CONFIG, PRIORITY_FIELD_LABEL, PRIORITY_ORDER } from '../lib/priority';
 
 interface EditEventSheetProps {
     event: FinancialEvent;
@@ -181,18 +182,20 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                     {event.eventKind !== 'FACT' && (
                         <div>
                             <label className="text-xs text-muted-foreground block mb-1">
-                                Приоритет
+                                {PRIORITY_FIELD_LABEL}
                             </label>
                             <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="HIGH">Высокий</SelectItem>
-                                    <SelectItem value="MEDIUM">Средний</SelectItem>
-                                    <SelectItem value="LOW">Низкий</SelectItem>
+                                    {PRIORITY_ORDER.map((p) => (
+                                        <SelectItem key={p} value={p}>{PRIORITY_DOT_CONFIG[p].name}</SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
+                            {/* Различие объясняется там, где его выбирают (требование 2.5, ANO-173). */}
+                            <p className="text-xs text-muted-foreground mt-1">{PRIORITY_DOT_CONFIG[priority].hint}</p>
                         </div>
                     )}
                     {event.recurringRuleId && event.eventKind === 'PLAN' && (

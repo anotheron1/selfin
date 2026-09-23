@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { createLinkedFact } from '../api';
-import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../lib/priority';
+import { PRIORITY_DOT_CONFIG, PRIORITY_FIELD_LABEL, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
 import { canRecordFact, todayIso } from '../lib/factDate';
 import type { FactCreateDto, Priority } from '../types/api';
 
@@ -94,13 +94,13 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
                         />
                     </div>
                     <div>
-                        <label className="text-xs text-muted-foreground block mb-1">Необходимость</label>
+                        <label className="text-xs text-muted-foreground block mb-1">{PRIORITY_FIELD_LABEL}</label>
                         <div className="flex items-center gap-3 pt-1">
                             {PRIORITY_ORDER.map(p => (
                                 <button
                                     key={p}
                                     type="button"
-                                    title={PRIORITY_DOT_CONFIG[p].title}
+                                    title={priorityTitle(p)}
                                     onClick={() => setPriority(p)}
                                     style={{
                                         display: 'flex',
@@ -122,7 +122,7 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
                                         backgroundColor: PRIORITY_DOT_CONFIG[p].color,
                                     }} />
                                     <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                        {PRIORITY_DOT_CONFIG[p].title}
+                                        {PRIORITY_DOT_CONFIG[p].name}
                                     </span>
                                 </button>
                             ))}
