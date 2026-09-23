@@ -105,12 +105,15 @@ counts() {
 # Отпечаток живых данных: по каждой таблице — живые строки (без помеченных удалёнными) и
 # сумма каждого числового столбца по ним. Строится по схеме, какая есть: новые столбцы и
 # таблицы PR в сравнении не мешают, пропавшие — считаются изменением.
+# Столбец удаления в схеме — is_deleted (поле deleted есть только в Java); первая редакция
+# искала deleted и считала удалённые строки живыми — это поймала мутация, не тест.
 fingerprint() {
   psql_q "WITH t AS (
             SELECT table_name,
-                   EXISTS (SELECT 1 FROM information_schema.columns c
-                           WHERE c.table_schema = 'public' AND c.table_name = x.table_name
-                             AND c.column_name = 'deleted') AS soft
+                   (SELECT c.column_name FROM information_schema.columns c
+                    WHERE c.table_schema = 'public' AND c.table_name = x.table_name
+                      AND c.column_name IN ('is_deleted', 'deleted')
+                    ORDER BY c.column_name DESC LIMIT 1) AS soft
             FROM information_schema.tables x
             WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
               AND table_name <> 'flyway_schema_history'),
@@ -120,12 +123,14 @@ fingerprint() {
             WHERE c.table_schema = 'public' AND c.data_type = 'numeric')
           SELECT table_name || ': живых строк|' || (xpath('/row/v/text()', query_to_xml(format(
                    'SELECT count(*) AS v FROM %I %s', table_name,
-                   CASE WHEN soft THEN 'WHERE deleted = false' ELSE '' END), false, true, '')))[1]::text
+                   CASE WHEN soft IS NOT NULL THEN format('WHERE %I = false', soft) ELSE '' END),
+                   false, true, '')))[1]::text
           FROM t
           UNION ALL
           SELECT table_name || ': сумма ' || column_name || '|' || coalesce((xpath('/row/v/text()', query_to_xml(format(
                    'SELECT sum(%I) AS v FROM %I %s', column_name, table_name,
-                   CASE WHEN soft THEN 'WHERE deleted = false' ELSE '' END), false, true, '')))[1]::text, '0')
+                   CASE WHEN soft IS NOT NULL THEN format('WHERE %I = false', soft) ELSE '' END),
+                   false, true, '')))[1]::text, '0')
           FROM n"
 }
 
