@@ -9,6 +9,7 @@ import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import RecurringFields from './RecurringFields';
 import { canRecordFact, todayIso } from '../lib/factDate';
+import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
 
 /**
  * Модальная форма быстрого добавления транзакции (bottom sheet).
@@ -254,16 +255,18 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         />
                     )}
 
-                    {/* Приоритет — только если не FUND_TRANSFER и не HIGH-категория */}
+                    {/* Характер строки — только если не FUND_TRANSFER и не категория-обязательство.
+                        Строки-подсказки под выбором здесь нет нарочно: быстрый ввод — под кассу (правило 9). */}
                     {showPrioritySelector && (
                         <div className="flex gap-2">
-                            {(['HIGH', 'MEDIUM', 'LOW'] as const).map(p => {
-                                const label = p === 'HIGH' ? 'обяз' : p === 'MEDIUM' ? '·' : 'хотелка';
+                            {PRIORITY_ORDER.map(p => {
+                                const label = PRIORITY_DOT_CONFIG[p].name;
                                 const isActive = form.priority === p;
                                 return (
                                     <button
                                         key={p}
                                         type="button"
+                                        title={priorityTitle(p)}
                                         className="flex-1 text-xs px-2 py-1.5 rounded border transition-colors"
                                         style={isActive ? {
                                             background: p === 'HIGH' ? 'rgba(239,68,68,0.15)' : p === 'LOW' ? 'rgba(100,116,139,0.15)' : 'rgba(108,99,255,0.15)',
