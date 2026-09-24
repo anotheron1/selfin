@@ -5,7 +5,7 @@ import type { UpcomingItem } from '../types/api';
 
 const item = (over: Partial<UpcomingItem> = {}): UpcomingItem => ({
     id: 'e1', date: '2026-09-21', categoryName: 'Ипотека', amount: 23600,
-    description: null, overdue: false, wishlist: false, ...over,
+    description: null, overdue: false, wishlist: false, priority: 'HIGH', ...over,
 });
 
 describe('groupUpcoming (ANO-119)', () => {

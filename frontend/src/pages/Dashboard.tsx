@@ -6,18 +6,12 @@ import { Badge } from '../components/ui/badge';
 import PocketCard from '../components/PocketCard';
 import PocketTrajectoryChart from '../components/pocket/PocketTrajectoryChart';
 import UpcomingList from '../components/dashboard/UpcomingList';
-import { buildWatchdogAlert } from '../lib/watchdogAlert';
-import { fmtRub } from '../lib/format';
+import { buildWatchdogAlert, withoutSameGap } from '../lib/watchdogAlert';
+import { fmtDayMonth as fmtLocalDate, fmtRub } from '../lib/format';
 
 const fmt = fmtRub;
 
 const fmtAmt = (n: number | null) => n != null ? fmt(n) : '—';
-
-/** «14 июля» из ISO-строки БЕЗ UTC-парсинга (new Date('YYYY-MM-DD') сдвигает день в западных TZ). */
-const fmtLocalDate = (iso: string) => {
-    const [y, m, d] = iso.split('-').map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-};
 
 
 export default function Dashboard({ refreshSignal }: { refreshSignal?: number }) {
@@ -70,7 +64,9 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
     const incomeToday = todayEvents.filter(e => e.type === 'INCOME');
     const expenseToday = todayEvents.filter(e => e.type === 'EXPENSE' || e.type === 'FUND_TRANSFER');
 
-    const watchdogAlert = buildWatchdogAlert(watchdog, pocket?.horizon.endDate ?? null);
+    // ANO-100: о том же разрыве, что в карточке кармашка, красная карточка не повторяет.
+    const watchdogAlert = withoutSameGap(
+        buildWatchdogAlert(watchdog, pocket?.horizon.endDate ?? null), pocket);
 
     return (
         <div className="overflow-y-auto overflow-x-hidden scrollbar-none" style={{ height: 'calc(100dvh - var(--nav-height))' }}>

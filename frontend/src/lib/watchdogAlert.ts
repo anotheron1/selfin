@@ -72,3 +72,20 @@ export function buildWatchdogAlert(
 
     return null;
 }
+
+/**
+ * Красная карточка молчит, когда говорит о том же разрыве, что и карточка кармашка в режиме
+ * нехватки (ANO-100): та уже называет его датой и суммой, и второе сообщение под ней
+ * повторяло бы то же число. Разрыв с другой датой — новые сведения, карточка остаётся.
+ * Предупреждение «с обычными тратами» кармашек не показывает — его не прячем.
+ */
+export function withoutSameGap(
+    alert: WatchdogAlert | null,
+    pocket: PocketResponse | null,
+): WatchdogAlert | null {
+    if (!alert || !pocket) return alert;
+    const sameGap = alert.kind === 'PLAN'
+        && pocket.minPoint.balance < 0
+        && alert.date === pocket.minPoint.date;
+    return sameGap ? null : alert;
+}

@@ -175,6 +175,8 @@ export interface UpcomingItem {
     description: string | null;
     overdue: boolean;
     wishlist: boolean;
+    /** Характер строки (ANO-100): режим нехватки предлагает сдвинуть ожидания и хотелки, но не брони. */
+    priority: Priority;
 }
 
 export interface PocketResponse {
