@@ -6,7 +6,7 @@ import type { PocketResponse, UpcomingItem } from '../types/api';
 type Row = Partial<UpcomingItem> & Pick<UpcomingItem, 'date' | 'amount'>;
 const row = (r: Row): UpcomingItem => ({
     id: 'id-' + r.date + '-' + r.amount, categoryName: null, description: null,
-    overdue: false, wishlist: false, priority: 'MEDIUM', ...r,
+    overdue: false, wishlist: false, priority: 'MEDIUM', type: 'EXPENSE', ...r,
 });
 
 /**
@@ -98,6 +98,8 @@ describe('buildGapMode (ANO-100)', () => {
                 row({ date: '2026-09-26', amount: 1500, categoryName: 'Стрижка', priority: 'LOW' }),
                 row({ date: '2026-09-27', amount: 5000, categoryName: 'После узкого дня' }),
                 row({ date: '2026-09-25', amount: 7000, id: null, description: 'Взнос: Отпуск' }),
+                // Ревью Codex #65: переводу форма ставит «Ожидание» принудительно.
+                row({ date: '2026-09-25', amount: 6000, type: 'FUND_TRANSFER', description: 'В копилку: Отпуск' }),
             ],
         }));
         expect(gap?.movable.map(m => m.split(' — ')[0])).toEqual(['Стрижка', 'Кафе']);

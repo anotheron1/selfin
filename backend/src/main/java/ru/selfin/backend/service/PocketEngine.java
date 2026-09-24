@@ -304,7 +304,7 @@ public final class PocketEngine {
     private static PocketResultDto.UpcomingItem upcomingOf(EventSnapshot e, BigDecimal amount,
                                                            boolean overdue) {
         return new PocketResultDto.UpcomingItem(e.id(), e.date(), null, amount,
-                e.description(), overdue, e.wishlistStatus() != null, e.priority());
+                e.description(), overdue, e.wishlistStatus() != null, e.priority(), e.type());
     }
 
     /** Непогашенная часть плана (ANO-155). Правило живёт в {@link PlanRemainder}, не здесь. */

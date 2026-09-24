@@ -288,6 +288,21 @@ class PocketEngineTest {
                 .containsExactly(Priority.HIGH, Priority.MEDIUM, Priority.LOW);
     }
 
+    @Test
+    @DisplayName("ANO-100: у строк «осталось потратить» есть тип — перевод в копилку отличим от расхода")
+    void upcoming_carriesType() {
+        // Ревью Codex #65: форма ставит переводу «Ожидание» принудительно, и по одному
+        // характеру режим нехватки предложил бы сдвинуть взнос в копилку.
+        PocketInput in = base()
+                .events(plan(EventType.FUND_TRANSFER, TODAY.plusDays(2), 5_000, Priority.MEDIUM),
+                        plan(EventType.EXPENSE, TODAY.plusDays(3), 1_000, Priority.MEDIUM))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).upcoming())
+                .extracting(PocketResultDto.UpcomingItem::type)
+                .containsExactly(EventType.FUND_TRANSFER, EventType.EXPENSE);
+    }
+
     // ── ANO-185: есть ли в плане ожидание ────────────────────────────────────
     // Признак собирается из тех же строк, что «осталось потратить»: чем кармашек держит
     // деньги на этом горизонте, тем и честен.

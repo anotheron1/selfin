@@ -112,18 +112,22 @@ public record PocketResultDto(
      * @param wishlist     зафиксированная хотелка: стоит рядом со счетами, но счётом не является
      * @param priority     характер строки (ANO-100): режим нехватки предлагает сдвинуть
      *                     ожидания и хотелки, но не брони
+     * @param type         тип строки (ANO-100, ревью Codex #65): переводу в копилку форма
+     *                     ставит «Ожидание» принудительно, и по одному характеру его не отличить
+     *                     от расхода
      */
     public record UpcomingItem(java.util.UUID id, LocalDate date, String categoryName,
                                BigDecimal amount, String description,
                                boolean overdue, boolean wishlist,
-                               ru.selfin.backend.model.enums.Priority priority) {
+                               ru.selfin.backend.model.enums.Priority priority,
+                               ru.selfin.backend.model.enums.EventType type) {
         /**
          * Та же строка с именем категории. Копия целиком, а не поле за полем: сервис,
          * вписывающий имя, не должен знать о полях, которые он не трогает, — иначе новое
          * поле однажды потеряется при пересборке.
          */
         public UpcomingItem withCategoryName(String name) {
-            return new UpcomingItem(id, date, name, amount, description, overdue, wishlist, priority);
+            return new UpcomingItem(id, date, name, amount, description, overdue, wishlist, priority, type);
         }
     }
 }
