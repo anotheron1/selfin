@@ -15,13 +15,27 @@ interface Props {
     open: boolean;
     onClose: () => void;
     onCreated: () => void;
+    /** Строка под заголовком — например, почему здесь нужна дата (ANO-176). */
+    hint?: string;
+    /** Сумма, подставленная заранее, — остаток брони, которую закрывают (ANO-176). */
+    defaultAmount?: number;
+    /** Дата пустая, пока её не выберут: после сверки остатка её нельзя угадать (ANO-176). */
+    requireDate?: boolean;
+    /** Правка самого плана — у строк, которые открываются не из недель, а из карточек ожиданий. */
+    onEditPlan?: () => void;
+    editPlanLabel?: string;
 }
 
-export default function FactCreateSheet({ planId, planDescription, planPriority, open, onClose, onCreated }: Props) {
+export default function FactCreateSheet({
+    planId, planDescription, planPriority, open, onClose, onCreated,
+    hint, defaultAmount, requireDate, onEditPlan, editPlanLabel = 'изменить план',
+}: Props) {
     // ANO-155: местная дата, не UTC — toISOString() ночью уводил умолчание на день назад.
     const today = todayIso(new Date());
-    const [date, setDate] = useState(today);
-    const [amount, setAmount] = useState('');
+    const initialDate = requireDate ? '' : today;
+    const initialAmount = defaultAmount != null ? String(defaultAmount) : '';
+    const [date, setDate] = useState(initialDate);
+    const [amount, setAmount] = useState(initialAmount);
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState<Priority>(planPriority);
     const [loading, setLoading] = useState(false);
@@ -38,8 +52,8 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
         } else {
             // Ревью #45: сброс обязан класть ту же дату, что и умолчание, — иначе
             // повторное открытие ставило UTC-дату мимо границы `max`, которая местная.
-            setDate(todayIso(new Date()));
-            setAmount('');
+            setDate(requireDate ? '' : todayIso(new Date()));
+            setAmount(initialAmount);
             setDescription('');
             setPriority(planPriority);
         }
@@ -76,6 +90,13 @@ export default function FactCreateSheet({ planId, planDescription, planPriority,
                 <SheetHeader>
                     <SheetTitle>Записать факт</SheetTitle>
                     <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{planDescription}</p>
+                    {hint && <p className="text-sm">{hint}</p>}
+                    {onEditPlan && (
+                        <button type="button" onClick={onEditPlan} className="self-start text-xs"
+                            style={{ color: 'hsl(var(--primary))' }}>
+                            {editPlanLabel}
+                        </button>
+                    )}
                 </SheetHeader>
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
                     <div>
