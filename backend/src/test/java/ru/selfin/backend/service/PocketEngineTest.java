@@ -272,6 +272,66 @@ class PocketEngineTest {
                 .isEqualByComparingTo(dec(12_000));
     }
 
+    // ── ANO-185: есть ли в плане ожидание ────────────────────────────────────
+    // Признак собирается из тех же строк, что «осталось потратить»: чем кармашек держит
+    // деньги на этом горизонте, тем и честен.
+
+    @Test
+    @DisplayName("ANO-185: ожидание до конца горизонта — признак есть")
+    void planHasExpectations_expectationInHorizon() {
+        PocketInput in = base()
+                .events(plan(EventType.EXPENSE, TODAY.plusDays(3), 8_000, Priority.MEDIUM))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).planHasExpectations()).isTrue();
+    }
+
+    @Test
+    @DisplayName("ANO-185: ожидание на сегодня тоже в плане")
+    void planHasExpectations_expectationToday() {
+        PocketInput in = base()
+                .events(plan(EventType.EXPENSE, TODAY, 300, Priority.MEDIUM))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).planHasExpectations()).isTrue();
+    }
+
+    @Test
+    @DisplayName("ANO-185: брони и хотелки ожиданием не считаются")
+    void planHasExpectations_otherCharactersDoNotCount() {
+        PocketInput in = base()
+                .events(plan(EventType.EXPENSE, TODAY.plusDays(3), 23_600, Priority.HIGH),
+                        plan(EventType.EXPENSE, TODAY.plusDays(4), 2_000, Priority.LOW))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).planHasExpectations()).isFalse();
+    }
+
+    @Test
+    @DisplayName("ANO-185: ожидание за горизонтом не делает честным число до дохода")
+    void planHasExpectations_beyondHorizonDoesNotCount() {
+        // Траектория тянется хвостом минимум на 7 дней (§3.9). Хвост кармашек не вычитает,
+        // значит и честнее число от ожидания в хвосте не становится.
+        PocketInput in = base()
+                .horizon(TODAY.plusDays(3))
+                .events(plan(EventType.EXPENSE, TODAY.plusDays(6), 8_000, Priority.MEDIUM))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).planHasExpectations()).isFalse();
+    }
+
+    @Test
+    @DisplayName("ANO-185: ожидание, закрытое фактом целиком, в плане уже не значится")
+    void planHasExpectations_settledExpectationDoesNotCount() {
+        UUID planId = UUID.randomUUID();
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(planWithId(planId, EventType.EXPENSE, TODAY.plusDays(3), 8_000),
+                        factFor(planId, EventType.EXPENSE, TODAY, 8_000))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).planHasExpectations()).isFalse();
+    }
+
     @Test
     @DisplayName("ANO-119: зафиксированная хотелка в списке помечена, а не спрятана")
     void upcoming_marksWishlist() {
