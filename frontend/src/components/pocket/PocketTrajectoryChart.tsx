@@ -87,7 +87,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
             </div>
 
             <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}
-                role="img" aria-label={`Траектория остатка, ${horizon.label}`}>
+                role="img" aria-label={`Остаток по дням, ${horizon.label}`}>
                 {/* Зона ниже буфера (0..buffer) */}
                 {showBufferZone(buffer) && yZero > yBuffer && (
                     <rect x={PAD_X} y={yBuffer} width={W - 2 * PAD_X} height={yZero - yBuffer}
@@ -107,7 +107,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                         <line x1={PAD_X} y1={yBuffer} x2={W - PAD_X} y2={yBuffer}
                             stroke={AMBER} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
                         <text x={W - PAD_X} y={yBuffer - 4} fontSize={10} fill={AMBER_LIGHT}
-                            textAnchor="end">буфер</text>
+                            textAnchor="end">подушка</text>
                     </>
                 )}
                 {/* Заливка между траекторией и нулём */}
@@ -207,7 +207,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 {showBufferZone(buffer) && (
                     <span className="flex items-center gap-1.5">
                         <span className="inline-block w-2 h-2 rounded-sm" style={{ background: AMBER, opacity: 0.6 }} />
-                        ниже буфера
+                        ниже подушки
                     </span>
                 )}
                 <span className="flex items-center gap-1.5">

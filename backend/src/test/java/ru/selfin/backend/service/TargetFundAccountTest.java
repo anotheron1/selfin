@@ -19,6 +19,7 @@ import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.FundAccountLinkRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
@@ -51,6 +52,8 @@ class TargetFundAccountTest {
 
     @Mock TargetFundRepository fundRepo;
     @Mock FundTransactionRepository txRepo;
+    /** История привязок (ANO-163) проверяется на настоящей базе — {@code FundMoneyFlowIT}. */
+    @Mock FundAccountLinkRepository linkRepo;
     @Mock FinancialEventRepository eventRepo;
     @Mock CategoryRepository categoryRepo;
     @Mock AccountRepository accountRepo;
@@ -62,7 +65,7 @@ class TargetFundAccountTest {
     void setUp() {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
-        service = new TargetFundService(fundRepo, txRepo, eventRepo, categoryRepo,
+        service = new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo,
                 accountRepo, balanceService, mock(WishlistArtifactService.class),
                 Clock.systemDefaultZone());
     }

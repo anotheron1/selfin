@@ -42,8 +42,9 @@ const DICTIONARY: { rule: Rule; stem: string; why: string }[] = [
     { rule: 12, stem: 'забыл', why: 'упрёк' },
     { rule: 12, stem: 'превысил', why: 'упрёк' },
     { rule: 12, stem: 'провал', why: 'упрёк' },
-    { rule: 13, stem: 'траектори', why: 'наше слово; у пользователей — «бегущий остаток»' },
+    { rule: 13, stem: 'траектори', why: 'наше слово; по-русски — «остаток»' },
     { rule: 13, stem: 'зарезервирован', why: 'у пользователей — «забронировано»' },
+    { rule: 13, stem: 'буфер', why: 'наше слово; запас на случай по-русски — «подушка»' },
 ];
 
 /** Сегодняшние нарушения. Каждое — со своей задачей; число — сколько строк с этой основой в файле. */
@@ -53,12 +54,6 @@ const DEBTS: { file: string; stem: string; count: number; task: string }[] = [
     { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'перерасход', count: 2, task: 'ANO-165' },
     { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'бюджет', count: 1, task: 'ANO-165' },
     { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'выполнен', count: 2, task: 'ANO-165' },
-    // «Траектория» вместо «бегущего остатка»; экран «Журнал», названный «Бюджетом».
-    { file: 'frontend/src/components/CapitalSheet.tsx', stem: 'траектори', count: 1, task: 'ANO-124' },
-    { file: 'frontend/src/components/CapitalTheoryDialog.tsx', stem: 'бюджет', count: 1, task: 'ANO-124' },
-    { file: 'frontend/src/components/pocket/PocketTrajectoryChart.tsx', stem: 'траектори', count: 1, task: 'ANO-124' },
-    { file: 'frontend/src/pages/Strategy.tsx', stem: 'траектори', count: 2, task: 'ANO-124' },
-    { file: 'backend/src/main/java/ru/selfin/backend/service/PocketEngine.java', stem: 'траектори', count: 1, task: 'ANO-124' },
     // «Просроченные обязательства» в расшифровке кармашка.
     { file: 'backend/src/main/java/ru/selfin/backend/service/PocketEngine.java', stem: 'просроч', count: 1, task: 'ANO-101' },
     // Быстрый ввод на любую ошибку винит заполненные поля.

@@ -191,12 +191,14 @@ balance(a, t) = last_checkpoint(a, ≤ t).amount
 
 ```
 ликвид(t)        = Σ по a с track_balance И kind ∈ {DEBIT, CASH, DEPOSIT}: balance(a, t)
-                 + Σ балансов копилок БЕЗ account_id
+                 + Σ балансов копилок, не живших на счёте в день t
 обязательства(t) = Σ по CREDIT a с чекпоинтом: max(0, a.credit_limit − доступно(a, t))
                  + Σ CapitalItem(LIABILITY)
 активы(t)        = Σ CapitalItem(ASSET)
 капитал(t)       = ликвид + активы − обязательства
 ```
+
+**Поправка 24.09.2026 (ANO-163).** Было «Σ балансов копилок БЕЗ account_id» — признак на сегодня, применённый ко всем прошлым датам. Привязка копилки сегодня переписывала капитал за прошлые месяцы: замер на стенде — минус 20 000 в августе. Условие теперь читает историю привязок (`fund_account_links`). Спека — `2026-09-24-fund-link-history-design.md`.
 
 Три отличия от нынешнего `CapitalService.liquidAt`:
 

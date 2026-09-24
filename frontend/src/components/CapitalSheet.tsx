@@ -251,7 +251,7 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
                             <DialogTitle>Удалить «{item?.name}» безвозвратно?</DialogTitle>
                         </DialogHeader>
                         <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                            История переоценок и весь вклад в траекторию капитала исчезнут. Это нельзя отменить.
+                            История переоценок и весь вклад в график капитала исчезнут. Это нельзя отменить.
                             Используйте это, если запись создана по ошибке. Если же актив продан или кредит закрыт —
                             лучше «Отметить выбытие», тогда история останется.
                         </div>

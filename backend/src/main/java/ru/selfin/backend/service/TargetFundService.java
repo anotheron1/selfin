@@ -13,6 +13,7 @@ import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.FundAccountLink;
 import ru.selfin.backend.model.FundTransaction;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
@@ -28,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.FundAccountLinkRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
@@ -36,6 +38,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -56,6 +59,7 @@ public class TargetFundService {
 
     private final TargetFundRepository fundRepository;
     private final FundTransactionRepository transactionRepository;
+    private final FundAccountLinkRepository linkRepository;
     private final FinancialEventRepository eventRepository;
     private final CategoryRepository categoryRepository;
     private final AccountRepository accountRepository;
@@ -100,7 +104,9 @@ public class TargetFundService {
                 .creditTermMonths(dto.creditTermMonths())
                 .accountId(validateAccountLink(dto.accountId(), null))
                 .build();
-        return toDto(fundRepository.save(fund));
+        TargetFund saved = fundRepository.save(fund);
+        recordAccountLink(saved.getId(), null, saved.getAccountId());
+        return toDto(saved);
     }
 
     /**
@@ -141,8 +147,40 @@ public class TargetFundService {
             fund.setCurrentBalance(transactionRepository.sumLiveByFundId(id));
             applyStatusByBalance(fund);
         }
-        fund.setAccountId(validateAccountLink(dto.accountId(), fund.getId()));
+        UUID accountId = validateAccountLink(dto.accountId(), fund.getId());
+        recordAccountLink(fund.getId(), fund.getAccountId(), accountId);
+        fund.setAccountId(accountId);
         return toDto(fundRepository.save(fund));
+    }
+
+    /**
+     * Пишет историю привязок (ANO-163): капитал за прошлую дату смотрит, жила ли копилка на
+     * счёте В ТОТ ДЕНЬ, а не сегодня ({@code FundTransactionRepository
+     * .sumEnvelopeFundsByTransactionDateLessThanEqual}).
+     *
+     * <p>Раньше привязка была только признаком {@code accountId}, и привязка сегодня уменьшала
+     * капитал за каждый прошлый месяц на взносы копилки. Замер на стенде: минус 20 000 в
+     * августе от привязки 16 сентября; отвязка возвращала.
+     *
+     * <p>Зовётся из обоих мест, где меняется счёт копилки, — {@link #create} и {@link #update}.
+     * Правка без смены счёта историю не трогает: фронт шлёт {@code accountId} в каждой правке.
+     *
+     * <p>Спека: {@code docs/superpowers/specs/2026-09-24-fund-link-history-design.md}.
+     */
+    private void recordAccountLink(UUID fundId, UUID oldAccountId, UUID newAccountId) {
+        if (Objects.equals(oldAccountId, newAccountId)) return;
+        LocalDate today = LocalDate.now(clock);
+        linkRepository.findByFundIdAndLinkedToIsNull(fundId).ifPresent(open -> {
+            open.setLinkedTo(today);
+            // Именно saveAndFlush: Hibernate сбрасывает вставки раньше обновлений, и при
+            // перепривязке со счёта на счёт новая открытая строка встретила бы ещё не
+            // закрытую в uq_fund_account_links_open.
+            linkRepository.saveAndFlush(open);
+        });
+        if (newAccountId != null) {
+            linkRepository.save(FundAccountLink.builder()
+                    .fundId(fundId).accountId(newAccountId).linkedFrom(today).build());
+        }
     }
 
     /**
