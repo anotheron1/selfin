@@ -19,7 +19,7 @@ export interface GapMode {
     /** Что будет с доходом; null, когда срок не заякорен доходом. */
     subline: string | null;
     moveHeader: string;
-    /** До трёх строк «Кафе, 900 ₽ → не хватит 2 785 ₽», крупные первыми. */
+    /** До трёх строк «Кафе — 900 ₽ → не хватит 2 785 ₽», крупные первыми. */
     movable: string[];
 }
 
@@ -56,8 +56,10 @@ export function buildGapMode(p: PocketResponse): GapMode | null {
         .slice(0, MOVABLE_LIMIT)
         .map(u => {
             const after = gapAfterMoving(p, u);
-            const label = u.categoryName ?? u.description ?? '—';
-            return `${label}, ${fmtC(u.amount)} → ${after > 0 ? `не хватит ${fmtC(after)}` : 'разрыва не будет'}`;
+            // Своё имя строки точнее категории («Стрижка», а не «Услуги людские»). Тире, а не
+            // запятая: в названиях категорий запятые есть — «Кафе, рестики, фастфуд».
+            const label = u.description ?? u.categoryName ?? '—';
+            return `${label} — ${fmtC(u.amount)} → ${after > 0 ? `не хватит ${fmtC(after)}` : 'разрыва не будет'}`;
         });
 
     return {

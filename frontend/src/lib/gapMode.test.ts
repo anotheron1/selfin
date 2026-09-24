@@ -50,7 +50,7 @@ describe('buildGapMode (ANO-100)', () => {
             headline: `Сегодня по плану не хватает ${fmtC(3685)}`,
             subline: `Доход 28.09 закроет разрыв, останется ${fmtC(63315)}.`,
             moveHeader: 'Можно сдвинуть на после 28.09:',
-            movable: [`Досуг, ${fmtC(1000)} → не хватит ${fmtC(2685)}`],
+            movable: [`Досуг — ${fmtC(1000)} → не хватит ${fmtC(2685)}`],
         });
     });
 
@@ -100,21 +100,28 @@ describe('buildGapMode (ANO-100)', () => {
                 row({ date: '2026-09-25', amount: 7000, id: null, description: 'Взнос: Отпуск' }),
             ],
         }));
-        expect(gap?.movable.map(m => m.split(',')[0])).toEqual(['Стрижка', 'Кафе']);
+        expect(gap?.movable.map(m => m.split(' — ')[0])).toEqual(['Стрижка', 'Кафе']);
     });
 
     it('не больше трёх строк, крупные первыми', () => {
         const gap = buildGapMode(owner({
             upcoming: [100, 700, 300, 500].map(a => row({ date: '2026-09-24', amount: a, categoryName: 'Трата ' + a })),
         }));
-        expect(gap?.movable.map(m => m.split(',')[0])).toEqual(['Трата 700', 'Трата 500', 'Трата 300']);
+        expect(gap?.movable.map(m => m.split(' — ')[0])).toEqual(['Трата 700', 'Трата 500', 'Трата 300']);
+    });
+
+    it('своё имя строки точнее категории: «Стрижка», а не «Услуги людские»', () => {
+        const gap = buildGapMode(owner({
+            upcoming: [row({ date: '2026-09-24', amount: 2000, categoryName: 'Услуги людские', description: 'Стрижка' })],
+        }));
+        expect(gap?.movable[0]).toMatch(/^Стрижка — /);
     });
 
     it('сдвиг, закрывающий разрыв целиком, — «разрыва не будет»', () => {
         const gap = buildGapMode(owner({
             upcoming: [row({ date: '2026-09-24', amount: 5000, categoryName: 'Отпуск' })],
         }));
-        expect(gap?.movable).toEqual([`Отпуск, ${fmtC(5000)} → разрыва не будет`]);
+        expect(gap?.movable).toEqual([`Отпуск — ${fmtC(5000)} → разрыва не будет`]);
     });
 
     it('новый разрыв — худший день срока: сдвиг поднимает только дни от даты строки, хвост не в счёт', () => {
@@ -131,6 +138,6 @@ describe('buildGapMode (ANO-100)', () => {
             ],
             upcoming: [row({ date: '2026-09-25', amount: 2000, categoryName: 'Кафе' })],
         });
-        expect(buildGapMode(p)?.movable).toEqual([`Кафе, ${fmtC(2000)} → не хватит ${fmtC(2500)}`]);
+        expect(buildGapMode(p)?.movable).toEqual([`Кафе — ${fmtC(2000)} → не хватит ${fmtC(2500)}`]);
     });
 });
