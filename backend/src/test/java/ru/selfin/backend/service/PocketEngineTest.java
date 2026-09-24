@@ -272,6 +272,22 @@ class PocketEngineTest {
                 .isEqualByComparingTo(dec(12_000));
     }
 
+    @Test
+    @DisplayName("ANO-100: у строк «осталось потратить» есть характер — брони от ожиданий отличимы")
+    void upcoming_carriesPriority() {
+        // Режим нехватки предлагает сдвинуть ожидания и хотелки, но не брони: без характера
+        // строки фронт их не различит.
+        PocketInput in = base()
+                .events(plan(EventType.EXPENSE, TODAY.plusDays(2), 23_600, Priority.HIGH),
+                        plan(EventType.EXPENSE, TODAY.plusDays(3), 1_000, Priority.MEDIUM),
+                        plan(EventType.EXPENSE, TODAY.plusDays(4), 2_000, Priority.LOW))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).upcoming())
+                .extracting(PocketResultDto.UpcomingItem::priority)
+                .containsExactly(Priority.HIGH, Priority.MEDIUM, Priority.LOW);
+    }
+
     // ── ANO-185: есть ли в плане ожидание ────────────────────────────────────
     // Признак собирается из тех же строк, что «осталось потратить»: чем кармашек держит
     // деньги на этом горизонте, тем и честен.

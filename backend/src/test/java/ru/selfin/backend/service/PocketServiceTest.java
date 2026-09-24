@@ -104,6 +104,28 @@ class PocketServiceTest {
     }
 
     @Test
+    @DisplayName("ANO-100: подстановка имён не теряет характер строки")
+    void upcoming_keepsPriority_throughNaming() {
+        // Сервис пересобирает строки, чтобы вписать имя категории. Всё, чего он не
+        // подставляет, обязано дойти до экрана как есть — иначе режим нехватки предложит
+        // сдвинуть бронь.
+        var ipoteka = planIn("Ипотека", TODAY.plusDays(3), 23_600);
+        ipoteka.setPriority(ru.selfin.backend.model.enums.Priority.HIGH);
+        var produkty = planIn("Продукты", TODAY.plusDays(1), 8_000);
+        incomeDates(LocalDate.of(2026, 3, 15));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(ipoteka, produkty));
+        when(eventRepository.findAllById(any())).thenReturn(List.of(ipoteka, produkty));
+
+        PocketResultDto r = pocketService.getPocket(null, TODAY);
+
+        assertThat(r.upcoming())
+                .extracting(PocketResultDto.UpcomingItem::priority)
+                .containsExactly(ru.selfin.backend.model.enums.Priority.MEDIUM,
+                        ru.selfin.backend.model.enums.Priority.HIGH);
+    }
+
+    @Test
     @DisplayName("ANO-119: пустой список имён не запрашивает")
     void upcoming_empty_doesNotQueryNames() {
         incomeDates(LocalDate.of(2026, 3, 15));
