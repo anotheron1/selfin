@@ -220,6 +220,11 @@ export interface PocketResponse {
      * целиком покрыта планами. Экран во всех трёх случаях делает одно и то же.
      */
     pocketWithForecast: number | null;
+    /**
+     * Есть ли среди строк «осталось потратить» хоть одно ожидание (ANO-185). Без них кармашек
+     * завышен по построению; строку об этом собирает `lib/noExpectationsNote.ts`.
+     */
+    planHasExpectations: boolean;
 }
 
 /**

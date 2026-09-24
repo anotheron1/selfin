@@ -26,6 +26,8 @@ function make(overrides: Partial<PocketResponse> = {}): PocketResponse {
         pocketWithDeposits: null,
         // ANO-80: прогноз на фразу тоже не влияет — она про основное число.
         pocketWithForecast: null,
+        // ANO-185: на фразу не влияет — строка об ожиданиях стоит отдельно.
+        planHasExpectations: true,
         minPointWithForecast: null,
         ...overrides,
     };
