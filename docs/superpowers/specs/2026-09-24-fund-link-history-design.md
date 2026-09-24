@@ -105,7 +105,8 @@ AND NOT EXISTS (SELECT 1 FROM FundAccountLink l
 | отвязка закрывает, а не стирает | `FundMoneyFlowIT`: период на счёте после отвязки остаётся без денег конверта, сегодня они вернулись | удалять строку вместо закрытия; не закрывать вовсе |
 | перепривязка со счёта на счёт | `FundMoneyFlowIT`: 200, две строки, первая закрыта сегодня | `save` вместо `saveAndFlush` при закрытии — вставка идёт раньше обновления и упирается в `uq_fund_account_links_open` |
 | копилка, рождённая на счёте | `FundMoneyFlowIT`: после создания открытый период с сегодняшнего дня | не писать период в `create` |
-| перенос старых привязок | `FundLinkMigrationIT`: SQL миграции дословно на легаси-данных — числа те же, что давал старый запрос | `linked_from = CURRENT_DATE`; перенос только живых копилок |
+| перенос старых привязок | `FundLinkMigrationIT`: INSERT из файла миграции на легаси-данных — числа те же, что давал старый запрос | `linked_from = CURRENT_DATE`; перенос только живых копилок |
+| правка без смены счёта | `FundMoneyFlowIT`: переименование привязанной копилки оставляет одну строку истории | снять проверку «счёт сменился» |
 
 Стенд: сценарий из задачи до и после правки — взнос 20 000 задним числом в прошлый месяц, привязка, отвязка, капитал за тот месяц через API после каждого шага.
 
@@ -121,7 +122,7 @@ AND NOT EXISTS (SELECT 1 FROM FundAccountLink l
 Ветка `fix/ano-163-fund-link-history`. Локально гоняется только затронутое, полный набор — CI (план спринта §7).
 
 ```bash
-JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -pl backend verify -Dit.test=<Класс> -Dtest=<Класс> -Dsurefire.failIfNoSpecifiedTests=false -Dfailsafe.failIfNoSpecifiedTests=false
+cd backend && JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify -Dit.test=<КлассIT> -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 ### Задача 1. Таблица, сущность, запрос
@@ -134,7 +135,7 @@ JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw -pl backend verify -Dit.test
 * изменить `backend/src/main/java/ru/selfin/backend/repository/FundTransactionRepository.java` — запрос и javadoc;
 * тест `backend/src/test/java/ru/selfin/backend/repository/FundTransactionRepositoryIT.java`.
 
-- [ ] **Шаг 1.** Миграция, сущность, репозиторий — без изменения запроса. Поведение прежнее, сборка зелёная.
+- [x] **Шаг 1.** Миграция, сущность, репозиторий — без изменения запроса. Поведение прежнее, сборка зелёная.
 
 ```sql
 CREATE TABLE fund_account_links (
@@ -163,16 +164,16 @@ public interface FundAccountLinkRepository extends JpaRepository<FundAccountLink
 }
 ```
 
-- [ ] **Шаг 2.** Тесты в `FundTransactionRepositoryIT` через строки истории напрямую:
+- [x] **Шаг 2.** Тесты в `FundTransactionRepositoryIT` через строки истории напрямую:
   * `excludesFundLinkedThatDay` — переписанный `excludesFundsLinkedToAnAccount`: у привязанной копилки открытый период с сегодняшнего дня;
   * `linkToday_keepsPast` — взнос 20 000 месяц назад, период с сегодняшнего дня: месяц назад 20 000, сегодня 0;
   * `unlink_keepsPeriodOnAccount` — взнос два месяца назад, период `[monthAgo, today)`: два месяца назад 20 000, на `monthAgo` 0, на `today` 20 000.
 
   `cleanDb` удаляет строки истории до копилок.
-- [ ] **Шаг 3.** Прогон — красный: запрос не читает историю, `linkToday_keepsPast` даёт 0 месяц назад.
-- [ ] **Шаг 4.** Запрос через `NOT EXISTS` (§3), javadoc репозитория переписан: признак «сейчас» снят так же, как ANO-156 сняла `deleted`, и возвращать его нельзя.
-- [ ] **Шаг 5.** Прогон — зелёный. Мутации строк 1–3 таблицы §6, каждая красная.
-- [ ] **Шаг 6.** Коммит.
+- [x] **Шаг 3.** Прогон — красный: запрос не читает историю, `linkToday_keepsPast` даёт 0 месяц назад.
+- [x] **Шаг 4.** Запрос через `NOT EXISTS` (§3), javadoc репозитория переписан: признак «сейчас» снят так же, как ANO-156 сняла `deleted`, и возвращать его нельзя.
+- [x] **Шаг 5.** Прогон — зелёный. Мутации строк 1–3 таблицы §6, каждая красная.
+- [x] **Шаг 6.** Коммит.
 
 ### Задача 2. Сервис пишет историю
 
@@ -182,15 +183,15 @@ public interface FundAccountLinkRepository extends JpaRepository<FundAccountLink
 * изменить `backend/src/test/java/ru/selfin/backend/service/TargetFundAccountTest.java` — конструктор;
 * тест `backend/src/test/java/ru/selfin/backend/FundMoneyFlowIT.java`.
 
-- [ ] **Шаг 1.** Тесты в `FundMoneyFlowIT`, через API:
+- [x] **Шаг 1.** Тесты в `FundMoneyFlowIT`, через API:
   * `link_doesNotRewritePastCapital` — `contributeOn(past)`, привязка через `PUT`: `cashLiquidAt(past)` не изменился, `cashLiquidAt(today)` меньше на 20 000, как и раньше;
   * `unlink_doesNotRewritePeriodOnAccount` — взнос два месяца назад, привязка через `PUT`, открытая строка сдвигается на месяц назад через SQL (API ставит только сегодняшнюю дату — как `contributeOn` для движений), отвязка через `PUT`: `cashLiquidAt(monthAgo)` не изменился, `cashLiquidAt(today)` больше на 20 000;
   * `relink_toAnotherAccount_closesAndOpens` — второй отслеживаемый счёт через SQL; `PUT` на первый, `PUT` на второй: 200, две строки, первая закрыта сегодня, вторая открыта;
   * `createOnAccount_recordsLinkFromToday` — `POST` со счётом: одна открытая строка с сегодняшнего дня.
 
   `resetMoneyState` чистит историю вместе с копилками.
-- [ ] **Шаг 2.** Прогон — красный: сервис историю не пишет, привязка через API снова переписывает прошлое.
-- [ ] **Шаг 3.** Реализация:
+- [x] **Шаг 2.** Прогон — красный: сервис историю не пишет, привязка через API снова переписывает прошлое.
+- [x] **Шаг 3.** Реализация:
 
 ```java
 private void recordAccountLink(UUID fundId, UUID oldAccountId, UUID newAccountId) {
@@ -210,8 +211,8 @@ private void recordAccountLink(UUID fundId, UUID oldAccountId, UUID newAccountId
 ```
 
   В `update`: `UUID newAccountId = validateAccountLink(...)`, затем `recordAccountLink(fund.getId(), fund.getAccountId(), newAccountId)`, затем `fund.setAccountId(newAccountId)`. В `create`: после `save` — `recordAccountLink(saved.getId(), null, saved.getAccountId())`.
-- [ ] **Шаг 4.** `TargetFundAccountTest`: мок `FundAccountLinkRepository` в конструкторе. Прогон `FundMoneyFlowIT` и `TargetFundAccountTest` — зелёный. Мутации строк 4–7 таблицы §6.
-- [ ] **Шаг 5.** Коммит.
+- [x] **Шаг 4.** `TargetFundAccountTest`: мок `FundAccountLinkRepository` в конструкторе. Прогон `FundMoneyFlowIT` и `TargetFundAccountTest` — зелёный. Мутации строк 4–7 таблицы §6.
+- [x] **Шаг 5.** Коммит.
 
 ### Задача 3. Перенос старых привязок
 
@@ -219,24 +220,24 @@ private void recordAccountLink(UUID fundId, UUID oldAccountId, UUID newAccountId
 
 Миграцию её собственным прогоном не проверить: на Testcontainers `V26` наступает при пустых таблицах. Поэтому, как в `DisposedFundMigrationIT`, тест применяет INSERT миграции дословно к данным в легаси-состоянии.
 
-- [ ] **Шаг 1.** Тест `legacyLinks_keepOldNumbers`: живая и удалённая копилки со счётом, `created_at` три месяца назад, по взносу 20 000 два месяца назад, строк истории нет.
+- [x] **Шаг 1.** Тест `legacyLinks_keepOldNumbers`: живая и удалённая копилки со счётом, `created_at` три месяца назад, по взносу 20 000 два месяца назад, строк истории нет.
   * До переноса — сумма сегодня 40 000: без истории деньги копилок на счёте посчитались бы.
   * После INSERT миграции — ноль и сегодня, и два месяца назад, как давал старый запрос.
-- [ ] **Шаг 2.** Прогон — зелёный. Мутации: `linked_from = CURRENT_DATE` — два месяца назад 40 000, красный; `AND NOT f.is_deleted` — сегодня 20 000, красный.
-- [ ] **Шаг 3.** Коммит.
+- [x] **Шаг 2.** Прогон — зелёный. Мутации: `linked_from = CURRENT_DATE` — два месяца назад 40 000, красный; `AND NOT f.is_deleted` — сегодня 20 000, красный.
+- [x] **Шаг 3.** Коммит.
 
 ### Задача 4. Тексты вокруг
 
-- [ ] `CapitalService` — javadoc класса и `cashLiquidAt`: «копилки без account_id» → «копилки, не жившие на счёте в тот день».
-- [ ] `TargetFundService.update` — комментарий у записи истории.
-- [ ] `docs/superpowers/specs/2026-08-12-accounts-skeleton-design.md` §4.4 — поправка с датой и ссылкой на эту спеку, как сделано для §8 по ANO-158.
-- [ ] Коммит.
+- [x] `CapitalService` — javadoc класса и `cashLiquidAt`: «копилки без account_id» → «копилки, не жившие на счёте в тот день».
+- [x] `TargetFundService.update` — комментарий у записи истории.
+- [x] `docs/superpowers/specs/2026-08-12-accounts-skeleton-design.md` §4.4 — поправка с датой и ссылкой на эту спеку, как сделано для §8 по ANO-158.
+- [x] Коммит.
 
 ### Задача 5. Проверка
 
-- [ ] Затронутые классы целиком: `FundTransactionRepositoryIT`, `FundMoneyFlowIT`, `FundLinkMigrationIT`, `DisposedFundMigrationIT`, `TargetFundAccountTest`, `CapitalControllerIT`, `StrategyTimelineControllerIT`. Полный набор — CI.
-- [ ] Стенд `docker-compose.test.yml`, сценарий §6 до правки (сборка `main`) и после (сборка ветки). Стенд вернуть в исходное состояние.
-- [ ] Раздел «Выполнено» ниже.
+- [x] Затронутые классы целиком: `FundTransactionRepositoryIT`, `FundMoneyFlowIT`, `FundLinkMigrationIT`, `DisposedFundMigrationIT`, `TargetFundAccountTest`, `CapitalControllerIT`, `StrategyTimelineControllerIT`. Полный набор — CI.
+- [x] Стенд `docker-compose.test.yml`, сценарий §6 до правки (сборка `main`) и после (сборка ветки). Стенд вернуть в исходное состояние.
+- [x] Раздел «Выполнено» ниже.
 
 ### Задача 6. PR
 
@@ -245,3 +246,56 @@ private void recordAccountLink(UUID fundId, UUID oldAccountId, UUID newAccountId
 ---
 
 # Выполнено
+
+24.09.2026, ветка `fix/ano-163-fund-link-history`, четыре коммита: запрос и таблица, запись истории сервисом, тест переноса, тексты.
+
+## Тесты и мутации
+
+Затронутые классы целиком: 27 юнит-тестов и 69 интеграционных, все зелёные. Полный набор — CI.
+
+Каждая мутация прогнана отдельно, откат сверен после каждой (`git diff --quiet`), у каждой прочитаны тест и проверка, на которой он упал:
+
+| мутация | упало |
+|---|---|
+| прежнее `t.fund.accountId IS NULL` | `linkedToday_keepsPast` — месяц назад 0 вместо 20 000; `unlinked_keepsPeriodOnAccount` — в день привязки 20 000 вместо 0 |
+| `l.linkedFrom < :date` | день привязки считается конвертом — три теста репозитория |
+| `l.linkedTo >= :date` | `unlinked_keepsPeriodOnAccount` — в день отвязки 0 вместо 20 000 |
+| условие по истории снято целиком | три теста репозитория, в том числе задвоение 32 000 вместо 12 000 |
+| привязка не открывает период | пять тестов `FundMoneyFlowIT`, в том числе сегодняшний капитал 520 000 вместо 500 000 |
+| отвязка стирает период вместо закрытия | `unlink_doesNotRewritePeriodOnAccount` — месяц на счёте снова с деньгами конверта: 0 вместо −20 000 |
+| отвязка не закрывает период | `unlink_…` — сегодня 500 000 вместо 520 000; перепривязка — 409 |
+| `save` вместо `saveAndFlush` при закрытии | только перепривязка — 409 от `uq_fund_account_links_open` |
+| `create` не пишет период | только `createOnAccount_recordsLinkFromToday` |
+| правка без смены счёта тоже пишет историю | только `updateSameAccount_leavesHistoryAlone` |
+| перенос датирует старые привязки днём миграции | `legacyLinks_keepOldNumbers` — два месяца назад 40 000 вместо 0 |
+| перенос только живых копилок | `legacyLinks_keepOldNumbers` — сегодня 20 000 вместо 0 |
+
+## Замер на стенде
+
+Сценарий задачи: копилка «ANO-163 проба», перевод 20 000 через API, движение и событие сдвинуты на 05.08 через SQL, привязка к «Основной карте» и отвязка через API. Числа — `GET /capital/trajectory`, `/strategy/timeline`, `/capital/summary`.
+
+| шаг | капитал 31.08, main | капитал 31.08, ветка | «Стратегия», август: main → ветка |
+|---|---|---|---|
+| конверт, взнос 05.08 | 2 558 277 | 2 558 277 | 80 000 → 80 000 |
+| привязана сегодня | **2 538 277** | 2 558 277 | **60 000** → 80 000 |
+| снова отвязана | 2 558 277 | 2 558 277 | 80 000 → 80 000 |
+
+Отдельно на ветке — отвязка, когда период на счёте накрывает 31.08. Привязка сдвинута на 20.08 через SQL, затем отвязка сегодня. Капитал за 31.08 до отвязки 2 538 277, после — 2 538 277. На main отвязка вернула бы 2 558 277.
+
+**Миграция на данных стенда.** На стенде две старые привязки: «уке» на вкладе и «Первый взнос на ипотеку» на «Эталоне». Обе получили период с рождения копилки. Капитал за 31.08, август «Стратегии», «за месяц» и капитал сегодня до миграции и после совпали до рубля: 2 538 277 / 60 000 / 171 661 / 2 668 277.
+
+После замера проба удалена, строки её истории ушли каскадом. Числа стенда вернулись к исходным. Стенд остановлен, как и был; в его базе применена `V26`, образ бэкенда собран из ветки.
+
+## Сверх плана
+
+* **Одного запроса мало — нужны оба коммита в одном PR.** Запрос без записи истории задваивает сегодняшний капитал: привязанная через API копилка не имеет строки истории и снова считается конвертом. Тест поймал это при первом прогоне: 520 000 вместо 500 000.
+* **Порядок записи в Hibernate подтверждён мутацией.** Без немедленного сброса закрытия перепривязка получает 409 на индексе открытой привязки.
+* **Тест переноса читает INSERT из самого файла миграции**, а не держит копию, как `DisposedFundMigrationIT`. Поэтому мутации ставились прямо в `V26`.
+* **Добавлен тест «правка без смены счёта историю не трогает».** В спеке это было сказано, но ничем не проверялось. Мутация без него проходила бы.
+* `FundMoneyFlowIT.firstTrackedAccountId` стал детерминированным: тест перепривязки заводит второй отслеживаемый счёт, и `LIMIT 1` без порядка отдавал бы то один, то другой.
+
+## Что увидит человек
+
+Сегодняшние числа не меняются. Меняется одно: **изменение «за месяц» на «Капитале» теперь показывает день привязки.** На стенде после привязки копилки с 20 000 «за месяц» стало 151 661 вместо 171 661.
+
+Это не новый минус. Деньги конверта перестают считаться отдельно в день привязки, так было и раньше. Прежде это пряталось: прошлое переписывалось на ту же сумму, и разница за месяц не менялась. Теперь минус стоит там, где случился. Объяснить его человеку на экране — ANO-164.
