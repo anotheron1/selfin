@@ -24,6 +24,7 @@ function watchdog(
         pocketAfterCreditRestore: null,
         pocketWithDeposits: null,
         pocketWithForecast: minPointWithForecast ? minPointWithForecast.balance : null,
+        planHasExpectations: true,
     };
 }
 

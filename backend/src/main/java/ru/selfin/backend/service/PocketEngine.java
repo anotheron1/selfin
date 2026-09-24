@@ -9,6 +9,7 @@ import ru.selfin.backend.dto.pocket.SyntheticKind;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
 
 import java.math.BigDecimal;
@@ -100,11 +101,15 @@ public final class PocketEngine {
             upcoming.add(upcomingOf(e,
                     e.plannedAmount() != null ? e.plannedAmount() : BigDecimal.ZERO, true));
         }
+        // ANO-185: строки впереди — сегодня и до конца горизонта — одним списком. Из него
+        // и «осталось потратить», и признак «есть ли в плане ожидание»: по тем строкам,
+        // которыми кармашек держит деньги, и судим, полон ли план.
+        List<EventSnapshot> ahead = new ArrayList<>();
         in.events().stream()
                 .filter(e -> isPendingPlan(e, settled))
                 .filter(e -> e.wishlistStatus() == null)
                 .filter(e -> in.asOfDate().equals(e.date()) && e.type() != EventType.INCOME)
-                .forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
+                .forEach(ahead::add);
         in.events().stream()
                 .filter(e -> isPendingPlan(e, settled))
                 .filter(PocketEngine::allowedInTrajectory)
@@ -112,7 +117,14 @@ public final class PocketEngine {
                 .filter(e -> e.date() != null
                         && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(in.horizonEnd()))
                 .sorted(java.util.Comparator.comparing(EventSnapshot::date))
-                .forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
+                .forEach(ahead::add);
+        ahead.forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
+        // Ожидание — расход в плане человека с характером «Ожидание». Перевод в копилку и
+        // синтетика носят этот характер не по выбору человека: переводу форма ставит его
+        // принудительно, а взносы кармашка заводит сам продукт (ревью Codex #63).
+        boolean planHasExpectations = ahead.stream()
+                .anyMatch(e -> e.type() == EventType.EXPENSE && e.syntheticKind() == null
+                        && e.priority() == Priority.MEDIUM);
 
         // 3. Прогноз незапланированных по дням: текущий месяц (§3.5) + будущие месяцы (ANO-36).
         //    Обе части — одна и та же величина «сверх плана», просто из разных источников:
@@ -266,7 +278,7 @@ public final class PocketEngine {
                 new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),
                 breakdown, trajectory, candidates,
                 pocketAfterCreditRestore, pocketWithDeposits,
-                pocketWithForecast, minPointWithForecast, upcoming);
+                pocketWithForecast, minPointWithForecast, upcoming, planHasExpectations);
     }
 
     // ── правила фильтрации (спека §3.2) ─────────────────────────────────────

@@ -57,7 +57,16 @@ public record PocketResultDto(
          * правило отбора, живущее в двух экземплярах, однажды расходится — так было
          * в ANO-82 и ANO-155.
          */
-        List<UpcomingItem> upcoming
+        List<UpcomingItem> upcoming,
+        /**
+         * Есть ли среди {@link #upcoming} хоть одно ожидание (ANO-185). Без ожиданий —
+         * продуктов, бензина, кафе — кармашек завышен по построению, и экран говорит об
+         * этом строкой, пока прогноз «с обычными тратами» не научился.
+         *
+         * <p>Берётся из тех же строк, что {@code upcoming}, а не отдельной выборкой: чем
+         * кармашек держит деньги на этом горизонте, по тому и судим, полон ли план.
+         */
+        boolean planHasExpectations
 ) {
     /**
      * Копия с подставленными именами категорий (ANO-119). Имена знает сервис, а не движок:
@@ -66,7 +75,8 @@ public record PocketResultDto(
     public PocketResultDto withUpcoming(List<UpcomingItem> named) {
         return new PocketResultDto(pocket, currentBalance, buffer, checkpointDate, horizon,
                 minPoint, breakdown, trajectory, wishlistCandidates, pocketAfterCreditRestore,
-                pocketWithDeposits, pocketWithForecast, minPointWithForecast, named);
+                pocketWithDeposits, pocketWithForecast, minPointWithForecast, named,
+                planHasExpectations);
     }
 
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}

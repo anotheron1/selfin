@@ -4,6 +4,7 @@ import { HelpCircle, Pencil, Wallet, FlaskConical } from 'lucide-react';
 import { fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
 import { buildPocketPhrase } from '../lib/pocketPhrase';
+import { noExpectationsNote } from '../lib/noExpectationsNote';
 import { buildAgeHint } from '../lib/reanchor';
 import ReanchorSheet from './pocket/ReanchorSheet';
 import type { PocketResponse } from '../types/api';
@@ -75,6 +76,14 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                     {fmtC(data.pocketWithForecast)}
                                     <span className="text-white/60"> — с обычными тратами</span>
                                 </p>
+                            )}
+                            {/*
+                              ANO-185: там же, где строка прогноза, и отвечает на тот же вопрос —
+                              насколько честно это число. Друг друга они исключают: пока прогноз
+                              не научился, об ожиданиях говорит эта строка, потом — он сам.
+                            */}
+                            {noExpectationsNote(data) && (
+                                <p className="text-xs text-white/60 mt-0.5">{noExpectationsNote(data)}</p>
                             )}
                             {/*
                               Второе и третье числа (ANO-9 §4.2–§4.3). Иерархия размеров —
