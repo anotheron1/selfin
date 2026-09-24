@@ -47,7 +47,7 @@ export default function SandboxItemRow({
             style={{
                 background: 'var(--color-surface)',
                 border: locked
-                    ? '1px solid var(--color-primary)'
+                    ? '1px solid var(--color-accent)'
                     : '1px dashed var(--color-border)',
                 opacity: !enabled ? 0.85 : 1,
             }}>
@@ -59,7 +59,7 @@ export default function SandboxItemRow({
                     title={locked ? 'Зафиксировано — вернуть в обсуждение можно в параметрах' : undefined}
                     className="shrink-0 w-9 h-5 rounded-full transition-colors relative"
                     style={{
-                        background: enabled ? 'var(--color-primary)' : 'var(--color-border)',
+                        background: enabled ? 'var(--color-accent)' : 'var(--color-border)',
                         cursor: locked ? 'not-allowed' : 'pointer',
                     }}
                     aria-label={locked ? 'Зафиксировано' : enabled ? 'Убрать из примерки' : 'Примерить'}
@@ -67,7 +67,7 @@ export default function SandboxItemRow({
                     <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all
                         flex items-center justify-center"
                         style={{ left: enabled ? '18px' : '2px' }}>
-                        {locked && <Lock size={9} color="var(--color-primary)" />}
+                        {locked && <Lock size={9} color="var(--color-accent)" />}
                     </span>
                 </button>
 
@@ -76,7 +76,7 @@ export default function SandboxItemRow({
                         <span className="text-sm font-medium truncate">{item.name}</span>
                         {locked && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                                style={{ background: 'var(--color-primary)', color: 'white' }}>
+                                style={{ background: 'var(--color-accent)', color: 'white' }}>
                                 в плане
                             </span>
                         )}
@@ -102,7 +102,7 @@ export default function SandboxItemRow({
 
                 <button onClick={() => setOpen(o => !o)}
                     className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
-                    style={{ color: open ? 'var(--color-primary)' : 'var(--color-text-muted)' }}
+                    style={{ color: open ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
                     aria-label="Параметры">
                     <SlidersHorizontal size={15} />
                 </button>
@@ -152,7 +152,7 @@ export default function SandboxItemRow({
                         {locked ? (
                             <button onClick={onUnfix}
                                 className="flex-1 flex items-center justify-center gap-1 text-xs py-1.5 rounded-lg"
-                                style={{ border: '1px solid var(--color-primary)', color: 'var(--color-primary)' }}>
+                                style={{ border: '1px solid var(--color-accent)', color: 'var(--color-accent)' }}>
                                 <RotateCcw size={13} /> Вернуть в обсуждение
                             </button>
                         ) : enabled ? (
@@ -160,7 +160,7 @@ export default function SandboxItemRow({
                             // так видно, что это следующий шаг ПОСЛЕ примерки, а не её часть.
                             <button onClick={onFix} disabled={needsDate}
                                 className="flex-1 flex items-center justify-center gap-1 text-xs py-1.5 rounded-lg disabled:opacity-40"
-                                style={{ background: 'var(--color-primary)', color: 'white' }}>
+                                style={{ background: 'var(--color-accent)', color: 'white' }}>
                                 <Check size={13} /> Зафиксировать в плане
                             </button>
                         ) : (

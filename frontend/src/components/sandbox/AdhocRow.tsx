@@ -58,7 +58,7 @@ export default function AdhocRow({
                     disabled={!canAdd}
                     onClick={() => { onAdd(amountValue(amount) ?? 0, date); setAmount(''); setDate(''); }}
                     className="p-1.5 rounded-lg disabled:opacity-40"
-                    style={{ background: 'var(--color-primary)', color: 'white' }}
+                    style={{ background: 'var(--color-accent)', color: 'white' }}
                     aria-label="Добавить примерку">
                     <Plus size={15} />
                 </button>
