@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useReducer } from 'react';
 import { ChevronRight, Repeat } from 'lucide-react';
 import { fetchEvents, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
 import type { FinancialEvent } from '../types/api';
@@ -6,6 +6,7 @@ import { favourableDelta, deltaColor } from '../lib/planFact';
 import { compareByRecency, byRecencyDesc } from '../lib/eventOrder';
 import { dayLabel, expectationCards, expectationsSummary, factLinkLabel, mainListEvents } from '../lib/journalSections';
 import { anchorDateOf, quickClose, type QuickClose } from '../lib/quickClose';
+import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { canRecordFact, todayIso } from '../lib/factDate';
 import { ruPlural } from '../lib/plural';
 import { PRIORITY_DOT_CONFIG } from '../lib/priority';
@@ -128,7 +129,10 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     } | null>(null);
     // Последняя сверка основного счёта — граница кружка (lib/quickClose).
     const [anchor, setAnchor] = useState<{ loaded: boolean; date: string | null }>({ loaded: false, date: null });
-    const [closingId, setClosingId] = useState<string | null>(null);
+    // Ревью #56: у каждой брони своя занятость, и держится она до перечитанного журнала
+    // (lib/quickCloseGuard). Одно значение на страницу освобождало бронь А касанием брони Б.
+    const [guard] = useState(() => new QuickCloseGuard());
+    const [, guardChanged] = useReducer((n: number) => n + 1, 0);
     const [closeFailedId, setCloseFailedId] = useState<string | null>(null);
     const [expectationsOpen, setExpectationsOpen] = useState(false);
 
@@ -136,13 +140,21 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         const start = formatDateYMD(new Date(year, month, 1));
         const end = formatDateYMD(new Date(year, month + 1, 0));
         if (!silent) setLoading(true);
+        // Брони, записанные до начала этого чтения: его успех их освобождает.
+        const releases = guard.readStarted();
         return fetchEvents(start, end)
             .then(data => {
                 document.querySelectorAll('.pf-hovered').forEach(el => el.classList.remove('pf-hovered'));
                 setEvents(data);
+                guard.readSucceeded(releases);
+                guardChanged();
+            }, (err) => {
+                guard.readFailed(releases);
+                guardChanged();
+                throw err;
             })
             .finally(() => setLoading(false));
-    }, [year, month]);
+    }, [year, month, guard]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -153,15 +165,18 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             .catch(console.error);
     }, [refreshSignal]);
 
-    // Кружок занят, пока журнал не перечитан: иначе между ответом сервера и новой выборкой
-    // строка ещё показывает незакрытую бронь, и второе касание записало бы второй факт.
+    // Запись факта не идемпотентна: кружок занят, пока журнал не перечитан после записи, —
+    // иначе строка ещё показывает прежний остаток, и второе касание записало бы второй факт.
     const closePlan = (plan: FinancialEvent, amount: number, date: string) => {
-        setClosingId(plan.id);
+        if (!guard.begin(plan.id)) return;
         setCloseFailedId(null);
+        guardChanged();
         createLinkedFact(plan.id, { date, factAmount: amount })
-            .then(() => load(true), (err) => { console.error(err); setCloseFailedId(plan.id); })
-            .catch(console.error)
-            .finally(() => setClosingId(null));
+            .then(
+                () => { guard.wrote(plan.id); guardChanged(); return load(true); },
+                (err) => { console.error(err); guard.failed(plan.id); setCloseFailedId(plan.id); guardChanged(); },
+            )
+            .catch(console.error);
     };
 
     // Фоновое обновление при добавлении через FAB (без сброса скролла)
@@ -440,6 +455,17 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                                 Не записалось — попробуйте ещё раз
                                                                             </p>
                                                                         )}
+                                                                        {guard.stale(event.id) && (
+                                                                            <p className="text-xs mt-1" style={{ color: 'var(--color-warning)' }}>
+                                                                                Факт записан, журнал не обновился —{' '}
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); load(true).catch(console.error); }}
+                                                                                    className="underline"
+                                                                                >
+                                                                                    обновить
+                                                                                </button>
+                                                                            </p>
+                                                                        )}
                                                                     </div>
                                                                     <div className="text-right shrink-0 space-y-0.5">
                                                                         {isPlan ? (
@@ -480,7 +506,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                     <QuickCloseButton
                                                                         decision={decision}
                                                                         label={quickCloseLabel(decision, isIncome)}
-                                                                        busy={closingId === event.id}
+                                                                        busy={guard.held(event.id)}
                                                                         onTap={() => {
                                                                             if (decision.kind === 'tap') closePlan(event, decision.amount, decision.date);
                                                                         }}
