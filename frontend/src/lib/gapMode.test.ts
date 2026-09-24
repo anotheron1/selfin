@@ -78,10 +78,14 @@ describe('buildGapMode (ANO-100)', () => {
         expect(buildGapMode(p)?.subline).toBe(`Доход 28.09 закроет разрыв, останется ${fmtC(0)}.`);
     });
 
-    it('срок без дохода — о доходе ни слова', () => {
-        expect(buildGapMode(owner({
+    it('срок без дохода — о доходе ни слова, хотя точка на конец срока есть', () => {
+        // Точка на 24.10 положительная: без проверки «срок заякорен доходом» строка
+        // сказала бы «Доход 24.10 закроет разрыв» — о доходе, которого в плане нет.
+        const p = owner({
             horizon: { type: 'NEXT_INCOME', endDate: '2026-10-24', label: '30 дней вперёд (нет плановых доходов)', fallback: true },
-        }))?.subline).toBeNull();
+        });
+        p.trajectory.push({ date: '2026-10-24', balance: 5000, income: 0, expense: 0, balanceWithForecast: null });
+        expect(buildGapMode(p)?.subline).toBeNull();
     });
 
     it('сдвинуть предлагаются только ожидания и хотелки до узкого дня, без просрочки и синтетики', () => {
