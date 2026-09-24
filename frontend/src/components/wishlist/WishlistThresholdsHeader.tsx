@@ -84,7 +84,7 @@ export default function WishlistThresholdsHeader({ value, monthlyExpensesAvg, on
                 </div>
                 <div className="flex-1 min-w-[140px]">
                     <label className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Буфер счёта, мес.
+                        Подушка, мес.
                     </label>
                     <Input
                         type="number"

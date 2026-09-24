@@ -13,7 +13,7 @@ export default function Strategy() {
                 <h1 className="text-xl font-semibold">Стратегия</h1>
                 {timeline && (
                     <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Финансовая траектория: {fmtYearMonthFull(timeline.firstActivityMonth)} → +3 года вперёд
+                        Остаток по месяцам: {fmtYearMonthFull(timeline.firstActivityMonth)} → +3 года вперёд
                     </p>
                 )}
             </div>
@@ -39,7 +39,7 @@ export default function Strategy() {
             {timeline && !isLoading && !error && timeline.points.length === 0 && (
                 <div className="rounded-lg p-6 text-center"
                      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                    <p className="text-sm">Здесь появится финансовая траектория, когда вы начнёте записывать события и снимки баланса.</p>
+                    <p className="text-sm">Здесь появится остаток по месяцам, когда вы начнёте записывать события и снимки баланса.</p>
                 </div>
             )}
 
