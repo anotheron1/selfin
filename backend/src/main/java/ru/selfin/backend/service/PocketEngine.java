@@ -119,7 +119,12 @@ public final class PocketEngine {
                 .sorted(java.util.Comparator.comparing(EventSnapshot::date))
                 .forEach(ahead::add);
         ahead.forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
-        boolean planHasExpectations = ahead.stream().anyMatch(e -> e.priority() == Priority.MEDIUM);
+        // Ожидание — расход в плане человека с характером «Ожидание». Перевод в копилку и
+        // синтетика носят этот характер не по выбору человека: переводу форма ставит его
+        // принудительно, а взносы кармашка заводит сам продукт (ревью Codex #63).
+        boolean planHasExpectations = ahead.stream()
+                .anyMatch(e -> e.type() == EventType.EXPENSE && e.syntheticKind() == null
+                        && e.priority() == Priority.MEDIUM);
 
         // 3. Прогноз незапланированных по дням: текущий месяц (§3.5) + будущие месяцы (ANO-36).
         //    Обе части — одна и та же величина «сверх плана», просто из разных источников:

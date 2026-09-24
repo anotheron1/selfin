@@ -308,6 +308,30 @@ class PocketEngineTest {
     }
 
     @Test
+    @DisplayName("ANO-185: плановый перевод в копилку — не ожидание, хоть и помечен им")
+    void planHasExpectations_fundTransferDoesNotCount() {
+        // Ревью Codex #63. Форма ставит переводу «Ожидание» принудительно и прячет выбор
+        // характера (Fab.tsx), так что пометка ничего не говорит о продуктах и бензине.
+        PocketInput in = base()
+                .events(plan(EventType.FUND_TRANSFER, TODAY.plusDays(3), 5_000, Priority.MEDIUM))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).planHasExpectations()).isFalse();
+    }
+
+    @Test
+    @DisplayName("ANO-185: взнос в копилку, который резервирует сам кармашек, — не ожидание")
+    void planHasExpectations_syntheticContributionDoesNotCount() {
+        // Ревью Codex #63. Синтетику продукт заводит сам и помечает «Ожиданием» по умолчанию
+        // (SandboxLayout); в плане человека такой строки нет.
+        PocketInput in = base()
+                .events(contribution(TODAY.plusDays(3), 10_000, "Отпуск"))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).planHasExpectations()).isFalse();
+    }
+
+    @Test
     @DisplayName("ANO-185: ожидание за горизонтом не делает честным число до дохода")
     void planHasExpectations_beyondHorizonDoesNotCount() {
         // Траектория тянется хвостом минимум на 7 дней (§3.9). Хвост кармашек не вычитает,
