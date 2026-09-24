@@ -42,10 +42,10 @@ export function buildPocketPhrase(p: PocketResponse): string {
 
     // Буфер прогрызен: минимум положительный, но ниже буфера
     if (pocket < 0) {
-        return `Впритык: в узкий день ${minDate} на счёте останется ${fmtC(minPoint.balance)} — меньше буфера ${fmtC(buffer)}${cause}.${afterTail}`;
+        return `Впритык: в узкий день ${minDate} на счёте останется ${fmtC(minPoint.balance)} — меньше подушки ${fmtC(buffer)}${cause}.${afterTail}`;
     }
 
-    const bufferPart = buffer > 0 ? ` Буфер ${fmtC(buffer)} уже отложен.` : '';
+    const bufferPart = buffer > 0 ? ` Подушка ${fmtC(buffer)} уже отложена.` : '';
 
     // Минимум в день 0: ниже сегодняшнего траектория не опускается
     // (это НЕ значит «расходов нет» — доход внутри горизонта может перекрывать поздние траты)
