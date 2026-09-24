@@ -37,7 +37,7 @@ import java.util.UUID;
  * <pre>
  *   ликвид(t)        = кассовыйЛиквид(t) + semiLiquidAt(t)   ← экран Капитала
  *   кассовыйЛиквид(t)= freeMoneyAt(t) + noAnchorFallbackAt(t)
- *                    + Σ балансов копилок БЕЗ account_id     ← прогнозы: /strategy, /wishlist
+ *                    + Σ копилок-конвертов на дату t          ← прогнозы: /strategy, /wishlist
  *   обязательства(t) = creditDebtAt(t) + Σ CapitalItem(LIABILITY)
  * </pre>
  * Кто на каком числе сидит и почему — в Javadoc {@link #cashLiquidAt}.
@@ -46,9 +46,11 @@ import java.util.UUID;
  * это правило инлайн (раньше дублировал — через {@code sumFactByTypeBetween}, у которого не
  * было фильтра {@code wishlistStatus}, см. историю в Javadoc {@link #liquidAt}).
  *
- * <p>Копилки С {@code account_id} в ликвид отдельно не добавляются: их деньги уже внутри баланса
- * своего счёта (учтены через {@code freeMoneyAt}/{@code semiLiquidAt}) — прибавить их ещё раз
- * значило бы задвоить (спека §3.3, §4.4). Фильтр {@code fund.account_id IS NULL} живёт в запросе
+ * <p>Копилка, которая в день {@code t} жила на счёте, в ликвид отдельно не добавляется: её деньги
+ * уже внутри баланса счёта (учтены через {@code freeMoneyAt}/{@code semiLiquidAt}) — прибавить
+ * их ещё раз значило бы задвоить (спека §3.3, §4.4). Условие читает историю привязок, а не
+ * сегодняшний {@code account_id}: иначе привязка сегодня переписывала бы капитал за прошлые
+ * месяцы (ANO-163). Живёт в запросе
  * {@link FundTransactionRepository#sumEnvelopeFundsByTransactionDateLessThanEqual}.
  */
 @Service
@@ -252,7 +254,7 @@ public class CapitalService {
      * Жидкий баланс на дату {@code t} (спека §4.4, ANO-9 Task 2.3):
      * <pre>
      *   ликвид(t) = freeMoneyAt(t) + semiLiquidAt(t) + noAnchorFallbackAt(t)
-     *             + Σ балансов копилок БЕЗ account_id
+     *             + Σ копилок-конвертов на дату t
      * </pre>
      * Публичный API для согласования с другими сервисами (например, StrategyTimelineService
      * использует этот метод для seed {@code balanceConfirmed}).
@@ -291,7 +293,7 @@ public class CapitalService {
      * (ANO-46, решение пользователя 2026-08-15):
      * <pre>
      *   кассовыйЛиквид(t) = freeMoneyAt(t) + noAnchorFallbackAt(t)
-     *                     + Σ балансов копилок БЕЗ account_id
+     *                     + Σ копилок-конвертов на дату t
      * </pre>
      *
      * <p><b>Зачем два числа.</b> Спека §4.3 сознательно держит вклад вне основного числа
