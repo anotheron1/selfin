@@ -161,8 +161,8 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(defaultAccount.getId(), today))
                 .thenReturn(Optional.of(checkpoint(defaultAccount, today.minusDays(1), "100000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        // Репозиторий сам фильтрует fund.accountId IS NULL (FundTransactionRepository) —
-        // здесь мокаем УЖЕ отфильтрованный результат: только сумма копилки БЕЗ accountId (12 000).
+        // Репозиторий сам отбрасывает копилки, жившие в этот день на счёте (история привязок,
+        // ANO-163) — здесь мокаем УЖЕ отфильтрованный результат: только сумма конверта (12 000).
         // Копилка С accountId (условно 20 000) в этой сумме отсутствует — её деньги внутри
         // остатка счёта, на который она ссылается, и туда они уже вошли бы через freeMoneyAt/
         // semiLiquidAt, если бы такой счёт был среди active(). JPQL-фильтр самого запроса

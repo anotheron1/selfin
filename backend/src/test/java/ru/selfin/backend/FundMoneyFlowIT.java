@@ -19,6 +19,7 @@ import ru.selfin.backend.service.CapitalService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -62,6 +63,7 @@ class FundMoneyFlowIT {
     void resetMoneyState() {
         jdbc.update("DELETE FROM fund_transactions");
         jdbc.update("DELETE FROM financial_events WHERE type = 'FUND_TRANSFER'");
+        jdbc.update("DELETE FROM fund_account_links");
         jdbc.update("DELETE FROM target_funds");
         jdbc.update("DELETE FROM balance_checkpoints");
     }
@@ -244,6 +246,98 @@ class FundMoneyFlowIT {
     }
 
     @Test
+    @DisplayName("ANO-163: привязка к счёту не переписывает прошлый капитал")
+    void link_doesNotRewritePastCapital() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        LocalDate past = LocalDate.now().minusMonths(1);
+        contributeOn(fundId, new BigDecimal("20000"), past);
+        BigDecimal pastBefore = capitalService.cashLiquidAt(past);
+        BigDecimal todayBefore = capitalService.cashLiquidAt(LocalDate.now());
+
+        updateFund(fundId, firstTrackedAccountId());
+
+        assertThat(capitalService.cashLiquidAt(past))
+                .as("месяц назад копилка была конвертом — сегодняшняя привязка этого не отменяет")
+                .isEqualByComparingTo(pastBefore);
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("сегодня копилка на счёте, и её 20 000 отдельно не складываются — как и до правки")
+                .isEqualByComparingTo(todayBefore.subtract(new BigDecimal("20000")));
+    }
+
+    @Test
+    @DisplayName("ANO-163: отвязка не переписывает время, прожитое на счёте")
+    void unlink_doesNotRewritePeriodOnAccount() throws Exception {
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        LocalDate monthAgo = LocalDate.now().minusMonths(1);
+        contributeOn(fundId, new BigDecimal("20000"), LocalDate.now().minusMonths(2));
+        updateFund(fundId, firstTrackedAccountId());
+        backdateOpenLink(fundId, monthAgo);
+        BigDecimal onAccountBefore = capitalService.cashLiquidAt(monthAgo);
+        BigDecimal todayOnAccount = capitalService.cashLiquidAt(LocalDate.now());
+
+        updateFund(fundId, null);
+
+        assertThat(capitalService.cashLiquidAt(monthAgo))
+                .as("месяц назад копилка жила на счёте — сегодняшняя отвязка этого не отменяет")
+                .isEqualByComparingTo(onAccountBefore);
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("с отвязки её 20 000 снова в конверте — как и до правки (ANO-158)")
+                .isEqualByComparingTo(todayOnAccount.add(new BigDecimal("20000")));
+    }
+
+    @Test
+    @DisplayName("ANO-163: перепривязка со счёта на счёт закрывает один период и открывает другой")
+    void relink_toAnotherAccount_closesAndOpens() throws Exception {
+        String first = firstTrackedAccountId();
+        String second = jdbc.queryForObject("""
+                INSERT INTO accounts (name, kind, track_balance)
+                VALUES ('Накопительный ANO-163', 'DEBIT', true) RETURNING id::text
+                """, String.class);
+        String fundId = createFund("Отпуск");
+
+        updateFund(fundId, first);
+        updateFund(fundId, second);
+
+        String today = LocalDate.now().toString();
+        assertThat(linkHistory(fundId))
+                .as("первый период закрыт сегодня, второй открыт с сегодняшнего дня")
+                .containsExactly(first + " " + today + ".." + today, second + " " + today + "..");
+    }
+
+    @Test
+    @DisplayName("ANO-163: правка копилки без смены счёта историю не трогает")
+    void updateSameAccount_leavesHistoryAlone() throws Exception {
+        // Фронт шлёт accountId в каждой правке копилки. Без проверки «счёт сменился» каждое
+        // переименование закрывало бы период и открывало новый — история превратилась бы в
+        // журнал правок, а не привязок.
+        String accountId = firstTrackedAccountId();
+        String fundId = createFund("Отпуск");
+        updateFund(fundId, accountId);
+
+        updateFund(fundId, accountId);
+
+        assertThat(linkHistory(fundId)).containsExactly(accountId + " " + LocalDate.now() + "..");
+    }
+
+    @Test
+    @DisplayName("ANO-163: копилка, созданная на счёте, живёт на нём с сегодняшнего дня")
+    void createOnAccount_recordsLinkFromToday() throws Exception {
+        String accountId = firstTrackedAccountId();
+
+        String body = mockMvc.perform(post("/api/v1/funds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\": \"Цель на карте\", \"targetAmount\": 1000000,"
+                                + " \"accountId\": \"" + accountId + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String fundId = objectMapper.readTree(body).get("id").asText();
+
+        assertThat(linkHistory(fundId)).containsExactly(accountId + " " + LocalDate.now() + "..");
+    }
+
+    @Test
     @DisplayName("ANO-156: «потрачено» не переписывает прошлое")
     void delete_spent_doesNotRewriteHistory() throws Exception {
         anchorDefaultAccount("500000");
@@ -412,10 +506,15 @@ class FundMoneyFlowIT {
         return id;
     }
 
+    /**
+     * Дефолтный счёт, если он отслеживается. Порядок обязателен: тест перепривязки заводит
+     * второй отслеживаемый счёт, и {@code LIMIT 1} без порядка отдавал бы то один, то другой.
+     */
     private String firstTrackedAccountId() {
         return jdbc.queryForObject(
                 "SELECT id::text FROM accounts WHERE is_deleted = false"
-                        + " AND track_balance = true LIMIT 1", String.class);
+                        + " AND track_balance = true ORDER BY is_default DESC, created_at LIMIT 1",
+                String.class);
     }
 
     /** @param confirm {@code null} — без подтверждения */
@@ -473,6 +572,31 @@ class FundMoneyFlowIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk());
+    }
+
+    /**
+     * Сдвигает открытую привязку копилки на прошлую дату — как {@link #contributeOn} сдвигает
+     * движения. Через API так нельзя: сервис ставит привязке сегодняшний день, и без прошлого
+     * периода на счёте отвязке было бы нечего переписывать (ANO-163).
+     */
+    private void backdateOpenLink(String fundId, LocalDate from) {
+        int updated = jdbc.update("""
+                UPDATE fund_account_links SET linked_from = ?::date
+                WHERE fund_id = ?::uuid AND linked_to IS NULL
+                """, from.toString(), fundId);
+        assertThat(updated)
+                .as("привязка через API обязана оставить открытую строку истории")
+                .isEqualTo(1);
+    }
+
+    /** История привязок строками «счёт с..по» по порядку; у открытого периода конца нет. */
+    private List<String> linkHistory(String fundId) {
+        return jdbc.queryForList("""
+                SELECT account_id::text || ' ' || linked_from::text || '..'
+                       || COALESCE(linked_to::text, '')
+                FROM fund_account_links WHERE fund_id = ?::uuid
+                ORDER BY linked_from, linked_to NULLS LAST
+                """, String.class, fundId);
     }
 
     /** Сумма живых движений копилки — то самое, что складывает запрос суммы копилок. */

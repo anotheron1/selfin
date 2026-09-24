@@ -19,13 +19,21 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
     List<FundTransaction> findByFundIdAndDeletedFalseAndTransactionDateAfter(UUID fundId, LocalDate since);
 
     /**
-     * Суммарный баланс копилок БЕЗ привязки к счёту на дату {@code date} — используется в
-     * расчёте капитала ({@code CapitalService.liquidAt}, спека §4.4).
+     * Суммарный баланс копилок-конвертов на дату {@code date} — используется в расчёте
+     * капитала ({@code CapitalService.liquidAt}, спека §4.4).
      *
-     * <p>{@code fund.accountId IS NULL} — копилки, У КОТОРЫХ ЗАДАН {@code accountId}, сюда
-     * сознательно не попадают: их деньги уже лежат внутри баланса своего счёта (учтён через
-     * {@code AccountBalanceService.freeMoneyAt}/{@code semiLiquidAt}), и повторное сложение
-     * дало бы задвоение (ANO-9 Task 2.3, спека §3.3/§4.4).
+     * <p>Копилка, которая В ЭТОТ ДЕНЬ жила на счёте, сюда сознательно не попадает: её деньги
+     * лежат внутри баланса счёта (учтён через {@code AccountBalanceService.freeMoneyAt}/
+     * {@code semiLiquidAt}), и повторное сложение дало бы задвоение (ANO-9 Task 2.3, спека
+     * §3.3/§4.4).
+     *
+     * <p><b>ANO-163: условие читает историю привязок, а не {@code t.fund.accountId}.</b> Здесь
+     * стояло {@code t.fund.accountId IS NULL} — признак «на счёте СЕЙЧАС», применённый ко всем
+     * прошлым датам. Привязка копилки сегодня уменьшала капитал за каждый прошлый месяц на её
+     * взносы, отвязка возвращала. Замерено на стенде: минус 20 000 в августе от привязки
+     * 16 сентября. <b>Возвращать признак нельзя</b> по той же причине, что и {@code deleted}
+     * ниже. День привязки — день на счёте, день отвязки — день конверта
+     * ({@link ru.selfin.backend.model.FundAccountLink}).
      *
      * <p><b>ANO-156: фильтра по {@code t.fund.deleted} здесь НЕТ, и это важно.</b> Он стоял
      * тут с ANO-86 и закрывал одну дыру: ветка «потрачено на цель» не писала компенсирующее
@@ -47,7 +55,11 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
             SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
             WHERE t.deleted = false
               AND t.transactionDate <= :date
-              AND t.fund.accountId IS NULL
+              AND NOT EXISTS (
+                    SELECT 1 FROM FundAccountLink l
+                    WHERE l.fundId = t.fund.id
+                      AND l.linkedFrom <= :date
+                      AND (l.linkedTo IS NULL OR l.linkedTo > :date))
             """)
     BigDecimal sumEnvelopeFundsByTransactionDateLessThanEqual(@Param("date") LocalDate date);
 
