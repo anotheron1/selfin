@@ -86,7 +86,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
                 type="button"
                 onClick={goToBudget}
                 className="mt-2 text-[11px] hover:underline"
-                style={{ color: 'var(--color-primary)' }}
+                style={{ color: 'var(--color-accent)' }}
             >
                 Открыть Budget этого месяца →
             </button>

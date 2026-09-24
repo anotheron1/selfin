@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchDashboard, fetchEvents } from '../../api';
 import type { DashboardData, DailyForecastPoint, FinancialEvent } from '../../types/api';
 import { fmtRub } from '../../lib/format';
+import { PLAN_FACT_PALETTE, barView } from '../../lib/planFactBars';
 
 const fmt = fmtRub;
 
@@ -39,9 +40,9 @@ function ForecastSparkline({ history, plannedLimit, projectionAmount, daysInMont
             <div className="text-[10px] text-muted-foreground mb-1">Динамика месяца</div>
             <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
                 <line x1={0} y1={planY} x2={W} y2={planY}
-                    stroke="rgba(255,255,255,0.2)" strokeWidth={1} strokeDasharray="4 3" />
-                <polyline points={factPoints} fill="none" stroke="#6c63ff" strokeWidth={2} strokeLinejoin="round" />
-                <polyline points={projPoints} fill="none" stroke="#ffaa44" strokeWidth={1.5}
+                    stroke={PLAN_FACT_PALETTE.plan} strokeWidth={1} strokeDasharray="4 3" />
+                <polyline points={factPoints} fill="none" stroke={PLAN_FACT_PALETTE.fact} strokeWidth={2} strokeLinejoin="round" />
+                <polyline points={projPoints} fill="none" stroke={PLAN_FACT_PALETTE.forecast} strokeWidth={1.5}
                     strokeDasharray="3 3" strokeLinejoin="round" />
                 <line x1={todayX} y1={y(today.cumulativeFact)} x2={futureEndX} y2={futureEndY}
                     stroke="#8a8aa0" strokeWidth={1.5} strokeDasharray="4 4" opacity={0.8} />
@@ -53,8 +54,9 @@ function ForecastSparkline({ history, plannedLimit, projectionAmount, daysInMont
             </div>
             <div className="flex gap-3 mt-1.5 flex-wrap">
                 {[
-                    { color: '#6c63ff', label: 'факт', dashed: false },
-                    { color: '#ffaa44', label: 'прогноз по дням', dashed: true },
+                    { color: PLAN_FACT_PALETTE.fact, label: 'факт', dashed: false },
+                    { color: PLAN_FACT_PALETTE.plan, label: 'план', dashed: true },
+                    { color: PLAN_FACT_PALETTE.forecast, label: 'прогноз по дням', dashed: true },
                     { color: '#8a8aa0', label: 'прогноз вперёд', dashed: true },
                 ].map(({ color, label, dashed }) => (
                     <div key={label} className="flex items-center gap-1">
@@ -71,12 +73,6 @@ function ForecastSparkline({ history, plannedLimit, projectionAmount, daysInMont
     );
 }
 
-/** Верх шкалы: план, а если прогноз его перерастает — прогноз с запасом. */
-function barMax(plannedLimit: number, projection: number | null): number {
-    if (!projection || projection <= plannedLimit) return plannedLimit;
-    return Math.max(plannedLimit * 1.25, projection * 1.1);
-}
-
 /**
  * «По категориям за месяц» (ANO-119) — план, факт и прогноз конца месяца полосками.
  *
@@ -87,6 +83,10 @@ function barMax(plannedLimit: number, projection: number | null): number {
  * <p>Оценки при переезде сняты: ни подписей-приговоров, ни красной заливки, ни жёлтой
  * пометки за незаведённый план (правила 12 и 5). Осталось то, ради чего блок и нужен
  * на разборе: сколько план, сколько факт, куда идёт дело к концу месяца.
+ *
+ * <p>ANO-172: при переезде факт залили несуществующей CSS-переменной, и полоса не рисовалась
+ * вовсе. Теперь цвет каждой метки говорит, что это за метка, и не меняется от того, как она
+ * стоит относительно плана, — правило и палитра в lib/planFactBars.
  *
  * <p>Данные грузятся при монтировании, а монтируется компонент только раскрытым —
  * свёрнутый раздел не стоит ни одного запроса.
@@ -115,30 +115,40 @@ export default function CategoryProgressSection() {
                 ПО КАТЕГОРИЯМ ЗА МЕСЯЦ
             </h3>
             {data.progressBars.map(bar => {
-                const max = barMax(bar.plannedLimit, bar.projectionAmount);
-                const factPct = max > 0 ? (bar.currentFact / max) * 100 : 0;
-                const planMarkerPct = max > 0 ? (bar.plannedLimit / max) * 100 : 100;
-                const needlePct = bar.forecastEnabled && bar.projectionAmount && max > 0
-                    ? (bar.projectionAmount / max) * 100 : null;
+                const view = barView(bar);
                 return (
                     <div key={bar.categoryName} className="group relative">
                         <div className="flex justify-between gap-2 text-sm mb-1 min-w-0">
                             <span className="truncate">{bar.categoryName}</span>
+                            {/* Числа — в цветах своих меток: сразу видно, какая засечка чья. */}
                             <span className="shrink-0 text-xs text-muted-foreground">
-                                {fmt(bar.currentFact)} / {fmt(bar.plannedLimit)}
+                                <span style={{ color: view.colors.fact }}>{fmt(bar.currentFact)}</span>
+                                {' / '}
+                                <span style={{ color: view.colors.plan }}>{fmt(bar.plannedLimit)}</span>
                                 {bar.forecastEnabled && bar.projectionAmount != null && (
-                                    <span className="ml-1">/ ~{fmt(bar.projectionAmount)}</span>
+                                    <>
+                                        {' / '}
+                                        <span style={{ color: view.colors.forecast }}>~{fmt(bar.projectionAmount)}</span>
+                                    </>
                                 )}
                             </span>
                         </div>
-                        <div className="relative h-2 rounded-full" style={{ background: 'var(--color-surface-2)' }}>
+                        <div className="relative h-2 rounded-full" style={{ background: PLAN_FACT_PALETTE.track }}>
                             <div className="h-2 rounded-full transition-all"
-                                style={{ width: `${Math.min(factPct, 100)}%`, background: 'var(--color-primary)' }} />
-                            <div className="absolute top-[-3px] h-[calc(100%+6px)] w-0.5 bg-white/20 rounded-sm z-10"
-                                style={{ left: `${planMarkerPct}%` }} />
-                            {needlePct != null && (
-                                <div className="absolute top-[-5px] h-[calc(100%+10px)] w-0.5 rounded-sm z-20 bg-white/40"
-                                    style={{ left: `${Math.min(needlePct, 98)}%` }} />
+                                style={{ width: `${view.factPct}%`, background: view.colors.fact }} />
+                            <div className="absolute top-[-4px] h-[calc(100%+8px)] w-0.5 rounded-sm z-10"
+                                style={{ left: `${view.planPct}%`, background: view.colors.plan }} />
+                            {view.forecastPct != null && (
+                                <>
+                                    <div className="absolute top-[-5px] h-[calc(100%+10px)] w-0.5 rounded-sm z-20"
+                                        style={{ left: `${view.forecastPct}%`, background: view.colors.forecast }} />
+                                    <div className="absolute top-[-6px] w-2 h-2 rounded-full z-30"
+                                        style={{
+                                            left: `calc(${view.forecastPct}% - 3px)`,
+                                            background: view.colors.forecast,
+                                            boxShadow: '0 0 0 2px var(--color-surface)',
+                                        }} />
+                                </>
                             )}
                         </div>
                         {(() => {

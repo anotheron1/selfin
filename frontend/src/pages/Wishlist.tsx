@@ -339,7 +339,7 @@ export default function Wishlist() {
                 <button onClick={() => setShowCapital(v => !v)}
                     className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium">
                     <span className="flex items-center gap-2">
-                        <TrendingUp size={15} style={{ color: 'var(--color-primary)' }} />
+                        <TrendingUp size={15} style={{ color: 'var(--color-accent)' }} />
                         Что с капиталом
                     </span>
                     <ChevronDown size={16}
