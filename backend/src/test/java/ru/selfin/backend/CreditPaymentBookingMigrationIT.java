@@ -71,13 +71,14 @@ class CreditPaymentBookingMigrationIT {
     }
 
     @Test
-    @DisplayName("ANO-188: «Кредит», заведённый человеком до первой конверсии, — тоже: конверсия берёт категорию по имени")
-    void userCreatedCreditCategory_isConvertedToo() {
+    @DisplayName("ANO-188: «Кредит», который человек завёл сам и потом переименовал, — тоже (ревью Codex #72)")
+    void renamedCreditCategory_isConvertedToo() {
         // creditCategory() ищет «Кредит» по имени и системную создаёт, только если такой нет.
-        String credit = insertCategory("Кредит", false);
+        // Несистемную категорию CategoryService.update переименовать даёт — имя не признак.
+        String renamed = insertCategory("Автокредит", false);
         String loan = insertFund("CREDIT");
-        String rule = insertRule(credit, "EXPENSE");
-        String event = insertEvent(credit, loan, rule, "2026-10-15", "EXPENSE");
+        String rule = insertRule(renamed, "EXPENSE");
+        String event = insertEvent(renamed, loan, rule, "2026-10-15", "EXPENSE");
 
         applyMigration();
 
@@ -86,17 +87,32 @@ class CreditPaymentBookingMigrationIT {
     }
 
     @Test
-    @DisplayName("ANO-188: другая категория, накопление и разовая покупка не трогаются")
+    @DisplayName("ANO-188: после правки правила ссылку на копилку несут только удалённые события — правило всё равно опознаётся")
+    void ruleEditedAfterConversion_isConvertedToo() {
+        // regenerate мягко удаляет будущие события вместе со ссылкой, а новые её не получают.
+        String credit = insertCategory("Кредит", true);
+        String loan = insertFund("CREDIT");
+        String rule = insertRule(credit, "EXPENSE");
+        insertDeletedEvent(credit, loan, rule, "2026-10-15");
+        String live = insertEvent(credit, null, rule, "2026-10-15", "EXPENSE");
+
+        applyMigration();
+
+        assertThat(rulePriority(rule)).isEqualTo("HIGH");
+        assertThat(eventPriority(live)).isEqualTo("HIGH");
+    }
+
+    @Test
+    @DisplayName("ANO-188: своё правило в «Кредите» без копилки, накопление и разовая покупка не трогаются")
     void unrelatedRows_areLeftAlone() {
         String credit = insertCategory("Кредит", true);
-        String own = insertCategory("Кредиты-свои", false);
         String loan = insertFund("CREDIT");
         String savings = insertFund("SAVINGS");
 
-        // Другая категория человека, хоть и ссылается на копилку-кредит.
-        String ownRule = insertRule(own, "EXPENSE");
-        String ownEvent = insertEvent(own, loan, ownRule, "2026-10-15", "EXPENSE");
-        // «Кредит», но копилка — накопление.
+        // Своё правило человека в «Кредите» (например, ипотека): характер он выбрал сам.
+        String ownRule = insertRule(credit, "EXPENSE");
+        String ownEvent = insertEvent(credit, null, ownRule, "2026-10-15", "EXPENSE");
+        // Правило со ссылкой, но копилка — накопление.
         String savingsRule = insertRule(credit, "EXPENSE");
         String savingsEvent = insertEvent(credit, savings, savingsRule, "2026-10-15", "EXPENSE");
         // Разовая покупка из конверсии в плановое событие: правила нет.
@@ -160,14 +176,24 @@ class CreditPaymentBookingMigrationIT {
 
     /** Событие правила; у одного правила на дату — одно живое событие (uq_events_rule_date_active). */
     private String insertEvent(String categoryId, String fundId, String ruleId, String date, String type) {
+        return insertEvent(categoryId, fundId, ruleId, date, type, false);
+    }
+
+    /** Событие, которое regenerate мягко удалил: ссылка на копилку при этом остаётся. */
+    private String insertDeletedEvent(String categoryId, String fundId, String ruleId, String date) {
+        return insertEvent(categoryId, fundId, ruleId, date, "EXPENSE", true);
+    }
+
+    private String insertEvent(String categoryId, String fundId, String ruleId, String date, String type,
+                               boolean deleted) {
         String id = uuid();
         jdbc.update("""
                 INSERT INTO financial_events
                     (id, date, category_id, type, planned_amount, status, is_deleted, description,
                      created_at, priority, event_kind, target_fund_id, recurring_rule_id)
-                VALUES (?::uuid, ?::date, ?::uuid, ?, 49000, 'PLANNED', FALSE,
+                VALUES (?::uuid, ?::date, ?::uuid, ?, 49000, 'PLANNED', ?,
                         'Машина — платёж по кредиту', now(), 'MEDIUM', 'PLAN', ?::uuid, ?::uuid)
-                """, id, date, categoryId, type, fundId, ruleId);
+                """, id, date, categoryId, type, deleted, fundId, ruleId);
         return id;
     }
 
