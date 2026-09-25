@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { needsConfirmation, shortfallQuestion } from './transferConfirm';
+import { needsConfirmation, shortfallQuestion, shortfallQuestionFor } from './transferConfirm';
 
 /**
  * ANO-157. Перевод в копилку отвечает 409 в двух несовместимых смыслах, и предложить
@@ -43,6 +43,29 @@ describe('shortfallQuestion', () => {
         expect(shortfallQuestion(undefined))
             .toBe('Это больше, чем свободно в кармашке. Отложить всё равно?');
     });
+
+    it('минимум сегодня — «уже сегодня», как карточка говорит «Сегодня по плану не хватает»', () => {
+        expect(shortfallQuestion('2026-09-26', true))
+            .toBe('Это больше, чем свободно в кармашке — не хватит уже сегодня. Отложить всё равно?');
+    });
+});
+
+describe('shortfallQuestionFor — по кармашку с карточки', () => {
+    const pocket = (minDate: string) => ({
+        minPoint: { date: minDate }, trajectory: [{ date: '2026-09-26' }, { date: '2026-09-27' }],
+    });
+
+    it('«сегодня» — день нулевой точки траектории, то есть сегодня сервера, как решает карточка', () => {
+        expect(shortfallQuestionFor(pocket('2026-09-26'))).toContain('не хватит уже сегодня');
+    });
+
+    it('минимум позже — называет его день', () => {
+        expect(shortfallQuestionFor(pocket('2026-09-28'))).toContain('к 28 сентября не хватит');
+    });
+
+    it('кармашка ещё нет — без даты', () => {
+        expect(shortfallQuestionFor(null)).toBe('Это больше, чем свободно в кармашке. Отложить всё равно?');
+    });
 });
 
 describe('диалог «Пополнить фонд» (ANO-88)', () => {
@@ -57,7 +80,7 @@ describe('диалог «Пополнить фонд» (ANO-88)', () => {
     });
 
     it('спрашивает с датой и шлёт горизонт карточки', () => {
-        expect(src).toContain('shortfallQuestion(');
+        expect(src).toContain('shortfallQuestionFor(');
         expect(src).toContain('transferToFund(fund.id, num, undefined, scope)');
         expect(src).toContain('transferToFund(fund.id, num, true, scope)');
     });

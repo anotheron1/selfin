@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
-import { needsConfirmation, shortfallQuestion } from '../lib/transferConfirm';
+import { needsConfirmation, shortfallQuestionFor } from '../lib/transferConfirm';
 import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
@@ -189,12 +189,12 @@ function CreateFundModal({ accounts, onClose, onSuccess }: {
  * кармашка, — «свободно». Раньше здесь стоял остаток нулевого дня под словом «доступно»,
  * и диалог разрешал вдвое больше, чем карточка называла свободным.
  */
-function TransferModal({ fund, free, shortOn, scope, onClose, onSuccess }: {
+function TransferModal({ fund, free, question, scope, onClose, onSuccess }: {
     fund: TargetFund;
     /** Кармашек с карточки — сколько отложить и не провалиться. */
     free: number;
-    /** День минимума кармашка: к нему не хватит, если отложить больше. */
-    shortOn: string | undefined;
+    /** Вопрос «отложить всё равно?» с днём, к которому не хватит. */
+    question: string;
     /** Горизонт, выбранный на карточке: сервер переспрашивает по нему. */
     scope: string | undefined;
     onClose: () => void;
@@ -218,7 +218,7 @@ function TransferModal({ fund, free, shortOn, scope, onClose, onSuccess }: {
                 // Безусловный («снять больше накопленного») пробрасываем: повтор с confirm
                 // упёрся бы в тот же отказ, а вопрос был бы враньём.
                 if (!needsConfirmation(err)) throw err;
-                if (!confirm(shortfallQuestion(shortOn))) return;
+                if (!confirm(question)) return;
                 await transferToFund(fund.id, num, true, scope);
             }
             onSuccess();
@@ -559,7 +559,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                 <TransferModal
                     fund={transferFund}
                     free={pocket?.pocket ?? 0}
-                    shortOn={pocket?.minPoint?.date}
+                    question={shortfallQuestionFor(pocket)}
                     scope={pocketScope}
                     onClose={() => setTransferFund(null)}
                     onSuccess={() => { setTransferFund(null); load(); setPocketBump(b => b + 1); }}

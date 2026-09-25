@@ -11,11 +11,25 @@ export const CONFIRM_REQUIRED = 'CONFIRM_REQUIRED';
  * когда станет туго.
  *
  * @param shortOn день минимума кармашка (ISO); без него дату не выдумываем
+ * @param today   минимум — сегодня: тогда «уже сегодня», как карточка говорит «Сегодня по плану
+ *                не хватает»
  */
-export function shortfallQuestion(shortOn: string | undefined): string {
-    return shortOn
-        ? `Это больше, чем свободно в кармашке — к ${fmtDayMonth(shortOn)} не хватит. Отложить всё равно?`
-        : 'Это больше, чем свободно в кармашке. Отложить всё равно?';
+export function shortfallQuestion(shortOn: string | undefined, today = false): string {
+    if (!shortOn) return 'Это больше, чем свободно в кармашке. Отложить всё равно?';
+    const when = today ? 'не хватит уже сегодня' : `к ${fmtDayMonth(shortOn)} не хватит`;
+    return `Это больше, чем свободно в кармашке — ${when}. Отложить всё равно?`;
+}
+
+/**
+ * Вопрос по кармашку с карточки. «Сегодня» — день нулевой точки траектории, то есть сегодня
+ * сервера, а не браузера: так же решает карточка (`gapMode`), и в разных часовых поясах
+ * они не разойдутся.
+ */
+export function shortfallQuestionFor(
+    pocket: { minPoint?: { date: string }; trajectory?: { date: string }[] } | null,
+): string {
+    const shortOn = pocket?.minPoint?.date;
+    return shortfallQuestion(shortOn, shortOn !== undefined && shortOn === pocket?.trajectory?.[0]?.date);
 }
 
 /**
