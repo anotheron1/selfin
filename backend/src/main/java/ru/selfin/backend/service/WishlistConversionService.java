@@ -370,7 +370,10 @@ public class WishlistConversionService {
                 creditCategory(),                            // PMT category (system "Кредит")
                 EventType.EXPENSE,
                 monthlyPMT,
-                Priority.MEDIUM,
+                // ANO-188: у платежа по кредиту сумма и дата известны заранее — это бронь, как
+                // ипотека (канон, «Характер плановой строки»). С «Ожиданием» пропущенный платёж
+                // выпадал из резерва кармашка (findOverdueMandatoryExpenses берёт только брони).
+                Priority.HIGH,
                 src.getName() + " — платёж по кредиту",
                 savedFund.getId(),
                 null,
