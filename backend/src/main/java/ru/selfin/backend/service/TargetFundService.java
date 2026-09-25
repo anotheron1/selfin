@@ -499,14 +499,15 @@ public class TargetFundService {
         // переспрашивало бы на плановом взносе. Перевод уже записан в этой транзакции, движок
         // видит его; при минусе исключение откатит всё — копилку, историю и факт.
         if (askIfShort) {
-            BigDecimal pocketAfter = pocketService.getPocket(scope, today).pocket();
-            if (pocketAfter.signum() < 0) {
+            ru.selfin.backend.dto.pocket.PocketResultDto after = pocketService.getPocket(scope, today);
+            if (after.pocket().signum() < 0) {
                 // Отдельный тип, а не ResponseStatusException: статус тот же 409, что у
                 // безусловного отказа выше, и различить их фронт может только по коду в
                 // details (ANO-157).
                 throw new ConfirmationRequiredException(
-                        "Pocket after transfer would be " + pocketAfter
-                                + "; resend with confirm=true to proceed");
+                        "Pocket after transfer would be " + after.pocket()
+                                + "; resend with confirm=true to proceed",
+                        List.of(afterTransferHint(after)));
             }
         }
 
@@ -514,6 +515,21 @@ public class TargetFundService {
                 fundId, amount, oldBalance, newBalance, idempotencyKey);
 
         return toDto(fund);
+    }
+
+    /**
+     * Что будет после перевода — чтобы вопрос повторил слова карточки кармашка (ANO-88).
+     *
+     * <p>{@code short:ДЕНЬ:СУММА} — по плану не хватит денег; {@code nz:ДЕНЬ:СУММА} — денег хватит,
+     * но придётся взять из НЗ. День — минимум кармашка после перевода. Считает тот же движок,
+     * что уже посчитал кармашек после перевода: фронт своей оценки не строит — с резервом
+     * взносов она разошлась бы с правдой. Контракт с фронтом — {@code lib/transferConfirm.ts}.
+     */
+    static String afterTransferHint(ru.selfin.backend.dto.pocket.PocketResultDto after) {
+        var min = after.minPoint();
+        return min.balance().signum() < 0
+                ? "short:" + min.date() + ":" + min.balance().negate().toPlainString()
+                : "nz:" + min.date() + ":" + after.buffer().subtract(min.balance()).toPlainString();
     }
 
     /**

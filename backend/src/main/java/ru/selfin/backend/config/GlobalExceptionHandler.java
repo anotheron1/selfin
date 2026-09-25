@@ -122,9 +122,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleConfirmationRequired(
             ru.selfin.backend.exception.ConfirmationRequiredException ex) {
         log.warn("confirmation required: {}", ex.getMessage());
+        // Код первым — по нему фронт отличает подтверждаемый отказ; дальше подсказки (ANO-88).
+        List<String> details = new java.util.ArrayList<>();
+        details.add(ru.selfin.backend.exception.ConfirmationRequiredException.CODE);
+        details.addAll(ex.hints());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of(
-                HttpStatus.CONFLICT.value(), ex.getMessage(),
-                List.of(ru.selfin.backend.exception.ConfirmationRequiredException.CODE)));
+                HttpStatus.CONFLICT.value(), ex.getMessage(), details));
     }
 
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)

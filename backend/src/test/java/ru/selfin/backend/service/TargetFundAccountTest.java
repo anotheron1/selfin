@@ -360,6 +360,9 @@ class TargetFundAccountTest {
         ru.selfin.backend.dto.pocket.PocketResultDto after =
                 mock(ru.selfin.backend.dto.pocket.PocketResultDto.class);
         when(after.pocket()).thenReturn(new BigDecimal("-5000"));
+        // Подсказка «что будет после перевода» строится по минимуму кармашка (ANO-88).
+        when(after.minPoint()).thenReturn(new ru.selfin.backend.dto.pocket.PocketResultDto.MinPoint(
+                LocalDate.now(), new BigDecimal("-5000"), null));
         when(pocketService.getPocket(any(), any())).thenReturn(after);
 
         assertThatThrownBy(() ->

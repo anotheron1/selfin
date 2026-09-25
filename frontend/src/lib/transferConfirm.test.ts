@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { needsConfirmation, shortfallQuestion, shortfallQuestionFor, transferFreeLine } from './transferConfirm';
+import { confirmQuestion, needsConfirmation, transferFreeLine } from './transferConfirm';
 import { fmtRub as fmtC } from './format';
 import type { PocketResponse } from '../types/api';
 
@@ -32,41 +32,31 @@ describe('needsConfirmation', () => {
 });
 
 /**
- * ANO-88, решение владельца 26.09 (вариант А): «Пополнить фонд» говорит тем же числом и словом,
- * что карточка кармашка, и спрашивает с датой, к которой не хватит.
+ * ANO-88, решение владельца 26.09 (вариант А): вопрос повторяет слова карточки о том, что будет
+ * ПОСЛЕ перевода. Что будет — говорит сервер: он уже посчитал кармашек после перевода.
  */
-describe('shortfallQuestion', () => {
-    it('называет дату, к которой не хватит', () => {
-        expect(shortfallQuestion('2026-09-28'))
-            .toBe('Это больше, чем свободно в кармашке — к 28 сентября не хватит. Отложить всё равно?');
+describe('confirmQuestion', () => {
+    const card = { trajectory: [{ date: '2026-09-26' }, { date: '2026-09-27' }] };
+    const refusal = (hint?: string) => ({ status: 409, details: hint ? ['CONFIRM_REQUIRED', hint] : ['CONFIRM_REQUIRED'] });
+
+    it('не хватит денег — день и сумма, как заголовок карточки', () => {
+        expect(confirmQuestion(refusal('short:2026-09-28:5000.00'), card))
+            .toBe(`После перевода 28 сентября по плану не хватит ${fmtC(5000)}. Отложить всё равно?`);
     });
 
-    it('без даты — без выдуманной даты', () => {
-        expect(shortfallQuestion(undefined))
-            .toBe('Это больше, чем свободно в кармашке. Отложить всё равно?');
+    it('минимум сегодня — «уже сегодня»: по нулевой точке траектории карточки, как решает карточка', () => {
+        expect(confirmQuestion(refusal('short:2026-09-26:1601.00'), card))
+            .toBe(`После перевода уже сегодня по плану не хватит ${fmtC(1601)}. Отложить всё равно?`);
     });
 
-    it('минимум сегодня — «уже сегодня», как карточка говорит «Сегодня по плану не хватает»', () => {
-        expect(shortfallQuestion('2026-09-26', true))
-            .toBe('Это больше, чем свободно в кармашке — не хватит уже сегодня. Отложить всё равно?');
-    });
-});
-
-describe('shortfallQuestionFor — по кармашку с карточки', () => {
-    const pocket = (minDate: string) => ({
-        minPoint: { date: minDate }, trajectory: [{ date: '2026-09-26' }, { date: '2026-09-27' }],
+    it('денег хватит, но задет НЗ — про НЗ, а не «не хватит»', () => {
+        expect(confirmQuestion(refusal('nz:2026-09-27:3000'), card))
+            .toBe(`После перевода 27 сентября по плану придётся взять из НЗ ${fmtC(3000)}. Отложить всё равно?`);
     });
 
-    it('«сегодня» — день нулевой точки траектории, то есть сегодня сервера, как решает карточка', () => {
-        expect(shortfallQuestionFor(pocket('2026-09-26'))).toContain('не хватит уже сегодня');
-    });
-
-    it('минимум позже — называет его день', () => {
-        expect(shortfallQuestionFor(pocket('2026-09-28'))).toContain('к 28 сентября не хватит');
-    });
-
-    it('кармашка ещё нет — без даты', () => {
-        expect(shortfallQuestionFor(null)).toBe('Это больше, чем свободно в кармашке. Отложить всё равно?');
+    it('подсказки нет — вопрос без выдуманных дня и суммы', () => {
+        expect(confirmQuestion(refusal(), card)).toBe('Это больше, чем свободно. Отложить всё равно?');
+        expect(confirmQuestion(refusal('garbage'), null)).toBe('Это больше, чем свободно. Отложить всё равно?');
     });
 });
 
@@ -110,7 +100,7 @@ describe('диалог «Пополнить фонд» (ANO-88)', () => {
     });
 
     it('спрашивает с датой и шлёт горизонт карточки', () => {
-        expect(src).toContain('shortfallQuestionFor(');
+        expect(src).toContain('confirmQuestion(err, pocket)');
         expect(src).toContain('transferToFund(fund.id, num, undefined, scope)');
         expect(src).toContain('transferToFund(fund.id, num, true, scope)');
     });

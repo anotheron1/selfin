@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
-import { needsConfirmation, shortfallQuestionFor, transferFreeLine } from '../lib/transferConfirm';
+import { confirmQuestion, needsConfirmation, transferFreeLine } from '../lib/transferConfirm';
 import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
@@ -189,12 +189,10 @@ function CreateFundModal({ accounts, onClose, onSuccess }: {
  * кармашка, — «свободно». Раньше здесь стоял остаток нулевого дня под словом «доступно»,
  * и диалог разрешал вдвое больше, чем карточка называла свободным.
  */
-function TransferModal({ fund, freeLine, question, scope, onClose, onSuccess }: {
+function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
     fund: TargetFund;
-    /** Сколько отложить и не провалиться — теми же словами, что карточка; null, пока кармашка нет. */
-    freeLine: string | null;
-    /** Вопрос «отложить всё равно?» с днём, к которому не хватит. */
-    question: string;
+    /** Кармашек с карточки: строка «сколько отложить» и «сегодня» для вопроса; null, пока его нет. */
+    pocket: PocketResponse | null;
     /** Горизонт, выбранный на карточке: сервер переспрашивает по нему. */
     scope: string | undefined;
     onClose: () => void;
@@ -202,6 +200,7 @@ function TransferModal({ fund, freeLine, question, scope, onClose, onSuccess }: 
 }) {
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
+    const freeLine = transferFreeLine(pocket);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -218,7 +217,7 @@ function TransferModal({ fund, freeLine, question, scope, onClose, onSuccess }: 
                 // Безусловный («снять больше накопленного») пробрасываем: повтор с confirm
                 // упёрся бы в тот же отказ, а вопрос был бы враньём.
                 if (!needsConfirmation(err)) throw err;
-                if (!confirm(question)) return;
+                if (!confirm(confirmQuestion(err, pocket))) return;
                 await transferToFund(fund.id, num, true, scope);
             }
             onSuccess();
@@ -558,8 +557,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
             {transferFund && (
                 <TransferModal
                     fund={transferFund}
-                    freeLine={transferFreeLine(pocket)}
-                    question={shortfallQuestionFor(pocket)}
+                    pocket={pocket}
                     scope={pocketScope}
                     onClose={() => setTransferFund(null)}
                     onSuccess={() => { setTransferFund(null); load(); setPocketBump(b => b + 1); }}

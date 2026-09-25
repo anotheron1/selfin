@@ -21,7 +21,9 @@ import java.time.YearMonth;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -55,6 +57,7 @@ class TransferFreeMoneyIT {
         jdbc.update("DELETE FROM target_funds");
         jdbc.update("DELETE FROM balance_checkpoints");
         jdbc.update("DELETE FROM categories WHERE name LIKE 'ANO-88 %'");
+        jdbc.update("DELETE FROM user_settings");   // НЗ — снова 0
     }
 
     @Test
@@ -65,9 +68,12 @@ class TransferFreeMoneyIT {
         plan("EXPENSE", today.plusDays(1), "90000");
         String fundId = createFund("Отпуск", null, null, null);
 
+        // После перевода завтра не хватит 10 000 — это и говорит сервер, словами карточки.
         transfer(fundId, new BigDecimal("20000"), null)
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.details[0]").value("CONFIRM_REQUIRED"));
+                .andExpect(jsonPath("$.details[0]").value("CONFIRM_REQUIRED"))
+                .andExpect(jsonPath("$.details[1]",
+                        matchesPattern("short:" + today.plusDays(1) + ":10000(\\.0+)?")));
 
         assertThat(fundBalance(fundId)).as("вопрос — не перевод: копилка пуста").isEqualByComparingTo("0");
         assertThat(count("fund_transactions")).as("и истории перевода нет").isZero();
@@ -76,6 +82,25 @@ class TransferFreeMoneyIT {
 
         transfer(fundId, new BigDecimal("20000"), true).andExpect(status().isOk());
         assertThat(fundBalance(fundId)).as("подтверждение пропускает").isEqualByComparingTo("20000");
+    }
+
+    @Test
+    @DisplayName("ANO-88: денег после перевода хватает, но задет НЗ — вопрос про НЗ, а не «не хватит»")
+    void transferIntoNz_asksAboutNz() throws Exception {
+        // НЗ 5 000. Счёт 100 000, завтра бронь 90 000 → минимум 10 000, кармашек 5 000.
+        // Перевод 8 000 → минимум 2 000: денег хватает, но из НЗ уйдёт 5 000 − 2 000 = 3 000.
+        mockMvc.perform(put("/api/v1/settings/pocket")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"bufferAmount\": 5000}"))
+                .andExpect(status().isOk());
+        anchorDefaultAccount("100000");
+        plan("EXPENSE", today.plusDays(1), "90000");
+        String fundId = createFund("Отпуск", null, null, null);
+
+        transfer(fundId, new BigDecimal("8000"), null)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details[1]",
+                        matchesPattern("nz:" + today.plusDays(1) + ":3000(\\.0+)?")));
+        assertThat(fundBalance(fundId)).isEqualByComparingTo("0");
     }
 
     @Test

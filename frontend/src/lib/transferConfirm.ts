@@ -20,33 +20,35 @@ export function transferFreeLine(p: PocketResponse | null): string | null {
 /** Код из ErrorResponse.details. Зеркалит ConfirmationRequiredException.CODE на бэкенде. */
 export const CONFIRM_REQUIRED = 'CONFIRM_REQUIRED';
 
-/**
- * Вопрос перед переводом сверх свободного (ANO-88, решение владельца 26.09, вариант А).
- *
- * Сервер переспрашивает, когда кармашек после перевода ушёл бы в минус, — значит, не хватит
- * к дню минимума траектории. Этот день и называем: «больше, чем свободно» без даты не говорит,
- * когда станет туго.
- *
- * @param shortOn день минимума кармашка (ISO); без него дату не выдумываем
- * @param today   минимум — сегодня: тогда «уже сегодня», как карточка говорит «Сегодня по плану
- *                не хватает»
- */
-export function shortfallQuestion(shortOn: string | undefined, today = false): string {
-    if (!shortOn) return 'Это больше, чем свободно в кармашке. Отложить всё равно?';
-    const when = today ? 'не хватит уже сегодня' : `к ${fmtDayMonth(shortOn)} не хватит`;
-    return `Это больше, чем свободно в кармашке — ${when}. Отложить всё равно?`;
-}
+/** Подсказка сервера после кода: {@code short:ДЕНЬ:СУММА} или {@code nz:ДЕНЬ:СУММА} (ANO-88). */
+const HINT = /^(short|nz):(\d{4}-\d{2}-\d{2}):(\d+(?:\.\d+)?)$/;
 
 /**
- * Вопрос по кармашку с карточки. «Сегодня» — день нулевой точки траектории, то есть сегодня
- * сервера, а не браузера: так же решает карточка (`gapMode`), и в разных часовых поясах
- * они не разойдутся.
+ * Вопрос перед переводом, после которого не хватит (ANO-88, решение владельца 26.09, вариант А).
+ *
+ * Повторяет слова карточки о том, что будет ПОСЛЕ перевода: «по плану не хватит N» или «по плану
+ * придётся взять из НЗ N» — в день минимума. Что будет, говорит сервер: он уже посчитал кармашек
+ * после перевода тем же движком (`TargetFundService.afterTransferHint`). Своей оценки здесь нет:
+ * с резервом взносов в копилки она разошлась бы с правдой.
+ *
+ * «Сегодня» — нулевая точка траектории карточки, то есть сегодня сервера, а не браузера: так же
+ * решает карточка (`gapMode`).
+ *
+ * @param err    отказ сервера с кодом {@link CONFIRM_REQUIRED}
+ * @param pocket кармашек с карточки — только чтобы узнать «сегодня»
  */
-export function shortfallQuestionFor(
-    pocket: { minPoint?: { date: string }; trajectory?: { date: string }[] } | null,
-): string {
-    const shortOn = pocket?.minPoint?.date;
-    return shortfallQuestion(shortOn, shortOn !== undefined && shortOn === pocket?.trajectory?.[0]?.date);
+export function confirmQuestion(err: unknown, pocket: { trajectory?: { date: string }[] } | null): string {
+    const details = (err as { details?: unknown } | null | undefined)?.details;
+    const hint = Array.isArray(details)
+        ? details.map(d => (typeof d === 'string' ? HINT.exec(d) : null)).find(m => m !== null)
+        : null;
+    if (!hint) return 'Это больше, чем свободно. Отложить всё равно?';
+    const [, kind, day, amount] = hint;
+    const when = day === pocket?.trajectory?.[0]?.date ? 'уже сегодня' : fmtDayMonth(day);
+    const what = kind === 'short'
+        ? `не хватит ${fmtRub(Number(amount))}`
+        : `придётся взять из НЗ ${fmtRub(Number(amount))}`;
+    return `После перевода ${when} по плану ${what}. Отложить всё равно?`;
 }
 
 /**
