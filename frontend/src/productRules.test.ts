@@ -57,8 +57,6 @@ const DEBTS: { file: string; stem: string; count: number; task: string }[] = [
     { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'перерасход', count: 2, task: 'ANO-165' },
     { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'бюджет', count: 1, task: 'ANO-165' },
     { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'выполнен', count: 2, task: 'ANO-165' },
-    // «Просроченные обязательства» в расшифровке кармашка.
-    { file: 'backend/src/main/java/ru/selfin/backend/service/PocketEngine.java', stem: 'просроч', count: 1, task: 'ANO-101' },
     // Быстрый ввод на любую ошибку винит заполненные поля.
     { file: 'frontend/src/components/Fab.tsx', stem: 'проверьте заполненные', count: 1, task: 'ANO-170' },
     // «Снимки бюджета» — имя функции, чья судьба решается там же.
