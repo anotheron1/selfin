@@ -75,6 +75,10 @@ const ALLOWED: { file: string; stem: string; count: number; why: string }[] = [
         file: 'frontend/src/components/wishlist/WishlistThresholdsHeader.tsx', stem: 'подушк', count: 1,
         why: 'запас в месяцах расходов — подушка в обычном смысле, «подушка на 3 месяца»; сумма кармашка — «НЗ» (ANO-92)',
     },
+    {
+        file: 'frontend/src/lib/help.ts', stem: 'подушк', count: 2,
+        why: 'справка кармашка разводит НЗ и подушку «Хотелок» — слово в том же смысле, что на «Хотелках» (ANO-186)',
+    },
 ];
 
 // ── Где живут строки интерфейса ──────────────────────────────────────────────

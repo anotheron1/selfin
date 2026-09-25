@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AmountInput, amountValue } from '../ui/amount-input';
 import { updatePocketSettings } from '../../api';
+import { NZ_MEANING } from '../../lib/help';
 
 const inputStyle = {
     background: 'var(--color-surface-2)',
@@ -45,8 +46,7 @@ export default function NzForm({ initial, onSaved, autoFocus }: {
     return (
         <form onSubmit={submit} className="space-y-3">
             <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                Сумма, которую кармашек не тратит: свободные деньги считаются так, чтобы на счёте
-                оставалось не меньше. Чтобы убрать НЗ, очисти поле.
+                {NZ_MEANING} Чтобы убрать НЗ, очисти поле.
             </p>
             <AmountInput
                 autoFocus={autoFocus}

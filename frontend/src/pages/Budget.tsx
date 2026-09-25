@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useReducer } from 'react';
-import { ChevronRight, Repeat } from 'lucide-react';
+import { ChevronRight, HelpCircle, Repeat } from 'lucide-react';
 import { fetchEvents, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
 import type { FinancialEvent } from '../types/api';
 import { favourableDelta, deltaColor } from '../lib/planFact';
@@ -15,6 +15,7 @@ import FactCreateSheet from '../components/FactCreateSheet';
 import PriorityButton from '../components/PriorityButton';
 import QuickCloseButton from '../components/journal/QuickCloseButton';
 import ExpectationCards from '../components/journal/ExpectationCards';
+import HelpDialog from '../components/HelpDialog';
 import { ScrollArea } from '../components/ui/scroll-area';
 
 const fmt = (n: number | null) =>
@@ -135,6 +136,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const [, guardChanged] = useReducer((n: number) => n + 1, 0);
     const [closeFailedId, setCloseFailedId] = useState<string | null>(null);
     const [expectationsOpen, setExpectationsOpen] = useState(false);
+    const [showHelp, setShowHelp] = useState(false);
 
     const load = useCallback((silent = false) => {
         const start = formatDateYMD(new Date(year, month, 1));
@@ -220,7 +222,15 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                     <button
                         onClick={() => { if (month === 0) { setMonth(11); setYear((y: number) => y - 1); } else setMonth((m: number) => m - 1); }}
                         className="text-lg px-3 py-1 rounded-lg" style={{ color: 'var(--color-accent)' }}>‹</button>
-                    <h2 className="font-semibold capitalize">{monthLabel}</h2>
+                    {/* ANO-186: шапки у экрана нет, месяц — его заголовок; справка — рядом с ним */}
+                    <div className="flex items-center gap-1.5">
+                        {/* Заглавная только первая: `capitalize` поднимал и «г.» — «Сентябрь 2026 Г.» */}
+                        <h2 className="font-semibold first-letter:uppercase">{monthLabel}</h2>
+                        <button onClick={() => setShowHelp(true)} aria-label="Как устроен журнал"
+                            className="p-1 rounded-lg" style={{ color: 'var(--color-text-muted)' }}>
+                            <HelpCircle size={16} />
+                        </button>
+                    </div>
                     <button
                         onClick={() => { if (month === 11) { setMonth(0); setYear((y: number) => y + 1); } else setMonth((m: number) => m + 1); }}
                         className="text-lg px-3 py-1 rounded-lg" style={{ color: 'var(--color-accent)' }}>›</button>
@@ -582,6 +592,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                     />
                 );
             })()}
+            <HelpDialog topic="journal" open={showHelp} onOpenChange={setShowHelp} />
         </>
     );
 }
