@@ -101,13 +101,13 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 {/* Линия нуля */}
                 <line x1={PAD_X} y1={yZero} x2={W - PAD_X} y2={yZero}
                     stroke="rgba(255,255,255,0.25)" strokeWidth={1} />
-                {/* Линия буфера */}
+                {/* Линия НЗ */}
                 {showBufferLine && (
                     <>
                         <line x1={PAD_X} y1={yBuffer} x2={W - PAD_X} y2={yBuffer}
                             stroke={AMBER} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
                         <text x={W - PAD_X} y={yBuffer - 4} fontSize={10} fill={AMBER_LIGHT}
-                            textAnchor="end">подушка</text>
+                            textAnchor="end">НЗ</text>
                     </>
                 )}
                 {/* Заливка между траекторией и нулём */}
@@ -207,7 +207,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 {showBufferZone(buffer) && (
                     <span className="flex items-center gap-1.5">
                         <span className="inline-block w-2 h-2 rounded-sm" style={{ background: AMBER, opacity: 0.6 }} />
-                        ниже подушки
+                        ниже НЗ
                     </span>
                 )}
                 <span className="flex items-center gap-1.5">

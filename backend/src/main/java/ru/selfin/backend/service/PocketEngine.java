@@ -367,7 +367,7 @@ public final class PocketEngine {
                 "Самый низкий остаток (" + minDateLabel + ")", minBalance, List.of()));
         if (buffer.signum() != 0) {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.BUFFER,
-                    "Подушка (настройка)", buffer.negate(), List.of()));
+                    "НЗ (настройка)", buffer.negate(), List.of()));
         }
         lines.add(new PocketResultDto.BreakdownLine(BreakdownType.POCKET, "Кармашек", pocket, List.of()));
 

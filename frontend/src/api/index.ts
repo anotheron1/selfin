@@ -35,6 +35,7 @@ import type {
     WishlistCreateDto,
     WishlistSimulationDto,
     WishlistThresholds,
+    PocketSettings,
     WishlistKind,
     WishlistStatus,
     RecomputeResponse,
@@ -160,6 +161,13 @@ export const fetchPocket = (scope?: string) =>
 /** Примерка «что если» (ANO-16): движок с подменённым входом, ничего не пишет. */
 export const postPocketSandbox = (body: SandboxRequest) =>
     post<SandboxResponse>('/pocket/sandbox', body);
+
+/** НЗ кармашка (ANO-92): сумма, которую кармашек не тратит. */
+export const fetchPocketSettings = () => get<PocketSettings>('/settings/pocket');
+
+/** Сохранить НЗ; 0 — НЗ нет (пустого значения сервер не принимает). */
+export const updatePocketSettings = (body: PocketSettings) =>
+    put<PocketSettings>('/settings/pocket', body);
 
 // --- Funds ---
 
