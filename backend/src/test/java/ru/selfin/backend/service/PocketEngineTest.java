@@ -729,10 +729,12 @@ class PocketEngineTest {
     // ── прогноз незапланированных ────────────────────────────────────────────
 
     @Test
-    @DisplayName("Прогноз размазан по дням до конца месяца и виден явной строкой")
+    @DisplayName("ANO-140: в горизонт попадает доля прогноза текущего месяца по дням, и она видна явной строкой")
     void unplannedForecast_spread() {
-        // Окно 2.03..15.03 (горизонт раньше конца месяца) = 14 дней, прогноз 1 400 → 100/день
-        PocketInput in = base().forecast(1_400, "Продукты").build();
+        // Прогноз текущего месяца — остаток месячной нормы: он приходится на 2.03..31.03, 30 дней.
+        // Горизонт до 15.03 берёт 14 из них: 3 000 × 14/30 = 1 400 → 100/день. До ANO-140 в окно
+        // ложилась вся сумма, и на коротком горизонте месяц сжимался в пару дней.
+        PocketInput in = base().forecast(3_000, "Продукты").build();
         PocketResultDto r = PocketEngine.calculate(in);
 
         // ANO-80: величина и размазка прежние, но живут во ВТОРОМ числе. Главное число
@@ -742,6 +744,34 @@ class PocketEngineTest {
         PocketResultDto.BreakdownLine f = line(r, BreakdownType.UNPLANNED_FORECAST);
         assertThat(f.amount()).isEqualByComparingTo(dec(-1_400));
         assertThat(f.details()).containsExactly("Продукты");
+    }
+
+    @Test
+    @DisplayName("ANO-140: будущий месяц, обрезанный горизонтом, даёт свою долю, а не всю сумму")
+    void futureForecast_horizonMidMonth_takesShare() {
+        // Горизонт 10.04: из апреля в него попадает 10 дней из 30 — 30 000 × 10/30 = 10 000.
+        LocalDate horizon = LocalDate.of(2026, 4, 10);
+        PocketResultDto r = PocketEngine.calculate(base().horizon(horizon)
+                .monthsScope(2, horizon)
+                .futureForecast(java.time.YearMonth.of(2026, 4), 30_000).build());
+
+        assertThat(lastBalance(r).subtract(lastForecastBalance(r)))
+                .as("в горизонт попали 10 апрельских дней из 30")
+                .isEqualByComparingTo("10000");
+    }
+
+    @Test
+    @DisplayName("ANO-140: горизонт покрывает остаток месяца — прогноз текущего месяца ложится целиком")
+    void unplannedForecast_horizonCoversMonth_wholeRemainder() {
+        // Доля считается от ОСТАВШИХСЯ дней месяца (2.03..31.03, 30), а не от его длины (31):
+        // остаток нормы — на остаток месяца.
+        LocalDate horizon = LocalDate.of(2026, 4, 30);
+        PocketResultDto r = PocketEngine.calculate(base().horizon(horizon)
+                .monthsScope(2, horizon)
+                .forecast(3_000, "Продукты").build());
+
+        assertThat(lastBalance(r).subtract(lastForecastBalance(r)))
+                .isEqualByComparingTo("3000");
     }
 
     @Test
@@ -949,20 +979,21 @@ class PocketEngineTest {
         PocketInput in = base()
                 .events(plan(EventType.INCOME, LocalDate.of(2026, 3, 2), 50_000, Priority.HIGH))
                 .horizon(LocalDate.of(2026, 3, 2))
-                .forecast(1_000, "Продукты")
+                .forecast(3_000, "Продукты")
                 .build();
         PocketResultDto r = PocketEngine.calculate(in);
 
         // ANO-80: прогноз ушёл из expense (поле означает расход по планам) и виден расхождением
-        // двух линий. Весь размаз (1 день окна) лёг на 2.03; в хвосте расхождение не растёт.
+        // двух линий. ANO-140: окно — 2.03, один день из 30 оставшихся, в него ложится 3 000 / 30
+        // = 100, а не весь месяц. В хвосте расхождение не растёт.
         assertThat(r.trajectory().get(1).expense())
-                .as("расход по планам в этот день нулевой — 1 000 были прогнозом")
+                .as("расход по планам в этот день нулевой — 100 были прогнозом")
                 .isEqualByComparingTo(dec(0));
         for (int i = 1; i < r.trajectory().size(); i++) {
             PocketResultDto.TrajectoryPoint p = r.trajectory().get(i);
             assertThat(p.balance().subtract(p.balanceWithForecast()))
                     .as("расхождение линий набрано в окне и в хвост не протекает")
-                    .isEqualByComparingTo(dec(1_000));
+                    .isEqualByComparingTo(dec(100));
         }
     }
 
@@ -1055,8 +1086,9 @@ class PocketEngineTest {
                 .as("главное число — только факты и планы: предположение им не распоряжаются")
                 .isEqualByComparingTo("10000");
         assertThat(r.pocketWithForecast())
-                .as("оговорка — то же число с обычными тратами")
-                .isEqualByComparingTo("-20000");
+                .as("оговорка — то же число с обычными тратами: в горизонт до 15.03 попадает 14 дней "
+                        + "из 30 оставшихся, 30 000 × 14/30 = 14 000 (ANO-140)")
+                .isEqualByComparingTo("-4000");
     }
 
     @Test

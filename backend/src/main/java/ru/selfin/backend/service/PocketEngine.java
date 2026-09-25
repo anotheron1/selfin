@@ -443,20 +443,39 @@ public final class PocketEngine {
         Map<LocalDate, BigDecimal> byDay = new java.util.HashMap<>();
         LocalDate firstDay = in.asOfDate().plusDays(1);
 
-        // Текущий месяц: asOf+1 .. min(конец месяца, горизонт)
+        // Текущий месяц: прогноз — остаток месячной нормы, он приходится на asOf+1 .. конец месяца.
+        // В горизонт попадает его доля: asOf+1 .. min(конец месяца, горизонт).
         LocalDate monthEnd = in.asOfDate().withDayOfMonth(in.asOfDate().lengthOfMonth());
         LocalDate curEnd = monthEnd.isBefore(in.horizonEnd()) ? monthEnd : in.horizonEnd();
-        spreadEvenly(byDay, firstDay, curEnd, in.unplannedForecast());
+        spreadShare(byDay, firstDay, curEnd, firstDay, monthEnd, in.unplannedForecast());
 
-        // Будущие месяцы: каждый в своих границах, обрезанных горизонтом
+        // Будущие месяцы: прогноз — на весь месяц, в горизонт попадает доля обрезанного окна
         for (Map.Entry<java.time.YearMonth, BigDecimal> e : in.futureForecastOrEmpty().entrySet()) {
-            LocalDate from = e.getKey().atDay(1);
-            LocalDate to = e.getKey().atEndOfMonth();
-            if (from.isBefore(firstDay)) from = firstDay;
-            if (to.isAfter(in.horizonEnd())) to = in.horizonEnd();
-            spreadEvenly(byDay, from, to, e.getValue());
+            LocalDate start = e.getKey().atDay(1);
+            LocalDate end = e.getKey().atEndOfMonth();
+            LocalDate from = start.isBefore(firstDay) ? firstDay : start;
+            LocalDate to = end.isAfter(in.horizonEnd()) ? in.horizonEnd() : end;
+            spreadShare(byDay, from, to, start, end, e.getValue());
         }
         return byDay;
+    }
+
+    /**
+     * Сумма {@code total} приходится на дни [periodFrom..periodTo]; в окно [from..to] ложится её
+     * доля по числу дней и ровно распределяется по ним.
+     *
+     * <p>ANO-140: раньше в окно ложилась вся сумма. На скоупе «до дохода» с горизонтом завтра
+     * месячный прогноз сжимался в один день, и второе число занижалось в разы.
+     */
+    private static void spreadShare(Map<LocalDate, BigDecimal> byDay, LocalDate from, LocalDate to,
+                                    LocalDate periodFrom, LocalDate periodTo, BigDecimal total) {
+        if (total == null || total.signum() <= 0 || from.isAfter(to)) return;
+        long windowDays = ChronoUnit.DAYS.between(from, to) + 1;
+        long periodDays = ChronoUnit.DAYS.between(periodFrom, periodTo) + 1;
+        BigDecimal share = windowDays >= periodDays ? total
+                : total.multiply(BigDecimal.valueOf(windowDays))
+                        .divide(BigDecimal.valueOf(periodDays), 2, RoundingMode.HALF_UP);
+        spreadEvenly(byDay, from, to, share);
     }
 
     /** Ровно распределяет сумму по дням [from..to]; последний день добирает остаток копеек. */
