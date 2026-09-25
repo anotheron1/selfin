@@ -65,6 +65,8 @@ public class TargetFundService {
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
     private final WishlistArtifactService wishlistArtifactService;
+    /** ANO-88: вопрос «отложить всё равно?» задаётся по кармашку после перевода. */
+    private final PocketService pocketService;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
 
@@ -297,7 +299,7 @@ public class TargetFundService {
                 // кармашек и остаток растут. confirm=true — подтверждать нечего, это возврат
                 // своих же.
                 if (recorded.signum() != 0) {
-                    doTransfer(id, UUID.randomUUID(), recorded.negate(), true);
+                    doTransfer(id, UUID.randomUUID(), recorded.negate(), true, null);
                 }
             } else {
                 // Деньги потрачены на цель. Журнал обязан назвать это тратой, а не
@@ -396,10 +398,21 @@ public class TargetFundService {
     @Transactional
     public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount,
                                           boolean confirm) {
+        return transferToPocket(fundId, idempotencyKey, amount, confirm, null);
+    }
+
+    /**
+     * То же по горизонту, выбранному на карточке кармашка (ANO-88).
+     *
+     * @param scope горизонт кармашка, как в {@code GET /pocket?scope=}; {@code null} — «до дохода»
+     */
+    @Transactional
+    public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount,
+                                          boolean confirm, String scope) {
         // Идемпотентность: повторный запрос с тем же ключом возвращает закэшированный результат
         return transactionRepository.findByIdempotencyKey(idempotencyKey)
                 .map(tx -> toDto(tx.getFund()))
-                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount, confirm));
+                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount, confirm, scope));
     }
 
     /**
@@ -414,7 +427,7 @@ public class TargetFundService {
      * @throws ResourceNotFoundException если фонд не найден или удалён
      */
     private TargetFundDto doTransfer(UUID fundId, UUID idempotencyKey, BigDecimal amount,
-                                     boolean confirm) {
+                                     boolean confirm, String scope) {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
@@ -431,7 +444,7 @@ public class TargetFundService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Fund holds only " + fund.getCurrentBalance());
         }
-        // ANO-87 (спека §4.2). Переложить больше, чем показывает остаток, можно — но только
+        // ANO-87 (спека §4.2). Переложить больше, чем свободно, можно — но только
         // осознанно. Остаток в продукте не банковская истина, а якорь плюс введённое: он
         // отстаёт от реальности, и жёсткий отказ наказывал бы за неточный ввод, что запрещает
         // правило 5. Человек, у которого деньги реально есть, обязан суметь их отложить.
@@ -441,28 +454,12 @@ public class TargetFundService {
         // из незнания продукт читал как ноль-знание и запрещал действие — то же правило 5,
         // нарушенное с другой стороны: человек, ничего не вводивший, упирался в стену на
         // первом же действии и не узнавал почему.
-        if (amount.signum() > 0 && !confirm) {
-            LocalDate today = LocalDate.now(clock);
-            // Проверка оснований стоит ПЕРЕД подсчётом: у человека без якоря и фактов это
-            // ещё и самый дешёвый путь — считать свободные деньги незачем, их не с чем
-            // сравнивать.
-            if (accountBalanceService.knowsFreeMoneyAt(today)) {
-                // Ровно то число, которое продукт САМ называет свободными деньгами: так же
-                // считает CapitalService.cashLiquidAt. Один freeMoneyAt занижает у пользователя
-                // без чекпоинта — для него существует запасной путь noAnchorFallbackAt (ANO-28),
-                // и предупреждать по числу, которое продукт свободными деньгами не считает, нельзя.
-                BigDecimal free = accountBalanceService.freeMoneyAt(today)
-                        .add(accountBalanceService.noAnchorFallbackAt(today));
-                if (amount.compareTo(free) > 0) {
-                    // Отдельный тип, а не ResponseStatusException: статус тот же 409, что у
-                    // безусловного отказа выше, и различить их фронт может только по коду в
-                    // details (ANO-157).
-                    throw new ConfirmationRequiredException(
-                            "Account holds " + free + ", transferring " + amount
-                                    + "; resend with confirm=true to proceed");
-                }
-            }
-        }
+        //
+        // Основания проверяются ДО записи перевода: сам факт перевода — тоже факт, и после
+        // записи у человека без якоря и фактов «основания» появились бы из его же действия.
+        LocalDate today = LocalDate.now(clock);
+        boolean askIfShort = amount.signum() > 0 && !confirm
+                && accountBalanceService.knowsFreeMoneyAt(today);
 
         BigDecimal oldBalance = fund.getCurrentBalance();
         BigDecimal newBalance = oldBalance.add(amount);
@@ -493,6 +490,25 @@ public class TargetFundService {
                 .idempotencyKey(idempotencyKey)
                 .build();
         eventRepository.save(transferEvent);
+
+        // ANO-88, решение владельца 26.09 (вариант А): переспрашиваем по тому же числу, что
+        // карточка называет «свободно», — по кармашку, а не по остатку на счёте (тот не видит
+        // ни броней, ни планов: при «свободно −1 600» молча уходило 60 000). И по кармашку
+        // ПОСЛЕ перевода: кармашек держит плановые взносы в зафиксированные копилки, и перевод
+        // в такую копилку сам уменьшает её резерв — сравнение суммы с кармашком «до»
+        // переспрашивало бы на плановом взносе. Перевод уже записан в этой транзакции, движок
+        // видит его; при минусе исключение откатит всё — копилку, историю и факт.
+        if (askIfShort) {
+            BigDecimal pocketAfter = pocketService.getPocket(scope, today).pocket();
+            if (pocketAfter.signum() < 0) {
+                // Отдельный тип, а не ResponseStatusException: статус тот же 409, что у
+                // безусловного отказа выше, и различить их фронт может только по коду в
+                // details (ANO-157).
+                throw new ConfirmationRequiredException(
+                        "Pocket after transfer would be " + pocketAfter
+                                + "; resend with confirm=true to proceed");
+            }
+        }
 
         log.info("fund_transfer fund_id={} amount={} balance_before={} balance_after={} key={}",
                 fundId, amount, oldBalance, newBalance, idempotencyKey);

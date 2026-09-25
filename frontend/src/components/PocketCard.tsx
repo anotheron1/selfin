@@ -60,7 +60,8 @@ function BreakdownRowView({ row }: { row: BreakdownRow }) {
  * Минимальный UI по спеке ANO-12 §8.2; полноценная подача — ANO-13/14.
  */
 export default function PocketCard({ onData, refreshSignal, onReanchor }: {
-    onData?: (p: PocketResponse) => void;
+    /** Вторым аргументом — выбранный горизонт: «Пополнить фонд» переспрашивает по нему (ANO-88). */
+    onData?: (p: PocketResponse, scope: string | undefined) => void;
     refreshSignal?: number;
     /** Зовётся после успешного ре-якоря — страница может обновить свои данные (сторож и т.п.). */
     onReanchor?: () => void;
@@ -76,7 +77,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
 
     const load = useCallback(() => {
         fetchPocket(scope)
-            .then(p => { setData(p); setError(null); onData?.(p); })
+            .then(p => { setData(p); setError(null); onData?.(p, scope); })
             .catch((e: Error) => setError(e.message));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scope]);

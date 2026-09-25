@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
-import { needsConfirmation } from '../lib/transferConfirm';
+import { needsConfirmation, shortfallQuestion } from '../lib/transferConfirm';
 import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
@@ -184,9 +184,19 @@ function CreateFundModal({ accounts, onClose, onSuccess }: {
 
 // ─── Диалог пополнения фонда ─────────────────────────────────────────────────
 
-function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
+/**
+ * ANO-88, решение владельца 26.09 (вариант А): то же число и то же слово, что на карточке
+ * кармашка, — «свободно». Раньше здесь стоял остаток нулевого дня под словом «доступно»,
+ * и диалог разрешал вдвое больше, чем карточка называла свободным.
+ */
+function TransferModal({ fund, free, shortOn, scope, onClose, onSuccess }: {
     fund: TargetFund;
-    pocketBalance: number;
+    /** Кармашек с карточки — сколько отложить и не провалиться. */
+    free: number;
+    /** День минимума кармашка: к нему не хватит, если отложить больше. */
+    shortOn: string | undefined;
+    /** Горизонт, выбранный на карточке: сервер переспрашивает по нему. */
+    scope: string | undefined;
     onClose: () => void;
     onSuccess: () => void;
 }) {
@@ -202,14 +212,14 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
         setLoading(true);
         try {
             try {
-                await transferToFund(fund.id, num);
+                await transferToFund(fund.id, num, undefined, scope);
             } catch (err) {
                 // Подтверждаемый отказ — единственный, который мы предлагаем отменить.
                 // Безусловный («снять больше накопленного») пробрасываем: повтор с confirm
                 // упёрся бы в тот же отказ, а вопрос был бы враньём.
                 if (!needsConfirmation(err)) throw err;
-                if (!confirm('Это больше, чем мы считаем свободным. Отложить всё равно?')) return;
-                await transferToFund(fund.id, num, true);
+                if (!confirm(shortfallQuestion(shortOn))) return;
+                await transferToFund(fund.id, num, true, scope);
             }
             onSuccess();
             onClose();
@@ -221,7 +231,7 @@ function TransferModal({ fund, pocketBalance, onClose, onSuccess }: {
             <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
                 <SheetHeader>
                     <SheetTitle>Пополнить фонд</SheetTitle>
-                    <SheetDescription>{fund.name} · доступно {fmt(pocketBalance)}</SheetDescription>
+                    <SheetDescription>{fund.name} · свободно {fmt(free)}</SheetDescription>
                 </SheetHeader>
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
                     <AmountInput
@@ -467,6 +477,8 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
     const [transferFund, setTransferFund] = useState<TargetFund | null>(null);
     const [editFund, setEditFund] = useState<TargetFund | null>(null);
     const [pocket, setPocket] = useState<PocketResponse | null>(null);
+    /** Горизонт карточки кармашка: «Пополнить фонд» переспрашивает по нему (ANO-88). */
+    const [pocketScope, setPocketScope] = useState<string | undefined>(undefined);
     // Локальный инкремент для перезагрузки PocketCard после перевода в копилку
     const [pocketBump, setPocketBump] = useState(0);
     const [showFunds, setShowFunds] = useState(true);
@@ -490,16 +502,14 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
     if (error) return <div className="p-6 text-center text-sm" style={{ color: 'var(--color-danger, #ef4444)' }}>Ошибка: {error}</div>;
     if (!data) return <div className="p-6 text-center animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</div>;
 
-    // «Доступно сейчас» для переводов = день 0 траектории кармашка:
-    // деньги, не занятые прямо сейчас (баланс − просрочка − плановые расходы сегодня)
-    const availableNow = pocket?.trajectory[0]?.balance ?? 0;
 
     return (
         <>
             <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
             <div className="px-4 py-6 space-y-5">
                 {/* Кармашек — единый расчёт из GET /pocket (ANO-12) */}
-                <PocketCard onData={setPocket} refreshSignal={(refreshSignal ?? 0) + pocketBump} />
+                <PocketCard onData={(p, s) => { setPocket(p); setPocketScope(s); }}
+                    refreshSignal={(refreshSignal ?? 0) + pocketBump} />
 
                 {/* Заголовок с кнопкой создания */}
                 <div className="flex items-center justify-between">
@@ -548,7 +558,9 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
             {transferFund && (
                 <TransferModal
                     fund={transferFund}
-                    pocketBalance={availableNow}
+                    free={pocket?.pocket ?? 0}
+                    shortOn={pocket?.minPoint?.date}
+                    scope={pocketScope}
                     onClose={() => setTransferFund(null)}
                     onSuccess={() => { setTransferFund(null); load(); setPocketBump(b => b + 1); }}
                 />
