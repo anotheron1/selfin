@@ -181,9 +181,18 @@ export interface UpcomingItem {
     type: EventType;
 }
 
+/**
+ * НЗ кармашка (ANO-92) — сумма, которую кармашек не тратит. На экране «НЗ», в API `bufferAmount`;
+ * 0 — НЗ нет. Порог «Подушка, мес.» на «Хотелках» — другая настройка ({@link WishlistThresholds}).
+ */
+export interface PocketSettings {
+    bufferAmount: number;
+}
+
 export interface PocketResponse {
     pocket: number;
     currentBalance: number;
+    /** НЗ (ANO-92): сколько вычтено из самого низкого остатка; 0 — НЗ нет. */
     buffer: number;
     /** Дата последнего якоря остатка; null — якоря ещё не было (ANO-15). */
     checkpointDate: string | null;

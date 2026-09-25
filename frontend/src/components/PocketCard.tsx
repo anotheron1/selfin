@@ -8,6 +8,7 @@ import { noExpectationsNote } from '../lib/noExpectationsNote';
 import { buildGapMode } from '../lib/gapMode';
 import { buildAgeHint } from '../lib/reanchor';
 import ReanchorSheet from './pocket/ReanchorSheet';
+import NzSheet from './pocket/NzSheet';
 import type { PocketResponse } from '../types/api';
 
 /**
@@ -39,6 +40,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     const [error, setError] = useState<string | null>(null);
     const [showWhy, setShowWhy] = useState(false);
     const [showReanchor, setShowReanchor] = useState(false);
+    const [showNz, setShowNz] = useState(false);
 
     const load = useCallback(() => {
         fetchPocket(scope)
@@ -50,6 +52,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     useEffect(() => { if (refreshSignal) load(); }, [refreshSignal, load]);
 
     // ANO-100: когда деньги кончаются в пределах срока, у карточки свой режим — про даты.
+    // ANO-92: тот же режим, когда денег хватает, но план задевает НЗ.
     const gap = data ? buildGapMode(data) : null;
 
     return (
@@ -206,6 +209,17 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                             )}
                                         </div>
                                     ))}
+                                    {/*
+                                      ANO-92: НЗ задаётся там же, где видно, из чего число, — как остаток
+                                      со строки «на счёте». Первый экран не меняется: расшифровка
+                                      скрыта, пока не нажат «?».
+                                    */}
+                                    <button onClick={() => setShowNz(true)}
+                                        className="w-full flex items-center gap-1 pt-1.5 mt-1 border-t border-white/10 text-xs text-white/60 hover:text-white/90 transition-colors"
+                                        aria-label="Задать НЗ">
+                                        {data.buffer > 0 ? `НЗ ${fmtC(data.buffer)}` : 'НЗ не задан'}
+                                        <Pencil size={11} />
+                                    </button>
                                 </div>
                             )}
                         </>
@@ -220,6 +234,14 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                     currentBalance={data.currentBalance}
                     checkpointDate={data.checkpointDate}
                     onSuccess={() => { load(); onReanchor?.(); }}
+                />
+            )}
+            {data && (
+                <NzSheet
+                    open={showNz}
+                    onOpenChange={setShowNz}
+                    buffer={data.buffer}
+                    onSuccess={load}
                 />
             )}
         </div>

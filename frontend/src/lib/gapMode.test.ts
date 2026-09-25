@@ -43,6 +43,28 @@ function owner(overrides: Partial<PocketResponse> = {}): PocketResponse {
     };
 }
 
+/**
+ * НЗ задет (ANO-92): НЗ 5 000, сегодня «Досуг» на 1 000 — на счёте остаётся 3 000. Денег хватает,
+ * но меньше НЗ на 2 000. Доход 28.09 выводит в 70 000.
+ */
+function nz(overrides: Partial<PocketResponse> = {}): PocketResponse {
+    return owner({
+        pocket: -2000,
+        currentBalance: 4000,
+        buffer: 5000,
+        minPoint: { date: '2026-09-24', balance: 3000, drivenBy: null },
+        trajectory: [
+            { date: '2026-09-24', balance: 3000, income: 0, expense: 1000, balanceWithForecast: null },
+            { date: '2026-09-25', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
+            { date: '2026-09-26', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
+            { date: '2026-09-27', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
+            { date: '2026-09-28', balance: 70000, income: 75000, expense: 8000, balanceWithForecast: null },
+        ],
+        pocketAfterCreditRestore: null,
+        ...overrides,
+    });
+}
+
 describe('buildGapMode (ANO-100)', () => {
     it('случай владельца: сегодня не хватает, доход закроет, «Досуг» можно сдвинуть', () => {
         expect(buildGapMode(owner())).toEqual({
@@ -54,10 +76,10 @@ describe('buildGapMode (ANO-100)', () => {
         });
     });
 
-    it('денег хватает — режима нет, даже если кармашек ниже нуля из-за подушки', () => {
-        expect(buildGapMode(owner({
-            pocket: -2000, buffer: 5000,
-            minPoint: { date: '2026-09-26', balance: 3000, drivenBy: null },
+    it('остаток ровно на уровне НЗ — режима нет: брать из НЗ нечего', () => {
+        expect(buildGapMode(nz({
+            pocket: 0,
+            minPoint: { date: '2026-09-24', balance: 5000, drivenBy: null },
         }))).toBeNull();
     });
 
@@ -141,5 +163,48 @@ describe('buildGapMode (ANO-100)', () => {
             upcoming: [row({ date: '2026-09-25', amount: 2000, categoryName: 'Кафе' })],
         });
         expect(buildGapMode(p)?.movable).toEqual([`Кафе — ${fmtC(2000)} → не хватит ${fmtC(2500)}`]);
+    });
+});
+
+describe('buildGapMode: НЗ задет (ANO-92)', () => {
+    it('денег хватает, но меньше НЗ: берём из НЗ, доход восстановит, «Досуг» можно сдвинуть', () => {
+        // Сдвиг «Досуга» поднимает дни с 24 по 27.09 до 4 000 — из НЗ остаётся взять 1 000.
+        expect(buildGapMode(nz())).toEqual({
+            horizonLabel: 'до дохода 28.09',
+            headline: `Сегодня по плану придётся взять из НЗ ${fmtC(2000)}`,
+            subline: `Доход 28.09 восстановит НЗ, останется ${fmtC(70000)}.`,
+            moveHeader: 'Можно сдвинуть на после 28.09:',
+            movable: [`Досуг — ${fmtC(1000)} → из НЗ ${fmtC(1000)}`],
+        });
+    });
+
+    it('нехватка важнее НЗ: остаток ниже нуля — счёт от нуля, НЗ число не меняет', () => {
+        const gap = buildGapMode(owner({ pocket: -8685, buffer: 5000 }));
+        expect(gap?.headline).toBe(`Сегодня по плану не хватает ${fmtC(3685)}`);
+        expect(gap?.movable).toEqual([`Досуг — ${fmtC(1000)} → не хватит ${fmtC(2685)}`]);
+    });
+
+    it('узкий день впереди — дата словами', () => {
+        const gap = buildGapMode(nz({ minPoint: { date: '2026-09-26', balance: 3000, drivenBy: null } }));
+        expect(gap?.headline).toBe(`26 сентября по плану придётся взять из НЗ ${fmtC(2000)}`);
+    });
+
+    it('доход поднимает выше нуля, но не до НЗ — не восстановит, план требует правки', () => {
+        const p = nz();
+        p.trajectory[4] = { ...p.trajectory[4], balance: 4000 };
+        expect(buildGapMode(p)?.subline).toBe('Даже доход 28.09 не восстановит НЗ — план требует правки.');
+    });
+
+    it('доход выводит ровно в НЗ — восстановит', () => {
+        const p = nz();
+        p.trajectory[4] = { ...p.trajectory[4], balance: 5000 };
+        expect(buildGapMode(p)?.subline).toBe(`Доход 28.09 восстановит НЗ, останется ${fmtC(5000)}.`);
+    });
+
+    it('сдвиг, после которого НЗ не тронут, — «НЗ цел»', () => {
+        const gap = buildGapMode(nz({
+            upcoming: [row({ date: '2026-09-24', amount: 3000, categoryName: 'Отпуск' })],
+        }));
+        expect(gap?.movable).toEqual([`Отпуск — ${fmtC(3000)} → НЗ цел`]);
     });
 });

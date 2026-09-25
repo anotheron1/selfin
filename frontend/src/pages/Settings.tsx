@@ -5,10 +5,12 @@ import {
     fetchCheckpoints, createCheckpoint, updateCheckpoint, deleteCheckpoint,
     fetchAccounts,
     fetchForecastReadiness,
+    fetchPocketSettings,
 } from '../api';
 import type { Account, BalanceCheckpoint, BudgetSnapshot, Category, CategoryType, ForecastReadiness } from '../types/api';
 import PriorityButton from '../components/PriorityButton';
 import AccountsSection from '../components/accounts/AccountsSection';
+import NzForm from '../components/pocket/NzForm';
 import { Plus, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { AmountInput, amountValue } from '../components/ui/amount-input';
@@ -67,6 +69,9 @@ export default function Settings() {
     const [editDate, setEditDate] = useState('');
     const [editAmount, setEditAmount] = useState('');
 
+    // --- НЗ кармашка (ANO-92); null — ещё не загружен, форма засевается один раз ---
+    const [nz, setNz] = useState<number | null>(null);
+
     // --- Toast ---
     const [toastMsg, setToastMsg] = useState<string | null>(null);
     const showToast = (msg: string) => {
@@ -79,8 +84,9 @@ export default function Settings() {
     const loadSnapshots = () => fetchSnapshots().then(setSnapshots);
     const loadCheckpoints = () => fetchCheckpoints().then(setCheckpoints);
     const loadAccounts = () => fetchAccounts().then(setAccounts);
+    const loadNz = () => fetchPocketSettings().then(s => setNz(s.bufferAmount));
 
-    useEffect(() => { load(); loadSnapshots(); loadCheckpoints(); loadAccounts(); loadReadiness(); }, []);
+    useEffect(() => { load(); loadSnapshots(); loadCheckpoints(); loadAccounts(); loadReadiness(); loadNz(); }, []);
 
     /**
      * Правка счетов меняет и историю остатков: удалённый счёт уходит из выбора, переименованный
@@ -215,6 +221,22 @@ export default function Settings() {
                     onChanged={reloadAccounts}
                     showToast={showToast}
                 />
+
+                {/*
+                  НЗ кармашка (ANO-92): здесь его ищут; быстро — со строки в «почему столько».
+                  Выше «Баланса счёта»: история остатков растёт с каждым якорем, и раздел под ней
+                  уезжал бы всё ниже.
+                */}
+                <div className="rounded-2xl p-5 space-y-4"
+                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                    <h2 className="font-semibold text-sm" style={{ color: 'var(--color-text-muted)' }}>НЗ — НЕПРИКОСНОВЕННЫЙ ЗАПАС</h2>
+                    {nz != null && (
+                        <NzForm
+                            initial={nz}
+                            onSaved={v => { setNz(v); showToast(v > 0 ? 'НЗ сохранён' : 'НЗ убран'); }}
+                        />
+                    )}
+                </div>
 
                 {/* Баланс счёта */}
                 <div className="rounded-2xl p-5 space-y-4"

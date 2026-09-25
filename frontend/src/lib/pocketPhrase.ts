@@ -40,12 +40,13 @@ export function buildPocketPhrase(p: PocketResponse): string {
         return `Свободных денег нет: к ${minDate} по плану не хватит ${fmtC(Math.abs(minPoint.balance))}${cause}.${tail}`;
     }
 
-    // Буфер прогрызен: минимум положительный, но ниже буфера
+    // НЗ задет: минимум положительный, но ниже НЗ. Карточка в этом случае показывает режим
+    // «НЗ задет» (gapMode.ts), а не фразу; ветка остаётся, чтобы фраза отвечала на любой вход.
     if (pocket < 0) {
-        return `Впритык: в узкий день ${minDate} на счёте останется ${fmtC(minPoint.balance)} — меньше подушки ${fmtC(buffer)}${cause}.${afterTail}`;
+        return `Впритык: в узкий день ${minDate} на счёте останется ${fmtC(minPoint.balance)} — меньше НЗ ${fmtC(buffer)}${cause}.${afterTail}`;
     }
 
-    const bufferPart = buffer > 0 ? ` Подушка ${fmtC(buffer)} уже отложена.` : '';
+    const bufferPart = buffer > 0 ? ` НЗ ${fmtC(buffer)} уже отложен.` : '';
 
     // Минимум в день 0: ниже сегодняшнего траектория не опускается
     // (это НЕ значит «расходов нет» — доход внутри горизонта может перекрывать поздние траты)
