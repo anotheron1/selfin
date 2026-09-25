@@ -3,6 +3,7 @@ import { fetchWishlistSimulation } from '../../api';
 import type { MonthDelta, WishlistSimulationDto } from '../../types/api';
 import {
     composeTimeline,
+    defaultActiveMap,
     riskZones,
     scaleDelta,
     type ActiveItem,
@@ -81,12 +82,7 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
             .then(d => {
                 if (cancelled) return;
                 setData(d);
-                // Сидируем active: OPEN+FIXED влияют по умолчанию, DISMISSED — нет.
-                const seed: Record<string, boolean> = {};
-                for (const item of d.items) {
-                    seed[item.id] = item.status === 'OPEN' || item.status === 'FIXED';
-                }
-                setActiveMap(seed);
+                setActiveMap(defaultActiveMap(d.items));
                 setOverrideMap({});
             })
             .catch(e => {

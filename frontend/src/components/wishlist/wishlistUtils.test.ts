@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-    composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch,
+    composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -173,6 +173,28 @@ describe('fixPatch (ANO-139)', () => {
     it('нулевая ставка не подменяется записанной', () => {
         const credit = wish({ kind: 'CREDIT', rate: 16.5, termMonths: 60 });
         expect(fixPatch(credit, { rate: 0 }).rate).toBe(0);
+    });
+});
+
+describe('что включено, когда открываешь «Что с капиталом» (ANO-142)', () => {
+    // Решение владельца 25.09 (вариант Б): блок открывается той же картиной, что Стратегия
+    // и кармашек. Обсуждаемая хотелка — не трата, пока её не примеришь галочкой.
+    const item = (id: string, status: WishlistItem['status']): WishlistItem => ({
+        id, kind: 'WISHLIST', name: id, amount: 50000,
+        targetDate: '2026-12-01', status, convertedTo: null, delta: [],
+    });
+
+    it('зафиксированная включена, обсуждаемая и отклонённая — нет', () => {
+        expect(defaultActiveMap([item('f', 'FIXED'), item('o', 'OPEN'), item('d', 'DISMISSED')]))
+            .toEqual({ f: true, o: false, d: false });
+    });
+
+    it('хук примерки берёт включённое отсюда, а не решает сам', () => {
+        // Сторож по исходнику: компонентных тестов нет, а вернуть «OPEN || FIXED» в хук —
+        // правка в одну строку, и функция выше осталась бы зелёной.
+        const src = readFileSync(new URL('./useWishlistSimulation.ts', import.meta.url), 'utf8');
+        expect(src).toMatch(/defaultActiveMap\(/);
+        expect(src).not.toMatch(/status === 'OPEN'/);
     });
 });
 

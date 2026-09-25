@@ -1,7 +1,20 @@
-import type { MonthDelta } from '../../types/api';
+import type { MonthDelta, WishlistItem } from '../../types/api';
 
 export interface BaselinePoint { account: number; capital: number; }
 export interface ActiveItem { active: boolean; delta: MonthDelta[]; }
+
+/**
+ * Что включено, когда открываешь «Что с капиталом»: только зафиксированное.
+ *
+ * <p>ANO-142, решение владельца 25.09: блок открывается той же картиной, что Стратегия и
+ * кармашек, — обсуждаемая хотелка не трата, пока её не примеришь галочкой. Раньше по умолчанию
+ * включались и обсуждаемые, и блок отвечал «если возьмёшь всё».
+ */
+export function defaultActiveMap(items: WishlistItem[]): Record<string, boolean> {
+    const active: Record<string, boolean> = {};
+    for (const item of items) active[item.id] = item.status === 'FIXED';
+    return active;
+}
 
 /**
  * Аннуитетный месячный платёж по кредиту. Используется в WishlistItemCard для живого
