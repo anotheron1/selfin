@@ -165,11 +165,40 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Значение не той формы: дата «недата», UUID «undefined» — в параметре, пути или заголовке
+     * (в том числе {@code Idempotency-Key}). Ошибка клиента — HTTP 400 (ANO-85).
+     *
+     * <p>Отдельная ветка: {@code MethodArgumentTypeMismatchException} не несёт своего статуса,
+     * в отличие от остальных стандартных ошибок Spring MVC (см. {@link #handleGeneric}).
+     */
+    @ExceptionHandler(org.springframework.beans.TypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(org.springframework.beans.TypeMismatchException ex) {
+        String name = ex instanceof org.springframework.web.method.annotation.MethodArgumentTypeMismatchException m
+                ? m.getName() : ex.getPropertyName();
+        log.warn("Malformed value for {}: {}", name, ex.getValue());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of(400, "Invalid value for " + name + ": " + ex.getValue()));
+    }
+
+    /**
      * Fallback-обработчик для всех непредвиденных исключений.
      * Логирует полный стек, возвращает HTTP 500 без деталей реализации клиенту.
+     *
+     * <p>ANO-85: стандартные ошибки Spring MVC сами знают свой статус — пропущенный параметр 400,
+     * нет такого пути 404, не тот метод 405, не тот тип тела 415. Раньше все они попадали сюда
+     * и становились 500, и 500 переставал быть сигналом: забытый параметр и настоящее падение
+     * выглядели одинаково. Теперь в 500 остаётся только то, чего никто не ждал.
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
+        if (ex instanceof org.springframework.web.ErrorResponse known) {
+            int code = known.getStatusCode().value();
+            String detail = known.getBody().getDetail() != null ? known.getBody().getDetail() : ex.getMessage();
+            if (code >= 500) log.error("Server-side MVC error", ex);
+            else log.warn("Client error {}: {}", code, detail);
+            return ResponseEntity.status(code).body(ErrorResponse.of(code, detail));
+        }
         log.error("Unexpected error", ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
