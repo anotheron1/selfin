@@ -66,8 +66,7 @@ public class PocketService {
             if (e.getCategory() != null) names.put(e.getId(), e.getCategory().getName());
         }
         return result.withUpcoming(result.upcoming().stream()
-                .map(i -> new PocketResultDto.UpcomingItem(i.id(), i.date(), names.get(i.id()),
-                        i.amount(), i.description(), i.overdue(), i.wishlist()))
+                .map(i -> i.withCategoryName(names.get(i.id())))
                 .toList());
     }
 }

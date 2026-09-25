@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildWatchdogAlert } from './watchdogAlert';
+import { buildWatchdogAlert, withoutSameGap } from './watchdogAlert';
 import type { PocketResponse } from '../types/api';
 
 type MinPoint = PocketResponse['minPoint'];
@@ -109,5 +109,39 @@ describe('buildWatchdogAlert', () => {
     it('ANO-80: прогноза нет — поведение прежнее', () => {
         expect(buildWatchdogAlert(watchdog(12000), null)).toBeNull();
         expect(buildWatchdogAlert(watchdog(-4500), null)?.kind).toBe('PLAN');
+    });
+});
+
+describe('withoutSameGap (ANO-100)', () => {
+    // Сторож смотрит до второго дохода, кармашек — на выбранный срок. Когда оба нашли один и
+    // тот же разрыв, карточка кармашка в режиме нехватки уже говорит о нём с датой, и красная
+    // карточка ниже повторяла бы то же число вторым голосом.
+    const alertOn = (date: string, kind: 'PLAN' | 'FORECAST' = 'PLAN') => ({
+        kind, date, deficit: 4500, drivenBy: 'Аренда', beyondChart: false, forecastNote: null,
+    });
+
+    it('тот же разрыв, что в карточке кармашка, — красная карточка молчит', () => {
+        expect(withoutSameGap(alertOn('2026-07-22'), watchdog(-4500, '2026-07-22'))).toBeNull();
+    });
+
+    it('разрыв с другой датой — новые сведения, карточка остаётся', () => {
+        const alert = alertOn('2026-07-29');
+        expect(withoutSameGap(alert, watchdog(-4500, '2026-07-22'))).toBe(alert);
+    });
+
+    it('в кармашке разрыва нет — карточке молчать не о ком', () => {
+        const alert = alertOn('2026-07-22');
+        expect(withoutSameGap(alert, watchdog(3000, '2026-07-22'))).toBe(alert);
+    });
+
+    it('предупреждение «с обычными тратами» — не про план, его кармашек не показывает', () => {
+        const alert = alertOn('2026-07-22', 'FORECAST');
+        expect(withoutSameGap(alert, watchdog(-4500, '2026-07-22'))).toBe(alert);
+    });
+
+    it('без карточки кармашка ничего не прячем', () => {
+        const alert = alertOn('2026-07-22');
+        expect(withoutSameGap(alert, null)).toBe(alert);
+        expect(withoutSameGap(null, watchdog(-4500))).toBeNull();
     });
 });

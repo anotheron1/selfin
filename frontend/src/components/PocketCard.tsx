@@ -5,9 +5,16 @@ import { fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
 import { buildPocketPhrase } from '../lib/pocketPhrase';
 import { noExpectationsNote } from '../lib/noExpectationsNote';
+import { buildGapMode } from '../lib/gapMode';
 import { buildAgeHint } from '../lib/reanchor';
 import ReanchorSheet from './pocket/ReanchorSheet';
 import type { PocketResponse } from '../types/api';
+
+/**
+ * Режим нехватки (ANO-100) — янтарный, а не красный: карточка сообщает о положении дел, а не
+ * выносит приговор (правило 12; цвет различает, а не оценивает — ANO-172).
+ */
+const GAP_BACKGROUND = 'linear-gradient(135deg, #92400e 0%, #b45309 100%)';
 
 const SCOPES: { key: string | undefined; label: string }[] = [
     { key: undefined, label: 'До дохода' },
@@ -42,14 +49,17 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     useEffect(() => { load(); }, [load]);
     useEffect(() => { if (refreshSignal) load(); }, [refreshSignal, load]);
 
+    // ANO-100: когда деньги кончаются в пределах срока, у карточки свой режим — про даты.
+    const gap = data ? buildGapMode(data) : null;
+
     return (
         <div className="rounded-2xl p-6"
-            style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
+            style={{ background: gap ? GAP_BACKGROUND : 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
             <div className="flex items-start gap-4">
                 <Wallet size={32} color="white" className="shrink-0 mt-1" />
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                        <p className="text-sm text-white/70">В кармашке</p>
+                        <p className="text-sm text-white/70">{gap ? gap.horizonLabel : 'В кармашке'}</p>
                         <button onClick={() => setShowWhy(v => !v)}
                             className="text-white/50 hover:text-white/90 transition-colors"
                             aria-label="Почему столько">
@@ -62,7 +72,21 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
 
                     {data && (
                         <>
-                            <p className="text-3xl font-bold text-white">{fmtC(data.pocket)}</p>
+                            {gap ? (
+                                <>
+                                    {/*
+                                      ANO-76: отрицательное число под «В кармашке» посторонний
+                                      читал как долг в прошлом. Здесь фраза с датой впереди и без
+                                      минуса — так её не прочесть как «потратила больше положенного».
+                                    */}
+                                    <p className="text-2xl font-bold text-white leading-tight mt-0.5">{gap.headline}</p>
+                                    {gap.subline && (
+                                        <p className="text-sm text-white/85 mt-1 leading-snug">{gap.subline}</p>
+                                    )}
+                                </>
+                            ) : (
+                                <p className="text-3xl font-bold text-white">{fmtC(data.pocket)}</p>
+                            )}
                             {/*
                               ANO-80: прогноз — предположение, и он не входит в число, которым
                               человек распоряжается. Стоит ВЫШЕ оговорок про карты и вклад: те
@@ -84,6 +108,18 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             */}
                             {noExpectationsNote(data) && (
                                 <p className="text-xs text-white/60 mt-0.5">{noExpectationsNote(data)}</p>
+                            )}
+                            {/*
+                              ANO-100: вместо «займи» — что можно сдвинуть. Только сообщает:
+                              перенос одной кнопкой — следующим шагом, если окажется нужен.
+                            */}
+                            {gap && gap.movable.length > 0 && (
+                                <div className="mt-2">
+                                    <p className="text-xs text-white/70">{gap.moveHeader}</p>
+                                    {gap.movable.map(line => (
+                                        <p key={line} className="text-xs text-white/90">{line}</p>
+                                    ))}
+                                </div>
                             )}
                             {/*
                               Второе и третье числа (ANO-9 §4.2–§4.3). Иерархия размеров —
@@ -121,7 +157,10 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                     </button>
                                 );
                             })()}
-                            <p className="text-sm text-white/85 mt-2 leading-snug">{buildPocketPhrase(data)}</p>
+                            {/* В режиме нехватки то же говорят заголовок и строка под ним, с датой впереди. */}
+                            {!gap && (
+                                <p className="text-sm text-white/85 mt-2 leading-snug">{buildPocketPhrase(data)}</p>
+                            )}
 
                             <div className="flex gap-1.5 mt-3 items-center flex-wrap">
                                 {SCOPES.map(s => (

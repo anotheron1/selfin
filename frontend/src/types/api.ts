@@ -175,6 +175,10 @@ export interface UpcomingItem {
     description: string | null;
     overdue: boolean;
     wishlist: boolean;
+    /** Характер строки (ANO-100): режим нехватки предлагает сдвинуть ожидания и хотелки, но не брони. */
+    priority: Priority;
+    /** Тип строки: переводу в копилку форма ставит «Ожидание» принудительно (ревью Codex #65). */
+    type: EventType;
 }
 
 export interface PocketResponse {
