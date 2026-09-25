@@ -614,6 +614,24 @@ class PocketEngineTest {
     }
 
     @Test
+    @DisplayName("ANO-101: у брони без своего имени в details пустая строка — и у пустого, и у пробельного описания")
+    void unnamedOverdue_emptyDetail() {
+        // Раньше ловился только null: описание «» давало пустой элемент, и фронт склеивал его
+        // висячей запятой. Имя по-человечески подбирает фронт (категория, «ещё N платежей»);
+        // бэк отдаёт только своё имя строки или пустую строку — без «без описания».
+        PocketResultDto r = PocketEngine.calculate(base()
+                .overdue(planNamed(EventType.EXPENSE, LocalDate.of(2026, 2, 20), 1_000, null),
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 2, 21), 1_000, "  "),
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 2, 22), 1_000, "Стрижка"))
+                .releasedOverdue(planNamed(EventType.EXPENSE, LocalDate.of(2026, 2, 10), 2_000, ""),
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 2, 11), 3_000, "Страховка"))
+                .build());
+
+        assertThat(line(r, BreakdownType.OVERDUE_RESERVE).details()).containsExactly("", "", "Стрижка");
+        assertThat(line(r, BreakdownType.OVERDUE_RELEASED).details()).containsExactly("", "Страховка");
+    }
+
+    @Test
     @DisplayName("ANO-79: снимать нечего — строки нет")
     void releasedOverdue_empty_noLine() {
         assertThat(PocketEngine.calculate(base().build()).breakdown())

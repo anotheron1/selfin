@@ -326,6 +326,16 @@ public final class PocketEngine {
 
     // ── breakdown (спека §5) ────────────────────────────────────────────────
 
+    /**
+     * Своё имя строки для {@code details} — или пустая строка, если его нет (ANO-101). Пустое
+     * и пробельное описание — тоже «нет»: раньше ловился только null, и описание «» давало
+     * висячую запятую. Подпись для человека (категория, «ещё N платежей») собирает фронт —
+     * категорий движок не видит.
+     */
+    private static String ownName(EventSnapshot e) {
+        return e.description() == null || e.description().isBlank() ? "" : e.description();
+    }
+
     private static List<PocketResultDto.BreakdownLine> buildBreakdown(
             PocketInput in, BigDecimal currentBalance, BigDecimal overdue,
             BigDecimal expensesAtMin, BigDecimal incomeAtMin,
@@ -344,10 +354,9 @@ public final class PocketEngine {
                 currentBalance, List.of()));
 
         if (overdue.signum() != 0) {
-            List<String> details = in.overdueEvents().stream()
-                    .map(e -> e.description() != null ? e.description() : "без описания").toList();
+            List<String> details = in.overdueEvents().stream().map(PocketEngine::ownName).toList();
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.OVERDUE_RESERVE,
-                    "Просроченные обязательства (" + in.overdueEvents().size() + " шт)",
+                    "Брони с прошедшей датой (" + in.overdueEvents().size() + " шт)",
                     overdue.negate(), details));
         }
         if (expensesAtMin.signum() != 0) {
@@ -400,13 +409,12 @@ public final class PocketEngine {
                     "Больше не бронируется: остаток обновлён " + DD_MM.format(in.checkpointDate())
                             + " (" + released.size() + " шт)",
                     releasedSum,
-                    released.stream()
-                            .map(e -> e.description() != null ? e.description() : "без описания").toList()));
+                    released.stream().map(PocketEngine::ownName).toList()));
         }
 
         if (creditReserve.signum() > 0) {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.CREDIT_RESTORE,
-                    "Вернуть карты к планке", creditReserve.negate(), List.of()));
+                    "Погасить карты до планки", creditReserve.negate(), List.of()));
         }
 
         BigDecimal wishlistSum = candidates.stream()

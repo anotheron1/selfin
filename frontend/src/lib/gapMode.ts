@@ -31,13 +31,25 @@ const fmtD = (iso: string) => {
     return `${d}.${m}`;
 };
 
+/**
+ * Состояние кармашка — одно правило на карточку и расшифровку (ANO-77):
+ * 'gap' — деньги кончаются в пределах срока; 'nz' — денег хватает, но план задевает НЗ;
+ * 'ok' — ни того, ни другого. Нехватка денег важнее НЗ: при остатке ниже нуля счёт от нуля.
+ */
+export type PocketState = 'gap' | 'nz' | 'ok';
+
+export function pocketState(p: PocketResponse): PocketState {
+    if (p.minPoint.balance < 0) return 'gap';
+    return p.minPoint.balance < p.buffer ? 'nz' : 'ok';
+}
+
 export function buildGapMode(p: PocketResponse): GapMode | null {
     const { minPoint, horizon, trajectory } = p;
-    // Нехватка денег важнее НЗ: когда остаток уходит ниже нуля, счёт от нуля, и НЗ её число не
-    // меняет. Когда денег хватает, уровень — НЗ: всё, что ниже него, план берёт из неприкосновенного.
-    const nz = minPoint.balance >= 0;
+    const state = pocketState(p);
+    if (state === 'ok') return null;
+    // Когда денег хватает, уровень — НЗ: всё, что ниже него, план берёт из неприкосновенного.
+    const nz = state === 'nz';
     const level = nz ? p.buffer : 0;
-    if (minPoint.balance >= level) return null;
 
     const shortfall = level - minPoint.balance;
     // «Сегодня» — день 0 траектории, то есть сегодня сервера, а не браузера: так же решает

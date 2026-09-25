@@ -6,6 +6,7 @@ import { fmtRub as fmtC } from '../lib/format';
 import { buildPocketPhrase } from '../lib/pocketPhrase';
 import { noExpectationsNote } from '../lib/noExpectationsNote';
 import { buildGapMode } from '../lib/gapMode';
+import { buildBreakdownView, type BreakdownRow } from '../lib/breakdownRows';
 import { buildAgeHint } from '../lib/reanchor';
 import ReanchorSheet from './pocket/ReanchorSheet';
 import NzSheet from './pocket/NzSheet';
@@ -24,6 +25,35 @@ const SCOPES: { key: string | undefined; label: string }[] = [
     { key: 'MONTHS:3', label: '3 мес' },
     { key: 'MONTHS:6', label: '6 мес' },
 ];
+
+/**
+ * Строка расшифровки (ANO-77): подпись и сумма в одну строку, пояснение серым под ними.
+ * Роль видна без чтения: промежуточный итог — пунктир над строкой, итог — сплошная черта
+ * и жирный, оговорки бледнее расчёта.
+ */
+function BreakdownRowView({ row }: { row: BreakdownRow }) {
+    const frame = row.kind === 'result' ? 'border-t border-white/35 pt-1.5'
+        : row.kind === 'subtotal' ? 'border-t border-dashed border-white/20 pt-1.5'
+        : '';
+    const text = row.kind === 'result' ? 'text-sm font-bold text-white'
+        : row.kind === 'subtotal' ? 'text-white'
+        : row.kind === 'caveat' ? 'text-white/75'
+        : 'text-white/85';
+    const amount = row.kind === 'caveat' ? 'text-white/85' : row.kind === 'item' ? 'text-white/90' : '';
+    return (
+        <div className={frame}>
+            <div className={`flex justify-between gap-2 ${text}`}>
+                <span>{row.label}</span>
+                <span className={`whitespace-nowrap ${amount}`}>{row.amount}</span>
+            </div>
+            {row.note && (
+                <p className={`text-[11px] mt-px ${row.kind === 'caveat' ? 'text-white/50' : 'text-white/55'}`}>
+                    {row.note}
+                </p>
+            )}
+        </div>
+    );
+}
 
 /**
  * Кармашек: одно число + «почему столько» (breakdown из GET /pocket).
@@ -136,7 +166,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             {data.pocketAfterCreditRestore != null && (
                                 <p className="text-sm text-white/85 mt-0.5">
                                     {fmtC(data.pocketAfterCreditRestore)}
-                                    <span className="text-white/60"> — если вернуть карты к планке</span>
+                                    <span className="text-white/60"> — если погасить карты до планки</span>
                                 </p>
                             )}
                             {data.pocketWithDeposits != null && (
@@ -187,30 +217,28 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             </div>
 
                             {showWhy && (
-                                <div className="mt-3 rounded-xl bg-black/20 px-3 py-2 space-y-1">
-                                    {data.breakdown.map((line, i) => (
-                                        <div key={i}>
-                                            <div className="flex justify-between text-xs">
-                                                <span className={line.type === 'POCKET'
-                                                    ? 'text-white font-semibold' : 'text-white/70'}>
-                                                    {line.label}
-                                                </span>
-                                                <span className={line.type === 'POCKET'
-                                                    ? 'text-white font-semibold' : 'text-white/90'}>
-                                                    {line.amount > 0 && line.type !== 'STARTING_BALANCE'
-                                                        && line.type !== 'TRAJECTORY_MIN'
-                                                        && line.type !== 'POCKET'
-                                                        && line.type !== 'CREDIT_RESTORE'
-                                                        && line.type !== 'OVERDUE_RELEASED'
-                                                        && line.type !== 'WISHLIST_INFO' ? '+' : ''}
-                                                    {fmtC(line.amount)}
-                                                </span>
-                                            </div>
-                                            {line.details.length > 0 && (
-                                                <p className="text-[11px] text-white/50">{line.details.join(', ')}</p>
-                                            )}
-                                        </div>
-                                    ))}
+                                <div className="mt-3 rounded-xl bg-black/20 px-3 py-2.5 space-y-2 text-xs">
+                                    {/*
+                                      ANO-77, вариант В владельца: слева подпись, справа сумма, под
+                                      строкой — пояснение. Итог назван по состоянию карточки и отделён
+                                      чертой; оговорки — своим блоком, в число они не входят.
+                                    */}
+                                    {(() => {
+                                        const view = buildBreakdownView(data);
+                                        return (
+                                            <>
+                                                <p className="text-[10px] uppercase tracking-wider text-white/50">Из чего число</p>
+                                                {view.calc.map((row, i) => <BreakdownRowView key={`c${i}`} row={row} />)}
+                                                <BreakdownRowView row={view.result} />
+                                                {view.caveats.length > 0 && (
+                                                    <p className="text-[10px] uppercase tracking-wider text-white/50 pt-1">
+                                                        Кроме этого — в число не входит
+                                                    </p>
+                                                )}
+                                                {view.caveats.map((row, i) => <BreakdownRowView key={`k${i}`} row={row} />)}
+                                            </>
+                                        );
+                                    })()}
                                     {/*
                                       ANO-92: НЗ задаётся там же, где видно, из чего число, — как остаток
                                       со строки «на счёте». Первый экран не меняется: расшифровка
