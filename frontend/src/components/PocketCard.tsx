@@ -9,6 +9,7 @@ import { buildGapMode } from '../lib/gapMode';
 import { buildAgeHint } from '../lib/reanchor';
 import ReanchorSheet from './pocket/ReanchorSheet';
 import NzSheet from './pocket/NzSheet';
+import HelpDialog from './HelpDialog';
 import type { PocketResponse } from '../types/api';
 
 /**
@@ -41,6 +42,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     const [showWhy, setShowWhy] = useState(false);
     const [showReanchor, setShowReanchor] = useState(false);
     const [showNz, setShowNz] = useState(false);
+    const [showHelp, setShowHelp] = useState(false);
 
     const load = useCallback(() => {
         fetchPocket(scope)
@@ -220,6 +222,15 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                         {data.buffer > 0 ? `НЗ ${fmtC(data.buffer)}` : 'НЗ не задан'}
                                         <Pencil size={11} />
                                     </button>
+                                    {/*
+                                      ANO-186: слова — рядом с числами. «?» у числа уже раскрывает эту
+                                      расшифровку, поэтому справка открывается отсюда, а не вторым «?».
+                                    */}
+                                    <button onClick={() => setShowHelp(true)}
+                                        className="w-full flex items-center gap-1 text-xs text-white/60 hover:text-white/90 transition-colors">
+                                        <HelpCircle size={11} />
+                                        Как это считается
+                                    </button>
                                 </div>
                             )}
                         </>
@@ -244,6 +255,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                     onSuccess={load}
                 />
             )}
+            <HelpDialog topic="pocket" open={showHelp} onOpenChange={setShowHelp} />
         </div>
     );
 }

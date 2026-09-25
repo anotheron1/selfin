@@ -6,7 +6,7 @@ import CapitalSummaryCard from '../components/CapitalSummaryCard';
 import CapitalItemList from '../components/CapitalItemList';
 import CapitalSheet, { type CapitalSheetMode } from '../components/CapitalSheet';
 import CapitalTrajectoryChart from '../components/CapitalTrajectoryChart';
-import CapitalTheoryDialog from '../components/CapitalTheoryDialog';
+import HelpDialog from '../components/HelpDialog';
 import { Button } from '../components/ui/button';
 
 interface Props {
@@ -73,7 +73,7 @@ export default function Capital({ refreshSignal }: Props) {
                 onClose={() => setSheetMode(null)}
                 onChanged={onChanged}
             />
-            <CapitalTheoryDialog open={theoryOpen} onClose={() => setTheoryOpen(false)} />
+            <HelpDialog topic="capital" open={theoryOpen} onOpenChange={setTheoryOpen} />
         </div>
     );
 }
