@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
-import { needsConfirmation, shortfallQuestionFor } from '../lib/transferConfirm';
+import { needsConfirmation, shortfallQuestionFor, transferFreeLine } from '../lib/transferConfirm';
 import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
@@ -189,10 +189,10 @@ function CreateFundModal({ accounts, onClose, onSuccess }: {
  * кармашка, — «свободно». Раньше здесь стоял остаток нулевого дня под словом «доступно»,
  * и диалог разрешал вдвое больше, чем карточка называла свободным.
  */
-function TransferModal({ fund, free, question, scope, onClose, onSuccess }: {
+function TransferModal({ fund, freeLine, question, scope, onClose, onSuccess }: {
     fund: TargetFund;
-    /** Кармашек с карточки — сколько отложить и не провалиться. */
-    free: number;
+    /** Сколько отложить и не провалиться — теми же словами, что карточка; null, пока кармашка нет. */
+    freeLine: string | null;
     /** Вопрос «отложить всё равно?» с днём, к которому не хватит. */
     question: string;
     /** Горизонт, выбранный на карточке: сервер переспрашивает по нему. */
@@ -231,7 +231,7 @@ function TransferModal({ fund, free, question, scope, onClose, onSuccess }: {
             <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
                 <SheetHeader>
                     <SheetTitle>Пополнить фонд</SheetTitle>
-                    <SheetDescription>{fund.name} · свободно {fmt(free)}</SheetDescription>
+                    <SheetDescription>{fund.name}{freeLine ? ` · ${freeLine}` : ''}</SheetDescription>
                 </SheetHeader>
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
                     <AmountInput
@@ -558,7 +558,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
             {transferFund && (
                 <TransferModal
                     fund={transferFund}
-                    free={pocket?.pocket ?? 0}
+                    freeLine={transferFreeLine(pocket)}
                     question={shortfallQuestionFor(pocket)}
                     scope={pocketScope}
                     onClose={() => setTransferFund(null)}

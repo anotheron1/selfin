@@ -1,4 +1,21 @@
-import { fmtDayMonth } from './format';
+import type { PocketResponse } from '../types/api';
+import { fmtDayMonth, fmtRub } from './format';
+import { buildGapMode } from './gapMode';
+
+/**
+ * Строка диалога «Пополнить фонд» — теми же словами, что карточка кармашка (ANO-88, вариант А):
+ * денег хватает — «свободно X»; нехватка или задетый НЗ — заголовок карточки в этом режиме
+ * (ANO-100, ANO-92). Иначе диалог писал бы «свободно −1 600 ₽» там, где карточка говорит
+ * «Сегодня по плану не хватает 1 600 ₽», — а отрицательное «свободно» посторонний читал как долг.
+ *
+ * @return {@code null}, пока кармашка нет: выдуманный ноль хуже пустоты
+ */
+export function transferFreeLine(p: PocketResponse | null): string | null {
+    if (!p) return null;
+    const gap = buildGapMode(p);
+    if (!gap) return `свободно ${fmtRub(p.pocket)}`;
+    return gap.headline.charAt(0).toLowerCase() + gap.headline.slice(1);
+}
 
 /** Код из ErrorResponse.details. Зеркалит ConfirmationRequiredException.CODE на бэкенде. */
 export const CONFIRM_REQUIRED = 'CONFIRM_REQUIRED';
