@@ -63,6 +63,24 @@ export function scaleDelta(delta: MonthDelta[], baseAmount: number, override: nu
     }));
 }
 
+/**
+ * Дельта строки примерки с учётом подкрученного: пересчитанная > масштабированная суммой > исходная.
+ *
+ * <p>ANO-142: у сконвертированной хотелки деньги несёт артефакт — план или копилка, — и они уже
+ * в baseline. Её дельта пуста, что бы ни подкрутили: пересчёт ставки или срока вернул бы полную
+ * дельту кредита, и покупка легла бы второй раз (ревью Codex #73). Одна функция на хук и блок
+ * «Что с капиталом» — копий было две.
+ */
+export function effectiveDelta(
+    item: WishlistItem,
+    override: { amount?: number; delta?: MonthDelta[] } | undefined,
+): MonthDelta[] {
+    if (item.convertedTo) return [];
+    if (override?.delta != null) return override.delta;
+    if (override?.amount != null) return scaleDelta(item.delta, item.amount, override.amount);
+    return item.delta;
+}
+
 export type RiskLevel = 'green' | 'yellow' | 'red';
 
 export function riskZones(

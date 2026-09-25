@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
+    effectiveDelta,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -195,6 +196,47 @@ describe('что включено, когда открываешь «Что с �
         const src = readFileSync(new URL('./useWishlistSimulation.ts', import.meta.url), 'utf8');
         expect(src).toMatch(/defaultActiveMap\(/);
         expect(src).not.toMatch(/status === 'OPEN'/);
+    });
+});
+
+describe('дельта строки примерки (ANO-142)', () => {
+    const month = (accountDelta: number): MonthDelta =>
+        ({ monthIndex: 1, accountDelta, capitalDelta: accountDelta, fundDelta: null, liabilityDelta: null });
+    const item = (over: Partial<WishlistItem> = {}): WishlistItem => ({
+        id: 'i1', kind: 'CREDIT', name: 'Машина', amount: 100000,
+        targetDate: '2026-12-01', status: 'FIXED', convertedTo: null, delta: [month(-10000)],
+        ...over,
+    });
+    const converted = item({ convertedTo: { kind: 'FUND', id: 'f1' }, delta: [] });
+
+    it('подкрученного нет — исходная дельта', () => {
+        expect(effectiveDelta(item(), undefined)).toEqual([month(-10000)]);
+    });
+
+    it('пересчитанная важнее масштабированной суммой', () => {
+        expect(effectiveDelta(item(), { amount: 200000, delta: [month(-3000)] })).toEqual([month(-3000)]);
+    });
+
+    it('подкрученная сумма масштабирует исходную', () => {
+        expect(effectiveDelta(item(), { amount: 200000 })[0].accountDelta).toBe(-20000);
+    });
+
+    it('у сконвертированной дельты нет, что бы ни подкрутили: деньги несёт артефакт', () => {
+        // Ревью Codex #73: ставка или срок на карточке сконвертированного кредита запрашивали
+        // пересчёт, он возвращал полную дельту кредита, и покупка ложилась второй раз.
+        expect(effectiveDelta(converted, { delta: [month(-10000)] })).toEqual([]);
+        expect(effectiveDelta(converted, { amount: 200000 })).toEqual([]);
+    });
+
+    it('хук и «Что с капиталом» берут дельту отсюда, а не считают сами', () => {
+        // Сторож по исходнику: копий было две, и правило про сконвертированную жило бы в одной.
+        const hook = readFileSync(new URL('./useWishlistSimulation.ts', import.meta.url), 'utf8');
+        const block = readFileSync(new URL('../sandbox/CapitalWhatIf.tsx', import.meta.url), 'utf8');
+        for (const src of [hook, block]) {
+            expect(src).toMatch(/effectiveDelta\(/);
+            expect(src).not.toMatch(/function effectiveDelta/);
+            expect(src).not.toMatch(/scaleDelta\(/);
+        }
     });
 });
 
