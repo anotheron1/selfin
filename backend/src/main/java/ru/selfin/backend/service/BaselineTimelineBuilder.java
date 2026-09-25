@@ -33,14 +33,15 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Строит "честный" timeline БЕЗ влияния хотелок.
+ * Строит timeline будущего по планам, прогнозу и капиталу. Какие хотелки в нём — планы,
+ * решает вызывающий ({@link Wishlist}): Стратегия считает зафиксированную хотелку обычным
+ * планом, как кармашек, а примерка «Что с капиталом» берёт baseline без хотелок и сама
+ * накладывает дельты включённых (ANO-108, ANO-142).
  *
  * <p>Выделен из {@link StrategyTimelineService} (PR wishlist-planning), чтобы разорвать
  * циклическую зависимость: {@code WishlistSimulationService} нуждается в baseline,
  * а {@code StrategyTimelineService} нуждается в delta хотелок. Теперь зависимости линейны:
  * {@code BaselineTimelineBuilder ← WishlistSimulationService ← StrategyTimelineService}.
- *
- * <p>Поведение методов идентично прежнему {@code StrategyTimelineService} — это move-рефакторинг.
  */
 @Component
 @RequiredArgsConstructor
@@ -61,10 +62,26 @@ public class BaselineTimelineBuilder {
     static final int MIN_CATEGORIES_FOR_FAN = 3;
 
     /**
-     * Полный timeline без хотелок: past + current + future, обогащённый капиталом
+     * Какие хотелки baseline считает планом. Выборка планов
+     * ({@code findPlannedEventsByDateRange}) уже отсекает кандидатов, отклонённые и
+     * сконвертированные — остаётся решить про зафиксированные.
+     */
+    public enum Wishlist {
+        /** Зафиксированная хотелка — обычный план, один раз, как в кармашке: Стратегия. */
+        FIXED_AS_PLAN,
+        /** Без хотелок вовсе: примерка «Что с капиталом» сама накладывает дельты включённых. */
+        NONE;
+
+        boolean admits(FinancialEvent e) {
+            return this == FIXED_AS_PLAN || e.getWishlistStatus() == null;
+        }
+    }
+
+    /**
+     * Полный timeline: past + current + future, обогащённый капиталом
      * и (опционально) breakdown по категориям.
      */
-    public TimelineSnapshot build(int horizonMonths, boolean withBreakdown) {
+    public TimelineSnapshot build(int horizonMonths, boolean withBreakdown, Wishlist wishlist) {
         YearMonth firstMonth = firstActivityMonth();
         YearMonth currentMonth = YearMonth.now(clock);
         YearMonth horizonEnd = currentMonth.plusMonths(horizonMonths);
@@ -77,7 +94,7 @@ public class BaselineTimelineBuilder {
 
         List<StrategyTimelinePointDto> past = buildPastPoints(firstMonth, currentMonth);
         StrategyTimelinePointDto current = buildCurrentPoint(currentMonth);
-        List<StrategyTimelinePointDto> future = buildFuturePoints(currentMonth, horizonMonths, statsMap);
+        List<StrategyTimelinePointDto> future = buildFuturePoints(currentMonth, horizonMonths, statsMap, wishlist);
 
         List<StrategyTimelinePointDto> all = new ArrayList<>();
         all.addAll(past);
@@ -86,7 +103,7 @@ public class BaselineTimelineBuilder {
 
         all = enrichWithCapital(all);
         if (withBreakdown) {
-            all = enrichWithBreakdown(all, statsMap);
+            all = enrichWithBreakdown(all, statsMap, wishlist);
         }
 
         return new TimelineSnapshot(firstMonth, currentMonth, horizonEnd,
@@ -194,9 +211,11 @@ public class BaselineTimelineBuilder {
      * @param current        текущий месяц
      * @param horizonMonths  сколько будущих месяцев построить (включая current+1 … current+horizonMonths)
      * @param statsMap       предвычисленная статистика forecast-категорий (category → stats)
+     * @param wishlist       какие хотелки — планы
      */
     List<StrategyTimelinePointDto> buildFuturePoints(YearMonth current, int horizonMonths,
-                                                     Map<Category, CategoryMonthStats> statsMap) {
+                                                     Map<Category, CategoryMonthStats> statsMap,
+                                                     Wishlist wishlist) {
         List<StrategyTimelinePointDto> points = new ArrayList<>();
         if (horizonMonths <= 0) return points;
 
@@ -225,6 +244,7 @@ public class BaselineTimelineBuilder {
                 .findPlannedEventsByDateRange(futureStart, futureEnd).stream()
                 .filter(e -> !e.isDeleted())
                 .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .filter(wishlist::admits)
                 .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
 
         // Шаг 3: построение точек
@@ -364,9 +384,11 @@ public class BaselineTimelineBuilder {
      *
      * @param points   список точек timeline (может быть любым подмножеством)
      * @param statsMap предвычисленная статистика forecast-категорий (category → stats)
+     * @param wishlist какие хотелки — планы; то же правило, что у баланса точек
      */
     List<StrategyTimelinePointDto> enrichWithBreakdown(List<StrategyTimelinePointDto> points,
-                                                       Map<Category, CategoryMonthStats> statsMap) {
+                                                       Map<Category, CategoryMonthStats> statsMap,
+                                                       Wishlist wishlist) {
         if (points.isEmpty()) return points;
 
         // Диапазон для запросов — от первой до последней точки
@@ -387,6 +409,7 @@ public class BaselineTimelineBuilder {
                 .findPlannedEventsByDateRange(minYm.atDay(1), maxYm.atEndOfMonth()).stream()
                 .filter(e -> !e.isDeleted())
                 .filter(e -> e.getEventKind() == EventKind.PLAN)
+                .filter(wishlist::admits)
                 .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
 
         List<StrategyTimelinePointDto> enriched = new ArrayList<>(points.size());

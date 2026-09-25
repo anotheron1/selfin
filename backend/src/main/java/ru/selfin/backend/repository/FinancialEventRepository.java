@@ -156,13 +156,23 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     // --- Strategy ---
 
     /**
-     * Все PLAN-события в диапазоне дат (включая recurring-материализованные).
-     * Используется StrategyTimelineService для построения {@code balanceConfirmed} и breakdown будущих точек.
+     * PLAN-события в диапазоне дат, которые считаются деньгами (включая recurring-материализованные).
+     * Потребители: баланс и разбивка будущих месяцев Стратегии ({@code BaselineTimelineBuilder}),
+     * прогноз обычных трат кармашка ({@code PocketInputAssembler}).
+     *
+     * <p>ANO-108: хотелка — тоже PLAN-событие, но деньгами становится, только когда зафиксирована
+     * и не сконвертирована. Кандидат (OPEN) и отклонённая (DISMISSED) — намерения, а у
+     * сконвертированной деньги несёт артефакт — план или копилка. Правило то же, что
+     * {@code PocketEngine.allowedInTrajectory}; дата есть по условию выборки. Раньше запрос брал
+     * хотелки любого статуса, и Стратегия считала кандидата тратой, а сконвертированную — дважды.
      */
     @Query("SELECT e FROM FinancialEvent e " +
            "WHERE e.deleted = false " +
            "  AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN " +
-           "  AND e.date >= :startDate AND e.date <= :endDate")
+           "  AND e.date >= :startDate AND e.date <= :endDate " +
+           "  AND (e.wishlistStatus IS NULL " +
+           "       OR (e.wishlistStatus = ru.selfin.backend.model.enums.WishlistStatus.FIXED " +
+           "           AND e.convertedToEventId IS NULL AND e.convertedToFundId IS NULL))")
     List<FinancialEvent> findPlannedEventsByDateRange(
         @Param("startDate") LocalDate startDate,
         @Param("endDate") LocalDate endDate);
