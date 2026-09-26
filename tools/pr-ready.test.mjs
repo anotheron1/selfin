@@ -85,47 +85,54 @@ const review = (submittedAt, commitId, body = REVIEW_BODY) => ({ user: CODEX, su
 const SYNC = 'Ответы Codex — pull_request synchronize';
 const REPLIES = '.github/workflows/codex-replies.yml';
 const run = (createdAt, headSha, { event = 'pull_request', headBranch = 'ci/x', title = SYNC, workflow = REPLIES } = {}) =>
-  ({ workflow, event, createdAt, headSha, headBranch, displayTitle: title });
+  ({ workflow, event, createdAt, headSha, headBranch, headRepo: 'anotheron1/selfin', displayTitle: title });
 
 test('история голов — прогоны по pull_request на ветке PR после его открытия, по порядку', () => {
-  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T10:00:00Z', runs: [
     run('2026-09-26T12:00:00Z', HEAD), run('2026-09-26T10:00:05Z', OLD),
   ] }), [at(OLD, '2026-09-26T10:00:05Z'), at(HEAD, '2026-09-26T12:00:00Z')]);
 });
 
 test('история голов — прогон «Ответов Codex» по opened помечен как открытие PR', () => {
-  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T10:00:00Z', runs: [
     run('2026-09-26T10:00:05Z', OLD, { title: 'Ответы Codex — pull_request opened' }), run('2026-09-26T12:00:00Z', HEAD),
   ] }), [at(OLD, '2026-09-26T10:00:05Z', true), at(HEAD, '2026-09-26T12:00:00Z')]);
 });
 
 // Двенадцатое ревью Codex на #86 (P1): у прогонов CI заголовок — название PR, и оно может кончаться теми же словами.
 test('история голов — прогон CI с названием PR на «pull_request opened» открытием не считается', () => {
-  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T10:00:00Z', runs: [
     run('2026-09-26T10:30:00Z', HEAD, { title: 'Чинит pull_request opened', workflow: '.github/workflows/ci.yml' }),
   ] }), [at(HEAD, '2026-09-26T10:30:00Z')]);
 });
 
 test('история голов — прогон с заголовком PR (CI) открытием не считается', () => {
-  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T10:00:00Z', runs: [
     run('2026-09-26T10:00:05Z', OLD, { title: 'Ворота готовности PR: скрипт, джоба ответов Codex, шаблон' }),
   ] }), [at(OLD, '2026-09-26T10:00:05Z')]);
 });
 
+// Четырнадцатое ревью Codex на #86 (P2): у двух PR из форков ветка может называться одинаково, например main.
+test('история голов — прогон с той же веткой из другого репозитория не в счёт', () => {
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T10:00:00Z', runs: [
+    run('2026-09-26T12:00:00Z', HEAD), { ...run('2026-09-26T13:00:00Z', OTHER), headRepo: 'someone/selfin' },
+  ] }), [at(HEAD, '2026-09-26T12:00:00Z')]);
+});
+
 test('история голов — прогон того же коммита в другой ветке не в счёт', () => {
-  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T10:00:00Z', runs: [
     run('2026-09-26T12:00:00Z', HEAD), run('2026-09-26T13:00:00Z', OTHER, { headBranch: 'exp' }),
   ] }), [at(HEAD, '2026-09-26T12:00:00Z')]);
 });
 
 test('история голов — прогон по событию ревью не в счёт: он не про голову', () => {
-  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T10:00:00Z', runs: [
     run('2026-09-26T12:00:00Z', HEAD), run('2026-09-26T13:00:00Z', OTHER, { event: 'pull_request_review' }),
   ] }), [at(HEAD, '2026-09-26T12:00:00Z')]);
 });
 
 test('история голов — прогон до открытия PR не в счёт: прошлый PR с той же веткой', () => {
-  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T11:00:00Z', runs: [
+  assert.deepEqual(headTransitions({ branch: 'ci/x', repo: 'anotheron1/selfin', openedAt: '2026-09-26T11:00:00Z', runs: [
     run('2026-09-26T10:00:00Z', OTHER), run('2026-09-26T12:00:00Z', HEAD),
   ] }), [at(HEAD, '2026-09-26T12:00:00Z')]);
 });

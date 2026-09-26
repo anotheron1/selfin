@@ -55,9 +55,10 @@ const HEAD_WORKFLOW = '.github/workflows/codex-replies.yml';
  * с той же веткой, они не в счёт.
  * runs — [{ event, createdAt, headSha, headBranch, displayTitle }].
  */
-export function headTransitions({ branch, openedAt, runs }) {
+export function headTransitions({ branch, repo, openedAt, runs }) {
   return runs
-    .filter((r) => r.event === 'pull_request' && r.headBranch === branch && time(r.createdAt) >= time(openedAt))
+    // Ветка — вместе с репозиторием головы: у PR из форков ветка может называться одинаково (четырнадцатое ревью Codex).
+    .filter((r) => r.event === 'pull_request' && r.headRepo === repo && r.headBranch === branch && time(r.createdAt) >= time(openedAt))
     .sort((a, b) => time(a.createdAt) - time(b.createdAt))
     // Открытие — только прогон «Ответов Codex»: заголовок прогона CI — название PR, и оно может кончаться теми же
     // словами (двенадцатое ревью Codex на #86).
@@ -321,9 +322,10 @@ function reviewComments(n) {
 function headHistory(pr) {
   const path = `${REPO}/actions/runs?branch=${encodeURIComponent(pr.headRefName)}&event=pull_request&per_page=100`;
   const runs = gh(['api', '--paginate', path, '--jq',
-    '.workflow_runs[] | {workflow: .path, event, createdAt: .created_at, headSha: .head_sha, headBranch: .head_branch, displayTitle: .display_title}'])
+    '.workflow_runs[] | {workflow: .path, event, createdAt: .created_at, headSha: .head_sha, headBranch: .head_branch, headRepo: .head_repository.full_name, displayTitle: .display_title}'])
     .split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  return headTransitions({ branch: pr.headRefName, openedAt: pr.createdAt, runs });
+  const repo = `${pr.headRepositoryOwner.login}/${pr.headRepository.name}`;
+  return headTransitions({ branch: pr.headRefName, repo, openedAt: pr.createdAt, runs });
 }
 
 function codexData(n, headSha) {
@@ -388,7 +390,7 @@ function report(text) {
 
 function main(argv) {
   const { number, only, at } = parseArgs(argv);
-  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,baseRefName,headRefOid,baseRefOid,createdAt']);
+  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,headRepository,headRepositoryOwner,baseRefName,headRefOid,baseRefOid,createdAt']);
   const header = `PR #${pr.number} — ${pr.title}${at ? ` (на ${at})` : ''}`;
   const replies = repliesItem(reviewComments(number), at);
 
