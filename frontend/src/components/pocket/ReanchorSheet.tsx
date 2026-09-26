@@ -46,10 +46,9 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
     const entered = amount.trim() === '' ? null : amountValue(amount);
     const ageDays = checkpointAgeDays(checkpointDate, todayIso);
     const driftLine = buildDriftPreview(entered, currentBalance, ageDays);
-    const driftColor = driftLine == null ? undefined
-        : driftLine.startsWith('дрейф −') ? 'var(--color-danger)'
-        : driftLine.startsWith('дрейф +') ? 'var(--color-success)'
-        : 'var(--color-text-muted)';
+    // ANO-123: дрейф — мера учёта, а не приговор. Красный на минусе говорил бы «ты не записал»
+    // (правила 5, 12): тревога в корпусе прикреплена к процессу учёта, а не к нехватке денег.
+    const driftColor = 'var(--color-text-muted)';
 
     const submit = async (e: React.FormEvent) => {
         e.preventDefault();
