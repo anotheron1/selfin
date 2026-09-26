@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { FREE_LABEL } from './gapMode';
+import { FREE_LABEL, pocketResult } from './gapMode';
 import { buildBreakdownView } from './breakdownRows';
 import type { PocketResponse } from '../types/api';
 
@@ -9,6 +9,10 @@ import type { PocketResponse } from '../types/api';
  * Одно число — одно имя (ANO-76). Итог расшифровки назвал число «Свободно» (ANO-77), а карточка
  * над тем же числом осталась «В кармашке» — и этого никто не заметил. Поэтому имя живёт в одной
  * константе, а здесь проверяется, что карточка, расшифровка и шапка примерки берут его оттуда.
+ *
+ * <p>Имя «Свободно» — только когда денег хватает. При нехватке и задетом НЗ итог называется по
+ * состоянию, как в расшифровке (ANO-77): шапка примерки писала «Свободно сейчас −25 612 ₽» — ревью
+ * Codex на #80. Поэтому итог словами — одна функция на расшифровку и шапку.
  *
  * Спека: docs/superpowers/specs/2026-09-26-free-money-word-design.md
  */
@@ -56,7 +60,19 @@ describe('имя главного числа — одно на всех экра
         expect(source('../components/PocketCard.tsx')).toContain('gap ? gap.horizonLabel : FREE_LABEL');
     });
 
-    it('шапка примерки на «Хотелках» — тем же именем', () => {
-        expect(source('../pages/Wishlist.tsx')).toContain('{FREE_LABEL} сейчас');
+    it('итог словами по состоянию: «Свободно» — только когда денег хватает, сумма всегда без минуса', () => {
+        expect(pocketResult(ok)).toEqual({ label: FREE_LABEL, amount: 12000 });
+        const gap = { ...ok, pocket: -25612, minPoint: { date: '2026-10-12', balance: -25612, drivenBy: null } };
+        expect(pocketResult(gap)).toEqual({ label: 'Не хватает', amount: 25612 });
+        const nz = { ...ok, pocket: -3000, buffer: 5000, minPoint: { date: '2026-09-26', balance: 2000, drivenBy: null } };
+        expect(pocketResult(nz)).toEqual({ label: 'Придётся взять из НЗ', amount: 3000 });
+    });
+
+    it('шапка примерки называет оба числа по состоянию — той же функцией, что итог расшифровки', () => {
+        const page = source('../pages/Wishlist.tsx');
+        expect(page).toContain('pocketResult(baseline)');
+        expect(page).toContain('pocketResult(fitted)');
+        expect(page, 'своя подпись «Свободно» противоречит числу при нехватке').not.toContain('{FREE_LABEL} сейчас');
+        expect(source('./breakdownRows.ts'), 'итог расшифровки — той же функцией').toContain('pocketResult(p)');
     });
 });

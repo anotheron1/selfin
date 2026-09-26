@@ -49,6 +49,19 @@ export function pocketState(p: PocketResponse): PocketState {
  */
 export const FREE_LABEL = 'Свободно';
 
+/**
+ * Итог числа словами — по состоянию (ANO-77): «Свободно», «Не хватает», «Придётся взять из НЗ»;
+ * сумма всегда без минуса. Одно правило на итог расшифровки и шапку примерки: там над минусом
+ * стояло «Свободно сейчас −25 612 ₽» — противоречие в одной строке (ревью Codex, #80).
+ * Нехватка считается от нуля, НЗ — от НЗ, как у карточки.
+ */
+export function pocketResult(p: PocketResponse): { label: string; amount: number } {
+    const state = pocketState(p);
+    if (state === 'gap') return { label: 'Не хватает', amount: -p.minPoint.balance };
+    if (state === 'nz') return { label: 'Придётся взять из НЗ', amount: p.buffer - p.minPoint.balance };
+    return { label: FREE_LABEL, amount: p.pocket };
+}
+
 export function buildGapMode(p: PocketResponse): GapMode | null {
     const { minPoint, horizon, trajectory } = p;
     const state = pocketState(p);
