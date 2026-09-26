@@ -173,6 +173,20 @@ test('чистый вердикт в ленте засчитывается по 
   assert.equal(s.ok, true);
 });
 
+// Ревью Codex на #86 (P1): ревью прошлой головы может прийти уже после пуша новой — по времени его не засчитать.
+test('ревью прошлого коммита, пришедшее после пуша головы, — не видел', () => {
+  const s = codexState({ ...head, ...quiet,
+    reviews: [{ user: CODEX, submittedAt: '2026-09-26T12:10:00Z', commitId: 'ffff000' }] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'не видел голову');
+});
+
+test('«замечаний нет» про прошлый коммит, пришедшее после пуша головы, — не видел', () => {
+  const s = codexState({ ...head85, ...quiet, issueComments: [clean('2026-09-26T14:06:36Z', 'ffff000000')] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'не видел голову');
+});
+
 test('чистый вердикт на прошлый коммит до пуша головы — не видел', () => {
   const s = codexState({ ...head85, headPushedAt: '2026-09-26T14:10:00Z', ...quiet,
     issueComments: [clean('2026-09-26T14:06:36Z', 'ffff000000')] });

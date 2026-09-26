@@ -80,8 +80,13 @@ export function codexState({ headSha, headPushedAt, reviews, prReactions, issueC
       .map((c) => ({ at: c.createdAt, commitPrefix: c.body.match(REVIEWED_COMMIT)?.[1], what: 'замечаний нет' })),
   ].filter((v) => until(v.at)).sort(chrono);
 
-  const sawHead = (v) =>
-    v.commitId === headSha || (v.commitPrefix !== undefined && headSha.startsWith(v.commitPrefix)) || time(v.at) >= time(headPushedAt);
+  // Вердикт с номером коммита засчитывается только по номеру: ревью прошлой головы может прийти уже после пуша
+  // новой (ревью Codex на #86). По времени — только реакции, у которых номера нет.
+  const sawHead = (v) => {
+    if (v.commitId !== undefined) return v.commitId === headSha;
+    if (v.commitPrefix !== undefined) return headSha.startsWith(v.commitPrefix);
+    return time(v.at) >= time(headPushedAt);
+  };
   const seen = verdicts.filter(sawHead).at(-1);
   if (seen) return { ok: true, state: 'видел', text: `${seen.what} ${hhmm(seen.at)} — голова ${headSha.slice(0, 7)} просмотрена` };
 
