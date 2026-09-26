@@ -43,6 +43,12 @@ export function pocketState(p: PocketResponse): PocketState {
     return p.minPoint.balance < p.buffer ? 'nz' : 'ok';
 }
 
+/**
+ * Имя главного числа в обычном режиме (ANO-76) — одно на карточку, итог расшифровки и шапку
+ * примерки. «Кармашек» в исследованиях писали только мы; «свободные деньги» знает каждый (правило 13).
+ */
+export const FREE_LABEL = 'Свободно';
+
 export function buildGapMode(p: PocketResponse): GapMode | null {
     const { minPoint, horizon, trajectory } = p;
     const state = pocketState(p);

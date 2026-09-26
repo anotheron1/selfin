@@ -1,6 +1,6 @@
 import type { PocketResponse, UpcomingItem } from '../types/api';
 import { fmtDayMonth, fmtRub as fmtC } from './format';
-import { pocketState } from './gapMode';
+import { FREE_LABEL, pocketState } from './gapMode';
 import { ruPlural } from './plural';
 
 /**
@@ -164,7 +164,7 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
         ? row('result', 'Не хватает', fmtC(-minPoint.balance), narrowest)
         : state === 'nz'
             ? row('result', 'Придётся взять из НЗ', fmtC(buffer - minPoint.balance), null)
-            : row('result', 'Свободно', fmtC(p.pocket), buffer > 0 ? null : narrowest);
+            : row('result', FREE_LABEL, fmtC(p.pocket), buffer > 0 ? null : narrowest);
 
     return { calc, result, caveats };
 }

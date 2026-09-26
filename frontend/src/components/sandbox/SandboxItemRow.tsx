@@ -119,7 +119,7 @@ export default function SandboxItemRow({
                     style={{ borderTop: '1px solid var(--color-border)' }}>
                     {locked && (
                         <p className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
-                            Решение принято — сумма учтена в кармашке и на дашборде.
+                            Решение принято — сумма уже в плане, и дашборд её учитывает.
                             Чтобы менять или примерять, верните в обсуждение.
                         </p>
                     )}

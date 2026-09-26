@@ -56,7 +56,7 @@ function FundAccountPicker({ accounts, value, onChange }: {
             <p className="text-xs text-muted-foreground">
                 {value
                     ? 'Накопленное берётся с остатка счёта. Пополнять переводом нельзя — двигай деньги на счёте и обновляй его остаток.'
-                    : 'Копилка держит свой баланс и пополняется переводом из кармашка.'}
+                    : 'Копилка держит свой баланс и пополняется переводом из свободных денег.'}
             </p>
         </div>
     );
@@ -421,7 +421,7 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
                             size="sm"
                             variant="outline"
                             onClick={() => onTransfer(fund)}
-                            title="Пополнить из кармашка">
+                            title="Пополнить из свободных денег">
                             <ArrowDownToLine size={16} />
                         </Button>
                     )}
