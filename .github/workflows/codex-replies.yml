@@ -12,17 +12,16 @@ run-name: Ответы Codex — ${{ github.event_name }} ${{ github.event.actio
 # Отдельным файлом, а не джобой в ci.yml: там concurrency по github.ref, а у событий ревью ref тот же —
 # каждый ответ в ветке отменял бы идущую сборку бэка.
 on:
-  # Только смены головы: tools/pr-ready.mjs берёт время пуша из последнего прогона по этому событию.
-  # Метки и прочие действия здесь сдвинули бы это время.
   pull_request:
     types: [opened, synchronize, reopened]
   pull_request_review:
     types: [submitted, edited, dismissed]
 
+# Код из ветки PR выполняется только с правами на чтение. Право actions: write — у одной джобы перезапуска,
+# и в ней нет кода PR (десятое ревью Codex на #86). Сторож — в tools/pr-ready.test.mjs.
 permissions:
   contents: read
   pull-requests: read
-  actions: write
 
 jobs:
   replies:
@@ -40,11 +39,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: bash tools/pr-ready.sh ${{ github.event.pull_request.number }} --only codex-replies
-      # Ответ в ветке приходит после пуша правки, и прогон по пушу остаётся красным рядом с зелёным
-      # прогоном по ревью (проверено на #86). Зелёный прогон по ревью перезапускает красные по пушу
-      # на той же голове — они читают текущие ответы и зеленеют.
-      - name: Красные прогоны по пушу на этой голове — перезапустить
-        if: success() && github.event_name == 'pull_request_review'
+
+  # Ответ в ветке приходит после пуша правки, и прогон по пушу остаётся красным рядом с зелёным
+  # прогоном по ревью (проверено на #86). Зелёный прогон по ревью перезапускает красные по пушу
+  # на той же голове — они читают текущие ответы и зеленеют. Без выгрузки кода: только gh
+  # с постоянными аргументами.
+  rerun:
+    name: Красные прогоны по пушу — перезапуск
+    needs: replies
+    if: github.event_name == 'pull_request_review'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Перезапустить красные прогоны по пушу на этой голове
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

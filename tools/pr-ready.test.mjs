@@ -447,6 +447,19 @@ test('ожидаемые workflow — по настоящим файлам ре�
   assert.deepEqual(pullRequestWorkflows(files), ['CI', 'Ответы Codex']);
 });
 
+// Десятое ревью Codex на #86 (P1): код из ветки PR с правом actions: write может запускать чужие workflow.
+// Сторож по исходнику: право на запись — только у джобы, которая кода PR не выгружает и не выполняет.
+test('«Ответы Codex»: actions: write — только у джобы без кода PR, и не на уровне всего workflow', () => {
+  const text = readFileSync(new URL('../.github/workflows/codex-replies.yml', import.meta.url), 'utf8')
+    .split('\n').filter((line) => !/^\s*#/.test(line)).join('\n');
+  const jobsAt = text.search(/^jobs:/m);
+  assert.doesNotMatch(text.slice(0, jobsAt), /actions:\s*write/);
+  const jobs = text.slice(jobsAt).split(/^ {2}(?=[\w-]+:\s*$)/m).slice(1);
+  const writers = jobs.filter((job) => /actions:\s*write/.test(job));
+  assert.equal(writers.length, 1);
+  for (const job of writers) assert.doesNotMatch(job, /actions\/checkout|tools\//);
+});
+
 test('workflow только на пуш — не ожидается; запись списком в одну строку — ожидается', () => {
   assert.deepEqual(pullRequestWorkflows([
     { path: 'a.yml', text: 'name: Publish\non:\n  push:\n    branches: [main]\njobs:\n  x:\n    steps: []\n' },
