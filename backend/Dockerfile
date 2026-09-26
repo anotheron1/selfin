@@ -9,6 +9,5 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 # Коммит сборки — его отдаёт GET /api/v1/version (ANO-194).
 ARG GIT_COMMIT=unknown
-ENV GIT_COMMIT=$GIT_COMMIT
 COPY --from=build /app/target/*.jar app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]
