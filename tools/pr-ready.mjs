@@ -173,7 +173,8 @@ export function codexState({ headSha: nowHead, transitions, reviews, prReactions
 // Linear: номер в ветке или заголовке закрывает задачу при вливании, в описании — только после закрывающего слова.
 // После связующих слов задача связывается, но не закрывается. Списки слов — из документации интеграции.
 const ID = String.raw`ANO-\d+`;
-const ID_LIST = String.raw`${ID}(?:\s*(?:,|and|&)\s*${ID})*`;
+// Разделители списка: запятая, «and», «&» и оксфордская запятая «, and» (шестнадцатое ревью Codex на #86).
+const ID_LIST = String.raw`${ID}(?:\s*(?:,\s*(?:and|&)?|and|&)\s*${ID})*`;
 const CLOSING = 'close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|complete[sd]?|completing|implement(?:s|ed|ing)?';
 const CONTRIBUTING = 'ref|references|part of|related to|contributes to|towards|updates';
 

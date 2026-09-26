@@ -357,6 +357,13 @@ test('закрывающее слово со списком — все номе�
     { closes: ['ANO-1', 'ANO-2', 'ANO-3'], links: [] });
 });
 
+// Шестнадцатое ревью Codex на #86 (P2): список с оксфордской запятой — «, and».
+test('закрывающее слово со списком через «, and» — все номера списка', () => {
+  assert.deepEqual(
+    linearLinks({ branch: 'ci/x', title: 'Т', body: 'Fixes ANO-1, ANO-2, and ANO-3' }),
+    { closes: ['ANO-1', 'ANO-2', 'ANO-3'], links: [] });
+});
+
 test('Part of — связь без закрытия', () => {
   assert.deepEqual(
     linearLinks({ branch: 'ci/pr-ready-gate', title: 'Ворота готовности PR', body: 'Part of ANO-194' }),
