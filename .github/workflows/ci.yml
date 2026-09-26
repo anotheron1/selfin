@@ -46,8 +46,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Скрипт готовности PR
-        run: node --test tools/pr-ready.test.mjs
+      - name: Скрипты ворот
+        run: node --test tools/pr-ready.test.mjs tools/spec-check.test.mjs
+
+  # Ворота 3 (ANO-194): изменённая спека *-design.md — с разделом «Правила продукта — сверка»,
+  # а если в ней есть замер — ещё и «Как мерил». Спека: docs/superpowers/specs/2026-09-26-spec-sections-check-design.md
+  specs:
+    name: Спеки — сверка правил и «Как мерил»
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Изменённые спеки
+        run: node tools/spec-check.mjs origin/${{ github.base_ref }}
 
   backend:
     name: Бэк — юниты и интеграционные
