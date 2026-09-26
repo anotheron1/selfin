@@ -54,3 +54,10 @@
 | остальные | не касаются |
 
 Дефектов сверка не нашла.
+
+## Ревью Codex (#76) — два P2, оба подтвердились
+
+* **400 ловил и поломку сервера.** Ветка стояла на `TypeMismatchException`, а от него идёт и `MethodArgumentConversionNotSupportedException` — у сервера нет конвертера для типа параметра. Воспроизведено: параметр такого типа давал 400. Ветка теперь на `MethodArgumentTypeMismatchException` — кривое значение от клиента; нет конвертера — 500.
+* **5xx рассказывал о себе.** Стандартная ошибка Spring со статусом 500 уходила клиенту со своим текстом: «Required path variable 'secretVariableName' is not present.» — имя переменной из дефекта маппинга. Теперь при 5xx статус её, текст — «Internal server error», подробности — в лог.
+
+`GlobalExceptionHandlerServerErrorTest` — три случая через MockMvc; два красные до правки. Мутации: вернуть общий `TypeMismatchException`, вернуть текст Spring для 5xx, снять ветку кривого значения — все красные.
