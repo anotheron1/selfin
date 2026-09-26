@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   CODEX, unansweredThreads, codexState, headTransitions, headAt, linearLinks, declaredClosing, linearState, ciState, pullRequestWorkflows,
+  requiredWorkflows,
   baseState, summary,
 } from './pr-ready.mjs';
 
@@ -458,6 +459,15 @@ test('«Ответы Codex»: actions: write — только у джобы бе
   const writers = jobs.filter((job) => /actions:\s*write/.test(job));
   assert.equal(writers.length, 1);
   for (const job of writers) assert.doesNotMatch(job, /actions\/checkout|tools\//);
+});
+
+// Одиннадцатое ревью Codex на #86 (P1): PR не должен убирать проверку, которая проверяет его самого.
+test('PR убрал pull_request из CI — CI всё равно ожидается: ожидаемые — из базы и из PR вместе', () => {
+  const ci = (on) => ({ path: 'ci.yml', text: `name: CI\non:\n${on}jobs:\n  x:\n    steps: []\n` });
+  assert.deepEqual(requiredWorkflows({
+    base: [ci('  pull_request:\n  push:\n    branches: [main]\n')],
+    pr: [ci('  push:\n    branches: [main]\n'), { path: 'new.yml', text: 'name: Новый\non:\n  pull_request:\njobs:\n  x:\n    steps: []\n' }],
+  }), ['CI', 'Новый']);
 });
 
 test('workflow только на пуш — не ожидается; запись списком в одну строку — ожидается', () => {

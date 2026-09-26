@@ -233,6 +233,15 @@ export function pullRequestWorkflows(files) {
 }
 
 /**
+ * Workflow, чьи проверки обязаны прийти на голову PR, — из базы PR и из самого PR вместе. Только из PR — и PR,
+ * убравший pull_request из CI, перестал бы ждать проверку, которая его проверяет (одиннадцатое ревью Codex на #86).
+ * base и pr — файлы .github/workflows, как для pullRequestWorkflows.
+ */
+export function requiredWorkflows({ base, pr }) {
+  return [...new Set([...pullRequestWorkflows(base), ...pullRequestWorkflows(pr)])].sort();
+}
+
+/**
  * Проверки головы PR. Одно имя может прогоняться на разные события (джоба ответов Codex) — берётся последний прогон.
  * checks — [{ name, workflow, bucket, startedAt }], bucket из `gh pr checks`: pass, fail, pending, skipping, cancel.
  * expected — workflow, чьи проверки обязаны прийти: без него не запустившийся CI выглядел бы чистым (ревью Codex на #86).
@@ -315,20 +324,20 @@ function codexData(n, headSha) {
 
 // На PR GitHub гоняет workflow из merge-коммита PR, а не из рабочей копии: у PR, открытого до нового
 // workflow, его прогонов нет и быть не должно. Для влитого PR merge-ссылки может не быть — тогда голова.
-function expectedWorkflows(n, headSha) {
+function expectedWorkflows(pr) {
   const files = (ref) => ghList(`${REPO}/contents/.github/workflows?ref=${encodeURIComponent(ref)}`, '{path, name}')
     .filter((f) => /\.ya?ml$/.test(f.name))
     .map((f) => ({
       path: f.name,
       text: Buffer.from(gh(['api', `${REPO}/contents/${f.path}?ref=${encodeURIComponent(ref)}`, '--jq', '.content']), 'base64').toString('utf8'),
     }));
-  let list;
+  let own;
   try {
-    list = files(`refs/pull/${n}/merge`);
+    own = files(`refs/pull/${pr.number}/merge`);
   } catch {
-    list = files(headSha);
+    own = files(pr.headRefOid);
   }
-  return pullRequestWorkflows(list);
+  return requiredWorkflows({ base: files(pr.baseRefOid), pr: own });
 }
 
 function ciChecks(n) {
@@ -366,7 +375,7 @@ function report(text) {
 
 function main(argv) {
   const { number, only, at } = parseArgs(argv);
-  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,baseRefName,headRefOid,createdAt']);
+  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,baseRefName,headRefOid,baseRefOid,createdAt']);
   const header = `PR #${pr.number} — ${pr.title}${at ? ` (на ${at})` : ''}`;
   const replies = repliesItem(reviewComments(number), at);
 
@@ -380,7 +389,7 @@ function main(argv) {
   const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
-    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows(number, pr.headRefOid)) },
+    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows(pr)) },
     { title: 'Codex', ok: codex.ok, text: codex.text },
     replies,
     { title: 'База', ...baseState({ base: pr.baseRefName, children }) },
