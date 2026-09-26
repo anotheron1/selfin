@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -68,13 +69,18 @@ class RegressionTestExplainsNumbersGuardTest {
                 .isEmpty();
     }
 
-    /** Javadoc перед объявлением класса; нет его — пустая строка. */
+    /**
+     * Javadoc перед объявлением класса; нет его — пустая строка. Объявление ищется с начала строки:
+     * упоминание класса в тексте javadoc (строка начинается со звёздочки) за объявление не сходит.
+     */
     private static String classJavadoc(String source, String className) {
-        int declaration = source.indexOf("class " + className);
-        if (declaration < 0) {
+        Matcher declaration = Pattern.compile(
+                "(?m)^(?:(?:public|final|abstract)\\s+)*class\\s+" + Pattern.quote(className) + "\\b")
+                .matcher(source);
+        if (!declaration.find()) {
             return "";
         }
-        String head = source.substring(0, declaration);
+        String head = source.substring(0, declaration.start());
         int start = head.lastIndexOf("/**");
         int end = start < 0 ? -1 : head.indexOf("*/", start);
         return start < 0 || end < 0 ? "" : head.substring(start, end);
