@@ -100,9 +100,10 @@ const key = (path: string) => relative(ROOT, path).split(sep).join('/');
 const FRONTEND = walk(join(ROOT, 'frontend', 'src'), (p) =>
     /\.tsx?$/.test(p) && !/\.test\.tsx?$/.test(p) && !p.endsWith('.d.ts'));
 
-// Контроллеры не сканируются: их строки — описания API для Swagger, а не текст экрана.
-const BACKEND = walk(join(ROOT, 'backend', 'src', 'main', 'java'), (p) =>
-    p.endsWith('.java') && !p.split(sep).includes('controller'));
+// Контроллеры сканируются тоже (ревью Codex, #53): причина ResponseStatusException доходит до
+// экрана через api/client.ts. Описания API для Swagger стоят в аргументах аннотаций — их лексер
+// ниже пропускает, так что целиком исключать каталог незачем.
+const BACKEND = walk(join(ROOT, 'backend', 'src', 'main', 'java'), (p) => p.endsWith('.java'));
 
 type Found = { file: string; line: number; text: string };
 
@@ -222,6 +223,14 @@ describe('словарь правил продукта на строках ин�
         const texts = STRINGS.map((s) => s.text);
         expect(texts.some((t) => t.includes('раньше по плану'))).toBe(true);    // UpcomingList.tsx
         expect(texts.some((t) => t.includes('Взносы в копилки'))).toBe(true);   // PocketEngine.java
+    });
+
+    it('контроллеры читаются: строка ответа доходит до экрана, описание Swagger — нет (ревью Codex, #53)', () => {
+        // Причину ResponseStatusException сериализует GlobalExceptionHandler, а api/client.ts
+        // показывает её в ошибке на экране. Аргументы аннотаций лексер пропускает.
+        const texts = STRINGS.map((s) => s.text);
+        expect(texts.some((t) => t.includes('startDate and endDate are required'))).toBe(true); // FinancialEventController
+        expect(texts.some((t) => t.includes('Управление фондами накоплений'))).toBe(false);     // @Tag в TargetFundController
     });
 
     it('каждое слово словаря на экране — либо долг с задачей, либо разрешение с причиной', () => {
