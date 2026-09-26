@@ -76,8 +76,10 @@ export function codexState({ headSha, headPushedAt, reviews, prReactions, issueC
     ...reviews.filter(byCodex).map((r) => ({ at: r.submittedAt, commitId: r.commitId, what: 'ревью' })),
     ...prReactions.filter(thumbsUp).map((r) => ({ at: r.createdAt, what: '👍' })),
     ...requests.flatMap((c) => c.reactions ?? []).filter(thumbsUp).map((r) => ({ at: r.createdAt, what: '👍 на запрос' })),
-    ...issueComments.filter((c) => byCodex(c) && NO_ISSUES.test(c.body))
-      .map((c) => ({ at: c.createdAt, commitPrefix: c.body.match(REVIEWED_COMMIT)?.[1], what: 'замечаний нет' })),
+    // Без разобранного номера коммита «замечаний нет» не засчитывается: не узнать, какую голову смотрели
+    // (третье ревью Codex на #86). Такой комментарий уходит в «прочитать».
+    ...issueComments.filter((c) => byCodex(c) && NO_ISSUES.test(c.body) && REVIEWED_COMMIT.test(c.body))
+      .map((c) => ({ at: c.createdAt, commitPrefix: c.body.match(REVIEWED_COMMIT)[1], what: 'замечаний нет' })),
   ].filter((v) => until(v.at)).sort(chrono);
 
   // Вердикт с номером коммита засчитывается только по номеру: ревью прошлой головы может прийти уже после пуша

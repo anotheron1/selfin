@@ -187,6 +187,14 @@ test('«замечаний нет» про прошлый коммит, приш
   assert.equal(s.state, 'не видел голову');
 });
 
+// Третье ревью Codex на #86 (P1): без разобранного номера коммита «замечаний нет» — не вердикт, а текст для чтения.
+test('«замечаний нет» без номера коммита — не вердикт, прочитать', () => {
+  const bare = { user: CODEX, createdAt: '2026-09-26T12:10:00Z', reactions: [], body: "Codex Review: Didn't find any major issues. Hooray!" };
+  const s = codexState({ ...head, ...quiet, issueComments: [bare] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'написал');
+});
+
 test('чистый вердикт на прошлый коммит до пуша головы — не видел', () => {
   const s = codexState({ ...head85, headPushedAt: '2026-09-26T14:10:00Z', ...quiet,
     issueComments: [clean('2026-09-26T14:06:36Z', 'ffff000000')] });
