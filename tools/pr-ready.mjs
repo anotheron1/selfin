@@ -43,9 +43,10 @@ export function unansweredThreads(comments, { at } = {}) {
     .map((last) => ({ path: last.path, line: last.line, ...remarkTitle(last.body) }));
 }
 
-// Заголовок прогона «Ответов Codex» задан run-name: «Ответы Codex — <событие> <действие>». По нему виден прогон
-// по opened — запись о голове на открытии PR. У прогонов CI заголовок — название PR.
-const OPENED_RUN = /pull_request opened$/;
+// Заголовок прогона «Ответов Codex» задан run-name: «Ответы Codex — <событие> <действие> #<номер PR>». По нему виден
+// прогон по opened именно этого PR — запись о голове на его открытии. С одной ветки бывают открыты два PR в разные
+// базы (пятнадцатое ревью Codex на #86). У прогонов CI заголовок — название PR.
+const openedRun = (number) => new RegExp(String.raw`pull_request opened #${number}$`);
 const HEAD_WORKFLOW = '.github/workflows/codex-replies.yml';
 
 /**
@@ -55,14 +56,15 @@ const HEAD_WORKFLOW = '.github/workflows/codex-replies.yml';
  * с той же веткой, они не в счёт.
  * runs — [{ event, createdAt, headSha, headBranch, displayTitle }].
  */
-export function headTransitions({ branch, repo, openedAt, runs }) {
+export function headTransitions({ number, branch, repo, openedAt, runs }) {
+  const opened = openedRun(number);
   return runs
     // Ветка — вместе с репозиторием головы: у PR из форков ветка может называться одинаково (четырнадцатое ревью Codex).
     .filter((r) => r.event === 'pull_request' && r.headRepo === repo && r.headBranch === branch && time(r.createdAt) >= time(openedAt))
     .sort((a, b) => time(a.createdAt) - time(b.createdAt))
     // Открытие — только прогон «Ответов Codex»: заголовок прогона CI — название PR, и оно может кончаться теми же
     // словами (двенадцатое ревью Codex на #86).
-    .map((r) => ({ sha: r.headSha, createdAt: r.createdAt, opening: r.workflow === HEAD_WORKFLOW && OPENED_RUN.test(r.displayTitle ?? '') }));
+    .map((r) => ({ sha: r.headSha, createdAt: r.createdAt, opening: r.workflow === HEAD_WORKFLOW && opened.test(r.displayTitle ?? '') }));
 }
 
 /** Голова PR в момент времени — по последнему прогону до него; до первого прогона неизвестна. */
@@ -237,7 +239,10 @@ export function pullRequestChecks(files) {
   return files.filter(({ text }) => onPullRequest(text)).flatMap(({ path, text }) => {
     const workflow = unquote(text.match(/^name:\s*(.+?)\s*$/m)?.[1] ?? path);
     const jobs = text.slice(text.search(/^jobs:/m)).split(/^ {2}(?=[\w-]+:\s*$)/m).slice(1);
-    return jobs.map((job) => ({ workflow, check: unquote(job.match(/^ {4}name:\s*(.+?)\s*$/m)?.[1] ?? job.match(/^[\w-]+/)[0]) }));
+    return jobs.map((job) => {
+      const key = job.match(/^[\w-]+/)[0];
+      return { path, job: key, workflow, check: unquote(job.match(/^ {4}name:\s*(.+?)\s*$/m)?.[1] ?? key) };
+    });
   });
 }
 
@@ -247,9 +252,14 @@ export function pullRequestChecks(files) {
  * ревью Codex на #86). base и pr — файлы .github/workflows, как для pullRequestChecks.
  */
 export function requiredChecks({ base, pr }) {
+  // Джоба узнаётся по файлу и ключу, а не по отображаемому имени: переименованную джобу GitHub прогоняет под новым
+  // именем, и старое из базы не придёт никогда. Для джобы, что есть и в базе, и в PR, — имя из PR (пятнадцатое ревью).
+  const id = (c) => `${c.path}#${c.job}`;
+  const jobs = new Map(pullRequestChecks(base).map((c) => [id(c), c]));
+  for (const c of pullRequestChecks(pr)) jobs.set(id(c), c);
   const key = (c) => `${c.workflow}/${c.check}`;
-  const all = new Map([...pullRequestChecks(base), ...pullRequestChecks(pr)].map((c) => [key(c), c]));
-  return [...all.values()].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  const unique = new Map([...jobs.values()].map(({ workflow, check }) => [key({ workflow, check }), { workflow, check }]));
+  return [...unique.values()].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
 /**
@@ -325,7 +335,7 @@ function headHistory(pr) {
     '.workflow_runs[] | {workflow: .path, event, createdAt: .created_at, headSha: .head_sha, headBranch: .head_branch, headRepo: .head_repository.full_name, displayTitle: .display_title}'])
     .split('\n').filter(Boolean).map((line) => JSON.parse(line));
   const repo = `${pr.headRepositoryOwner.login}/${pr.headRepository.name}`;
-  return headTransitions({ branch: pr.headRefName, repo, openedAt: pr.createdAt, runs });
+  return headTransitions({ number: pr.number, branch: pr.headRefName, repo, openedAt: pr.createdAt, runs });
 }
 
 function codexData(n, headSha) {

@@ -1,6 +1,7 @@
 name: Ответы Codex
-# Заголовок прогона — событие и действие: по «pull_request opened» tools/pr-ready.mjs узнаёт голову на открытии PR.
-run-name: Ответы Codex — ${{ github.event_name }} ${{ github.event.action }}
+# Заголовок прогона — событие, действие и номер PR: по «pull_request opened #N» tools/pr-ready.mjs узнаёт голову
+# на открытии именно этого PR.
+run-name: 'Ответы Codex — ${{ github.event_name }} ${{ github.event.action }} #${{ github.event.pull_request.number }}'
 
 # Ворота 1 (ANO-194): краснеет, пока у Codex есть ветка замечаний без нашего ответа.
 # Спека: docs/superpowers/specs/2026-09-26-pr-ready-gate-design.md, раздел 3.
