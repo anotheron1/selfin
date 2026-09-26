@@ -141,6 +141,8 @@ jobs:
           context: ./head/backend
           load: true
           tags: selfin-backend:head
+          # Коммит сборки для GET /api/v1/version — скрипт ниже его спрашивает (ANO-194).
+          build-args: GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=ci-backend
           cache-to: type=gha,mode=max,scope=ci-backend
       # Сеятель обязан совпадать с API того бэка, которому пишет, а пишет он бэку main.
@@ -157,4 +159,5 @@ jobs:
       - name: Миграции PR на базе с данными main
         env:
           CI_DATA_CHANGE_EXPECTED: ${{ contains(github.event.pull_request.labels.*.name, 'меняет-данные') }}
+          CI_EXPECTED_COMMIT: ${{ github.sha }}
         run: bash head/tools/ci-migrations.sh selfin-backend:base selfin-backend:head "$SEEDER" base head

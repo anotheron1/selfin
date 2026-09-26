@@ -12,7 +12,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      # Коммит сборки для GET /api/v1/version: GIT_COMMIT=$(git rev-parse HEAD) docker compose … up --build
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: selfin-backend
     ports:
       - "8082:8080"

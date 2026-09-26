@@ -13,7 +13,9 @@
 #      меняет общее число строк — ловится только так. Если PR меняет данные намеренно, на нём
 #      ставится метка «меняет-данные» (CI_DATA_CHANGE_EXPECTED=true): расхождение показывается,
 #      но проверку не валит;
-#   3. ручки чтения отвечают 200 на данных, записанных кодом main.
+#   3. ручки чтения отвечают 200 на данных, записанных кодом main;
+#   4. образ PR отдаёт в GET /api/v1/version коммит, из которого собран (CI_EXPECTED_COMMIT;
+#      без переменной не проверяется) — ANO-194.
 #
 #   tools/ci-migrations.sh <образ бэка main> <образ бэка PR> <сеятель.mjs> [<исходники main> <исходники PR>]
 #
@@ -237,6 +239,20 @@ if [ ${#silent[@]} -gt 0 ]; then
   failures+=("ручки чтения не ответили 200 на данных, записанных кодом main")
 fi
 
+# ── 4. Образ PR отдаёт коммит, из которого собран (ANO-194) ────────────────────
+# Цепочка «аргумент сборки — переменная окружения — ручка»: порвалась — ручка скажет unknown.
+# Без CI_EXPECTED_COMMIT (локальный прогон) не проверяется.
+commit_line=""
+if [ -n "${CI_EXPECTED_COMMIT:-}" ]; then
+  commit_got=$(curl -s "$API/version" | sed -n 's/.*"commit" *: *"\([^"]*\)".*/\1/p' || true)
+  if [ "$commit_got" = "$CI_EXPECTED_COMMIT" ]; then
+    commit_line="Образ PR отдаёт коммит сборки: ${commit_got}."
+  else
+    failures+=("GET /api/v1/version отдаёт «${commit_got:-пусто}», а образ собран из ${CI_EXPECTED_COMMIT}")
+    commit_line="**Образ PR отдаёт не тот коммит:** «${commit_got:-пусто}» вместо ${CI_EXPECTED_COMMIT}."
+  fi
+fi
+
 {
   echo "### Миграции на данных"
   echo
@@ -268,6 +284,10 @@ fi
   fi
   echo
   echo "Ручек чтения обойдено: ${#ENDPOINTS[@]}, не ответили 200: ${#silent[@]}."
+  if [ -n "$commit_line" ]; then
+    echo
+    echo "$commit_line"
+  fi
   echo
   echo "| таблица | строк после main | строк после PR |"
   echo "|---|---:|---:|"
