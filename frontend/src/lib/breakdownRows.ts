@@ -63,8 +63,8 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
     const day = fmtDayMonth(minPoint.date);
     const when = isToday ? 'сегодня' : day;
     const state = pocketState(p);
-    // «Самый узкий день» и НЗ стоят в расчёте, только когда НЗ задан и нехватки нет. Без НЗ узкий
-    // день и есть итог — отдельной строкой он повторил бы то же число.
+    // «Самый низкий остаток» и НЗ стоят в расчёте, только когда НЗ задан и нехватки нет. Без НЗ
+    // самый низкий остаток и есть итог — отдельной строкой он повторил бы то же число.
     const nzInCalc = buffer > 0 && state !== 'gap';
 
     const calc: BreakdownRow[] = [];
@@ -108,7 +108,7 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
                 break;
             case 'TRAJECTORY_MIN':
                 if (nzInCalc) {
-                    calc.push(row('subtotal', `Самый узкий день — ${when}`, fmtC(l.amount),
+                    calc.push(row('subtotal', `Самый низкий остаток — ${when}`, fmtC(l.amount),
                         `столько останется ${when}, дальше по плану не ниже`));
                 }
                 break;
@@ -158,7 +158,8 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
         }
     }
 
-    const narrowest = `самый узкий день — ${isToday ? `сегодня, ${day}` : day}`;
+    // ANO-99: слово справки (ANO-124), а не наше «самый узкий день».
+    const narrowest = `самый низкий остаток — ${isToday ? `сегодня, ${day}` : day}`;
     const result = state === 'gap'
         ? row('result', 'Не хватает', fmtC(-minPoint.balance), narrowest)
         : state === 'nz'

@@ -90,13 +90,13 @@ function normalWithNz(overrides: Partial<PocketResponse> = {}): PocketResponse {
 const RESERVE_NOTE = '7 платежей ещё без факта: Ипотека, Продукты ×4, Стрижка, Коммуналка';
 
 describe('buildBreakdownView (ANO-77): число и пояснение', () => {
-    it('стенд, нехватка без НЗ: самый узкий день сливается с итогом «Не хватает»', () => {
+    it('стенд, нехватка без НЗ: самый низкий остаток сливается с итогом «Не хватает»', () => {
         expect(buildBreakdownView(stand())).toEqual({
             calc: [
                 { kind: 'item', label: 'На счёте', amount: fmtC(60000), note: 'по сверке 29 августа и тому, что записано после' },
                 { kind: 'item', label: 'Брони с прошедшей датой', amount: fmtC(-61600), note: RESERVE_NOTE },
             ],
-            result: { kind: 'result', label: 'Не хватает', amount: fmtC(1600), note: 'самый узкий день — сегодня, 25 сентября' },
+            result: { kind: 'result', label: 'Не хватает', amount: fmtC(1600), note: 'самый низкий остаток — сегодня, 25 сентября' },
             caveats: [
                 { kind: 'caveat', label: 'Сверка сняла с брони', amount: fmtC(13000), note: '29 августа: Страховка и ещё 1 платёж' },
                 { kind: 'caveat', label: 'Погасить карты до планки', amount: fmtC(-70680), note: 'столько внести на карты, чтобы доступное дошло до планки из «Счетов»' },
@@ -105,13 +105,13 @@ describe('buildBreakdownView (ANO-77): число и пояснение', () => 
         });
     });
 
-    it('обычный день с НЗ: самый узкий день — промежуточный итог, затем НЗ и «Свободно»', () => {
+    it('обычный день с НЗ: самый низкий остаток — промежуточный итог, затем НЗ и «Свободно»', () => {
         const v = buildBreakdownView(normalWithNz());
         expect(v.calc).toEqual([
             { kind: 'item', label: 'На счёте', amount: fmtC(65000), note: 'по сверке 29 августа и тому, что записано после' },
             { kind: 'item', label: 'Брони с прошедшей датой', amount: fmtC(-61600), note: RESERVE_NOTE },
             { kind: 'item', label: 'Ещё уйдёт сегодня', amount: fmtC(-900), note: 'по плану: Кафе с коллегами' },
-            { kind: 'subtotal', label: 'Самый узкий день — сегодня', amount: fmtC(2500), note: 'столько останется сегодня, дальше по плану не ниже' },
+            { kind: 'subtotal', label: 'Самый низкий остаток — сегодня', amount: fmtC(2500), note: 'столько останется сегодня, дальше по плану не ниже' },
             { kind: 'item', label: 'НЗ', amount: fmtC(-1000), note: 'не трогаем' },
         ]);
         expect(v.result).toEqual({ kind: 'result', label: 'Свободно', amount: fmtC(1500), note: null });
@@ -135,27 +135,27 @@ describe('buildBreakdownView (ANO-77): число и пояснение', () => 
         });
     });
 
-    it('обычный день без НЗ: промежуточной строки нет, узкий день — в пояснении «Свободно»', () => {
+    it('обычный день без НЗ: промежуточной строки нет, самый низкий остаток — в пояснении «Свободно»', () => {
         const p = normalWithNz({ buffer: 0, pocket: 2500 });
         p.breakdown = p.breakdown.filter(l => l.type !== 'BUFFER')
             .map(l => l.type === 'POCKET' ? { ...l, amount: 2500 } : l);
         const v = buildBreakdownView(p);
         expect(v.calc.some(r => r.kind === 'subtotal')).toBe(false);
-        expect(v.result).toEqual({ kind: 'result', label: 'Свободно', amount: fmtC(2500), note: 'самый узкий день — сегодня, 25 сентября' });
+        expect(v.result).toEqual({ kind: 'result', label: 'Свободно', amount: fmtC(2500), note: 'самый низкий остаток — сегодня, 25 сентября' });
     });
 
-    it('узкий день впереди — «ещё уйдёт до …», и в список берутся только строки до него', () => {
+    it('самый низкий остаток впереди — «ещё уйдёт до …», и в список берутся только строки до него', () => {
         const p = normalWithNz({ minPoint: { date: '2026-10-12', balance: 2500, drivenBy: null } });
         p.upcoming = [
             up({ date: '2026-10-01', amount: 900, categoryName: 'Кафе', priority: 'MEDIUM' }),
             up({ date: '2026-10-12', amount: 2000, categoryName: 'Услуги', description: 'Стрижка', priority: 'MEDIUM' }),
-            up({ date: '2026-10-20', amount: 5000, categoryName: 'После узкого дня', priority: 'MEDIUM' }),
+            up({ date: '2026-10-20', amount: 5000, categoryName: 'После самого низкого остатка', priority: 'MEDIUM' }),
         ];
         const v = buildBreakdownView(p);
         expect(v.calc.find(r => r.label.startsWith('Ещё уйдёт'))).toEqual({
             kind: 'item', label: 'Ещё уйдёт до 12 октября', amount: fmtC(-900), note: 'по плану: Кафе, Стрижка',
         });
-        expect(v.calc.find(r => r.kind === 'subtotal')?.label).toBe('Самый узкий день — 12 октября');
+        expect(v.calc.find(r => r.kind === 'subtotal')?.label).toBe('Самый низкий остаток — 12 октября');
     });
 
     it('больше четырёх разных имён — первые четыре и «и ещё N»', () => {
