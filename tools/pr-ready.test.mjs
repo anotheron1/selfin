@@ -67,13 +67,12 @@ test('ветка человека без слова Codex не считаетс�
 const OLD = '0ld0000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const HEAD = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 const OTHER = 'ffff0000000000000000000000000000000000ff';
-const at = (sha, createdAt) => ({ sha, createdAt });
-// openedAt — открытие PR: прогон по opened создаётся через секунды после него.
-const head = { headSha: HEAD, openedAt: '2026-09-26T11:59:58Z', transitions: [at(HEAD, '2026-09-26T12:00:00Z')] };
-const pushed = { headSha: HEAD, openedAt: '2026-09-26T09:59:58Z',
-  transitions: [at(OLD, '2026-09-26T10:00:00Z'), at(HEAD, '2026-09-26T12:00:00Z')] };
-const back = { headSha: HEAD, openedAt: '2026-09-26T09:59:58Z',
-  transitions: [at(HEAD, '2026-09-26T10:00:00Z'), at(OTHER, '2026-09-26T11:00:00Z'), at(HEAD, '2026-09-26T12:00:00Z')] };
+const at = (sha, createdAt, opening = false) => ({ sha, createdAt, opening });
+// opening — прогон по событию opened: голова на открытии PR записана.
+const head = { headSha: HEAD, transitions: [at(HEAD, '2026-09-26T12:00:00Z', true)] };
+const pushed = { headSha: HEAD, transitions: [at(OLD, '2026-09-26T10:00:00Z', true), at(HEAD, '2026-09-26T12:00:00Z')] };
+const back = { headSha: HEAD,
+  transitions: [at(HEAD, '2026-09-26T10:00:00Z', true), at(OTHER, '2026-09-26T11:00:00Z'), at(HEAD, '2026-09-26T12:00:00Z')] };
 const quiet = { reviews: [], prReactions: [], issueComments: [] };
 const thumb = (createdAt) => ({ user: CODEX, content: '+1', createdAt });
 const eyes = (createdAt) => ({ user: CODEX, content: 'eyes', createdAt });
@@ -81,12 +80,27 @@ const request = (createdAt, reactions = []) => ({ user: ME, body: '@codex review
 const REVIEW_BODY = '### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.';
 const review = (submittedAt, commitId, body = REVIEW_BODY) => ({ user: CODEX, submittedAt, commitId, body });
 
-const run = (createdAt, headSha, { event = 'pull_request', headBranch = 'ci/x' } = {}) => ({ event, createdAt, headSha, headBranch });
+// Заголовок прогона «Ответов Codex» — «Ответы Codex — <событие> <действие>» (run-name в workflow).
+const SYNC = 'Ответы Codex — pull_request synchronize';
+const run = (createdAt, headSha, { event = 'pull_request', headBranch = 'ci/x', title = SYNC } = {}) =>
+  ({ event, createdAt, headSha, headBranch, displayTitle: title });
 
 test('история голов — прогоны по pull_request на ветке PR после его открытия, по порядку', () => {
   assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
     run('2026-09-26T12:00:00Z', HEAD), run('2026-09-26T10:00:05Z', OLD),
   ] }), [at(OLD, '2026-09-26T10:00:05Z'), at(HEAD, '2026-09-26T12:00:00Z')]);
+});
+
+test('история голов — прогон «Ответов Codex» по opened помечен как открытие PR', () => {
+  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+    run('2026-09-26T10:00:05Z', OLD, { title: 'Ответы Codex — pull_request opened' }), run('2026-09-26T12:00:00Z', HEAD),
+  ] }), [at(OLD, '2026-09-26T10:00:05Z', true), at(HEAD, '2026-09-26T12:00:00Z')]);
+});
+
+test('история голов — прогон с заголовком PR (CI) открытием не считается', () => {
+  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+    run('2026-09-26T10:00:05Z', OLD, { title: 'Ворота готовности PR: скрипт, джоба ответов Codex, шаблон' }),
+  ] }), [at(OLD, '2026-09-26T10:00:05Z')]);
 });
 
 test('история голов — прогон того же коммита в другой ветке не в счёт', () => {
@@ -171,16 +185,19 @@ test('ревью прошлого коммита — не видел, когда
   assert.equal(s.state, 'не видел голову');
 });
 
-test('👍 на запрос, сделанный при нынешней голове, — видел', () => {
+// Девятое ревью Codex на #86 (P1): 👍 на запрос не к чему надёжно привязать — запрос мог уйти раньше, чем записан
+// прогон нового пуша. Codex на запрос так и не отвечает: на запрос — ревью или «замечаний нет», оба с номером коммита.
+test('👍 на запрос — не вердикт: Codex отвечает на запрос ревью или «замечаний нет»', () => {
   const s = codexState({ ...pushed, ...quiet,
     issueComments: [request('2026-09-26T12:05:00Z', [thumb('2026-09-26T12:15:00Z')])] });
-  assert.equal(s.ok, true);
-  assert.equal(s.state, 'видел');
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'запрошен');
 });
 
-test('👍 на запрос, сделанный при прошлой голове, — не видел, хотя пришёл после пуша', () => {
+test('запрос при прошлой голове без ответа — не «запрошен»: для нынешней нужен новый запрос', () => {
   const s = codexState({ ...pushed, ...quiet,
-    issueComments: [request('2026-09-26T11:55:00Z', [thumb('2026-09-26T12:05:00Z')])] });
+    prReactions: [thumb('2026-09-26T10:05:00Z')],
+    issueComments: [request('2026-09-26T11:00:00Z')] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'не видел голову');
 });
@@ -207,13 +224,6 @@ test('прогонов по pull_request нет вовсе — смена гол
   assert.equal(s.state, 'смена головы не записана');
 });
 
-test('X → Y → X: 👍 на запрос при Y не засчитывается за X', () => {
-  const s = codexState({ ...back, ...quiet,
-    issueComments: [request('2026-09-26T11:30:00Z', [thumb('2026-09-26T11:40:00Z')])] });
-  assert.equal(s.ok, false);
-  assert.equal(s.state, 'не видел голову');
-});
-
 test('X → Y → X: ревью X из первого появления засчитывается — коммит тот же', () => {
   const s = codexState({ ...back, ...quiet, reviews: [review('2026-09-26T10:30:00Z', HEAD)] });
   assert.equal(s.ok, true);
@@ -238,18 +248,18 @@ test('--at: прогон позже момента не в счёт — ревь
   assert.equal(s.ok, false);
 });
 
-// Восьмое ревью Codex на #86 (P1): если голова на открытии PR не записана — прогона не было, Actions выключены или
-// workflow сломан, — 👍 на PR не к чему привязать: первая записанная голова — уже следующий пуш.
-test('на открытии PR прогона не было — 👍 на PR не вердикт', () => {
-  const s = codexState({ headSha: HEAD, openedAt: '2026-09-26T12:00:00Z', transitions: [at(HEAD, '2026-09-26T12:30:00Z')],
-    ...quiet, prReactions: [thumb('2026-09-26T12:05:00Z')] });
+// Восьмое и девятое ревью Codex на #86 (P1): голова на открытии — только из записанного прогона по opened.
+// По времени не годится: быстрый второй пуш в первые минуты выглядел бы открытием.
+test('прогона по opened нет — 👍 на PR не вердикт', () => {
+  const s = codexState({ headSha: HEAD, transitions: [at(HEAD, '2026-09-26T12:30:00Z')], ...quiet,
+    prReactions: [thumb('2026-09-26T12:05:00Z')] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'молчит');
 });
 
-test('на открытии PR прогона не было, а 👍 пришёл после первого записанного — всё равно не вердикт', () => {
-  const s = codexState({ headSha: HEAD, openedAt: '2026-09-26T12:00:00Z', transitions: [at(HEAD, '2026-09-26T12:30:00Z')],
-    ...quiet, prReactions: [thumb('2026-09-26T12:40:00Z')] });
+test('прогона по opened нет, быстрый второй пуш — 👍 первого ревью к новой голове не привязывается', () => {
+  const s = codexState({ headSha: HEAD, transitions: [at(HEAD, '2026-09-26T12:01:00Z')], ...quiet,
+    prReactions: [thumb('2026-09-26T12:04:00Z')] });
   assert.equal(s.ok, false);
 });
 
@@ -280,7 +290,7 @@ test('голову уже видел, лимит пришёл на лишний 
 
 // #85: на повторный запрос без замечаний Codex ответил в ленте — с номером просмотренного коммита.
 const SHA85 = '9378d0be107df86ea5caa9f94d441eaac05d6c69';
-const head85 = { headSha: SHA85, openedAt: '2026-09-26T12:33:55Z', transitions: [at(SHA85, '2026-09-26T12:33:57Z')] };
+const head85 = { headSha: SHA85, transitions: [at(SHA85, '2026-09-26T12:33:57Z', true)] };
 const clean = (createdAt, sha) => ({ user: CODEX, createdAt, reactions: [],
   body: `Codex Review: Didn't find any major issues. Hooray!\n\n**Reviewed commit:** \`${sha}\`\n\n<details>About Codex</details>` });
 
