@@ -46,6 +46,7 @@ export function unansweredThreads(comments, { at } = {}) {
 // Заголовок прогона «Ответов Codex» задан run-name: «Ответы Codex — <событие> <действие>». По нему виден прогон
 // по opened — запись о голове на открытии PR. У прогонов CI заголовок — название PR.
 const OPENED_RUN = /pull_request opened$/;
+const HEAD_WORKFLOW = '.github/workflows/codex-replies.yml';
 
 /**
  * История голов PR: прогоны по событию pull_request на ветке PR после его открытия, по порядку. Каждый прогон несёт
@@ -58,7 +59,9 @@ export function headTransitions({ branch, openedAt, runs }) {
   return runs
     .filter((r) => r.event === 'pull_request' && r.headBranch === branch && time(r.createdAt) >= time(openedAt))
     .sort((a, b) => time(a.createdAt) - time(b.createdAt))
-    .map((r) => ({ sha: r.headSha, createdAt: r.createdAt, opening: OPENED_RUN.test(r.displayTitle ?? '') }));
+    // Открытие — только прогон «Ответов Codex»: заголовок прогона CI — название PR, и оно может кончаться теми же
+    // словами (двенадцатое ревью Codex на #86).
+    .map((r) => ({ sha: r.headSha, createdAt: r.createdAt, opening: r.workflow === HEAD_WORKFLOW && OPENED_RUN.test(r.displayTitle ?? '') }));
 }
 
 /** Голова PR в момент времени — по последнему прогону до него; до первого прогона неизвестна. */
@@ -218,33 +221,41 @@ export function linearState({ branch, title, body }) {
 }
 
 /**
- * Workflow, которые запускаются на pull_request: их проверки обязаны прийти на голову PR.
- * files — [{ path, text }] из .github/workflows. Разбор под наш вид файлов: `name:` и `on:` с начала строки.
+ * Проверки, которые workflow на pull_request обязаны поставить на голову PR: по одной на джобу — имя джобы
+ * (`name:` джобы, без него — её ключ) под именем workflow. Не только имена workflow: PR без джобы бэка
+ * выглядел бы пришедшим CI (двенадцатое ревью Codex на #86).
+ * files — [{ path, text }] из .github/workflows. Разбор под наш вид файлов: `name:` и `on:` с начала строки,
+ * ключи джоб — с двух пробелов после `jobs:`, `name:` джобы — с четырёх.
  */
-export function pullRequestWorkflows(files) {
+export function pullRequestChecks(files) {
+  const unquote = (value) => value.replace(/^['"]|['"]$/g, '');
   const onPullRequest = (text) => {
     const on = text.match(/^on:(.*)$([\s\S]*?)(?=^\S|(?![\s\S]))/m);
     return Boolean(on) && (/\bpull_request\b/.test(on[1]) || /^\s+pull_request:/m.test(on[2]));
   };
-  return files
-    .filter(({ text }) => onPullRequest(text))
-    .map(({ path, text }) => (text.match(/^name:\s*(.+?)\s*$/m)?.[1] ?? path).replace(/^['"]|['"]$/g, ''))
-    .sort();
+  return files.filter(({ text }) => onPullRequest(text)).flatMap(({ path, text }) => {
+    const workflow = unquote(text.match(/^name:\s*(.+?)\s*$/m)?.[1] ?? path);
+    const jobs = text.slice(text.search(/^jobs:/m)).split(/^ {2}(?=[\w-]+:\s*$)/m).slice(1);
+    return jobs.map((job) => ({ workflow, check: unquote(job.match(/^ {4}name:\s*(.+?)\s*$/m)?.[1] ?? job.match(/^[\w-]+/)[0]) }));
+  });
 }
 
 /**
- * Workflow, чьи проверки обязаны прийти на голову PR, — из базы PR и из самого PR вместе. Только из PR — и PR,
- * убравший pull_request из CI, перестал бы ждать проверку, которая его проверяет (одиннадцатое ревью Codex на #86).
- * base и pr — файлы .github/workflows, как для pullRequestWorkflows.
+ * Проверки, которые обязаны прийти на голову PR, — из базы PR и из самого PR вместе. Только из PR — и PR, убравший
+ * pull_request из CI или джобу бэка, перестал бы ждать проверку, которая его проверяет (одиннадцатое и двенадцатое
+ * ревью Codex на #86). base и pr — файлы .github/workflows, как для pullRequestChecks.
  */
-export function requiredWorkflows({ base, pr }) {
-  return [...new Set([...pullRequestWorkflows(base), ...pullRequestWorkflows(pr)])].sort();
+export function requiredChecks({ base, pr }) {
+  const key = (c) => `${c.workflow}/${c.check}`;
+  const all = new Map([...pullRequestChecks(base), ...pullRequestChecks(pr)].map((c) => [key(c), c]));
+  return [...all.values()].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
 /**
  * Проверки головы PR. Одно имя может прогоняться на разные события (джоба ответов Codex) — берётся последний прогон.
  * checks — [{ name, workflow, bucket, startedAt }], bucket из `gh pr checks`: pass, fail, pending, skipping, cancel.
- * expected — workflow, чьи проверки обязаны прийти: без него не запустившийся CI выглядел бы чистым (ревью Codex на #86).
+ * expected — проверки [{ workflow, check }], которые обязаны прийти (requiredChecks): без них не запустившийся CI
+ * или CI без джобы выглядели бы чистыми (первое и двенадцатое ревью Codex на #86).
  */
 export function ciState(checks, expected = []) {
   const latest = new Map();
@@ -257,8 +268,8 @@ export function ciState(checks, expected = []) {
   if (runs.length === 0) return { ok: false, text: 'проверок нет' };
   const failed = named(['fail', 'cancel']);
   if (failed.length) return { ok: false, text: `упали: ${failed.join('; ')}` };
-  const missing = expected.filter((w) => !runs.some((c) => c.workflow === w));
-  if (missing.length) return { ok: false, text: `не запускались: ${missing.join(', ')}` };
+  const missing = expected.filter((e) => !runs.some((c) => c.workflow === e.workflow && c.name === e.check));
+  if (missing.length) return { ok: false, text: `не пришли: ${missing.map((e) => `${e.workflow} — ${e.check}`).join('; ')}` };
   const running = named('pending');
   if (running.length) return { ok: false, text: `идут: ${running.join('; ')}` };
   const skipped = named('skipping').length;
@@ -308,7 +319,7 @@ function reviewComments(n) {
 function headHistory(pr) {
   const path = `${REPO}/actions/runs?branch=${encodeURIComponent(pr.headRefName)}&event=pull_request&per_page=100`;
   const runs = gh(['api', '--paginate', path, '--jq',
-    '.workflow_runs[] | {event, createdAt: .created_at, headSha: .head_sha, headBranch: .head_branch, displayTitle: .display_title}'])
+    '.workflow_runs[] | {workflow: .path, event, createdAt: .created_at, headSha: .head_sha, headBranch: .head_branch, displayTitle: .display_title}'])
     .split('\n').filter(Boolean).map((line) => JSON.parse(line));
   return headTransitions({ branch: pr.headRefName, openedAt: pr.createdAt, runs });
 }
@@ -324,7 +335,7 @@ function codexData(n, headSha) {
 
 // На PR GitHub гоняет workflow из merge-коммита PR, а не из рабочей копии: у PR, открытого до нового
 // workflow, его прогонов нет и быть не должно. Для влитого PR merge-ссылки может не быть — тогда голова.
-function expectedWorkflows(pr) {
+function expectedChecks(pr) {
   const files = (ref) => ghList(`${REPO}/contents/.github/workflows?ref=${encodeURIComponent(ref)}`, '{path, name}')
     .filter((f) => /\.ya?ml$/.test(f.name))
     .map((f) => ({
@@ -337,7 +348,7 @@ function expectedWorkflows(pr) {
   } catch {
     own = files(pr.headRefOid);
   }
-  return requiredWorkflows({ base: files(pr.baseRefOid), pr: own });
+  return requiredChecks({ base: files(pr.baseRefOid), pr: own });
 }
 
 function ciChecks(n) {
@@ -389,7 +400,7 @@ function main(argv) {
   const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
-    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows(pr)) },
+    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedChecks(pr)) },
     { title: 'Codex', ok: codex.ok, text: codex.text },
     replies,
     { title: 'База', ...baseState({ base: pr.baseRefName, children }) },
