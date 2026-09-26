@@ -19,9 +19,11 @@ const MEASURED = /замер|перемер/i;
 
 /** Чего не хватает в спеке: раздела сверки с правилами и, если в ней есть замер, раздела «Как мерил». */
 export function specProblems(text) {
+  // Заголовки ищутся только в том, что Markdown рендерит: без блоков кода и HTML-комментариев (ревью Codex на #88).
+  const rendered = text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[ \t]*\r?$/gm, '').replace(/<!--[\s\S]*?-->/g, '');
   const problems = [];
-  if (!RULES.test(text)) problems.push('нет раздела «Правила продукта — сверка»');
-  if (MEASURED.test(text) && !HOW_MEASURED.test(text)) problems.push('есть замер или перемер, нет раздела «Как мерил»');
+  if (!RULES.test(rendered)) problems.push('нет раздела «Правила продукта — сверка»');
+  if (MEASURED.test(text) && !HOW_MEASURED.test(rendered)) problems.push('есть замер или перемер, нет раздела «Как мерил»');
   return problems;
 }
 
