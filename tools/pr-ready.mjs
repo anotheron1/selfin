@@ -7,7 +7,7 @@
 //   node tools/pr-ready.mjs <N> --at <время>           пункты Codex на момент в прошлом
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readdirSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export const CODEX = 'chatgpt-codex-connector[bot]';
@@ -155,10 +155,26 @@ export function linearState({ branch, title, body }) {
 }
 
 /**
+ * Workflow, которые запускаются на pull_request: их проверки обязаны прийти на голову PR.
+ * files — [{ path, text }] из .github/workflows. Разбор под наш вид файлов: `name:` и `on:` с начала строки.
+ */
+export function pullRequestWorkflows(files) {
+  const onPullRequest = (text) => {
+    const on = text.match(/^on:(.*)$([\s\S]*?)(?=^\S|(?![\s\S]))/m);
+    return Boolean(on) && (/\bpull_request\b/.test(on[1]) || /^\s+pull_request:/m.test(on[2]));
+  };
+  return files
+    .filter(({ text }) => onPullRequest(text))
+    .map(({ path, text }) => (text.match(/^name:\s*(.+?)\s*$/m)?.[1] ?? path).replace(/^['"]|['"]$/g, ''))
+    .sort();
+}
+
+/**
  * Проверки головы PR. Одно имя может прогоняться на разные события (джоба ответов Codex) — берётся последний прогон.
  * checks — [{ name, workflow, bucket, startedAt }], bucket из `gh pr checks`: pass, fail, pending, skipping, cancel.
+ * expected — workflow, чьи проверки обязаны прийти: без него не запустившийся CI выглядел бы чистым (ревью Codex на #86).
  */
-export function ciState(checks) {
+export function ciState(checks, expected = []) {
   const latest = new Map();
   for (const c of checks) {
     const key = `${c.workflow}/${c.name}`;
@@ -169,6 +185,8 @@ export function ciState(checks) {
   if (runs.length === 0) return { ok: false, text: 'проверок нет' };
   const failed = named(['fail', 'cancel']);
   if (failed.length) return { ok: false, text: `упали: ${failed.join('; ')}` };
+  const missing = expected.filter((w) => !runs.some((c) => c.workflow === w));
+  if (missing.length) return { ok: false, text: `не запускались: ${missing.join(', ')}` };
   const running = named('pending');
   if (running.length) return { ok: false, text: `идут: ${running.join('; ')}` };
   const skipped = named('skipping').length;
@@ -231,6 +249,12 @@ function codexData(n, headSha) {
   return { reviews, prReactions: reactions(`${REPO}/issues/${n}/reactions`), issueComments, headSha };
 }
 
+function expectedWorkflows() {
+  const dir = new URL('../.github/workflows/', import.meta.url);
+  const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+  return pullRequestWorkflows(files.map((f) => ({ path: f, text: readFileSync(new URL(f, dir), 'utf8') })));
+}
+
 function ciChecks(n) {
   // gh pr checks выходит не с нулём, пока проверки идут или упали, — результат читается всё равно.
   const out = gh(['pr', 'checks', String(n), '--json', 'name,workflow,bucket,startedAt'], { allowFail: true }).trim();
@@ -281,7 +305,7 @@ function main(argv) {
   const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
-    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number)) },
+    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows()) },
     { title: 'Codex', ok: codex.ok, text: codex.text + (pushed.source === 'дата коммита' ? ' (время пуша — по дате коммита)' : '') },
     replies,
     { title: 'База', ...baseState({ base: pr.baseRefName, children }) },

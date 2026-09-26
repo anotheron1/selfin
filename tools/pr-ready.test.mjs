@@ -3,8 +3,9 @@
 // Номера, логины и время — из публичной истории PR этого репозитория; текст замечаний выдуман.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import {
-  CODEX, unansweredThreads, codexState, linearLinks, declaredClosing, linearState, ciState, baseState, summary,
+  CODEX, unansweredThreads, codexState, linearLinks, declaredClosing, linearState, ciState, pullRequestWorkflows, baseState, summary,
 } from './pr-ready.mjs';
 
 const ME = 'anotheron1';
@@ -267,6 +268,32 @@ test('CI: из повторов имени берётся последний п�
 
 test('CI: проверок нет — не готово', () => {
   assert.equal(ciState([]).ok, false);
+});
+
+// Ревью Codex на #86 (P1): если основной workflow не запустился, в проверках одна зелёная джоба ответов Codex.
+test('CI: ожидаемый workflow не запускался — не готово, хотя всё пришедшее зелёное', () => {
+  const s = ciState([check('Codex — все замечания отвечены', 'pass', undefined, 'Ответы Codex')], ['CI', 'Ответы Codex']);
+  assert.equal(s.ok, false);
+  assert.match(s.text, /не запускались: CI/);
+});
+
+test('CI: все ожидаемые workflow пришли и прошли — готово', () => {
+  const s = ciState([check('Фронт — типы и тесты', 'pass'), check('Codex — все замечания отвечены', 'pass', undefined, 'Ответы Codex')],
+    ['CI', 'Ответы Codex']);
+  assert.equal(s.ok, true);
+});
+
+test('ожидаемые workflow — по настоящим файлам репозитория: те, что запускаются на pull_request', () => {
+  const dir = new URL('../.github/workflows/', import.meta.url);
+  const files = readdirSync(dir).map((f) => ({ path: f, text: readFileSync(new URL(f, dir), 'utf8') }));
+  assert.deepEqual(pullRequestWorkflows(files), ['CI', 'Ответы Codex']);
+});
+
+test('workflow только на пуш — не ожидается; запись списком в одну строку — ожидается', () => {
+  assert.deepEqual(pullRequestWorkflows([
+    { path: 'a.yml', text: 'name: Publish\non:\n  push:\n    branches: [main]\njobs:\n  x:\n    steps: []\n' },
+    { path: 'b.yml', text: "name: 'Lint'\non: [push, pull_request]\njobs:\n  x:\n    steps: []\n" },
+  ]), ['Lint']);
 });
 
 test('база main, сверху никого — готово', () => {
