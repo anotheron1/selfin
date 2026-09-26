@@ -3,7 +3,10 @@ name: Ответы Codex
 # Ворота 1 (ANO-194): краснеет, пока у Codex есть ветка замечаний без нашего ответа.
 # Спека: docs/superpowers/specs/2026-09-26-pr-ready-gate-design.md, раздел 3.
 #
-# Без issue_comment: прогон по нему привязывается к последнему коммиту main и в проверках PR не встаёт.
+# Событие ревью — одно, pull_request_review: его дают и ревью Codex, и каждый наш ответ в ветке.
+# pull_request_review_comment приходит вместе с ним на тот же комментарий, а его прогон в проверках PR
+# не встаёт (проверено на #86). Без issue_comment: такой прогон привязывается к main, а не к голове PR.
+# Без concurrency: из двух одновременных прогонов один отменялся, и отменённый вставал в проверки красным.
 # Отдельным файлом, а не джобой в ci.yml: там concurrency по github.ref, а у событий ревью ref тот же —
 # каждый ответ в ветке отменял бы идущую сборку бэка.
 on:
@@ -11,12 +14,6 @@ on:
     types: [opened, synchronize, reopened]
   pull_request_review:
     types: [submitted, edited, dismissed]
-  pull_request_review_comment:
-    types: [created, edited, deleted]
-
-concurrency:
-  group: codex-replies-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
