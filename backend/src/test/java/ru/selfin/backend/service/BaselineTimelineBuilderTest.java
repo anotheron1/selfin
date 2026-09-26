@@ -198,7 +198,7 @@ class BaselineTimelineBuilderTest {
                 .build();
         when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of(plan));
 
-        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap).get(0);
+        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN).get(0);
 
         // Ключевое: ждём медиану целиком, а не план ПЛЮС медиану
         assertThat(m1.expense())
@@ -231,7 +231,7 @@ class BaselineTimelineBuilderTest {
                 .build();
         when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of(plan));
 
-        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap).get(0);
+        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN).get(0);
 
         assertThat(m1.expense()).isEqualByComparingTo("4500");
         assertThat(m1.balance()).isEqualByComparingTo("95500");
@@ -262,7 +262,7 @@ class BaselineTimelineBuilderTest {
         // Recurring + planned событий на будущие месяцы — пусто (тест на чистый прогноз)
         when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
 
-        List<StrategyTimelinePointDto> future = builder.buildFuturePoints(current, 3, statsMap);
+        List<StrategyTimelinePointDto> future = builder.buildFuturePoints(current, 3, statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
 
         assertThat(future).hasSize(3);
 
@@ -344,7 +344,7 @@ class BaselineTimelineBuilderTest {
         // Пустой statsMap — PAST breakdown его не использует
         Map<Category, CategoryMonthStats> statsMap = Map.of();
 
-        List<StrategyTimelinePointDto> result = builder.enrichWithBreakdown(List.of(march), statsMap);
+        List<StrategyTimelinePointDto> result = builder.enrichWithBreakdown(List.of(march), statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
 
         BreakdownDto br = result.get(0).breakdown();
         assertThat(br).isNotNull();
@@ -379,7 +379,7 @@ class BaselineTimelineBuilderTest {
         statsMap.put(food, new CategoryMonthStats(food.getId(), 6,
                 new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000")));
 
-        List<StrategyTimelinePointDto> result = builder.enrichWithBreakdown(List.of(june), statsMap);
+        List<StrategyTimelinePointDto> result = builder.enrichWithBreakdown(List.of(june), statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
 
         BreakdownDto br = result.get(0).breakdown();
         assertThat(br.expenseItems()).hasSize(2);
@@ -414,7 +414,7 @@ class BaselineTimelineBuilderTest {
         when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
         when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of()));
 
-        var snap = builder.build(3, true);
+        var snap = builder.build(3, true, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
 
         // 2 past + 1 current + 3 future = 6
         assertThat(snap.points()).hasSize(6);
@@ -437,7 +437,7 @@ class BaselineTimelineBuilderTest {
         when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
         when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of()));
 
-        var snap = builder.build(2, false);
+        var snap = builder.build(2, false, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
 
         StrategyTimelinePointDto current = snap.points().stream()
                 .filter(p -> p.phase() == StrategyPointPhase.CURRENT)

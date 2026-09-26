@@ -1,7 +1,20 @@
-import type { MonthDelta } from '../../types/api';
+import type { MonthDelta, WishlistItem } from '../../types/api';
 
 export interface BaselinePoint { account: number; capital: number; }
 export interface ActiveItem { active: boolean; delta: MonthDelta[]; }
+
+/**
+ * Что включено, когда открываешь «Что с капиталом»: только зафиксированное.
+ *
+ * <p>ANO-142, решение владельца 25.09: блок открывается той же картиной, что Стратегия и
+ * кармашек, — обсуждаемая хотелка не трата, пока её не примеришь галочкой. Раньше по умолчанию
+ * включались и обсуждаемые, и блок отвечал «если возьмёшь всё».
+ */
+export function defaultActiveMap(items: WishlistItem[]): Record<string, boolean> {
+    const active: Record<string, boolean> = {};
+    for (const item of items) active[item.id] = item.status === 'FIXED';
+    return active;
+}
 
 /**
  * Аннуитетный месячный платёж по кредиту. Используется в WishlistItemCard для живого
@@ -48,6 +61,24 @@ export function scaleDelta(delta: MonthDelta[], baseAmount: number, override: nu
         fundDelta: d.fundDelta != null ? d.fundDelta * k : d.fundDelta,
         liabilityDelta: d.liabilityDelta != null ? d.liabilityDelta * k : d.liabilityDelta,
     }));
+}
+
+/**
+ * Дельта строки примерки с учётом подкрученного: пересчитанная > масштабированная суммой > исходная.
+ *
+ * <p>ANO-142: у сконвертированной хотелки деньги несёт артефакт — план или копилка, — и они уже
+ * в baseline. Её дельта пуста, что бы ни подкрутили: пересчёт ставки или срока вернул бы полную
+ * дельту кредита, и покупка легла бы второй раз (ревью Codex #73). Одна функция на хук и блок
+ * «Что с капиталом» — копий было две.
+ */
+export function effectiveDelta(
+    item: WishlistItem,
+    override: { amount?: number; delta?: MonthDelta[] } | undefined,
+): MonthDelta[] {
+    if (item.convertedTo) return [];
+    if (override?.delta != null) return override.delta;
+    if (override?.amount != null) return scaleDelta(item.delta, item.amount, override.amount);
+    return item.delta;
 }
 
 export type RiskLevel = 'green' | 'yellow' | 'red';
