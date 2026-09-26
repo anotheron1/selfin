@@ -268,7 +268,9 @@ export function ciState(checks, expected = []) {
   if (runs.length === 0) return { ok: false, text: 'проверок нет' };
   const failed = named(['fail', 'cancel']);
   if (failed.length) return { ok: false, text: `упали: ${failed.join('; ')}` };
-  const missing = expected.filter((e) => !runs.some((c) => c.workflow === e.workflow && c.name === e.check));
+  // У джобы с матрицей GitHub дописывает к имени проверки значения: «Тесты (node 20)» (тринадцатое ревью Codex на #86).
+  const isJob = (c, e) => c.name === e.check || c.name.startsWith(`${e.check} (`);
+  const missing = expected.filter((e) => !runs.some((c) => c.workflow === e.workflow && isJob(c, e)));
   if (missing.length) return { ok: false, text: `не пришли: ${missing.map((e) => `${e.workflow} — ${e.check}`).join('; ')}` };
   const running = named('pending');
   if (running.length) return { ok: false, text: `идут: ${running.join('; ')}` };
