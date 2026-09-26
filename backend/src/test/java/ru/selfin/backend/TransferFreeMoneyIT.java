@@ -22,6 +22,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -149,6 +150,32 @@ class TransferFreeMoneyIT {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.details[0]").value("CONFIRM_REQUIRED"));
         transfer(fundId, new BigDecimal("20000"), null, null).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("ANO-88, ревью Codex #75: день в вопросе — минимум ПОСЛЕ перевода, даже когда он переехал")
+    void hintNamesTheMinimumAfterTransfer_evenWhenItMoves() throws Exception {
+        // НЗ 5 000. Счёт 50 000, доход 60 000 пятого числа следующего месяца, копилка FIXED на
+        // 100 000 к концу того месяца — взнос 100 000 в день дохода. До перевода минимум в день
+        // дохода: 50 000 + 60 000 − 100 000 = 10 000, кармашек 5 000.
+        // Перевод 48 000: сегодня остаётся 2 000, а взнос в день дохода уменьшается на те же
+        // 48 000 — там по-прежнему 10 000. Минимум переехал на сегодня: из НЗ уйдёт 3 000.
+        mockMvc.perform(put("/api/v1/settings/pocket")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"bufferAmount\": 5000}"))
+                .andExpect(status().isOk());
+        LocalDate payday = YearMonth.from(today).plusMonths(1).atDay(5);
+        anchorDefaultAccount("50000");
+        plan("INCOME", payday, "60000");
+        String fundId = createFund("Египет", "FIXED", payday.withDayOfMonth(payday.lengthOfMonth()), "100000");
+
+        mockMvc.perform(get("/api/v1/pocket"))
+                .andExpect(jsonPath("$.minPoint.date").value(payday.toString()))
+                .andExpect(jsonPath("$.pocket").value(5000));
+
+        transfer(fundId, new BigDecimal("48000"), null)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.details[1]", matchesPattern("nz:" + today + ":3000(\\.0+)?")));
+        assertThat(fundBalance(fundId)).isEqualByComparingTo("0");
     }
 
     // ── оснастка ─────────────────────────────────────────────────────────────
