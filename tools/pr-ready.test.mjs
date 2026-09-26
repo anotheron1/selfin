@@ -75,7 +75,8 @@ const quiet = { reviews: [], prReactions: [], issueComments: [] };
 const thumb = (createdAt) => ({ user: CODEX, content: '+1', createdAt });
 const eyes = (createdAt) => ({ user: CODEX, content: 'eyes', createdAt });
 const request = (createdAt, reactions = []) => ({ user: ME, body: '@codex review', createdAt, reactions });
-const review = (submittedAt, commitId) => ({ user: CODEX, submittedAt, commitId });
+const REVIEW_BODY = '### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.';
+const review = (submittedAt, commitId, body = REVIEW_BODY) => ({ user: CODEX, submittedAt, commitId, body });
 
 const run = (createdAt, headSha, { event = 'pull_request', headBranch = 'ci/x' } = {}) => ({ event, createdAt, headSha, headBranch });
 
@@ -151,6 +152,14 @@ test('ревью на коммите головы — видел', () => {
   const s = codexState({ ...pushed, ...quiet, reviews: [review('2026-09-26T12:10:00Z', HEAD)] });
   assert.equal(s.ok, true);
   assert.equal(s.state, 'видел');
+});
+
+// #86, 14:50: ответ Codex в ветке («To use Codex here, create an environment») GitHub завернул в ревью с пустым
+// телом на голове. Это не ревью — у настоящих ревью Codex тело начинается с «Codex Review».
+test('ответ Codex в ветке — ревью с пустым телом — не вердикт', () => {
+  const s = codexState({ ...head, ...quiet, reviews: [review('2026-09-26T12:10:00Z', HEAD, '')] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'молчит');
 });
 
 test('ревью прошлого коммита — не видел, когда бы оно ни пришло', () => {

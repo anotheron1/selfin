@@ -64,6 +64,9 @@ export function headAt(transitions, iso) {
 const REVIEW_REQUEST = /@codex\s+review/i;
 const USAGE_LIMIT = /reached your Codex usage limits/i;
 const NO_ISSUES = /Didn't find any major issues/i;
+// Настоящее ревью Codex начинается с «### 💡 Codex Review». Ответ Codex в ветке GitHub заворачивает в ревью
+// с пустым телом (#86, 14:50: «To use Codex here, create an environment») — это не вердикт.
+const REVIEW_HEADER = /Codex Review/i;
 const REVIEWED_COMMIT = /Reviewed commit:\**\s*`([0-9a-f]{7,40})`/i;
 const hhmm = (iso) => new Date(iso).toISOString().slice(0, 16).replace('T', ' ');
 
@@ -107,7 +110,8 @@ export function codexState({ headSha, transitions, reviews, prReactions, issueCo
 
   const thumbsUp = (r) => byCodex(r) && r.content === '+1';
   const verdicts = [
-    ...reviews.filter(byCodex).map((r) => ({ at: r.submittedAt, sha: r.commitId, what: 'ревью' })),
+    ...reviews.filter((r) => byCodex(r) && REVIEW_HEADER.test(r.body ?? ''))
+      .map((r) => ({ at: r.submittedAt, sha: r.commitId, what: 'ревью' })),
     // 👍 на самом PR Codex ставит при первом ревью — это вердикт по голове на открытии, когда бы он ни пришёл.
     ...prReactions.filter(thumbsUp).map((r) => ({ at: r.createdAt, sha: history[0].sha, what: '👍' })),
     ...requests.flatMap((c) => (c.reactions ?? []).filter(thumbsUp)
@@ -288,7 +292,7 @@ function codexData(n, headSha) {
   const reactions = (path) => ghList(path, '{user: .user.login, content, createdAt: .created_at}');
   const issueComments = ghList(`${REPO}/issues/${n}/comments`, '{id, user: .user.login, createdAt: .created_at, body}')
     .map((c) => ({ ...c, reactions: REVIEW_REQUEST.test(c.body) ? reactions(`${REPO}/issues/comments/${c.id}/reactions`) : [] }));
-  const reviews = ghList(`${REPO}/pulls/${n}/reviews`, '{user: .user.login, submittedAt: .submitted_at, commitId: .commit_id}')
+  const reviews = ghList(`${REPO}/pulls/${n}/reviews`, '{user: .user.login, submittedAt: .submitted_at, commitId: .commit_id, body}')
     .filter((r) => r.submittedAt);
   return { reviews, prReactions: reactions(`${REPO}/issues/${n}/reactions`), issueComments, headSha };
 }
