@@ -38,6 +38,17 @@ jobs:
       - name: Тесты
         run: npm test
 
+  tools:
+    name: Инструменты — тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Скрипт готовности PR
+        run: node --test tools/pr-ready.test.mjs
+
   backend:
     name: Бэк — юниты и интеграционные
     runs-on: ubuntu-latest

@@ -1,0 +1,63 @@
+name: Ответы Codex
+# Заголовок прогона — событие, действие и номер PR: по «pull_request opened #N» tools/pr-ready.mjs узнаёт голову
+# на открытии именно этого PR.
+run-name: 'Ответы Codex — ${{ github.event_name }} ${{ github.event.action }} #${{ github.event.pull_request.number }}'
+
+# Ворота 1 (ANO-194): краснеет, пока у Codex есть ветка замечаний без нашего ответа.
+# Спека: docs/superpowers/specs/2026-09-26-pr-ready-gate-design.md, раздел 3.
+#
+# Событие ревью — одно, pull_request_review: его дают и ревью Codex, и каждый наш ответ в ветке.
+# pull_request_review_comment приходит вместе с ним на тот же комментарий, а его прогон в проверках PR
+# не встаёт (проверено на #86). Без issue_comment: такой прогон привязывается к main, а не к голове PR.
+# Без concurrency: из двух одновременных прогонов один отменялся, и отменённый вставал в проверки красным.
+# Отдельным файлом, а не джобой в ci.yml: там concurrency по github.ref, а у событий ревью ref тот же —
+# каждый ответ в ветке отменял бы идущую сборку бэка.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+# Код из ветки PR выполняется только с правами на чтение. Право actions: write — у одной джобы перезапуска,
+# и в ней нет кода PR (десятое ревью Codex на #86). Сторож — в tools/pr-ready.test.mjs.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  replies:
+    name: Codex — все замечания отвечены
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Замечания Codex без ответа
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash tools/pr-ready.sh ${{ github.event.pull_request.number }} --only codex-replies
+
+  # Ответ в ветке приходит после пуша правки, и прогон по пушу остаётся красным рядом с зелёным
+  # прогоном по ревью (проверено на #86). Зелёный прогон по ревью перезапускает красные по пушу
+  # на той же голове — они читают текущие ответы и зеленеют. Без выгрузки кода: только gh
+  # с постоянными аргументами.
+  rerun:
+    name: Красные прогоны по пушу — перезапуск
+    needs: replies
+    if: github.event_name == 'pull_request_review'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Перезапустить красные прогоны по пушу на этой голове
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >
+          gh run list --workflow codex-replies.yml --commit ${{ github.event.pull_request.head.sha }}
+          --event pull_request --status failure --json databaseId --jq '.[].databaseId'
+          | xargs -r -n1 gh run rerun --failed
