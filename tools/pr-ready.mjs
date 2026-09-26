@@ -43,6 +43,21 @@ export function unansweredThreads(comments, { at } = {}) {
     .map((last) => ({ path: last.path, line: last.line, ...remarkTitle(last.body) }));
 }
 
+/**
+ * Когда коммит стал головой этого PR. Наборы проверок привязаны к коммиту, а не к PR: коммит, уже гонявшийся в другой
+ * ветке, получил бы время раньше, чем стал головой этого (четвёртое ревью Codex на #86). Поэтому — первый прогон workflow
+ * по событию pull_request на ветке этого PR; без таких прогонов — первый набор проверок, потом дата коммита.
+ * Ветка, а не номер PR: список PR у прогона GitHub считает в момент запроса, и у влитого PR он пуст.
+ * runs — [{ event, createdAt, headBranch }] прогонов на этом коммите, suites — [createdAt].
+ */
+export function headPushTime({ branch, runs, suites, committedAt }) {
+  const earliest = (list) => list.reduce((a, b) => (time(b) < time(a) ? b : a));
+  const own = runs.filter((r) => r.event === 'pull_request' && r.headBranch === branch).map((r) => r.createdAt);
+  if (own.length) return { at: earliest(own), source: 'прогон этого PR' };
+  if (suites.length) return { at: earliest(suites), source: 'набор проверок коммита' };
+  return { at: committedAt, source: 'дата коммита' };
+}
+
 const REVIEW_REQUEST = /@codex\s+review/i;
 const USAGE_LIMIT = /reached your Codex usage limits/i;
 const NO_ISSUES = /Didn't find any major issues/i;
@@ -247,11 +262,15 @@ function reviewComments(n) {
     '{id, inReplyTo: .in_reply_to_id, user: .user.login, createdAt: .created_at, path, line: (.line // .original_line), body}');
 }
 
-// Время пуша головы — создание первого набора проверок на её коммит: его создаёт сам пуш.
-function headPushedAt(sha) {
-  const suites = gh(['api', `${REPO}/commits/${sha}/check-suites`, '--jq', '[.check_suites[].created_at] | min']).trim();
-  if (suites && suites !== 'null') return { at: suites, source: 'набор проверок' };
-  return { at: gh(['api', `${REPO}/commits/${sha}`, '--jq', '.commit.committer.date']).trim(), source: 'дата коммита' };
+function headPushData(branch, sha) {
+  const objects = (path, jq) => gh(['api', '--paginate', path, '--jq', jq]).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  return headPushTime({
+    branch,
+    runs: objects(`${REPO}/actions/runs?head_sha=${sha}&per_page=100`,
+      '.workflow_runs[] | {event, createdAt: .created_at, headBranch: .head_branch}'),
+    suites: objects(`${REPO}/commits/${sha}/check-suites?per_page=100`, '.check_suites[] | {at: .created_at}').map((s) => s.at),
+    committedAt: gh(['api', `${REPO}/commits/${sha}`, '--jq', '.commit.committer.date']).trim(),
+  });
 }
 
 function codexData(n, headSha) {
@@ -326,13 +345,13 @@ function main(argv) {
     return s.ok;
   }
 
-  const pushed = headPushedAt(pr.headRefOid);
+  const pushed = headPushData(pr.headRefName, pr.headRefOid);
   const codex = codexState({ ...codexData(number, pr.headRefOid), headPushedAt: pushed.at, at });
   const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
     at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows(number, pr.headRefOid)) },
-    { title: 'Codex', ok: codex.ok, text: codex.text + (pushed.source === 'дата коммита' ? ' (время пуша — по дате коммита)' : '') },
+    { title: 'Codex', ok: codex.ok, text: codex.text + (pushed.source === 'прогон этого PR' ? '' : ` (время пуша — ${pushed.source})`) },
     replies,
     { title: 'База', ...baseState({ base: pr.baseRefName, children }) },
     { title: 'Linear', ...linearState({ branch: pr.headRefName, title: pr.title, body: pr.body }) },

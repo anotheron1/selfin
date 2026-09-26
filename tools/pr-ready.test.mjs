@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
-  CODEX, unansweredThreads, codexState, linearLinks, declaredClosing, linearState, ciState, pullRequestWorkflows, baseState, summary,
+  CODEX, unansweredThreads, codexState, headPushTime, linearLinks, declaredClosing, linearState, ciState, pullRequestWorkflows,
+  baseState, summary,
 } from './pr-ready.mjs';
 
 const ME = 'anotheron1';
@@ -97,6 +98,33 @@ test('👍 после пуша головы — готово', () => {
   const s = codexState({ ...head, ...quiet, prReactions: [thumb('2026-09-26T12:10:00Z')] });
   assert.equal(s.ok, true);
   assert.equal(s.state, 'видел');
+});
+
+// Четвёртое ревью Codex на #86 (P1): наборы проверок привязаны к коммиту, а не к PR. Коммит, уже гонявшийся в другой
+// ветке, стал головой этого PR позже — время пуша берётся из прогонов по событию pull_request на ветке этого PR.
+// Ветка, а не номер PR: список PR у прогона GitHub считает в момент запроса — у влитого PR он пуст (#85).
+const run = (createdAt, headBranch, event = 'pull_request') => ({ event, createdAt, headBranch });
+
+test('время пуша — по прогонам ветки этого PR: прогон того же коммита в другой ветке не в счёт', () => {
+  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T10:00:00Z', 'exp'), run('2026-09-26T12:00:05Z', 'ci/x')],
+    suites: ['2026-09-26T10:00:00Z'], committedAt: '2026-09-26T09:59:00Z' });
+  assert.deepEqual(t, { at: '2026-09-26T12:00:05Z', source: 'прогон этого PR' });
+});
+
+test('время пуша — прогон по событию ревью не в счёт: он не про пуш', () => {
+  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T11:00:00Z', 'ci/x', 'pull_request_review'), run('2026-09-26T12:00:05Z', 'ci/x')],
+    suites: [], committedAt: '2026-09-26T09:59:00Z' });
+  assert.equal(t.at, '2026-09-26T12:00:05Z');
+});
+
+test('прогонов на ветке этого PR нет — первый набор проверок коммита', () => {
+  const t = headPushTime({ branch: 'ci/x', runs: [], suites: ['2026-09-26T12:00:03Z', '2026-09-26T12:00:01Z'], committedAt: '2026-09-26T11:59:00Z' });
+  assert.deepEqual(t, { at: '2026-09-26T12:00:01Z', source: 'набор проверок коммита' });
+});
+
+test('ни прогонов, ни наборов — дата коммита', () => {
+  assert.deepEqual(headPushTime({ branch: 'ci/x', runs: [], suites: [], committedAt: '2026-09-26T11:59:00Z' }),
+    { at: '2026-09-26T11:59:00Z', source: 'дата коммита' });
 });
 
 test('ревью на коммите головы — видел, по коммиту, а не по времени', () => {
