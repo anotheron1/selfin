@@ -170,11 +170,15 @@ public class GlobalExceptionHandler {
      *
      * <p>Отдельная ветка: {@code MethodArgumentTypeMismatchException} не несёт своего статуса,
      * в отличие от остальных стандартных ошибок Spring MVC (см. {@link #handleGeneric}).
+     *
+     * <p>Именно этот класс, а не общий {@code TypeMismatchException} (ревью Codex, #76): от того
+     * же родителя идёт {@code MethodArgumentConversionNotSupportedException} — у сервера нет
+     * конвертера для типа параметра. Это поломка сборки, и 400 переложил бы её на клиента.
      */
-    @ExceptionHandler(org.springframework.beans.TypeMismatchException.class)
-    public ResponseEntity<ErrorResponse> handleTypeMismatch(org.springframework.beans.TypeMismatchException ex) {
-        String name = ex instanceof org.springframework.web.method.annotation.MethodArgumentTypeMismatchException m
-                ? m.getName() : ex.getPropertyName();
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex) {
+        String name = ex.getName();
         log.warn("Malformed value for {}: {}", name, ex.getValue());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
@@ -189,14 +193,21 @@ public class GlobalExceptionHandler {
      * нет такого пути 404, не тот метод 405, не тот тип тела 415. Раньше все они попадали сюда
      * и становились 500, и 500 переставал быть сигналом: забытый параметр и настоящее падение
      * выглядели одинаково. Теперь в 500 остаётся только то, чего никто не ждал.
+     *
+     * <p>Текст стандартной ошибки уходит клиенту только при 4xx — он про его запрос. При 5xx
+     * статус остаётся её, а текст родовой (ревью Codex, #76): например, переменная пути, которой
+     * нет в шаблоне маршрута, — дефект маппинга, и её имя клиенту знать незачем.
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         if (ex instanceof org.springframework.web.ErrorResponse known) {
             int code = known.getStatusCode().value();
+            if (code >= 500) {
+                log.error("Server-side MVC error", ex);
+                return ResponseEntity.status(code).body(ErrorResponse.of(code, "Internal server error"));
+            }
             String detail = known.getBody().getDetail() != null ? known.getBody().getDetail() : ex.getMessage();
-            if (code >= 500) log.error("Server-side MVC error", ex);
-            else log.warn("Client error {}: {}", code, detail);
+            log.warn("Client error {}: {}", code, detail);
             return ResponseEntity.status(code).body(ErrorResponse.of(code, detail));
         }
         log.error("Unexpected error", ex);
