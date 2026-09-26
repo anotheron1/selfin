@@ -1,6 +1,6 @@
 import type { PocketResponse, UpcomingItem } from '../types/api';
 import { fmtDayMonth, fmtRub as fmtC } from './format';
-import { pocketState } from './gapMode';
+import { pocketResult, pocketState } from './gapMode';
 import { ruPlural } from './plural';
 
 /**
@@ -160,11 +160,11 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
 
     // ANO-99: слово справки (ANO-124), а не наше «самый узкий день».
     const narrowest = `самый низкий остаток — ${isToday ? `сегодня, ${day}` : day}`;
-    const result = state === 'gap'
-        ? row('result', 'Не хватает', fmtC(-minPoint.balance), narrowest)
-        : state === 'nz'
-            ? row('result', 'Придётся взять из НЗ', fmtC(buffer - minPoint.balance), null)
-            : row('result', 'Свободно', fmtC(p.pocket), buffer > 0 ? null : narrowest);
+    // Итог словами — одно правило с шапкой примерки (pocketResult). При НЗ пояснения нет: самый
+    // низкий остаток уже стоит строкой выше.
+    const { label, amount } = pocketResult(p);
+    const note = state === 'gap' || (state === 'ok' && buffer === 0) ? narrowest : null;
+    const result = row('result', label, fmtC(amount), note);
 
     return { calc, result, caveats };
 }

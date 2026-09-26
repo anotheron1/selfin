@@ -5,7 +5,7 @@ import { fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
 import { buildPocketPhrase } from '../lib/pocketPhrase';
 import { noExpectationsNote } from '../lib/noExpectationsNote';
-import { buildGapMode } from '../lib/gapMode';
+import { buildGapMode, FREE_LABEL } from '../lib/gapMode';
 import { buildBreakdownView, type BreakdownRow } from '../lib/breakdownRows';
 import { buildAgeHint } from '../lib/reanchor';
 import ReanchorSheet from './pocket/ReanchorSheet';
@@ -95,7 +95,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                 <Wallet size={32} color="white" className="shrink-0 mt-1" />
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                        <p className="text-sm text-white/70">{gap ? gap.horizonLabel : 'В кармашке'}</p>
+                        <p className="text-sm text-white/70">{gap ? gap.horizonLabel : FREE_LABEL}</p>
                         <button onClick={() => setShowWhy(v => !v)}
                             className="text-white/50 hover:text-white/90 transition-colors"
                             aria-label="Почему столько">

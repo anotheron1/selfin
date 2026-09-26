@@ -9,6 +9,7 @@ import type {
     SandboxItem, SandboxRef, SandboxRequest, SandboxResponse, SandboxTryOn,
 } from '../types/api';
 import { fmtRub } from '../lib/format';
+import { pocketResult } from '../lib/gapMode';
 import {
     defaultTryOn, realizationScope, refKey, sameRef,
 } from '../lib/sandboxMath';
@@ -236,7 +237,7 @@ export default function Wishlist() {
                 <div>
                     <h1 className="text-xl font-semibold">Примерка</h1>
                     <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Двигайте хотелки — смотрите удар по кармашку, ничего не сохраняя
+                        Двигайте хотелки — смотрите, что станет со свободными деньгами, ничего не сохраняя
                     </p>
                 </div>
                 <button onClick={() => navigate('/')}
@@ -265,19 +266,31 @@ export default function Wishlist() {
             {baseline && fitted && (
                 <div className="rounded-2xl p-4"
                     style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
-                    <div className="flex items-end justify-between gap-3">
-                        <div>
-                            <p className="text-xs text-white/70">В кармашке сейчас</p>
-                            <p className="text-2xl font-bold text-white">{fmtRub(baseline.pocket)}</p>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-xs text-white/70">С примеркой</p>
-                            <p className="text-2xl font-bold text-white">{fmtRub(fitted.pocket)}</p>
-                        </div>
-                    </div>
+                    {/*
+                      Оба числа — словами по состоянию, как итог расшифровки (ANO-76, ревью Codex #80):
+                      при нехватке «Свободно сейчас −25 612 ₽» противоречило себе. Сумма — без минуса;
+                      разница ниже — изменение свободных денег, со знаком и словами, как на графике.
+                    */}
+                    {(() => {
+                        const now = pocketResult(baseline);
+                        const tried = pocketResult(fitted);
+                        const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+                        return (
+                            <div className="flex items-end justify-between gap-3">
+                                <div>
+                                    <p className="text-xs text-white/70">Сейчас · {lower(now.label)}</p>
+                                    <p className="text-2xl font-bold text-white">{fmtRub(now.amount)}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-xs text-white/70">С примеркой · {lower(tried.label)}</p>
+                                    <p className="text-2xl font-bold text-white">{fmtRub(tried.amount)}</p>
+                                </div>
+                            </div>
+                        );
+                    })()}
                     {diff !== 0 && (
                         <p className="text-sm text-white/90 mt-1 text-right font-medium">
-                            {diff < 0 ? '' : '+'}{fmtRub(diff)}
+                            {diff < 0 ? '' : '+'}{fmtRub(diff)} к свободным деньгам
                         </p>
                     )}
                     <div className="flex gap-1.5 mt-3 flex-wrap">

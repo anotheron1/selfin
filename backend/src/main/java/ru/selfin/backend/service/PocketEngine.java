@@ -378,7 +378,9 @@ public final class PocketEngine {
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.BUFFER,
                     "НЗ (настройка)", buffer.negate(), List.of()));
         }
-        lines.add(new PocketResultDto.BreakdownLine(BreakdownType.POCKET, "Кармашек", pocket, List.of()));
+        // Подпись на экран не выходит: итог фронт называет по состоянию карточки (breakdownRows.ts).
+        // Запасная — словом людей, как там в обычном режиме (ANO-76).
+        lines.add(new PocketResultDto.BreakdownLine(BreakdownType.POCKET, "Свободно", pocket, List.of()));
 
         // ANO-80: прогноз — оговорка, а не слагаемое кармашка. Стоит после POCKET по той же
         // причине, что WISHLIST_INFO и CREDIT_RESTORE: всё до кармашка объясняет, из чего

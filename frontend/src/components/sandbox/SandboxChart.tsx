@@ -120,7 +120,7 @@ export default function SandboxChart({ baseline, fitted }: {
                 {diff !== 0 && (
                     <span className="ml-auto font-semibold"
                         style={{ color: diff < 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>
-                        {diff < 0 ? '' : '+'}{fmtRub(diff)} к кармашку
+                        {diff < 0 ? '' : '+'}{fmtRub(diff)} к свободным деньгам
                     </span>
                 )}
             </div>

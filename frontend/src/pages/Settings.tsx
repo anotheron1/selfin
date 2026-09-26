@@ -35,7 +35,7 @@ const monthLabel = (yearMonth: string) =>
  * модалка читается как предупреждение о риске, а предупреждать тут не о чем.
  */
 const FORECAST_HINT = 'Считает, сколько обычно уходит в эту категорию за месяц — по последним '
-    + 'месяцам, включая те, когда трат не было. Нужно три месяца наблюдений. На кармашек '
+    + 'месяцам, включая те, когда трат не было. Нужно три месяца наблюдений. На свободные деньги '
     + 'не влияет: показывается отдельным числом рядом.';
 
 export default function Settings() {
@@ -431,7 +431,7 @@ export default function Settings() {
                                     onChange={e => setCreatePrimaryIncome(e.target.checked)}
                                     className="accent-[var(--color-accent)] w-3.5 h-3.5"
                                 />
-                                <span className="text-xs">Основной доход (задаёт горизонт кармашка)</span>
+                                <span className="text-xs">Основной доход (до него считаются свободные деньги)</span>
                             </label>
                         )}
                     </form>
@@ -504,7 +504,7 @@ export default function Settings() {
                                                     onChange={e => setEditCatPrimaryIncome(e.target.checked)}
                                                     className="accent-[var(--color-accent)] w-3.5 h-3.5"
                                                 />
-                                                <span className="text-xs">Основной доход (задаёт горизонт кармашка)</span>
+                                                <span className="text-xs">Основной доход (до него считаются свободные деньги)</span>
                                             </label>
                                         )}
                                     </div>
