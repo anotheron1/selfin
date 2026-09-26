@@ -3,8 +3,9 @@ import { fetchWishlistSimulation } from '../../api';
 import type { MonthDelta, WishlistSimulationDto } from '../../types/api';
 import {
     composeTimeline,
+    defaultActiveMap,
+    effectiveDelta,
     riskZones,
-    scaleDelta,
     type ActiveItem,
     type BaselinePoint,
     type RiskLevel,
@@ -81,12 +82,7 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
             .then(d => {
                 if (cancelled) return;
                 setData(d);
-                // Сидируем active: OPEN+FIXED влияют по умолчанию, DISMISSED — нет.
-                const seed: Record<string, boolean> = {};
-                for (const item of d.items) {
-                    seed[item.id] = item.status === 'OPEN' || item.status === 'FIXED';
-                }
-                setActiveMap(seed);
+                setActiveMap(defaultActiveMap(d.items));
                 setOverrideMap({});
             })
             .catch(e => {
@@ -144,16 +140,10 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
     // Активные items с учётом override: recomputed delta > scaled amount > исходная delta.
     const activeItems = useMemo<ActiveItem[]>(() => {
         if (!data) return [];
-        return data.items.map(item => {
-            const ov = overrideMap[item.id];
-            let delta = item.delta;
-            if (ov?.delta != null) {
-                delta = ov.delta;
-            } else if (ov?.amount != null) {
-                delta = scaleDelta(item.delta, item.amount, ov.amount);
-            }
-            return { active: !!activeMap[item.id], delta };
-        });
+        return data.items.map(item => ({
+            active: !!activeMap[item.id],
+            delta: effectiveDelta(item, overrideMap[item.id]),
+        }));
     }, [data, activeMap, overrideMap]);
 
     const composed = useMemo<BaselinePoint[]>(

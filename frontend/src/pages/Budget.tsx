@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useReducer } from 'react';
 import { ChevronRight, HelpCircle, Repeat } from 'lucide-react';
 import { fetchEvents, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
 import type { FinancialEvent } from '../types/api';
-import { favourableDelta, deltaColor } from '../lib/planFact';
 import { compareByRecency, byRecencyDesc } from '../lib/eventOrder';
 import { dayLabel, expectationCards, expectationsSummary, factLinkLabel, mainListEvents } from '../lib/journalSections';
 import { anchorDateOf, quickClose, type QuickClose } from '../lib/quickClose';
@@ -490,13 +489,9 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                                     <span style={{
                                                                                         fontSize: '11px',
                                                                                         fontWeight: 600,
-                                                                                        // ANO-32: у дохода знак смысла обратный — зарплата
-                                                                                        // выше плана это хорошо, а не «перерасход»
-                                                                                        color: deltaColor(favourableDelta(
-                                                                                            isIncome ? 'INCOME' : 'EXPENSE',
-                                                                                            event.plannedAmount,
-                                                                                            planFact,
-                                                                                        )),
+                                                                                        // ANO-123: факт рядом с планом — новое число, а не
+                                                                                        // приговор: ни красного «против», ни зелёного «в пользу»
+                                                                                        // (правило 12; превышенное ожидание не краснеет).
                                                                                     }}>
                                                                                         факт {fmt(planFact)}
                                                                                     </span>

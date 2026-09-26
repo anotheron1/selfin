@@ -83,7 +83,7 @@ public class TargetFundController {
             @Parameter(description = "UUID для идемпотентности", required = true) @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @Valid @RequestBody TransferRequest request) {
         return fundService.transferToPocket(id, idempotencyKey, request.amount(),
-                request.confirmed());
+                request.confirmed(), request.scope());
     }
 
     @Operation(summary = "Сменить wishlist-статус копилки/кредита (OPEN/FIXED/DISMISSED)")
@@ -106,8 +106,10 @@ public class TargetFundController {
      * @param amount  сумма перемещения, не ноль
      * @param confirm человек увидел предупреждение «переводите больше, чем есть» и настаивает.
      *        {@code null} трактуется как «не подтверждено» (спека §4.2).
+     * @param scope   горизонт, выбранный на карточке кармашка (ANO-88): вопрос задаётся по тому
+     *        же числу, что человек видит. {@code null} — «до дохода», как по умолчанию.
      */
-    record TransferRequest(@NotNull BigDecimal amount, Boolean confirm) {
+    record TransferRequest(@NotNull BigDecimal amount, Boolean confirm, String scope) {
 
         boolean confirmed() {
             return Boolean.TRUE.equals(confirm);

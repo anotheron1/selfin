@@ -7,7 +7,7 @@ import FixWishlistDialog, { type ConvertTarget } from '../wishlist/FixWishlistDi
 import DeleteWishlistDialog from '../wishlist/DeleteWishlistDialog';
 import { type RecomputeRequest } from '../wishlist/WishlistItemCard';
 import {
-    composeTimeline, riskZones, scaleDelta, fixPatch,
+    composeTimeline, riskZones, effectiveDelta, fixPatch,
     type ActiveItem, type BaselinePoint, type RiskLevel,
 } from '../wishlist/wishlistUtils';
 import {
@@ -15,15 +15,8 @@ import {
     setEventWishlistStatus, setFundWishlistStatus,
     updateEvent, updateFund, deleteEvent, deleteFund,
 } from '../../api';
-import type { MonthDelta, WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
+import type { WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
 import { Button } from '../ui/button';
-
-/** Эффективная delta item'а с учётом override (recomputed > scaled amount > базовая). */
-function effectiveDelta(item: WishlistItem, override: { amount?: number; delta?: MonthDelta[] } | undefined): MonthDelta[] {
-    if (override?.delta != null) return override.delta;
-    if (override?.amount != null) return scaleDelta(item.delta, item.amount, override.amount);
-    return item.delta;
-}
 
 /** Худшая зона риска по вектору (для solo-бейджа). */
 function worstZone(zones: RiskLevel[]): RiskLevel | undefined {

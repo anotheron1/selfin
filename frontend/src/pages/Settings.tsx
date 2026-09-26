@@ -349,9 +349,9 @@ export default function Settings() {
                                             <span className="text-xs ml-2 px-1.5 py-0.5 rounded-full"
                                                 title={`selfin насчитал ${fmtAmount(cp.computedBalance ?? 0)} ₽ от прошлого якоря`}
                                                 style={{
-                                                    color: cp.drift < 0 ? 'var(--color-danger)'
-                                                        : cp.drift > 0 ? 'var(--color-success)'
-                                                        : 'var(--color-text-muted)',
+                                                    // ANO-123: дрейф — мера учёта, а не приговор; красный
+                                                    // на нём говорил бы «ты не записал» (правила 5, 12).
+                                                    color: 'var(--color-text-muted)',
                                                     background: 'var(--color-surface-2)',
                                                     fontSize: '10px',
                                                 }}>

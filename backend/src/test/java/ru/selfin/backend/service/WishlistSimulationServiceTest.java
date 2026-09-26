@@ -189,7 +189,7 @@ class WishlistSimulationServiceTest {
         StrategyTimelineDto baselineDto = new StrategyTimelineDto(
                 first, current, horizonEnd, 6, false, List.of());
         TimelineSnapshot snap = new TimelineSnapshot(first, current, horizonEnd, 6, false, List.of());
-        when(baselineBuilder.build(36, true)).thenReturn(snap);
+        when(baselineBuilder.build(36, true, BaselineTimelineBuilder.Wishlist.NONE)).thenReturn(snap);
 
         // OPEN wishlist event (should be included)
         Category cat = Category.builder().id(UUID.randomUUID()).name("Техника").build();

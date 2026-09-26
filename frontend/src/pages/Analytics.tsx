@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchMultiMonthReport, fetchAnalyticsReport, fetchWishlist } from '../api';
 import CategoryProgressSection from '../components/analytics/CategoryProgressSection';
 import type { AnalyticsReport, FinancialEvent, MultiMonthReport, MultiMonthRow } from '../types/api';
-import { favourableDelta, favourableFromDelta, deltaColor, deltaSign } from '../lib/planFact';
+import { differenceSign } from '../lib/planFact';
 import BudgetStructureSection from '../components/BudgetStructureSection';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Button } from '../components/ui/button';
@@ -214,16 +214,14 @@ function PlanFactSection({ planFact }: { planFact: AnalyticsReport['planFact'] }
             {incomeRows.length > 0 && (
                 <PlanFactGroup label="Доходы" rows={incomeRows}
                     totalPlanned={planFact.totalPlannedIncome}
-                    totalFact={planFact.totalFactIncome}
-                    isIncome={true} />
+                    totalFact={planFact.totalFactIncome} />
             )}
 
             {expenseRows.length > 0 && (
                 <PlanFactGroup label="Расходы" rows={expenseRows}
                     totalPlanned={planFact.totalPlannedExpense}
                     totalFact={planFact.totalFactExpense}
-                    mt={incomeRows.length > 0}
-                    isIncome={false} />
+                    mt={incomeRows.length > 0} />
             )}
 
             {planFact.categories.length === 0 && (
@@ -233,16 +231,18 @@ function PlanFactSection({ planFact }: { planFact: AnalyticsReport['planFact'] }
     );
 }
 
-function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
+/**
+ * ANO-123, правило 12: разница — факт минус план, как есть, без цвета и без «в пользу».
+ * Превышенное ожидание не краснеет и не считается провалом — оно становится новым числом.
+ */
+function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt }: {
     label: string;
     rows: AnalyticsReport['planFact']['categories'];
     totalPlanned: number;
     totalFact: number;
     mt?: boolean;
-    isIncome: boolean;
 }) {
-    // Positive = good: for income fact>plan is good; for expenses plan>fact is good
-    const totalDelta = favourableDelta(isIncome ? 'INCOME' : 'EXPENSE', totalPlanned, totalFact);
+    const totalDifference = totalFact - totalPlanned;
     return (
         <div className={mt ? 'mt-4' : ''}>
             <p className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-muted)' }}>
@@ -254,7 +254,7 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
                         <th className="text-left pb-1 font-normal w-2/5">Категория</th>
                         <th className="text-right pb-1 font-normal">План</th>
                         <th className="text-right pb-1 font-normal">Факт</th>
-                        <th className="text-right pb-1 font-normal">Δ</th>
+                        <th className="text-right pb-1 font-normal">Разница</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -266,25 +266,18 @@ function PlanFactGroup({ label, rows, totalPlanned, totalFact, mt, isIncome }: {
                             </td>
                             <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(row.planned)}</td>
                             <td className="py-1.5 text-right">{fmt(row.fact)}</td>
-                            {(() => {
-                                // Бэк отдаёт delta = факт − план; знак «в пользу пользователя» — в lib/planFact
-                                const displayDelta = favourableFromDelta(isIncome ? 'INCOME' : 'EXPENSE', row.delta);
-                                return (
-                                    <td className="py-1.5 text-right font-medium"
-                                        style={{ color: deltaColor(displayDelta) }}>
-                                        {deltaSign(displayDelta)}{fmt(Math.abs(displayDelta))}
-                                    </td>
-                                );
-                            })()}
+                            {/* Бэк отдаёт delta = факт − план — её и показываем */}
+                            <td className="py-1.5 text-right font-medium">
+                                {differenceSign(row.delta)}{fmt(Math.abs(row.delta))}
+                            </td>
                         </tr>
                     ))}
                     <tr style={{ borderTop: '2px solid var(--color-border)', fontWeight: 600 }}>
                         <td className="py-1.5 max-w-0">Итого</td>
                         <td className="py-1.5 text-right" style={{ color: 'var(--color-text-muted)' }}>{fmt(totalPlanned)}</td>
                         <td className="py-1.5 text-right">{fmt(totalFact)}</td>
-                        <td className="py-1.5 text-right"
-                            style={{ color: deltaColor(totalDelta) }}>
-                            {deltaSign(totalDelta)}{fmt(Math.abs(totalDelta))}
+                        <td className="py-1.5 text-right">
+                            {differenceSign(totalDifference)}{fmt(Math.abs(totalDifference))}
                         </td>
                     </tr>
                 </tbody>

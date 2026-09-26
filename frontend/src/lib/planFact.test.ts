@@ -1,42 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { favourableDelta, favourableFromDelta, deltaColor, deltaSign } from './planFact';
+import { differenceSign } from './planFact';
 
-const GREEN = 'var(--color-success)';
-const RED = 'var(--color-danger)';
-
-describe('planFact: знак «в пользу пользователя» (ANO-32)', () => {
-    it('доход: больше плана — хорошо, меньше — плохо', () => {
-        // Симптом тикета: зарплата выше плановой красилась красным
-        expect(deltaColor(favourableDelta('INCOME', 100_000, 120_000))).toBe(GREEN);
-        expect(deltaColor(favourableDelta('INCOME', 100_000, 80_000))).toBe(RED);
+/**
+ * ANO-123: разница факта и плана — как есть, без «в пользу пользователя» и без цвета.
+ * Раньше (ANO-32) знак и цвет решались вместе с типом: перерасход красный, экономия зелёная.
+ * Это оценка (правило 12): превышенное ожидание не краснеет и не считается провалом — оно
+ * становится новым числом (канон, «Характер плановой строки»).
+ */
+describe('differenceSign — факт минус план как есть (ANO-123)', () => {
+    it('факта больше плана — «+», и для расхода тоже: не «против», а просто больше', () => {
+        expect(differenceSign(1550)).toBe('+');
     });
 
-    it('расход: меньше плана — хорошо, больше — плохо', () => {
-        expect(deltaColor(favourableDelta('EXPENSE', 10_000, 8_000))).toBe(GREEN);
-        expect(deltaColor(favourableDelta('EXPENSE', 10_000, 12_000))).toBe(RED);
+    it('факта меньше плана — «−»: минус обязателен, без него меньшее читается как прибавка', () => {
+        expect(differenceSign(-500)).toBe('−');
     });
 
-    it('ровно по плану — хорошо для обоих типов', () => {
-        expect(deltaColor(favourableDelta('INCOME', 100, 100))).toBe(GREEN);
-        expect(deltaColor(favourableDelta('EXPENSE', 100, 100))).toBe(GREEN);
-    });
-
-    it('нет плана или нет факта — не красим тревожным цветом', () => {
-        expect(favourableDelta('EXPENSE', null, 5_000)).toBe(0);
-        expect(favourableDelta('EXPENSE', 5_000, null)).toBe(0);
-        expect(deltaColor(favourableDelta('EXPENSE', null, 5_000))).toBe(GREEN);
-    });
-
-    it('favourableFromDelta переворачивает только расход', () => {
-        // бэк отдаёт delta = факт − план
-        expect(favourableFromDelta('INCOME', 2_000)).toBe(2_000);
-        expect(favourableFromDelta('EXPENSE', 2_000)).toBe(-2_000);
-        expect(favourableFromDelta('EXPENSE', -2_000)).toBe(2_000);
-    });
-
-    it('deltaSign не теряет минус', () => {
-        expect(deltaSign(500)).toBe('+');
-        expect(deltaSign(0)).toBe('+');
-        expect(deltaSign(-500)).toBe('−');
+    it('ровно по плану — без знака', () => {
+        expect(differenceSign(0)).toBe('');
     });
 });

@@ -63,7 +63,9 @@ public class WishlistSimulationService {
      * Собирает baseline, items, thresholds, constraints.
      */
     public WishlistSimulationDto getSimulation(int horizonMonths) {
-        TimelineSnapshot snap = baselineBuilder.build(horizonMonths, true);
+        // ANO-142: baseline без хотелок вовсе — дельты включённых фронт накладывает сам. С хотелками
+        // в baseline включённая по умолчанию хотелка считалась дважды.
+        TimelineSnapshot snap = baselineBuilder.build(horizonMonths, true, BaselineTimelineBuilder.Wishlist.NONE);
         YearMonth current = snap.currentMonth();
 
         StrategyTimelineDto baselineDto = new StrategyTimelineDto(
@@ -127,15 +129,15 @@ public class WishlistSimulationService {
     }
 
     /**
-     * Суммарный delta-вектор FIXED WISHLIST-items БЕЗ конверсии, для наложения на /strategy timeline.
+     * Суммарный delta-вектор FIXED WISHLIST-items БЕЗ конверсии, для наложения на капитал /strategy.
+     *
+     * <p>Счёт такая хотелка уже двигает в baseline Стратегии — она там план (ANO-108). Капитал
+     * baseline за планами не следует, поэтому Стратегия берёт отсюда только капитал.
      *
      * <p>Funds are real pockets already represented in the baseline's liquidAt; overlaying their
-     * synthetic delta would double-count. WISHLIST LOW events contribute nothing to the baseline
-     * (no planned event/FACT), so only they are overlaid here. The /wishlist simulation page still
-     * models funds fully — that's its sandbox purpose.
-     *
-     * <p>Поэтому здесь собираются ТОЛЬКО WISHLIST-события (LOW-хотелки) и исключаются все
-     * TargetFund-производные items (SAVINGS/CREDIT).
+     * synthetic delta would double-count. The /wishlist simulation page still models funds fully —
+     * that's its sandbox purpose. Поэтому здесь собираются ТОЛЬКО WISHLIST-события (LOW-хотелки)
+     * и исключаются все TargetFund-производные items (SAVINGS/CREDIT).
      */
     public List<MonthDeltaDto> computeDeltaForFixedItems(YearMonth current, int horizonMonths) {
         List<FinancialEvent> fixedEvents = eventRepository
@@ -157,7 +159,10 @@ public class WishlistSimulationService {
 
     private WishlistItemDto mapEventToItem(FinancialEvent e, YearMonth current, int horizonMonths) {
         BigDecimal amount = e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO;
-        List<MonthDeltaDto> delta = (e.getDate() != null)
+        // ANO-142: у сконвертированной хотелки деньги несёт артефакт — план уже в baseline.
+        // Дельта сверху посчитала бы её второй раз.
+        boolean converted = e.getConvertedToEventId() != null || e.getConvertedToFundId() != null;
+        List<MonthDeltaDto> delta = (e.getDate() != null && !converted)
                 ? computeWishlistDelta(amount, e.getDate(), current, horizonMonths)
                 : List.of();
         WishlistItemDto.ConvertedToDto convertedTo = buildConvertedTo(e.getConvertedToEventId(), e.getConvertedToFundId());
@@ -186,7 +191,10 @@ public class WishlistSimulationService {
         BigDecimal monthlyContrib = null;
         BigDecimal monthlyPmt = null;
 
-        if (f.getTargetDate() != null) {
+        // ANO-142: у сконвертированной хотелки деньги несёт артефакт — копилка из конверсии со своей
+        // дельтой. Дельта исходной посчитала бы покупку второй раз.
+        boolean converted = f.getConvertedToEventId() != null || f.getConvertedToFundId() != null;
+        if (f.getTargetDate() != null && !converted) {
             if (f.getPurchaseType() == FundPurchaseType.CREDIT
                     && f.getCreditRate() != null && f.getCreditTermMonths() != null) {
                 CreditResult cr = computeCreditDelta(amount, f.getTargetDate(), current, horizonMonths,

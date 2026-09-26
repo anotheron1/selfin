@@ -198,9 +198,17 @@ export const deleteFund = (id: string) => del(`/funds/${id}`);
  * @param confirm человек увидел предупреждение и настаивает (ANO-87 §4.2). До ANO-157 флаг
  *                не передавался никогда, и обещанное подтверждение было недостижимо
  */
-export const transferToFund = (fundId: string, amount: number, confirm?: boolean) =>
+/**
+ * @param scope горизонт карточки кармашка (ANO-88): сервер переспрашивает по тому же числу,
+ *              что человек видит; не задан — «до дохода»
+ */
+export const transferToFund = (fundId: string, amount: number, confirm?: boolean, scope?: string) =>
     post<TargetFund>(`/funds/${fundId}/transfer`,
-        confirm === undefined ? { amount } : { amount, confirm },
+        {
+            amount,
+            ...(confirm === undefined ? {} : { confirm }),
+            ...(scope === undefined ? {} : { scope }),
+        },
         { 'Idempotency-Key': generateUUID() });
 
 // --- Snapshots ---

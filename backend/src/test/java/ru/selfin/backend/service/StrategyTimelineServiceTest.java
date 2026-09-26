@@ -35,7 +35,7 @@ class StrategyTimelineServiceTest {
         List<StrategyTimelinePointDto> points = List.of();
 
         TimelineSnapshot snap = new TimelineSnapshot(first, current, horizon, 6, false, points);
-        when(baselineBuilder.build(3, true)).thenReturn(snap);
+        when(baselineBuilder.build(3, true, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN)).thenReturn(snap);
         // no FIXED deltas
         when(wishlistService.computeDeltaForFixedItems(any(), anyInt())).thenReturn(List.of());
 
@@ -49,8 +49,12 @@ class StrategyTimelineServiceTest {
         assertThat(dto.points()).isEmpty();
     }
 
+    /**
+     * ANO-108: баланс зафиксированную хотелку уже держит — в baseline она план; наложение
+     * двигает только капитал. Раньше оно шло и на баланс, и хотелка считалась дважды.
+     */
     @Test
-    void getTimeline_fixedItem_shiftsBalance_onFuturePoints() {
+    void getTimeline_fixedItem_shiftsCapitalOnly_onFuturePoints() {
         YearMonth current = YearMonth.now();
         YearMonth first = current.minusMonths(1);
         YearMonth horizonEnd = current.plusMonths(3);
@@ -70,7 +74,7 @@ class StrategyTimelineServiceTest {
 
         List<StrategyTimelinePointDto> points = List.of(pastPoint, futurePoint);
         TimelineSnapshot snap = new TimelineSnapshot(first, current, horizonEnd, 6, false, points);
-        when(baselineBuilder.build(3, true)).thenReturn(snap);
+        when(baselineBuilder.build(3, true, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN)).thenReturn(snap);
 
         // FIXED item outflow of 20000 at monthIndex=1 (current+2)
         when(wishlistService.computeDeltaForFixedItems(eq(current), eq(3)))
@@ -80,8 +84,10 @@ class StrategyTimelineServiceTest {
 
         // Past point untouched
         assertThat(dto.points().get(0).balance()).isEqualByComparingTo("30000");
-        // Future point shifted by -20000 (running sum after monthIndex=1 applied)
-        assertThat(dto.points().get(1).balance()).isEqualByComparingTo("30000"); // 50000 + (-20000)
-        assertThat(dto.points().get(1).balanceConfirmed()).isEqualByComparingTo("30000");
+        assertThat(dto.points().get(0).capital()).isEqualByComparingTo("0");
+        // Future point: balance as baseline built it, capital shifted by -20000
+        assertThat(dto.points().get(1).balance()).isEqualByComparingTo("50000");
+        assertThat(dto.points().get(1).balanceConfirmed()).isEqualByComparingTo("50000");
+        assertThat(dto.points().get(1).capital()).isEqualByComparingTo("-20000");
     }
 }
