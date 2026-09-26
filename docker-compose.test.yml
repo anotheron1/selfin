@@ -1,6 +1,8 @@
 # Тестовый стенд (ANO-50). Отдельный docker-проект, свой том, свои порты.
 #
-#   COMPOSE_PROJECT_NAME=selfin-test docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+#   GIT_COMMIT=$(git rev-parse HEAD) COMPOSE_PROJECT_NAME=selfin-test docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build
+#
+# Какой коммит на стенде — curl http://localhost:8081/api/v1/version (ANO-194); без GIT_COMMIT там «unknown».
 #
 # Фронт: http://localhost:5174   API: http://localhost:8081   БД: localhost:5433
 # Боевой стенд (5173/8080/5432) не затрагивается.
