@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
-  CODEX, unansweredThreads, codexState, headPushTime, linearLinks, declaredClosing, linearState, ciState, pullRequestWorkflows,
+  CODEX, unansweredThreads, codexState, headTransitions, headAt, linearLinks, declaredClosing, linearState, ciState, pullRequestWorkflows,
   baseState, summary,
 } from './pr-ready.mjs';
 
@@ -61,12 +61,53 @@ test('ветка человека без слова Codex не считаетс�
   assert.deepEqual(unansweredThreads(own), []);
 });
 
-// Голова PR и время её пуша — создание первого набора проверок на коммит.
-const head = { headSha: 'a1b2c3d', headPushedAt: '2026-09-26T12:00:00Z' };
+// История голов PR — прогоны по pull_request на ветке PR после его открытия: у каждого коммит головы на момент события.
+// Вердикт Codex привязан к коммиту, а не ко времени (ревью Codex на #86, круги 2–6): у ревью и «замечаний нет» есть
+// номер коммита, 👍 на PR — вердикт по голове на открытии, 👍 на запрос — по голове на момент запроса.
+const OLD = '0ld0000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const HEAD = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+const OTHER = 'ffff0000000000000000000000000000000000ff';
+const at = (sha, createdAt) => ({ sha, createdAt });
+const head = { headSha: HEAD, transitions: [at(HEAD, '2026-09-26T12:00:00Z')] };
+const pushed = { headSha: HEAD, transitions: [at(OLD, '2026-09-26T10:00:00Z'), at(HEAD, '2026-09-26T12:00:00Z')] };
+const back = { headSha: HEAD, transitions: [at(HEAD, '2026-09-26T10:00:00Z'), at(OTHER, '2026-09-26T11:00:00Z'), at(HEAD, '2026-09-26T12:00:00Z')] };
 const quiet = { reviews: [], prReactions: [], issueComments: [] };
 const thumb = (createdAt) => ({ user: CODEX, content: '+1', createdAt });
 const eyes = (createdAt) => ({ user: CODEX, content: 'eyes', createdAt });
 const request = (createdAt, reactions = []) => ({ user: ME, body: '@codex review', createdAt, reactions });
+const review = (submittedAt, commitId) => ({ user: CODEX, submittedAt, commitId });
+
+const run = (createdAt, headSha, { event = 'pull_request', headBranch = 'ci/x' } = {}) => ({ event, createdAt, headSha, headBranch });
+
+test('история голов — прогоны по pull_request на ветке PR после его открытия, по порядку', () => {
+  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+    run('2026-09-26T12:00:00Z', HEAD), run('2026-09-26T10:00:05Z', OLD),
+  ] }), [at(OLD, '2026-09-26T10:00:05Z'), at(HEAD, '2026-09-26T12:00:00Z')]);
+});
+
+test('история голов — прогон того же коммита в другой ветке не в счёт', () => {
+  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+    run('2026-09-26T12:00:00Z', HEAD), run('2026-09-26T13:00:00Z', OTHER, { headBranch: 'exp' }),
+  ] }), [at(HEAD, '2026-09-26T12:00:00Z')]);
+});
+
+test('история голов — прогон по событию ревью не в счёт: он не про голову', () => {
+  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T10:00:00Z', runs: [
+    run('2026-09-26T12:00:00Z', HEAD), run('2026-09-26T13:00:00Z', OTHER, { event: 'pull_request_review' }),
+  ] }), [at(HEAD, '2026-09-26T12:00:00Z')]);
+});
+
+test('история голов — прогон до открытия PR не в счёт: прошлый PR с той же веткой', () => {
+  assert.deepEqual(headTransitions({ branch: 'ci/x', openedAt: '2026-09-26T11:00:00Z', runs: [
+    run('2026-09-26T10:00:00Z', OTHER), run('2026-09-26T12:00:00Z', HEAD),
+  ] }), [at(HEAD, '2026-09-26T12:00:00Z')]);
+});
+
+test('голова в момент времени — по последнему прогону до него; до первого — неизвестна', () => {
+  assert.equal(headAt(back.transitions, '2026-09-26T11:30:00Z'), OTHER);
+  assert.equal(headAt(back.transitions, '2026-09-26T12:00:00Z'), HEAD);
+  assert.equal(headAt(back.transitions, '2026-09-26T09:00:00Z'), undefined);
+});
 
 test('Codex молчит — не готово', () => {
   const s = codexState({ ...head, ...quiet });
@@ -82,99 +123,88 @@ test('👀 на PR — Codex смотрит, не готово', () => {
 
 test('👀 на последнем запросе @codex review — смотрит, даже если раньше был 👍', () => {
   const s = codexState({ ...head, ...quiet,
-    prReactions: [thumb('2026-09-26T11:00:00Z')],
-    issueComments: [request('2026-09-26T12:05:00Z', [eyes('2026-09-26T12:05:30Z')])] });
+    prReactions: [thumb('2026-09-26T12:10:00Z')],
+    issueComments: [request('2026-09-26T12:20:00Z', [eyes('2026-09-26T12:20:30Z')])] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'смотрит');
 });
 
-test('👍 до пуша головы — Codex голову не видел', () => {
-  const s = codexState({ ...head, ...quiet, prReactions: [thumb('2026-09-26T11:00:00Z')] });
-  assert.equal(s.ok, false);
-  assert.equal(s.state, 'не видел голову');
-});
-
-test('👍 после пуша головы — готово', () => {
+test('👍 на PR, голова с открытия не менялась — видел', () => {
   const s = codexState({ ...head, ...quiet, prReactions: [thumb('2026-09-26T12:10:00Z')] });
   assert.equal(s.ok, true);
   assert.equal(s.state, 'видел');
 });
 
-// Четвёртое и пятое ревью Codex на #86 (P1): время пуша — когда коммит в последний раз стал головой этого PR.
-// Наборы проверок привязаны к коммиту, а не к PR; номер PR у прогона GitHub считает в момент запроса (у влитого #85
-// список пуст); коммит может уйти с ветки и вернуться. Смены головы — это прогоны «Ответов Codex» по pull_request:
-// он запускается только на opened, synchronize и reopened. У CI есть ещё метки — голова при них не меняется.
-const REPLIES = '.github/workflows/codex-replies.yml';
-const CI = '.github/workflows/ci.yml';
-const run = (createdAt, headBranch, { event = 'pull_request', workflow = REPLIES } = {}) => ({ workflow, event, createdAt, headBranch });
-
-test('время пуша — последняя смена головы: коммит ушёл с ветки и вернулся — время возврата', () => {
-  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T10:00:00Z', 'ci/x'), run('2026-09-26T12:00:05Z', 'ci/x')],
-    suites: ['2026-09-26T10:00:00Z'], committedAt: '2026-09-26T09:59:00Z' });
-  assert.deepEqual(t, { at: '2026-09-26T12:00:05Z', source: 'смена головы этого PR' });
-});
-
-test('время пуша — прогон того же коммита в другой ветке не в счёт', () => {
-  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T12:00:05Z', 'ci/x'), run('2026-09-26T13:00:00Z', 'exp')],
-    suites: [], committedAt: '2026-09-26T09:59:00Z' });
-  assert.equal(t.at, '2026-09-26T12:00:05Z');
-});
-
-test('время пуша — прогон по событию ревью не в счёт: он не про пуш', () => {
-  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T12:00:05Z', 'ci/x'), run('2026-09-26T13:00:00Z', 'ci/x', { event: 'pull_request_review' })],
-    suites: [], committedAt: '2026-09-26T09:59:00Z' });
-  assert.equal(t.at, '2026-09-26T12:00:05Z');
-});
-
-test('время пуша — прогон CI по метке не сдвигает: голова при нём не менялась', () => {
-  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T12:00:05Z', 'ci/x'), run('2026-09-26T13:00:00Z', 'ci/x', { workflow: CI })],
-    suites: [], committedAt: '2026-09-26T09:59:00Z' });
-  assert.equal(t.at, '2026-09-26T12:00:05Z');
-});
-
-test('PR до «Ответов Codex» — первый прогон CI на ветке этого PR', () => {
-  const t = headPushTime({ branch: 'fix/y', runs: [run('2026-09-24T14:57:10Z', 'fix/y', { workflow: CI }), run('2026-09-24T15:30:00Z', 'fix/y', { workflow: CI })],
-    suites: ['2026-09-24T14:57:02Z'], committedAt: '2026-09-24T14:56:00Z' });
-  assert.deepEqual(t, { at: '2026-09-24T14:57:10Z', source: 'первый прогон CI этого PR' });
-});
-
-test('прогонов на ветке этого PR нет — первый набор проверок коммита', () => {
-  const t = headPushTime({ branch: 'ci/x', runs: [], suites: ['2026-09-26T12:00:03Z', '2026-09-26T12:00:01Z'], committedAt: '2026-09-26T11:59:00Z' });
-  assert.deepEqual(t, { at: '2026-09-26T12:00:01Z', source: 'набор проверок коммита' });
-});
-
-test('ни прогонов, ни наборов — дата коммита', () => {
-  assert.deepEqual(headPushTime({ branch: 'ci/x', runs: [], suites: [], committedAt: '2026-09-26T11:59:00Z' }),
-    { at: '2026-09-26T11:59:00Z', source: 'дата коммита' });
-});
-
-test('ревью на коммите головы — видел, по коммиту, а не по времени', () => {
-  const s = codexState({ ...head, ...quiet,
-    reviews: [{ user: CODEX, submittedAt: '2026-09-26T11:59:00Z', commitId: 'a1b2c3d' }] });
-  assert.equal(s.ok, true);
-  assert.equal(s.state, 'видел');
-});
-
-test('ревью на прошлом коммите до пуша — не видел', () => {
-  const s = codexState({ ...head, ...quiet,
-    reviews: [{ user: CODEX, submittedAt: '2026-09-26T11:59:00Z', commitId: 'ffff000' }] });
+test('👍 на PR — вердикт по голове на открытии: после пуша новой головы не в счёт', () => {
+  const s = codexState({ ...pushed, ...quiet, prReactions: [thumb('2026-09-26T10:05:00Z')] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'не видел голову');
 });
 
-test('👍 на запросе @codex review после пуша — видел', () => {
-  const s = codexState({ ...head, ...quiet,
+test('👍 на PR пришёл уже после пуша новой головы — всё равно про голову на открытии, не видел', () => {
+  const s = codexState({ ...pushed, ...quiet, prReactions: [thumb('2026-09-26T12:05:00Z')] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'не видел голову');
+});
+
+test('ревью на коммите головы — видел', () => {
+  const s = codexState({ ...pushed, ...quiet, reviews: [review('2026-09-26T12:10:00Z', HEAD)] });
+  assert.equal(s.ok, true);
+  assert.equal(s.state, 'видел');
+});
+
+test('ревью прошлого коммита — не видел, когда бы оно ни пришло', () => {
+  const s = codexState({ ...pushed, ...quiet, reviews: [review('2026-09-26T12:10:00Z', OLD)] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'не видел голову');
+});
+
+test('👍 на запрос, сделанный при нынешней голове, — видел', () => {
+  const s = codexState({ ...pushed, ...quiet,
     issueComments: [request('2026-09-26T12:05:00Z', [thumb('2026-09-26T12:15:00Z')])] });
   assert.equal(s.ok, true);
   assert.equal(s.state, 'видел');
 });
 
-test('запрос после пуша без ответа и без 👀 — запрошен, не готово', () => {
-  const s = codexState({ ...head, ...quiet,
-    prReactions: [thumb('2026-09-26T11:00:00Z')],
+test('👍 на запрос, сделанный при прошлой голове, — не видел, хотя пришёл после пуша', () => {
+  const s = codexState({ ...pushed, ...quiet,
+    issueComments: [request('2026-09-26T11:55:00Z', [thumb('2026-09-26T12:05:00Z')])] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'не видел голову');
+});
+
+test('запрос при нынешней голове без ответа и без 👀 — запрошен, не готово', () => {
+  const s = codexState({ ...pushed, ...quiet,
+    prReactions: [thumb('2026-09-26T10:05:00Z')],
     issueComments: [request('2026-09-26T12:05:00Z')] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'запрошен');
+});
+
+// Шестое ревью Codex на #86 (P1): голова ушла с X на Y и вернулась на X, а прогон по возвращению ещё не пришёл.
+test('последний записанный прогон — на другом коммите: смена головы не записана, не готово', () => {
+  const s = codexState({ headSha: HEAD, transitions: [at(HEAD, '2026-09-26T10:00:00Z'), at(OTHER, '2026-09-26T11:00:00Z')],
+    ...quiet, reviews: [review('2026-09-26T10:30:00Z', HEAD)] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'смена головы не записана');
+});
+
+test('прогонов по pull_request нет вовсе — смена головы не записана', () => {
+  const s = codexState({ headSha: HEAD, transitions: [], ...quiet, reviews: [review('2026-09-26T10:30:00Z', HEAD)] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'смена головы не записана');
+});
+
+test('X → Y → X: 👍 на запрос при Y не засчитывается за X', () => {
+  const s = codexState({ ...back, ...quiet,
+    issueComments: [request('2026-09-26T11:30:00Z', [thumb('2026-09-26T11:40:00Z')])] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'не видел голову');
+});
+
+test('X → Y → X: ревью X из первого появления засчитывается — коммит тот же', () => {
+  const s = codexState({ ...back, ...quiet, reviews: [review('2026-09-26T10:30:00Z', HEAD)] });
+  assert.equal(s.ok, true);
 });
 
 test('--at: вердикт позже момента не учитывается, 👀 не определяется', () => {
@@ -182,6 +212,12 @@ test('--at: вердикт позже момента не учитывается
     prReactions: [eyes('2026-09-26T12:01:00Z'), thumb('2026-09-26T12:10:00Z')] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'молчит');
+});
+
+test('--at: голова берётся на тот момент — прогон позже момента не в счёт', () => {
+  const s = codexState({ headSha: OLD, transitions: pushed.transitions, ...quiet, at: '2026-09-26T11:00:00Z',
+    reviews: [review('2026-09-26T10:30:00Z', OLD)] });
+  assert.equal(s.ok, true);
 });
 
 // #20–#46: вместо ревью Codex писал в ленту, что упёрся в лимит. Ревью не было.
@@ -201,8 +237,17 @@ test('другой комментарий Codex в ленте — не верд�
   assert.equal(s.state, 'написал');
 });
 
+test('голову уже видел, лимит пришёл на лишний повторный запрос — готово', () => {
+  const s = codexState({ ...head, ...quiet,
+    prReactions: [thumb('2026-09-26T12:10:00Z')],
+    issueComments: [request('2026-09-26T12:30:00Z'), limit('2026-09-26T12:31:00Z')] });
+  assert.equal(s.ok, true);
+  assert.equal(s.state, 'видел');
+});
+
 // #85: на повторный запрос без замечаний Codex ответил в ленте — с номером просмотренного коммита.
-const head85 = { headSha: '9378d0be107df86ea5caa9f94d441eaac05d6c69', headPushedAt: '2026-09-26T12:33:44Z' };
+const SHA85 = '9378d0be107df86ea5caa9f94d441eaac05d6c69';
+const head85 = { headSha: SHA85, transitions: [at(SHA85, '2026-09-26T12:33:57Z')] };
 const clean = (createdAt, sha) => ({ user: CODEX, createdAt, reactions: [],
   body: `Codex Review: Didn't find any major issues. Hooray!\n\n**Reviewed commit:** \`${sha}\`\n\n<details>About Codex</details>` });
 
@@ -216,21 +261,7 @@ test('#85: лимит, лимит, потом «Didn\'t find any major issues» 
   assert.equal(s.state, 'видел');
 });
 
-test('чистый вердикт в ленте засчитывается по коммиту, даже если время пуша позже', () => {
-  const s = codexState({ ...head85, headPushedAt: '2026-09-26T14:10:00Z', ...quiet,
-    issueComments: [clean('2026-09-26T14:06:36Z', '9378d0be10')] });
-  assert.equal(s.ok, true);
-});
-
-// Ревью Codex на #86 (P1): ревью прошлой головы может прийти уже после пуша новой — по времени его не засчитать.
-test('ревью прошлого коммита, пришедшее после пуша головы, — не видел', () => {
-  const s = codexState({ ...head, ...quiet,
-    reviews: [{ user: CODEX, submittedAt: '2026-09-26T12:10:00Z', commitId: 'ffff000' }] });
-  assert.equal(s.ok, false);
-  assert.equal(s.state, 'не видел голову');
-});
-
-test('«замечаний нет» про прошлый коммит, пришедшее после пуша головы, — не видел', () => {
+test('«замечаний нет» про прошлый коммит — не видел', () => {
   const s = codexState({ ...head85, ...quiet, issueComments: [clean('2026-09-26T14:06:36Z', 'ffff000000')] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'не видел голову');
@@ -242,21 +273,6 @@ test('«замечаний нет» без номера коммита — не 
   const s = codexState({ ...head, ...quiet, issueComments: [bare] });
   assert.equal(s.ok, false);
   assert.equal(s.state, 'написал');
-});
-
-test('чистый вердикт на прошлый коммит до пуша головы — не видел', () => {
-  const s = codexState({ ...head85, headPushedAt: '2026-09-26T14:10:00Z', ...quiet,
-    issueComments: [clean('2026-09-26T14:06:36Z', 'ffff000000')] });
-  assert.equal(s.ok, false);
-  assert.equal(s.state, 'не видел голову');
-});
-
-test('голову уже видел, лимит пришёл на лишний повторный запрос — готово', () => {
-  const s = codexState({ ...head, ...quiet,
-    prReactions: [thumb('2026-09-26T12:10:00Z')],
-    issueComments: [request('2026-09-26T12:30:00Z'), limit('2026-09-26T12:31:00Z')] });
-  assert.equal(s.ok, true);
-  assert.equal(s.state, 'видел');
 });
 
 // Linear закрывает задачу при вливании, если номер стоит в ветке, в заголовке

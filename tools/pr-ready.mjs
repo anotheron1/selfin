@@ -43,26 +43,22 @@ export function unansweredThreads(comments, { at } = {}) {
     .map((last) => ({ path: last.path, line: last.line, ...remarkTitle(last.body) }));
 }
 
-// Прогоны этого workflow по pull_request — смены головы PR: он запускается только на opened, synchronize и reopened.
-export const HEAD_WORKFLOW = '.github/workflows/codex-replies.yml';
-
 /**
- * Когда коммит в последний раз стал головой этого PR (четвёртое и пятое ревью Codex на #86).
- * Не наборы проверок: они привязаны к коммиту, и коммит, уже гонявшийся в другой ветке, получил бы время раньше.
- * Не номер PR у прогона: GitHub считает этот список в момент запроса, и у влитого PR он пуст — поэтому ветка.
- * Не первый прогон: коммит мог уйти с ветки и вернуться — поэтому последний прогон HEAD_WORKFLOW.
- * PR до HEAD_WORKFLOW — первый прогон CI на ветке: у CI есть ещё метки, голова при них не меняется.
- * runs — [{ workflow, event, createdAt, headBranch }] прогонов на этом коммите, suites — [createdAt].
+ * История голов PR: прогоны по событию pull_request на ветке PR после его открытия, по порядку. Каждый прогон несёт
+ * коммит головы на момент события. Ветка, а не номер PR: список PR у прогона GitHub считает в момент запроса, и у
+ * влитого PR он пуст. Прогоны до открытия — прошлый PR с той же веткой, они не в счёт.
+ * runs — [{ event, createdAt, headSha, headBranch }].
  */
-export function headPushTime({ branch, runs, suites, committedAt }) {
-  const earliest = (list) => list.reduce((a, b) => (time(b) < time(a) ? b : a));
-  const latest = (list) => list.reduce((a, b) => (time(b) > time(a) ? b : a));
-  const onBranch = runs.filter((r) => r.event === 'pull_request' && r.headBranch === branch);
-  const transitions = onBranch.filter((r) => r.workflow === HEAD_WORKFLOW).map((r) => r.createdAt);
-  if (transitions.length) return { at: latest(transitions), source: 'смена головы этого PR' };
-  if (onBranch.length) return { at: earliest(onBranch.map((r) => r.createdAt)), source: 'первый прогон CI этого PR' };
-  if (suites.length) return { at: earliest(suites), source: 'набор проверок коммита' };
-  return { at: committedAt, source: 'дата коммита' };
+export function headTransitions({ branch, openedAt, runs }) {
+  return runs
+    .filter((r) => r.event === 'pull_request' && r.headBranch === branch && time(r.createdAt) >= time(openedAt))
+    .sort((a, b) => time(a.createdAt) - time(b.createdAt))
+    .map((r) => ({ sha: r.headSha, createdAt: r.createdAt }));
+}
+
+/** Голова PR в момент времени — по последнему прогону до него; до первого прогона неизвестна. */
+export function headAt(transitions, iso) {
+  return transitions.filter((t) => time(t.createdAt) <= time(iso)).at(-1)?.sha;
 }
 
 const REVIEW_REQUEST = /@codex\s+review/i;
@@ -72,15 +68,31 @@ const REVIEWED_COMMIT = /Reviewed commit:\**\s*`([0-9a-f]{7,40})`/i;
 const hhmm = (iso) => new Date(iso).toISOString().slice(0, 16).replace('T', ' ');
 
 /**
- * Что Codex сказал о голове PR.
- * Вердикт — ревью, 👍 на PR, 👍 на запросе «@codex review» и комментарий «Didn't find any major issues» с номером
- * просмотренного коммита: так Codex ответил на повторный запрос без замечаний (#85). Любой другой комментарий Codex
- * в ленте вердиктом не считается: в #20–#46 так приходило «упёрся в лимит», а ревью не было.
+ * Что Codex сказал о голове PR. Каждый вердикт привязан к коммиту, а не ко времени (ревью Codex на #86, круги 2–6):
+ * ревью — к своему коммиту, «Didn't find any major issues» — к номеру из текста (так Codex ответил на повторный запрос
+ * по #85), 👍 на PR — к голове на открытии, 👍 на запросе «@codex review» — к голове на момент запроса.
+ * Голова просмотрена, если есть вердикт про её коммит. Любой другой комментарий Codex в ленте вердиктом не считается:
+ * в #20–#46 так приходило «упёрся в лимит», а ревью не было.
+ * transitions — история голов (headTransitions). Пока последний прогон не про нынешнюю голову, смена головы
+ * не записана и вердикты к ней не привязать — ворота закрыты (шестое ревью Codex на #86).
  */
-export function codexState({ headSha, headPushedAt, reviews, prReactions, issueComments, at }) {
+export function codexState({ headSha, transitions, reviews, prReactions, issueComments, at }) {
   const byCodex = (x) => x.user === CODEX;
   const until = (iso) => at === undefined || time(iso) <= time(at);
   const chrono = (a, b) => time(a.at) - time(b.at);
+  const short = (sha) => (sha ? sha.slice(0, 7) : '?');
+
+  const history = transitions.filter((t) => until(t.createdAt));
+  const current = history.at(-1)?.sha;
+  if (current !== headSha) {
+    return {
+      ok: false,
+      state: 'смена головы не записана',
+      text: current
+        ? `последний прогон по pull_request — на ${short(current)}, а голова ${short(headSha)}: дождаться прогона`
+        : 'прогонов по pull_request на ветке PR нет: дождаться прогона',
+    };
+  }
 
   const requests = issueComments
     .filter((c) => !byCodex(c) && REVIEW_REQUEST.test(c.body) && until(c.createdAt))
@@ -95,24 +107,20 @@ export function codexState({ headSha, headPushedAt, reviews, prReactions, issueC
 
   const thumbsUp = (r) => byCodex(r) && r.content === '+1';
   const verdicts = [
-    ...reviews.filter(byCodex).map((r) => ({ at: r.submittedAt, commitId: r.commitId, what: 'ревью' })),
-    ...prReactions.filter(thumbsUp).map((r) => ({ at: r.createdAt, what: '👍' })),
-    ...requests.flatMap((c) => c.reactions ?? []).filter(thumbsUp).map((r) => ({ at: r.createdAt, what: '👍 на запрос' })),
+    ...reviews.filter(byCodex).map((r) => ({ at: r.submittedAt, sha: r.commitId, what: 'ревью' })),
+    // 👍 на самом PR Codex ставит при первом ревью — это вердикт по голове на открытии, когда бы он ни пришёл.
+    ...prReactions.filter(thumbsUp).map((r) => ({ at: r.createdAt, sha: history[0].sha, what: '👍' })),
+    ...requests.flatMap((c) => (c.reactions ?? []).filter(thumbsUp)
+      .map((r) => ({ at: r.createdAt, sha: headAt(history, c.createdAt), what: '👍 на запрос' }))),
     // Без разобранного номера коммита «замечаний нет» не засчитывается: не узнать, какую голову смотрели
     // (третье ревью Codex на #86). Такой комментарий уходит в «прочитать».
     ...issueComments.filter((c) => byCodex(c) && NO_ISSUES.test(c.body) && REVIEWED_COMMIT.test(c.body))
-      .map((c) => ({ at: c.createdAt, commitPrefix: c.body.match(REVIEWED_COMMIT)[1], what: 'замечаний нет' })),
+      .map((c) => ({ at: c.createdAt, sha: c.body.match(REVIEWED_COMMIT)[1], what: 'замечаний нет' })),
   ].filter((v) => until(v.at)).sort(chrono);
 
-  // Вердикт с номером коммита засчитывается только по номеру: ревью прошлой головы может прийти уже после пуша
-  // новой (ревью Codex на #86). По времени — только реакции, у которых номера нет.
-  const sawHead = (v) => {
-    if (v.commitId !== undefined) return v.commitId === headSha;
-    if (v.commitPrefix !== undefined) return headSha.startsWith(v.commitPrefix);
-    return time(v.at) >= time(headPushedAt);
-  };
-  const seen = verdicts.filter(sawHead).at(-1);
-  if (seen) return { ok: true, state: 'видел', text: `${seen.what} ${hhmm(seen.at)} — голова ${headSha.slice(0, 7)} просмотрена` };
+  const aboutHead = (v) => v.sha !== undefined && headSha.startsWith(v.sha);
+  const seen = verdicts.filter(aboutHead).at(-1);
+  if (seen) return { ok: true, state: 'видел', text: `${seen.what} ${hhmm(seen.at)} — голова ${short(headSha)} просмотрена` };
 
   const lastVerdict = verdicts.at(-1);
   const note = issueComments
@@ -126,14 +134,14 @@ export function codexState({ headSha, headPushedAt, reviews, prReactions, issueC
   if (note) {
     return { ok: false, state: 'написал', text: `${hhmm(note.at)} написал в ленте, прочитать: ${note.body.split('\n')[0]}` };
   }
-  if (lastRequest && time(lastRequest.createdAt) >= time(headPushedAt)) {
+  if (lastRequest && headAt(history, lastRequest.createdAt) === headSha) {
     return { ok: false, state: 'запрошен', text: `запрос ${hhmm(lastRequest.createdAt)}, ответа нет` };
   }
   if (!lastVerdict) return { ok: false, state: 'молчит', text: 'молчит — ни ревью, ни 👍' };
   return {
     ok: false,
     state: 'не видел голову',
-    text: `последний вердикт — ${lastVerdict.what} ${hhmm(lastVerdict.at)}, голова запушена ${hhmm(headPushedAt)}: нужен @codex review`,
+    text: `последний вердикт — ${lastVerdict.what} ${hhmm(lastVerdict.at)} про ${short(lastVerdict.sha)}, голова ${short(headSha)}: нужен @codex review`,
   };
 }
 
@@ -269,15 +277,11 @@ function reviewComments(n) {
     '{id, inReplyTo: .in_reply_to_id, user: .user.login, createdAt: .created_at, path, line: (.line // .original_line), body}');
 }
 
-function headPushData(branch, sha) {
-  const objects = (path, jq) => gh(['api', '--paginate', path, '--jq', jq]).split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  return headPushTime({
-    branch,
-    runs: objects(`${REPO}/actions/runs?head_sha=${sha}&per_page=100`,
-      '.workflow_runs[] | {workflow: .path, event, createdAt: .created_at, headBranch: .head_branch}'),
-    suites: objects(`${REPO}/commits/${sha}/check-suites?per_page=100`, '.check_suites[] | {at: .created_at}').map((s) => s.at),
-    committedAt: gh(['api', `${REPO}/commits/${sha}`, '--jq', '.commit.committer.date']).trim(),
-  });
+function headHistory(pr) {
+  const path = `${REPO}/actions/runs?branch=${encodeURIComponent(pr.headRefName)}&event=pull_request&per_page=100`;
+  const runs = gh(['api', '--paginate', path, '--jq', '.workflow_runs[] | {event, createdAt: .created_at, headSha: .head_sha, headBranch: .head_branch}'])
+    .split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  return headTransitions({ branch: pr.headRefName, openedAt: pr.createdAt, runs });
 }
 
 function codexData(n, headSha) {
@@ -342,7 +346,7 @@ function report(text) {
 
 function main(argv) {
   const { number, only, at } = parseArgs(argv);
-  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,baseRefName,headRefOid']);
+  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,baseRefName,headRefOid,createdAt']);
   const header = `PR #${pr.number} — ${pr.title}${at ? ` (на ${at})` : ''}`;
   const replies = repliesItem(reviewComments(number), at);
 
@@ -352,13 +356,12 @@ function main(argv) {
     return s.ok;
   }
 
-  const pushed = headPushData(pr.headRefName, pr.headRefOid);
-  const codex = codexState({ ...codexData(number, pr.headRefOid), headPushedAt: pushed.at, at });
+  const codex = codexState({ ...codexData(number, pr.headRefOid), transitions: headHistory(pr), at });
   const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
     at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows(number, pr.headRefOid)) },
-    { title: 'Codex', ok: codex.ok, text: codex.text + (pushed.source === 'смена головы этого PR' ? '' : ` (время пуша — ${pushed.source})`) },
+    { title: 'Codex', ok: codex.ok, text: codex.text },
     replies,
     { title: 'База', ...baseState({ base: pr.baseRefName, children }) },
     { title: 'Linear', ...linearState({ branch: pr.headRefName, title: pr.title, body: pr.body }) },
