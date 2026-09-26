@@ -100,21 +100,42 @@ test('👍 после пуша головы — готово', () => {
   assert.equal(s.state, 'видел');
 });
 
-// Четвёртое ревью Codex на #86 (P1): наборы проверок привязаны к коммиту, а не к PR. Коммит, уже гонявшийся в другой
-// ветке, стал головой этого PR позже — время пуша берётся из прогонов по событию pull_request на ветке этого PR.
-// Ветка, а не номер PR: список PR у прогона GitHub считает в момент запроса — у влитого PR он пуст (#85).
-const run = (createdAt, headBranch, event = 'pull_request') => ({ event, createdAt, headBranch });
+// Четвёртое и пятое ревью Codex на #86 (P1): время пуша — когда коммит в последний раз стал головой этого PR.
+// Наборы проверок привязаны к коммиту, а не к PR; номер PR у прогона GitHub считает в момент запроса (у влитого #85
+// список пуст); коммит может уйти с ветки и вернуться. Смены головы — это прогоны «Ответов Codex» по pull_request:
+// он запускается только на opened, synchronize и reopened. У CI есть ещё метки — голова при них не меняется.
+const REPLIES = '.github/workflows/codex-replies.yml';
+const CI = '.github/workflows/ci.yml';
+const run = (createdAt, headBranch, { event = 'pull_request', workflow = REPLIES } = {}) => ({ workflow, event, createdAt, headBranch });
 
-test('время пуша — по прогонам ветки этого PR: прогон того же коммита в другой ветке не в счёт', () => {
-  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T10:00:00Z', 'exp'), run('2026-09-26T12:00:05Z', 'ci/x')],
+test('время пуша — последняя смена головы: коммит ушёл с ветки и вернулся — время возврата', () => {
+  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T10:00:00Z', 'ci/x'), run('2026-09-26T12:00:05Z', 'ci/x')],
     suites: ['2026-09-26T10:00:00Z'], committedAt: '2026-09-26T09:59:00Z' });
-  assert.deepEqual(t, { at: '2026-09-26T12:00:05Z', source: 'прогон этого PR' });
+  assert.deepEqual(t, { at: '2026-09-26T12:00:05Z', source: 'смена головы этого PR' });
+});
+
+test('время пуша — прогон того же коммита в другой ветке не в счёт', () => {
+  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T12:00:05Z', 'ci/x'), run('2026-09-26T13:00:00Z', 'exp')],
+    suites: [], committedAt: '2026-09-26T09:59:00Z' });
+  assert.equal(t.at, '2026-09-26T12:00:05Z');
 });
 
 test('время пуша — прогон по событию ревью не в счёт: он не про пуш', () => {
-  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T11:00:00Z', 'ci/x', 'pull_request_review'), run('2026-09-26T12:00:05Z', 'ci/x')],
+  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T12:00:05Z', 'ci/x'), run('2026-09-26T13:00:00Z', 'ci/x', { event: 'pull_request_review' })],
     suites: [], committedAt: '2026-09-26T09:59:00Z' });
   assert.equal(t.at, '2026-09-26T12:00:05Z');
+});
+
+test('время пуша — прогон CI по метке не сдвигает: голова при нём не менялась', () => {
+  const t = headPushTime({ branch: 'ci/x', runs: [run('2026-09-26T12:00:05Z', 'ci/x'), run('2026-09-26T13:00:00Z', 'ci/x', { workflow: CI })],
+    suites: [], committedAt: '2026-09-26T09:59:00Z' });
+  assert.equal(t.at, '2026-09-26T12:00:05Z');
+});
+
+test('PR до «Ответов Codex» — первый прогон CI на ветке этого PR', () => {
+  const t = headPushTime({ branch: 'fix/y', runs: [run('2026-09-24T14:57:10Z', 'fix/y', { workflow: CI }), run('2026-09-24T15:30:00Z', 'fix/y', { workflow: CI })],
+    suites: ['2026-09-24T14:57:02Z'], committedAt: '2026-09-24T14:56:00Z' });
+  assert.deepEqual(t, { at: '2026-09-24T14:57:10Z', source: 'первый прогон CI этого PR' });
 });
 
 test('прогонов на ветке этого PR нет — первый набор проверок коммита', () => {

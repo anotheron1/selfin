@@ -10,6 +10,8 @@ name: Ответы Codex
 # Отдельным файлом, а не джобой в ci.yml: там concurrency по github.ref, а у событий ревью ref тот же —
 # каждый ответ в ветке отменял бы идущую сборку бэка.
 on:
+  # Только смены головы: tools/pr-ready.mjs берёт время пуша из последнего прогона по этому событию.
+  # Метки и прочие действия здесь сдвинули бы это время.
   pull_request:
     types: [opened, synchronize, reopened]
   pull_request_review:

@@ -43,17 +43,24 @@ export function unansweredThreads(comments, { at } = {}) {
     .map((last) => ({ path: last.path, line: last.line, ...remarkTitle(last.body) }));
 }
 
+// Прогоны этого workflow по pull_request — смены головы PR: он запускается только на opened, synchronize и reopened.
+export const HEAD_WORKFLOW = '.github/workflows/codex-replies.yml';
+
 /**
- * Когда коммит стал головой этого PR. Наборы проверок привязаны к коммиту, а не к PR: коммит, уже гонявшийся в другой
- * ветке, получил бы время раньше, чем стал головой этого (четвёртое ревью Codex на #86). Поэтому — первый прогон workflow
- * по событию pull_request на ветке этого PR; без таких прогонов — первый набор проверок, потом дата коммита.
- * Ветка, а не номер PR: список PR у прогона GitHub считает в момент запроса, и у влитого PR он пуст.
- * runs — [{ event, createdAt, headBranch }] прогонов на этом коммите, suites — [createdAt].
+ * Когда коммит в последний раз стал головой этого PR (четвёртое и пятое ревью Codex на #86).
+ * Не наборы проверок: они привязаны к коммиту, и коммит, уже гонявшийся в другой ветке, получил бы время раньше.
+ * Не номер PR у прогона: GitHub считает этот список в момент запроса, и у влитого PR он пуст — поэтому ветка.
+ * Не первый прогон: коммит мог уйти с ветки и вернуться — поэтому последний прогон HEAD_WORKFLOW.
+ * PR до HEAD_WORKFLOW — первый прогон CI на ветке: у CI есть ещё метки, голова при них не меняется.
+ * runs — [{ workflow, event, createdAt, headBranch }] прогонов на этом коммите, suites — [createdAt].
  */
 export function headPushTime({ branch, runs, suites, committedAt }) {
   const earliest = (list) => list.reduce((a, b) => (time(b) < time(a) ? b : a));
-  const own = runs.filter((r) => r.event === 'pull_request' && r.headBranch === branch).map((r) => r.createdAt);
-  if (own.length) return { at: earliest(own), source: 'прогон этого PR' };
+  const latest = (list) => list.reduce((a, b) => (time(b) > time(a) ? b : a));
+  const onBranch = runs.filter((r) => r.event === 'pull_request' && r.headBranch === branch);
+  const transitions = onBranch.filter((r) => r.workflow === HEAD_WORKFLOW).map((r) => r.createdAt);
+  if (transitions.length) return { at: latest(transitions), source: 'смена головы этого PR' };
+  if (onBranch.length) return { at: earliest(onBranch.map((r) => r.createdAt)), source: 'первый прогон CI этого PR' };
   if (suites.length) return { at: earliest(suites), source: 'набор проверок коммита' };
   return { at: committedAt, source: 'дата коммита' };
 }
@@ -267,7 +274,7 @@ function headPushData(branch, sha) {
   return headPushTime({
     branch,
     runs: objects(`${REPO}/actions/runs?head_sha=${sha}&per_page=100`,
-      '.workflow_runs[] | {event, createdAt: .created_at, headBranch: .head_branch}'),
+      '.workflow_runs[] | {workflow: .path, event, createdAt: .created_at, headBranch: .head_branch}'),
     suites: objects(`${REPO}/commits/${sha}/check-suites?per_page=100`, '.check_suites[] | {at: .created_at}').map((s) => s.at),
     committedAt: gh(['api', `${REPO}/commits/${sha}`, '--jq', '.commit.committer.date']).trim(),
   });
@@ -351,7 +358,7 @@ function main(argv) {
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
     at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows(number, pr.headRefOid)) },
-    { title: 'Codex', ok: codex.ok, text: codex.text + (pushed.source === 'прогон этого PR' ? '' : ` (время пуша — ${pushed.source})`) },
+    { title: 'Codex', ok: codex.ok, text: codex.text + (pushed.source === 'смена головы этого PR' ? '' : ` (время пуша — ${pushed.source})`) },
     replies,
     { title: 'База', ...baseState({ base: pr.baseRefName, children }) },
     { title: 'Linear', ...linearState({ branch: pr.headRefName, title: pr.title, body: pr.body }) },
