@@ -262,7 +262,13 @@ export function requiredChecks({ base, pr }) {
   // Признак «только для ревью» — из базы: иначе PR разрешил бы пропуск своей же джобе (семнадцатое ревью).
   for (const c of pullRequestChecks(pr)) jobs.set(id(c), jobs.has(id(c)) ? { ...c, reviewOnly: jobs.get(id(c)).reviewOnly } : c);
   const key = (c) => `${c.workflow}/${c.check}`;
-  const unique = new Map([...jobs.values()].map(({ workflow, check, reviewOnly }) => [key({ workflow, check }), { workflow, check, reviewOnly }]));
+  // Проверки с одним именем сливаются: пропуск разрешён, только если он разрешён у всех — иначе джоба PR под именем
+  // джобы базы разрешила бы ей пропуск (восемнадцатое ревью Codex на #86).
+  const unique = new Map();
+  for (const { workflow, check, reviewOnly } of jobs.values()) {
+    const seen = unique.get(key({ workflow, check }));
+    unique.set(key({ workflow, check }), { workflow, check, reviewOnly: seen ? seen.reviewOnly && reviewOnly : reviewOnly });
+  }
   return [...unique.values()].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 

@@ -597,6 +597,15 @@ test('PR сделал джобу базы «только для ревью» —
   }), [need('CI', 'Бэк')]);
 });
 
+// Восемнадцатое ревью Codex на #86 (P1): PR удалил джобу базы и завёл другую под тем же именем, «только для ревью».
+test('джоба PR с тем же именем, что у джобы базы, не разрешает ей пропуск', () => {
+  const file = (jobs) => ({ path: 'ci.yml', text: ['name: CI', 'on:', '  pull_request:', 'jobs:', ...jobs, ''].join('\n') });
+  assert.deepEqual(requiredChecks({
+    base: [file(['  backend:', '    name: Бэк', '    steps: []'])],
+    pr: [file(['  sneaky:', '    name: Бэк', "    if: github.event_name == 'pull_request_review'", '    steps: []'])],
+  }), [need('CI', 'Бэк')]);
+});
+
 test('PR удалил из CI джобу бэка — её проверка всё равно ожидается', () => {
   assert.deepEqual(requiredChecks({
     base: [ciFile(['  pull_request:'], [['backend', 'Бэк'], ['frontend', 'Фронт']])],
