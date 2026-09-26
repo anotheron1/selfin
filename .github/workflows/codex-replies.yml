@@ -18,6 +18,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: write
 
 jobs:
   replies:
@@ -35,3 +36,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: bash tools/pr-ready.sh ${{ github.event.pull_request.number }} --only codex-replies
+      # Ответ в ветке приходит после пуша правки, и прогон по пушу остаётся красным рядом с зелёным
+      # прогоном по ревью (проверено на #86). Зелёный прогон по ревью перезапускает красные по пушу
+      # на той же голове — они читают текущие ответы и зеленеют.
+      - name: Красные прогоны по пушу на этой голове — перезапустить
+        if: success() && github.event_name == 'pull_request_review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >
+          gh run list --workflow codex-replies.yml --commit ${{ github.event.pull_request.head.sha }}
+          --event pull_request --status failure --json databaseId --jq '.[].databaseId'
+          | xargs -r -n1 gh run rerun --failed
