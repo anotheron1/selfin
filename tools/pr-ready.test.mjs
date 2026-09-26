@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import {
   CODEX, unansweredThreads, codexState, headTransitions, headAt, linearLinks, declaredClosing, linearState, ciState, pullRequestChecks,
   requiredChecks,
-  baseState, summary,
+  baseState, stackedOn, summary,
 } from './pr-ready.mjs';
 
 const ME = 'anotheron1';
@@ -624,6 +624,16 @@ test('«Ответы Codex»: actions: write — только у джобы бе
   const writers = jobs.filter((job) => /actions:\s*write/.test(job));
   assert.equal(writers.length, 1);
   for (const job of writers) assert.doesNotMatch(job, /actions\/checkout|tools\//);
+});
+
+// Девятнадцатое ревью Codex на #86 (P2): у PR из форка ветка — не ветка этого репозитория, и `gh pr list --base <ветка>`
+// нашёл бы PR в одноимённую ветку этого репозитория, включая сам PR.
+test('на ветке PR из форка стоять нечему', () => {
+  assert.deepEqual(stackedOn({ number: 90, crossRepository: true, openOnHeadBranch: [90, 91, 92] }), []);
+});
+
+test('на ветке PR этого репозитория — открытые PR с базой на ней, кроме самого PR', () => {
+  assert.deepEqual(stackedOn({ number: 90, crossRepository: false, openOnHeadBranch: [90, 93] }), [93]);
 });
 
 test('база main, сверху никого — готово', () => {

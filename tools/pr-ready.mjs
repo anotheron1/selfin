@@ -303,6 +303,15 @@ export function ciState(checks, expected = []) {
   return { ok: true, text: `прошли ${named('pass').length}` + (skipped ? `, пропущены ${skipped}` : '') };
 }
 
+/**
+ * Открытые PR, которые стоят на ветке этого PR. openOnHeadBranch — номера открытых PR с базой на ветке с тем же именем.
+ * Ветка PR из форка — не ветка этого репозитория, на ней стоять нечему: иначе PR из форка с веткой main нашёл бы все PR
+ * в main этого репозитория, и себя тоже (девятнадцатое ревью Codex на #86).
+ */
+export function stackedOn({ number, crossRepository, openOnHeadBranch }) {
+  return crossRepository ? [] : openOnHeadBranch.filter((n) => n !== number);
+}
+
 /** База PR и PR, которые стоят на его ветке. children — номера открытых PR с базой на ветке этого. */
 export function baseState({ base, children }) {
   if (base !== 'main') {
@@ -414,7 +423,7 @@ function report(text) {
 
 function main(argv) {
   const { number, only, at } = parseArgs(argv);
-  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,headRepository,headRepositoryOwner,baseRefName,headRefOid,baseRefOid,createdAt']);
+  const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,headRepository,headRepositoryOwner,isCrossRepository,baseRefName,headRefOid,baseRefOid,createdAt']);
   const header = `PR #${pr.number} — ${pr.title}${at ? ` (на ${at})` : ''}`;
   const replies = repliesItem(reviewComments(number), at);
 
@@ -425,8 +434,12 @@ function main(argv) {
   }
 
   const codex = codexState({ ...codexData(number, pr.headRefOid), transitions: headHistory(pr), at });
-  const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
-    .split('\n').filter(Boolean).map(Number);
+  const children = stackedOn({
+    number: pr.number,
+    crossRepository: pr.isCrossRepository,
+    openOnHeadBranch: pr.isCrossRepository ? [] : gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
+      .split('\n').filter(Boolean).map(Number),
+  });
   const s = summary([
     at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedChecks(pr)) },
     { title: 'Codex', ok: codex.ok, text: codex.text },
