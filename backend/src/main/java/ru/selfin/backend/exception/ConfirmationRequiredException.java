@@ -18,7 +18,19 @@ public class ConfirmationRequiredException extends RuntimeException {
     /** Код в {@code ErrorResponse.details}. Зеркалится на фронте в {@code lib/transferConfirm.ts}. */
     public static final String CODE = "CONFIRM_REQUIRED";
 
+    /** Подсказки после кода: что будет, если подтвердить (ANO-88: {@code short:…} / {@code nz:…}). */
+    private final java.util.List<String> hints;
+
     public ConfirmationRequiredException(String message) {
+        this(message, java.util.List.of());
+    }
+
+    public ConfirmationRequiredException(String message, java.util.List<String> hints) {
         super(message);
+        this.hints = java.util.List.copyOf(hints);
+    }
+
+    public java.util.List<String> hints() {
+        return hints;
     }
 }

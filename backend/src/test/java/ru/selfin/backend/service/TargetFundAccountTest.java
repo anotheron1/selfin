@@ -58,6 +58,8 @@ class TargetFundAccountTest {
     @Mock CategoryRepository categoryRepo;
     @Mock AccountRepository accountRepo;
     @Mock BalanceCheckpointRepository checkpointRepo;
+    /** ANO-88: вопрос «отложить всё равно?» задаётся по кармашку после перевода. */
+    @Mock PocketService pocketService;
 
     private TargetFundService service;
 
@@ -67,7 +69,7 @@ class TargetFundAccountTest {
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
         service = new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo,
                 accountRepo, balanceService, mock(WishlistArtifactService.class),
-                Clock.systemDefaultZone());
+                pocketService, Clock.systemDefaultZone());
     }
 
     private static TargetFund fund(UUID accountId, String storedBalance) {
@@ -353,12 +355,20 @@ class TargetFundAccountTest {
                 .thenReturn(Optional.of(BalanceCheckpoint.builder()
                         .id(UUID.randomUUID()).date(LocalDate.now()).amount(BigDecimal.ZERO)
                         .account(defaultAccount).build()));
-        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+        // ANO-88: порог — кармашек после перевода; при якоре на ноль он уходит в минус.
+        // Остаток счёта сервер больше не считает, поэтому фактов подставлять не нужно.
+        ru.selfin.backend.dto.pocket.PocketResultDto after =
+                mock(ru.selfin.backend.dto.pocket.PocketResultDto.class);
+        when(after.pocket()).thenReturn(new BigDecimal("-5000"));
+        // Подсказка «что будет после перевода» строится по минимуму кармашка (ANO-88).
+        when(after.minPoint()).thenReturn(new ru.selfin.backend.dto.pocket.PocketResultDto.MinPoint(
+                LocalDate.now(), new BigDecimal("-5000"), null));
+        when(pocketService.getPocket(any(), any())).thenReturn(after);
 
         assertThatThrownBy(() ->
                 service.transferToPocket(f.getId(), key, new BigDecimal("5000")))
                 .isInstanceOf(ru.selfin.backend.exception.ConfirmationRequiredException.class);
-
-        verify(fundRepo, never()).save(any());
+        // «Ничего не записано» — дело отката транзакции, моки его не видят: закреплено
+        // в TransferFreeMoneyIT (копилка, история и журнал после вопроса пусты).
     }
 }
