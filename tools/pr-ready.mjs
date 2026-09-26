@@ -69,6 +69,7 @@ const NO_ISSUES = /Didn't find any major issues/i;
 const REVIEW_HEADER = /Codex Review/i;
 const REVIEWED_COMMIT = /Reviewed commit:\**\s*`([0-9a-f]{7,40})`/i;
 const hhmm = (iso) => new Date(iso).toISOString().slice(0, 16).replace('T', ' ');
+const OPENING_WINDOW_MS = 2 * 60 * 1000;
 
 /**
  * Что Codex сказал о голове PR. Каждый вердикт привязан к коммиту, а не ко времени (ревью Codex на #86, круги 2–6):
@@ -79,7 +80,7 @@ const hhmm = (iso) => new Date(iso).toISOString().slice(0, 16).replace('T', ' ')
  * transitions — история голов (headTransitions). Пока последний прогон не про нынешнюю голову, смена головы
  * не записана и вердикты к ней не привязать — ворота закрыты (шестое ревью Codex на #86).
  */
-export function codexState({ headSha, transitions, reviews, prReactions, issueComments, at }) {
+export function codexState({ headSha: nowHead, openedAt, transitions, reviews, prReactions, issueComments, at }) {
   const byCodex = (x) => x.user === CODEX;
   const until = (iso) => at === undefined || time(iso) <= time(at);
   const chrono = (a, b) => time(a.at) - time(b.at);
@@ -87,7 +88,9 @@ export function codexState({ headSha, transitions, reviews, prReactions, issueCo
 
   const history = transitions.filter((t) => until(t.createdAt));
   const current = history.at(-1)?.sha;
-  if (current !== headSha) {
+  // При --at голова — та, что была тогда, а не нынешняя (восьмое ревью Codex на #86).
+  const headSha = at === undefined ? nowHead : current;
+  if (current === undefined || current !== headSha) {
     return {
       ok: false,
       state: 'смена головы не записана',
@@ -96,6 +99,10 @@ export function codexState({ headSha, transitions, reviews, prReactions, issueCo
         : 'прогонов по pull_request на ветке PR нет: дождаться прогона',
     };
   }
+  // Голова на открытии известна, только если первый прогон записан при открытии: прогон по opened создаётся
+  // через секунды. Иначе первая записанная голова — уже следующий пуш, и 👍 на PR не к чему привязать
+  // (восьмое ревью Codex на #86).
+  const openingHead = time(history[0].createdAt) - time(openedAt) <= OPENING_WINDOW_MS ? history[0].sha : undefined;
 
   const requests = issueComments
     .filter((c) => !byCodex(c) && REVIEW_REQUEST.test(c.body) && until(c.createdAt))
@@ -109,11 +116,11 @@ export function codexState({ headSha, transitions, reviews, prReactions, issueCo
   }
 
   const thumbsUp = (r) => byCodex(r) && r.content === '+1';
-  const verdicts = [
+  const said = [
     ...reviews.filter((r) => byCodex(r) && REVIEW_HEADER.test(r.body ?? ''))
       .map((r) => ({ at: r.submittedAt, sha: r.commitId, what: 'ревью' })),
     // 👍 на самом PR Codex ставит при первом ревью — это вердикт по голове на открытии, когда бы он ни пришёл.
-    ...prReactions.filter(thumbsUp).map((r) => ({ at: r.createdAt, sha: history[0].sha, what: '👍' })),
+    ...prReactions.filter(thumbsUp).map((r) => ({ at: r.createdAt, sha: openingHead, what: '👍' })),
     ...requests.flatMap((c) => (c.reactions ?? []).filter(thumbsUp)
       .map((r) => ({ at: r.createdAt, sha: headAt(history, c.createdAt), what: '👍 на запрос' }))),
     // Без разобранного номера коммита «замечаний нет» не засчитывается: не узнать, какую голову смотрели
@@ -121,8 +128,11 @@ export function codexState({ headSha, transitions, reviews, prReactions, issueCo
     ...issueComments.filter((c) => byCodex(c) && NO_ISSUES.test(c.body) && REVIEWED_COMMIT.test(c.body))
       .map((c) => ({ at: c.createdAt, sha: c.body.match(REVIEWED_COMMIT)[1], what: 'замечаний нет' })),
   ].filter((v) => until(v.at)).sort(chrono);
+  // Вердикт, который не к чему привязать, — не вердикт: 👍 на PR без записанной головы на открытии.
+  const verdicts = said.filter((v) => v.sha !== undefined);
+  const unbound = said.length - verdicts.length;
 
-  const aboutHead = (v) => v.sha !== undefined && headSha.startsWith(v.sha);
+  const aboutHead = (v) => headSha.startsWith(v.sha);
   const seen = verdicts.filter(aboutHead).at(-1);
   if (seen) return { ok: true, state: 'видел', text: `${seen.what} ${hhmm(seen.at)} — голова ${short(headSha)} просмотрена` };
 
@@ -141,7 +151,10 @@ export function codexState({ headSha, transitions, reviews, prReactions, issueCo
   if (lastRequest && headAt(history, lastRequest.createdAt) === headSha) {
     return { ok: false, state: 'запрошен', text: `запрос ${hhmm(lastRequest.createdAt)}, ответа нет` };
   }
-  if (!lastVerdict) return { ok: false, state: 'молчит', text: 'молчит — ни ревью, ни 👍' };
+  if (!lastVerdict) {
+    const why = unbound ? '; 👍 на PR не к чему привязать — на открытии PR прогона не было: нужен @codex review' : '';
+    return { ok: false, state: 'молчит', text: `молчит — ни ревью, ни 👍${why}` };
+  }
   return {
     ok: false,
     state: 'не видел голову',
@@ -360,7 +373,7 @@ function main(argv) {
     return s.ok;
   }
 
-  const codex = codexState({ ...codexData(number, pr.headRefOid), transitions: headHistory(pr), at });
+  const codex = codexState({ ...codexData(number, pr.headRefOid), openedAt: pr.createdAt, transitions: headHistory(pr), at });
   const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
