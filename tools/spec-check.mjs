@@ -11,7 +11,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // Заголовок раздела: уровень от ## до ####, номер перед названием допускается — «## 6. Правила продукта — сверка».
-const heading = (title) => new RegExp(String.raw`^#{2,4}\s+(?:\d+\.\s*)?${title}\s*$`, 'm');
+// Только пробелы и табы, не \s: заголовок — одна строка, «##» и название на следующей — не заголовок (ревью Codex на #88).
+const heading = (title) => new RegExp(String.raw`^#{2,4}[ \t]+(?:\d+\.[ \t]*)?${title}[ \t]*\r?$`, 'm');
 const RULES = heading('Правила продукта — сверка');
 const HOW_MEASURED = heading('Как мерил');
 const MEASURED = /замер|перемер/i;
