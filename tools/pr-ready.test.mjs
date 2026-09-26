@@ -152,6 +152,34 @@ test('другой комментарий Codex в ленте — не верд�
   assert.equal(s.state, 'написал');
 });
 
+// #85: на повторный запрос без замечаний Codex ответил в ленте — с номером просмотренного коммита.
+const head85 = { headSha: '9378d0be107df86ea5caa9f94d441eaac05d6c69', headPushedAt: '2026-09-26T12:33:44Z' };
+const clean = (createdAt, sha) => ({ user: CODEX, createdAt, reactions: [],
+  body: `Codex Review: Didn't find any major issues. Hooray!\n\n**Reviewed commit:** \`${sha}\`\n\n<details>About Codex</details>` });
+
+test('#85: лимит, лимит, потом «Didn\'t find any major issues» на голову — видел', () => {
+  const s = codexState({ ...head85, ...quiet, issueComments: [
+    limit('2026-09-26T12:33:59Z'),
+    request('2026-09-26T13:52:21Z'), limit('2026-09-26T13:52:29Z'),
+    request('2026-09-26T14:05:02Z'), clean('2026-09-26T14:06:36Z', '9378d0be10'),
+  ] });
+  assert.equal(s.ok, true);
+  assert.equal(s.state, 'видел');
+});
+
+test('чистый вердикт в ленте засчитывается по коммиту, даже если время пуша позже', () => {
+  const s = codexState({ ...head85, headPushedAt: '2026-09-26T14:10:00Z', ...quiet,
+    issueComments: [clean('2026-09-26T14:06:36Z', '9378d0be10')] });
+  assert.equal(s.ok, true);
+});
+
+test('чистый вердикт на прошлый коммит до пуша головы — не видел', () => {
+  const s = codexState({ ...head85, headPushedAt: '2026-09-26T14:10:00Z', ...quiet,
+    issueComments: [clean('2026-09-26T14:06:36Z', 'ffff000000')] });
+  assert.equal(s.ok, false);
+  assert.equal(s.state, 'не видел голову');
+});
+
 test('голову уже видел, лимит пришёл на лишний повторный запрос — готово', () => {
   const s = codexState({ ...head, ...quiet,
     prReactions: [thumb('2026-09-26T12:10:00Z')],

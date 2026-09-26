@@ -7,7 +7,7 @@
 //   node tools/pr-ready.mjs <N> --at <время>           пункты Codex на момент в прошлом
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, readdirSync, readFileSync } from 'node:fs';
+import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export const CODEX = 'chatgpt-codex-connector[bot]';
@@ -45,12 +45,15 @@ export function unansweredThreads(comments, { at } = {}) {
 
 const REVIEW_REQUEST = /@codex\s+review/i;
 const USAGE_LIMIT = /reached your Codex usage limits/i;
+const NO_ISSUES = /Didn't find any major issues/i;
+const REVIEWED_COMMIT = /Reviewed commit:\**\s*`([0-9a-f]{7,40})`/i;
 const hhmm = (iso) => new Date(iso).toISOString().slice(0, 16).replace('T', ' ');
 
 /**
  * Что Codex сказал о голове PR.
- * Вердикт — ревью, 👍 на PR, 👍 на запросе «@codex review». Комментарий Codex в ленте вердиктом не считается:
- * в #20–#46 так приходило «упёрся в лимит», а ревью не было.
+ * Вердикт — ревью, 👍 на PR, 👍 на запросе «@codex review» и комментарий «Didn't find any major issues» с номером
+ * просмотренного коммита: так Codex ответил на повторный запрос без замечаний (#85). Любой другой комментарий Codex
+ * в ленте вердиктом не считается: в #20–#46 так приходило «упёрся в лимит», а ревью не было.
  */
 export function codexState({ headSha, headPushedAt, reviews, prReactions, issueComments, at }) {
   const byCodex = (x) => x.user === CODEX;
@@ -73,9 +76,13 @@ export function codexState({ headSha, headPushedAt, reviews, prReactions, issueC
     ...reviews.filter(byCodex).map((r) => ({ at: r.submittedAt, commitId: r.commitId, what: 'ревью' })),
     ...prReactions.filter(thumbsUp).map((r) => ({ at: r.createdAt, what: '👍' })),
     ...requests.flatMap((c) => c.reactions ?? []).filter(thumbsUp).map((r) => ({ at: r.createdAt, what: '👍 на запрос' })),
+    ...issueComments.filter((c) => byCodex(c) && NO_ISSUES.test(c.body))
+      .map((c) => ({ at: c.createdAt, commitPrefix: c.body.match(REVIEWED_COMMIT)?.[1], what: 'замечаний нет' })),
   ].filter((v) => until(v.at)).sort(chrono);
 
-  const seen = verdicts.filter((v) => v.commitId === headSha || time(v.at) >= time(headPushedAt)).at(-1);
+  const sawHead = (v) =>
+    v.commitId === headSha || (v.commitPrefix !== undefined && headSha.startsWith(v.commitPrefix)) || time(v.at) >= time(headPushedAt);
+  const seen = verdicts.filter(sawHead).at(-1);
   if (seen) return { ok: true, state: 'видел', text: `${seen.what} ${hhmm(seen.at)} — голова ${headSha.slice(0, 7)} просмотрена` };
 
   const lastVerdict = verdicts.at(-1);
@@ -249,10 +256,22 @@ function codexData(n, headSha) {
   return { reviews, prReactions: reactions(`${REPO}/issues/${n}/reactions`), issueComments, headSha };
 }
 
-function expectedWorkflows() {
-  const dir = new URL('../.github/workflows/', import.meta.url);
-  const files = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
-  return pullRequestWorkflows(files.map((f) => ({ path: f, text: readFileSync(new URL(f, dir), 'utf8') })));
+// На PR GitHub гоняет workflow из merge-коммита PR, а не из рабочей копии: у PR, открытого до нового
+// workflow, его прогонов нет и быть не должно. Для влитого PR merge-ссылки может не быть — тогда голова.
+function expectedWorkflows(n, headSha) {
+  const files = (ref) => ghList(`${REPO}/contents/.github/workflows?ref=${encodeURIComponent(ref)}`, '{path, name}')
+    .filter((f) => /\.ya?ml$/.test(f.name))
+    .map((f) => ({
+      path: f.name,
+      text: Buffer.from(gh(['api', `${REPO}/contents/${f.path}?ref=${encodeURIComponent(ref)}`, '--jq', '.content']), 'base64').toString('utf8'),
+    }));
+  let list;
+  try {
+    list = files(`refs/pull/${n}/merge`);
+  } catch {
+    list = files(headSha);
+  }
+  return pullRequestWorkflows(list);
 }
 
 function ciChecks(n) {
@@ -305,7 +324,7 @@ function main(argv) {
   const children = gh(['pr', 'list', '--state', 'open', '--base', pr.headRefName, '--json', 'number', '--jq', '.[].number'])
     .split('\n').filter(Boolean).map(Number);
   const s = summary([
-    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows()) },
+    at ? { title: 'CI', ok: true, text: 'при --at не проверяется' } : { title: 'CI', ...ciState(ciChecks(number), expectedWorkflows(number, pr.headRefOid)) },
     { title: 'Codex', ok: codex.ok, text: codex.text + (pushed.source === 'дата коммита' ? ' (время пуша — по дате коммита)' : '') },
     replies,
     { title: 'База', ...baseState({ base: pr.baseRefName, children }) },
