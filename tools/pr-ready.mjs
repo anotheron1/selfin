@@ -242,7 +242,9 @@ export function pullRequestChecks(files) {
     const jobs = text.slice(text.search(/^jobs:/m)).split(/^ {2}(?=[\w-]+:\s*$)/m).slice(1);
     return jobs.map((job) => {
       const key = job.match(/^[\w-]+/)[0];
-      return { path, job: key, workflow, check: unquote(job.match(/^ {4}name:\s*(.+?)\s*$/m)?.[1] ?? key) };
+      const check = unquote(job.match(/^ {4}name:\s*(.+?)\s*$/m)?.[1] ?? key);
+      // Джоба только для события ревью: на прогоне по пушу её пропуск законен (семнадцатое ревью Codex на #86).
+      return { path, job: key, workflow, check, reviewOnly: /^ {4}if:.*\bpull_request_review\b/m.test(job) };
     });
   });
 }
@@ -257,9 +259,10 @@ export function requiredChecks({ base, pr }) {
   // именем, и старое из базы не придёт никогда. Для джобы, что есть и в базе, и в PR, — имя из PR (пятнадцатое ревью).
   const id = (c) => `${c.path}#${c.job}`;
   const jobs = new Map(pullRequestChecks(base).map((c) => [id(c), c]));
-  for (const c of pullRequestChecks(pr)) jobs.set(id(c), c);
+  // Признак «только для ревью» — из базы: иначе PR разрешил бы пропуск своей же джобе (семнадцатое ревью).
+  for (const c of pullRequestChecks(pr)) jobs.set(id(c), jobs.has(id(c)) ? { ...c, reviewOnly: jobs.get(id(c)).reviewOnly } : c);
   const key = (c) => `${c.workflow}/${c.check}`;
-  const unique = new Map([...jobs.values()].map(({ workflow, check }) => [key({ workflow, check }), { workflow, check }]));
+  const unique = new Map([...jobs.values()].map(({ workflow, check, reviewOnly }) => [key({ workflow, check }), { workflow, check, reviewOnly }]));
   return [...unique.values()].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
@@ -284,6 +287,10 @@ export function ciState(checks, expected = []) {
   const isJob = (c, e) => c.name === e.check || c.name.startsWith(`${e.check} (`);
   const missing = expected.filter((e) => !runs.some((c) => c.workflow === e.workflow && isJob(c, e)));
   if (missing.length) return { ok: false, text: `не пришли: ${missing.map((e) => `${e.workflow} — ${e.check}`).join('; ')}` };
+  // Пропущенная ожидаемая проверка — тесты не гонялись: PR мог дописать джобе `if: false` (семнадцатое ревью).
+  const skippedNeeded = expected.filter((e) => !e.reviewOnly
+    && runs.some((c) => c.workflow === e.workflow && isJob(c, e) && c.bucket === 'skipping'));
+  if (skippedNeeded.length) return { ok: false, text: `пропущены: ${skippedNeeded.map((e) => `${e.workflow} — ${e.check}`).join('; ')}` };
   const running = named('pending');
   if (running.length) return { ok: false, text: `идут: ${running.join('; ')}` };
   const skipped = named('skipping').length;

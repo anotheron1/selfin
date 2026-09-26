@@ -460,7 +460,8 @@ test('CI: проверок нет — не готово', () => {
 
 // Ревью Codex на #86 (P1, первое и двенадцатое): ожидаются все проверки-джобы workflow на pull_request, а не только
 // имена workflow. Иначе не запустившийся CI или CI без джобы бэка выглядели бы чистыми.
-const need = (workflow, name) => ({ workflow, check: name });
+// reviewOnly — джоба запускается только на событие ревью: на прогоне по пушу её пропуск законен.
+const need = (workflow, name, reviewOnly = false) => ({ workflow, check: name, reviewOnly });
 const FRONT = need('CI', 'Фронт — типы и тесты');
 const REPLIED = need('Ответы Codex', 'Codex — все замечания отвечены');
 
@@ -488,6 +489,20 @@ test('CI: проверка с другим именем, начинающимс�
   assert.equal(s.ok, false);
 });
 
+// Семнадцатое ревью Codex на #86 (P1): PR, дописавший джобе базы `if: false`, получил бы пропущенную проверку вместо
+// прогона тестов. Пропуск законен только у джобы, которая в базе запускается лишь на событие ревью.
+test('CI: ожидаемая джоба пропущена — не готово', () => {
+  const s = ciState([check('Фронт — типы и тесты', 'skipping')], [FRONT]);
+  assert.equal(s.ok, false);
+  assert.match(s.text, /пропущены: CI — Фронт/);
+});
+
+test('CI: пропущена джоба только для ревью — готово', () => {
+  const rerun = need('Ответы Codex', 'Красные прогоны по пушу — перезапуск', true);
+  const s = ciState([check('Красные прогоны по пушу — перезапуск', 'skipping', undefined, 'Ответы Codex')], [rerun]);
+  assert.equal(s.ok, true);
+});
+
 test('CI: все ожидаемые проверки пришли и прошли — готово', () => {
   const s = ciState([check('Фронт — типы и тесты', 'pass'), check('Codex — все замечания отвечены', 'pass', undefined, 'Ответы Codex')],
     [FRONT, REPLIED]);
@@ -504,7 +519,7 @@ test('ожидаемые проверки — по настоящим файла
     need('CI', 'Образ фронта собирается'),
     need('CI', 'Фронт — типы и тесты'),
     need('Ответы Codex', 'Codex — все замечания отвечены'),
-    need('Ответы Codex', 'Красные прогоны по пушу — перезапуск'),
+    need('Ответы Codex', 'Красные прогоны по пушу — перезапуск', true),
   ]);
 });
 
@@ -524,6 +539,18 @@ test('имя проверки — name джобы, без него — ключ 
   assert.deepEqual(pullRequestChecks([{ path: 'l.yml', text }]), [
     { path: 'l.yml', job: 'a', ...need('Lint', 'Стиль') },
     { path: 'l.yml', job: 'b', ...need('Lint', 'b') },
+  ]);
+});
+
+test('джоба только для события ревью помечена; джоба с условием на pull_request — нет', () => {
+  const text = [
+    'name: W', 'on:', '  pull_request:', 'jobs:',
+    '  a:', '    name: Перезапуск', "    if: github.event_name == 'pull_request_review'", '    steps: []',
+    '  b:', '    name: Миграции', "    if: github.event_name == 'pull_request'", '    steps: []', '',
+  ].join('\n');
+  assert.deepEqual(pullRequestChecks([{ path: 'w.yml', text }]), [
+    { path: 'w.yml', job: 'a', ...need('W', 'Перезапуск', true) },
+    { path: 'w.yml', job: 'b', ...need('W', 'Миграции') },
   ]);
 });
 
@@ -559,6 +586,15 @@ test('PR переименовал workflow — ожидается новое и�
     base: [ciFile(['  pull_request:'], [['frontend', 'Фронт']])],
     pr: [ciFile(['  pull_request:'], [['frontend', 'Фронт']], 'Проверки')],
   }), [need('Проверки', 'Фронт')]);
+});
+
+test('PR сделал джобу базы «только для ревью» — пропуск ей не разрешается: признак из базы', () => {
+  const job = (cond) => ({ path: 'ci.yml', text: ['name: CI', 'on:', '  pull_request:', 'jobs:', '  backend:', '    name: Бэк',
+    ...cond, '    steps: []', ''].join('\n') });
+  assert.deepEqual(requiredChecks({
+    base: [job([])],
+    pr: [job(["    if: github.event_name == 'pull_request_review'"])],
+  }), [need('CI', 'Бэк')]);
 });
 
 test('PR удалил из CI джобу бэка — её проверка всё равно ожидается', () => {
