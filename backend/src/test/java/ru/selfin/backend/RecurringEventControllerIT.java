@@ -255,6 +255,7 @@ class RecurringEventControllerIT {
 
         String headEventId = objectMapper.readTree(createResp).get("id").asText();
         String headEventDate = objectMapper.readTree(createResp).get("date").asText();
+        String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
 
         // PATCH-fact the head event to turn it EXECUTED
         String patchBody = """
@@ -312,9 +313,15 @@ class RecurringEventControllerIT {
                 .as("EXECUTED event plannedAmount must remain at original value (5000), not updated to 9999")
                 .isEqualTo(5000.0);
 
-        // All PLANNED events (non-executed) should have new amount 9999
-        events.stream()
+        // All PLANNED events (non-executed) should have new amount 9999.
+        // ANO-200: только события этого правила — окно «завтра + 5 месяцев» делят с ним
+        // соседние тесты класса, и без фильтра проверка держалась на порядке запуска.
+        List<Map<String, Object>> plannedOfRule = events.stream()
+                .filter(e -> ruleId.equals(e.get("recurringRuleId")))
                 .filter(e -> "PLANNED".equals(e.get("status")))
+                .toList();
+        assertThat(plannedOfRule).as("PLANNED events of this rule").isNotEmpty();
+        plannedOfRule
                 .forEach(e -> {
                     Object amount = e.get("plannedAmount");
                     assertThat(((Number) amount).doubleValue())
