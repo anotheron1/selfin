@@ -13,10 +13,18 @@
 3. **Не продаём точность.** Обещание — «тебе не придётся считать», а не «посчитаем точнее».
 4. **Пейволл не показывать после ввода данных.**
 
+## Где работа
+
+Работа идёт спринтами. Точка входа в сессию — раздел «Точка входа» самого свежего `docs/superpowers/specs/*-sprint-plan.md` (сейчас `2026-09-26-sprint-plan.md`, раздел 9); там же — что иначе в облачной сессии.
+
 ## Сборка
 
+Бэкенд собирается из `backend/` — в корне нет ни `mvnw`, ни `pom.xml`:
+
 ```bash
-JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify   # юниты + 14 IT на Testcontainers
+cd backend
+JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify   # Windows: юниты + 14 IT на Testcontainers
+./mvnw verify                                                # Linux и облачная сессия: JDK 21 уже стоит
 ```
 
-`mvnw test` интеграционные тесты **не запускает** — они подключены через failsafe. Фронт: `npm test`, `npm run dev`.
+`mvnw test` интеграционные тесты **не запускает** — они подключены через failsafe. Фронт — из `frontend/`: `npm test`, `npm run dev`.
