@@ -19,9 +19,12 @@
 
 ## Сборка
 
+Бэкенд собирается из `backend/` — в корне нет ни `mvnw`, ни `pom.xml`:
+
 ```bash
+cd backend
 JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify   # Windows: юниты + 14 IT на Testcontainers
 ./mvnw verify                                                # Linux и облачная сессия: JDK 21 уже стоит
 ```
 
-`mvnw test` интеграционные тесты **не запускает** — они подключены через failsafe. Фронт: `npm test`, `npm run dev`.
+`mvnw test` интеграционные тесты **не запускает** — они подключены через failsafe. Фронт — из `frontend/`: `npm test`, `npm run dev`.

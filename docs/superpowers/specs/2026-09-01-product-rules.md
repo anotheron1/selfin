@@ -124,8 +124,9 @@
 ## Сборка
 
 ```bash
+cd backend                                                   # в корне нет ни mvnw, ни pom.xml
 JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw test     # юниты
 JAVA_HOME="/c/Users/Kirill/.jdks/jbr-21.0.8" ./mvnw verify   # + 14 IT на Testcontainers
 ```
 
-Интеграционные тесты подключены через failsafe и по `mvnw test` **не запускаются**. Фронт: `npm test` (vitest), `npm run dev`.
+На Linux и в облачной сессии `JAVA_HOME` не нужен. Интеграционные тесты подключены через failsafe и по `mvnw test` **не запускаются**. Фронт — из `frontend/`: `npm test` (vitest), `npm run dev`.
