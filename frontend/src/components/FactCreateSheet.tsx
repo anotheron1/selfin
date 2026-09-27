@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { createLinkedFact } from '../api';
 import { PRIORITY_DOT_CONFIG, PRIORITY_FIELD_LABEL, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
 import { canRecordFact, todayIso } from '../lib/factDate';
+import { fundMovementMessage } from '../lib/fundMovement';
 import type { FactCreateDto, Priority } from '../types/api';
 
 interface Props {
@@ -39,6 +40,9 @@ export default function FactCreateSheet({
     const [description, setDescription] = useState('');
     const [priority, setPriority] = useState<Priority>(planPriority);
     const [loading, setLoading] = useState(false);
+    // ANO-169: отказ сервера виден. Раньше ошибка уходила в консоль, и «Сохранить факт»
+    // молча не срабатывал — например, на плане перевода в копилку на счёте.
+    const [error, setError] = useState<string | null>(null);
 
     // Synchronise priority with the selected plan whenever the sheet opens
     useEffect(() => {
@@ -56,6 +60,7 @@ export default function FactCreateSheet({
             setAmount(initialAmount);
             setDescription('');
             setPriority(planPriority);
+            setError(null);
         }
     }
 
@@ -66,6 +71,7 @@ export default function FactCreateSheet({
         const value = amountValue(amount);
         if (value == null) return;
         setLoading(true);
+        setError(null);
         try {
             const dto: FactCreateDto = {
                 date,
@@ -79,6 +85,7 @@ export default function FactCreateSheet({
             onClose();
         } catch (err) {
             console.error(err);
+            setError(fundMovementMessage(err) ?? 'Не записалось — попробуйте ещё раз');
         } finally {
             setLoading(false);
         }
@@ -157,6 +164,9 @@ export default function FactCreateSheet({
                             onChange={e => setDescription(e.target.value)}
                         />
                     </div>
+                    {error && (
+                        <p className="text-sm" style={{ color: 'var(--color-warning)' }}>{error}</p>
+                    )}
                     <Button type="submit" className="w-full"
                             disabled={loading || !canRecordFact(date, today)}>
                         {loading ? 'Сохраняю...' : 'Сохранить факт'}

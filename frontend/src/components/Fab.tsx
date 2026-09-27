@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
-import { createEvent, createLinkedFact, createStandaloneFact, fetchCategories, fetchFunds } from '../api';
+import { createEvent, createLinkedFact, createStandaloneFact, fetchCategories, fetchFunds, transferToFund } from '../api';
 import type { Category, FinancialEventCreateDto, RecurringConfig, TargetFund } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import RecurringFields from './RecurringFields';
 import { canRecordFact, todayIso } from '../lib/factDate';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
+import { ON_ACCOUNT_NOTE, canSubmitQuickAdd, quickAddAction, transferFundChoice } from '../lib/quickAdd';
+import { fundMovementMessage } from '../lib/fundMovement';
 
 /**
  * Модальная форма быстрого добавления транзакции (bottom sheet).
@@ -60,18 +62,27 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     }, [form.type]);
 
     const handleTypeChange = (type: 'EXPENSE' | 'INCOME' | 'FUND_TRANSFER') => {
-        setForm(f => ({ ...f, type, categoryId: undefined, targetFundId: undefined, priority: 'MEDIUM' }));
+        // У перевода поля описания нет (ANO-169) — не несём в него скрытое значение.
+        setForm(f => ({
+            ...f, type, categoryId: undefined, targetFundId: undefined, priority: 'MEDIUM',
+            ...(type === 'FUND_TRANSFER' ? { description: undefined, rawInput: undefined } : {}),
+        }));
     };
 
     const filteredCategories = categories.filter(c => c.type === form.type).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-    const activeFunds = funds.filter(f => f.status !== 'REACHED');
+    // ANO-169: копилки на счёте перевода не принимают — в списке их нет, под списком строка почему.
+    const { choices: activeFunds, onAccount } = transferFundChoice(funds);
     const selectedCategory = categories.find(c => c.id === form.categoryId);
     const showPrioritySelector = form.type !== 'FUND_TRANSFER' && selectedCategory?.priority !== 'HIGH';
 
     const isFundTransfer = form.type === 'FUND_TRANSFER';
-    const canSubmit = isFundTransfer
-        ? !!form.targetFundId
-        : !!form.categoryId;
+    const canSubmit = canSubmitQuickAdd({
+        isFundTransfer,
+        targetFundId: form.targetFundId,
+        categoryId: form.categoryId,
+        hasPlanAmount: (form.plannedAmount ?? 0) > 0,
+        hasFactAmount: (amountValue(factAmountLocal) ?? 0) > 0,
+    });
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -88,26 +99,36 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             const factAmount = amountValue(factAmountLocal);
             const hasFactAmount = factAmount != null;
             const hasPlanAmount = !!form.plannedAmount;
+            const action = quickAddAction(isFundTransfer, hasPlanAmount, hasFactAmount);
 
-            if (hasFactAmount && !hasPlanAmount && !isFundTransfer) {
+            if (action === 'transfer') {
+                // ANO-169: «уже перевёл» — тот же перевод, что кнопка «Пополнить»: одна запись
+                // «В копилку: X», копилка растёт. Раньше здесь создавался план без суммы, а сумма
+                // выбрасывалась. Без вопроса «отложить всё равно?» (confirm): человек записывает
+                // то, что уже сделал, — спрашивать о нём значит сомневаться в его вводе (правило 5).
+                await transferToFund(form.targetFundId!, factAmount!, true, undefined, form.date!);
+            } else if (action === 'standaloneFact') {
                 // Внеплановый факт — только фактическая сумма, без плана
                 await createStandaloneFact({
                     date: form.date!,
                     categoryId: form.categoryId!,
                     type: form.type!,
-                    factAmount,
+                    factAmount: factAmount!,
                     description: form.description || undefined,
                     priority: effectivePriority,
                     rawInput: amountRawInput(factAmountLocal),
                 });
             } else {
-                // Плановая транзакция (с планом или FUND_TRANSFER)
+                // Плановая транзакция. Повтора у перевода нет: переключатель мог остаться
+                // включённым от расхода, а поле у перевода скрыто.
                 const plan = await createEvent({
                     ...form as FinancialEventCreateDto,
                     priority: effectivePriority,
-                    recurring: recurringEnabled ? { ...recurring, startDate: form.date } : null,
+                    recurring: recurringEnabled && !isFundTransfer ? { ...recurring, startDate: form.date } : null,
                 });
-                if (hasFactAmount && !isFundTransfer) {
+                // ANO-169: у перевода факт к плану переводит деньги сервер — раньше этот шаг
+                // для копилки пропускался, и сумма факта терялась.
+                if (hasFactAmount) {
                     await createLinkedFact(plan.id, {
                         date: form.date!, factAmount: factAmount!,
                         description: form.description || undefined,
@@ -119,7 +140,8 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             onClose();
         } catch (err) {
             console.error('Ошибка создания транзакции:', err);
-            setError('Не удалось сохранить. Проверьте заполненные поля и попробуйте снова.');
+            // Отказ копилки называется словами (ANO-169); общий текст — дело ANO-170.
+            setError(fundMovementMessage(err) ?? 'Не удалось сохранить. Проверьте заполненные поля и попробуйте снова.');
         } finally {
             setLoading(false);
         }
@@ -164,20 +186,28 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
 
                     {/* Выбор копилки — только для FUND_TRANSFER */}
                     {isFundTransfer ? (
-                        <Select
-                            value={form.targetFundId || ''}
-                            onValueChange={val => setForm(f => ({ ...f, targetFundId: val }))}
-                            disabled={fundsLoading}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder={fundsLoading ? 'Загрузка...' : 'Выбери копилку'} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {activeFunds.map(f => (
-                                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <>
+                            <Select
+                                value={form.targetFundId || ''}
+                                onValueChange={val => setForm(f => ({ ...f, targetFundId: val }))}
+                                disabled={fundsLoading}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder={fundsLoading ? 'Загрузка...' : 'Выбери копилку'} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {activeFunds.map(f => (
+                                        <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {/* ANO-169: пропавшая из списка копилка без объяснения — та же стена, что ANO-174. */}
+                            {onAccount > 0 && (
+                                <p className="text-xs -mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                                    {ON_ACCOUNT_NOTE}
+                                </p>
+                            )}
+                        </>
                     ) : (
                         /* Категория — отфильтрована по типу */
                         <Select
@@ -237,12 +267,16 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                         }}
                     />
 
-                    {/* Название транзакции */}
-                    <Input
-                        placeholder="Название транзакции (необязательно)"
-                        value={form.description ?? ''}
-                        onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
-                    />
+                    {/* Название транзакции. У перевода его нет (ANO-169): журнал и дашборд
+                        называют перевод именем копилки, а ручка перевода пишет своё
+                        «В копилку: X» — поле собирало бы то, что никуда не попадает. */}
+                    {!isFundTransfer && (
+                        <Input
+                            placeholder="Название транзакции (необязательно)"
+                            value={form.description ?? ''}
+                            onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
+                        />
+                    )}
 
                     {/* Повтор — только для плановых транзакций (не FUND_TRANSFER) */}
                     {!isFundTransfer && (
