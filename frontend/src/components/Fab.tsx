@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
-import { createEvent, createLinkedFact, createStandaloneFact, fetchCategories, fetchFunds, transferToFund } from '../api';
+import { createPlanWithFact, createStandaloneFact, fetchCategories, fetchFunds, transferToFund } from '../api';
 import type { Category, FinancialEventCreateDto, RecurringConfig, TargetFund } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { Input } from './ui/input';
@@ -121,20 +121,18 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             } else {
                 // Плановая транзакция. Повтора у перевода нет: переключатель мог остаться
                 // включённым от расхода, а поле у перевода скрыто.
-                const plan = await createEvent({
+                // ANO-169: у перевода факт к плану переводит деньги сервер — раньше этот шаг
+                // для копилки пропускался, и сумма факта терялась. ANO-192: план и факт — одна
+                // попытка, повтор после сбоя не создаст второй план.
+                await createPlanWithFact({
                     ...form as FinancialEventCreateDto,
                     priority: effectivePriority,
                     recurring: recurringEnabled && !isFundTransfer ? { ...recurring, startDate: form.date } : null,
-                });
-                // ANO-169: у перевода факт к плану переводит деньги сервер — раньше этот шаг
-                // для копилки пропускался, и сумма факта терялась.
-                if (hasFactAmount) {
-                    await createLinkedFact(plan.id, {
-                        date: form.date!, factAmount: factAmount!,
-                        description: form.description || undefined,
-                        rawInput: amountRawInput(factAmountLocal),
-                    });
-                }
+                }, hasFactAmount ? {
+                    date: form.date!, factAmount: factAmount!,
+                    description: form.description || undefined,
+                    rawInput: amountRawInput(factAmountLocal),
+                } : undefined);
             }
             onSuccess();
             onClose();

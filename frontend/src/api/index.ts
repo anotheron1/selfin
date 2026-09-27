@@ -1,4 +1,5 @@
-import { get, post, put, patch, del, generateUUID } from './client';
+import { get, post, put, patch, del } from './client';
+import { attempts } from '../lib/attemptKey';
 import type {
     Account,
     AccountCreateDto,
@@ -74,11 +75,28 @@ export const fetchEvents = (startDate: string, endDate: string) =>
     get<FinancialEvent[]>(`/events?startDate=${startDate}&endDate=${endDate}`);
 
 /**
- * Создаёт финансовое событие.
- * Автоматически генерирует `Idempotency-Key` для защиты от дублирования при ретраях.
+ * Запись денег с ключом попытки (ANO-192): повтор после сбоя уходит с тем же ключом, и сервер
+ * вернёт уже записанное; после успеха ключ забыт — следующая такая же запись новая.
+ * Правило ключа — `lib/attemptKey.ts`.
  */
-export const createEvent = (dto: FinancialEventCreateDto) =>
-    post<FinancialEvent>('/events', dto, { 'Idempotency-Key': generateUUID() });
+async function withAttempt<T>(target: string, data: unknown, send: (key: string) => Promise<T>): Promise<T> {
+    const result = await send(attempts.keyFor(target, data));
+    attempts.done(target);
+    return result;
+}
+
+/**
+ * Создаёт плановое событие и, если деньги уже ушли, факт к нему — одной попыткой (ANO-192).
+ *
+ * План записан, а ответ на факт потерян — повтор отдаёт план с тем же ключом, сервер
+ * возвращает тот же план, и второго плана нет. Поэтому ключ плана забывается только после факта.
+ */
+export async function createPlanWithFact(dto: FinancialEventCreateDto, fact?: FactCreateDto): Promise<FinancialEvent> {
+    const plan = await post<FinancialEvent>('/events', dto, { 'Idempotency-Key': attempts.keyFor('plan', dto) });
+    if (fact) await createLinkedFact(plan.id, fact);
+    attempts.done('plan');
+    return plan;
+}
 
 /**
  * Полностью обновляет финансовое событие (все поля).
@@ -114,13 +132,15 @@ export const createWishlistItem = (dto: WishlistCreateDto): Promise<FinancialEve
 export const deleteEvent = (id: string, scope: ScopeEnum = 'THIS') => del(`/events/${id}?scope=${scope}`);
 
 
-/** Создаёт фактическое исполнение (FACT) для планового события (PLAN). */
+/** Создаёт фактическое исполнение (FACT) для планового события (PLAN). Повтор — тот же ключ (ANO-192). */
 export const createLinkedFact = (planId: string, dto: FactCreateDto) =>
-    post<FinancialEvent>(`/events/${planId}/facts`, dto);
+    withAttempt(`fact:${planId}`, dto, key =>
+        post<FinancialEvent>(`/events/${planId}/facts`, dto, { 'Idempotency-Key': key }));
 
-/** Создаёт внеплановый факт без родительского PLAN. */
+/** Создаёт внеплановый факт без родительского PLAN. Повтор — тот же ключ (ANO-192). */
 export const createStandaloneFact = (dto: StandaloneFactCreateDto) =>
-    post<FinancialEvent>('/events/facts', dto);
+    withAttempt('standaloneFact', dto, key =>
+        post<FinancialEvent>('/events/facts', dto, { 'Idempotency-Key': key }));
 
 // --- Analytics ---
 
@@ -191,7 +211,8 @@ export const deleteFund = (id: string) => del(`/funds/${id}`);
 
 /**
  * Пополняет целевой фонд на указанную сумму.
- * Автоматически генерирует `Idempotency-Key` для защиты от двойного зачисления.
+ * Повтор после сбоя уходит с тем же `Idempotency-Key` — второго зачисления нет (ANO-192).
+ * Подтверждение — другие данные, у него свой ключ: первый запрос без подтверждения ничего не записал.
  *
  * @param fundId  идентификатор фонда
  * @param amount  сумма пополнения; знаковая — отрицательная забирает обратно (ANO-87)
@@ -204,15 +225,16 @@ export const deleteFund = (id: string) => del(`/funds/${id}`);
  * @param date  день перевода, YYYY-MM-DD (ANO-169): быстрый ввод записывает перевод, который
  *              уже сделан; не задан — сегодня, как у кнопки «Пополнить»
  */
-export const transferToFund = (fundId: string, amount: number, confirm?: boolean, scope?: string, date?: string) =>
-    post<TargetFund>(`/funds/${fundId}/transfer`,
-        {
-            amount,
-            ...(confirm === undefined ? {} : { confirm }),
-            ...(scope === undefined ? {} : { scope }),
-            ...(date === undefined ? {} : { date }),
-        },
-        { 'Idempotency-Key': generateUUID() });
+export const transferToFund = (fundId: string, amount: number, confirm?: boolean, scope?: string, date?: string) => {
+    const body = {
+        amount,
+        ...(confirm === undefined ? {} : { confirm }),
+        ...(scope === undefined ? {} : { scope }),
+        ...(date === undefined ? {} : { date }),
+    };
+    return withAttempt(`transfer:${fundId}`, body, key =>
+        post<TargetFund>(`/funds/${fundId}/transfer`, body, { 'Idempotency-Key': key }));
+};
 
 // --- Snapshots ---
 

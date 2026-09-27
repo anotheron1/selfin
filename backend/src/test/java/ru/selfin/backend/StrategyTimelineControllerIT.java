@@ -156,7 +156,7 @@ class StrategyTimelineControllerIT {
         // (BaselineTimelineBuilder) — инлайн-патченные факты в breakdown НЕ попадают.
         // Это известное расхождение план/факт-семантик (тема ANO-12), тест закрепляет
         // поддерживаемый путь.
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/events/" + eventId + "/facts")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/events/" + eventId + "/facts").header("Idempotency-Key", java.util.UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                             { "date": "%s", "factAmount": 4900, "description": "Оплачено" }

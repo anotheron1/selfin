@@ -135,7 +135,7 @@ class PocketControllerIT {
 
     /** Записывает факт к плану. Дата — сегодня: в будущем деньги уйти не могли. */
     private String recordFact(String planId, long amount) throws Exception {
-        String body = mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+        String body = mockMvc.perform(post("/api/v1/events/" + planId + "/facts").header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"date":"%s","factAmount":%d}

@@ -71,7 +71,8 @@ describe('быстрый ввод «В копилку» (ANO-169)', () => {
 
     it('факт к плану перевода больше не пропускается', () => {
         expect(src).not.toContain('hasFactAmount && !isFundTransfer');
-        expect(src).toMatch(/if \(hasFactAmount\) \{\s*await createLinkedFact\(plan\.id/);
+        // ANO-192: план и факт — одна попытка, факт уходит вторым аргументом, если деньги уже ушли.
+        expect(src).toMatch(/createPlanWithFact\([\s\S]*?\}, hasFactAmount \? \{/);
     });
 
     it('«Сохранить» — по правилу canSubmitQuickAdd, копилки — по transferFundChoice, со строкой почему', () => {

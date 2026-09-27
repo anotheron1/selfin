@@ -163,7 +163,7 @@ class CurrentMonthForecastIT {
         String body = objectMapper.writeValueAsString(new StandaloneFactCreateDto(
                 date, UUID.fromString(categoryId), EventType.EXPENSE,
                 new BigDecimal(amount), "IT", null, null));
-        mockMvc.perform(post("/api/v1/events/facts")
+        mockMvc.perform(post("/api/v1/events/facts").header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
     }

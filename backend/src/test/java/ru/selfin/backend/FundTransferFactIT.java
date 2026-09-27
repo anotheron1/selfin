@@ -238,7 +238,7 @@ class FundTransferFactIT {
                 {"date": "%s", "categoryId": "%s", "type": "FUND_TRANSFER", "factAmount": 100}
                 """.formatted(TODAY, categoryId);
 
-        mockMvc.perform(post("/api/v1/events/facts")
+        mockMvc.perform(post("/api/v1/events/facts").header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
 
@@ -327,7 +327,7 @@ class FundTransferFactIT {
     }
 
     private ResultActions linkedFact(String planId, String amount, LocalDate date) throws Exception {
-        return mockMvc.perform(post("/api/v1/events/{planId}/facts", planId)
+        return mockMvc.perform(post("/api/v1/events/{planId}/facts", planId).header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"date\": \"%s\", \"factAmount\": %s}".formatted(date, amount)));
     }

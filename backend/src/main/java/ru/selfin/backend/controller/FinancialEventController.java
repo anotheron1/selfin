@@ -111,22 +111,29 @@ public class FinancialEventController {
         return eventService.createWishlistItem(dto);
     }
 
-    @Operation(summary = "Создать внеплановый факт",
-            description = "Создаёт standalone FACT-запись без родительского PLAN — для внеплановых трат.")
+    @Operation(summary = "Создать внеплановый факт (идемпотентно)",
+            description = "Создаёт standalone FACT-запись без родительского PLAN — для внеплановых трат. "
+                    + "Клиент обязан передать заголовок Idempotency-Key (UUID): повтор с тем же ключом "
+                    + "вернёт уже записанный факт.")
     @PostMapping("/facts")
     @ResponseStatus(HttpStatus.CREATED)
-    public FinancialEventDto createStandaloneFact(@Valid @RequestBody StandaloneFactCreateDto dto) {
-        return eventService.createStandaloneFact(dto);
+    public FinancialEventDto createStandaloneFact(
+            @Parameter(description = "UUID попытки записи", required = true) @RequestHeader("Idempotency-Key") UUID idempotencyKey,
+            @Valid @RequestBody StandaloneFactCreateDto dto) {
+        return eventService.createStandaloneFact(idempotencyKey, dto);
     }
 
-    @Operation(summary = "Создать связанный факт к плану",
+    @Operation(summary = "Создать связанный факт к плану (идемпотентно)",
             description = "Создаёт FACT-событие, привязанное к указанному PLAN-событию. "
-                    + "Дата, сумма и описание факта могут отличаться от плана.")
+                    + "Дата, сумма и описание факта могут отличаться от плана. "
+                    + "Клиент обязан передать заголовок Idempotency-Key (UUID): повтор с тем же ключом "
+                    + "вернёт уже записанный факт.")
     @PostMapping("/{planId}/facts")
     public FinancialEventDto createLinkedFact(
             @Parameter(description = "ID планового события") @PathVariable UUID planId,
+            @Parameter(description = "UUID попытки записи", required = true) @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @Valid @RequestBody FactCreateDto dto) {
-        return eventService.createLinkedFact(planId, dto);
+        return eventService.createLinkedFact(planId, idempotencyKey, dto);
     }
 
     @Operation(summary = "Удалить событие (soft delete)")

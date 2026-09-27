@@ -154,7 +154,7 @@ class FinancialEventControllerIT {
         // Создаём связанный FACT
         FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(4850), "Фактический расход", null, null);
 
-        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts").header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(factDto)))
                 .andExpect(status().isOk())
@@ -190,7 +190,7 @@ class FinancialEventControllerIT {
         FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(5000), null,
                 Priority.LOW, null);
 
-        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts").header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(factDto)))
                 .andExpect(status().isOk())
@@ -218,7 +218,7 @@ class FinancialEventControllerIT {
         // Привязываем факт к плану
         FactCreateDto factDto = new FactCreateDto(LocalDate.now(), BigDecimal.valueOf(2900), null, null, null);
 
-        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts").header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(factDto)))
                 .andExpect(status().isOk());
