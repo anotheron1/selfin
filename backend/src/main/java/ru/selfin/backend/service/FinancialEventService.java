@@ -440,6 +440,14 @@ public class FinancialEventService {
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
 
+        // Ревью #96: старый путь пишет факт в строку плана, и дата факта — дата плана. Перевод
+        // будущей датой поднял бы копилку уже сегодня, а счёт — только в день плана: ещё не
+        // ушедшие деньги можно было бы снять. Правило то же, что у факта к плану и у ручки
+        // перевода. Снять факт можно всегда — иначе такие записи, сделанные раньше, не исправить.
+        if (event.getType() == EventType.FUND_TRANSFER && dto.factAmount() != null) {
+            requireNotFuture(event.getDate());
+        }
+
         BigDecimal oldFact = event.getFactAmount();
         event.setFactAmount(dto.factAmount());
         if (dto.description() != null) event.setDescription(dto.description());

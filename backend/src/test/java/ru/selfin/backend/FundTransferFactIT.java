@@ -189,6 +189,43 @@ class FundTransferFactIT {
         assertThat(liquid(TODAY)).isEqualByComparingTo(liquidBefore);
     }
 
+    /**
+     * Ревью #96. Старый путь пишет факт в строку плана, и дата факта — дата плана. Будущей датой
+     * копилка выросла бы уже сегодня, а счёт — только в день плана: ещё не ушедшие деньги можно
+     * было бы снять из копилки. Факт к плану и ручка перевода будущую дату не пускают (ANO-155).
+     */
+    @Test
+    @DisplayName("старый путь PATCH на плане перевода будущей датой — 400, копилка не тронута")
+    void legacyPatchOnFutureTransferPlan_isRejected() throws Exception {
+        String fundId = createFund("Отпуск");
+        String planId = createTransferPlan(fundId, "100", TODAY.plusDays(3));
+
+        patchFact(planId, "100").andExpect(status().isBadRequest());
+
+        assertThat(fundBalance(fundId)).as("копилка не выросла раньше перевода").isEqualByComparingTo("0");
+        assertThat(movementsOf(fundId)).as("движения нет").isZero();
+        assertThat(factAmountOf(planId)).as("и факта на плане нет").isNull();
+    }
+
+    /**
+     * Запрет — только на запись суммы. Такие записи уже есть: до правки старый путь двигал
+     * копилку и у будущего плана. Снять факт — единственный способ их исправить.
+     */
+    @Test
+    @DisplayName("снять факт с плана перевода будущей датой можно — копилка отдаёт деньги")
+    void legacyPatchRemovingFactFromFutureTransferPlan_returnsMoney() throws Exception {
+        String fundId = createFund("Отпуск");
+        String planId = createTransferPlan(fundId, "100", TODAY);
+        patchFact(planId, "100").andExpect(status().isOk());
+        // Как лежат записи, сделанные до правки: факт на плане, а дата плана — в будущем.
+        jdbc.update("UPDATE financial_events SET date = CURRENT_DATE + 3 WHERE id = ?::uuid", planId);
+
+        patchFact(planId, "null").andExpect(status().isOk());
+
+        assertThat(fundBalance(fundId)).isEqualByComparingTo("0");
+        assertThat(factAmountOf(planId)).isNull();
+    }
+
     // ── факт без копилки и перевод с датой ──────────────────────────────────
 
     @Test
@@ -327,6 +364,18 @@ class FundTransferFactIT {
                 "SELECT count(*) FROM financial_events WHERE parent_event_id = ?::uuid AND is_deleted = false",
                 Integer.class, planId);
         return n == null ? 0 : n;
+    }
+
+    private int movementsOf(String fundId) {
+        Integer n = jdbc.queryForObject(
+                "SELECT count(*) FROM fund_transactions WHERE fund_id = ?::uuid AND is_deleted = false",
+                Integer.class, fundId);
+        return n == null ? 0 : n;
+    }
+
+    private BigDecimal factAmountOf(String eventId) {
+        return jdbc.queryForObject("SELECT fact_amount FROM financial_events WHERE id = ?::uuid",
+                BigDecimal.class, eventId);
     }
 
     private String eventFund(String eventId) {
