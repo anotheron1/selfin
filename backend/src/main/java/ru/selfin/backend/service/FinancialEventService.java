@@ -236,7 +236,7 @@ public class FinancialEventService {
         }
 
         if (scope == ScopeEnum.THIS) {
-            Category category = resolveCategoryForUpdate(dto);
+            Category category = resolveCategoryForUpdate(event, dto);
             applyDto(event, dto, category);
             FinancialEvent saved = eventRepository.save(event);
             // Ревью #45: плановую сумму только что могли поднять поверх уже уплаченного —
@@ -262,13 +262,14 @@ public class FinancialEventService {
                         "Regenerate dropped the trigger date " + event.getDate() + " for rule " + rule.getId()));
     }
 
-    /** Extracted from old update() — verbatim category resolution. */
-    private Category resolveCategoryForUpdate(FinancialEventCreateDto dto) {
+    /** An existing plan may retain its own archived category, but cannot adopt another one. */
+    private Category resolveCategoryForUpdate(FinancialEvent event, FinancialEventCreateDto dto) {
         if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
             return targetFundService.getOrCreateFundTransferCategory();
         }
         return categoryRepository.findById(dto.categoryId())
-                .filter(c -> !c.isDeleted())
+                .filter(c -> !c.isDeleted() || (event.getCategory() != null
+                        && c.getId().equals(event.getCategory().getId())))
                 .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
     }
 
