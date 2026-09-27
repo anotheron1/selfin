@@ -157,8 +157,12 @@ export default function CapitalWhatIf() {
     };
 
     /**
-     * Диалог закрывается только на успехе; отказ остаётся в нём строкой. Список перечитывается
-     * в обоих случаях: запись примерки могла пройти до отказа конверсии.
+     * Диалог закрывается только на успехе; отказ остаётся в нём строкой.
+     *
+     * <p>На отказе список не перечитывается, пока диалог открыт: перечитывание сбрасывает
+     * подкрученное (`overrideMap`), и повтор записал бы в хотелку прежние числа вместо тех, на
+     * которые человек смотрел. Перечитывание — при закрытии ({@link closeFix}): запись примерки
+     * могла пройти до отказа конверсии.
      */
     const handleFixConfirm = async (target: ConvertTarget, createRecurringPayments: boolean,
                                     planDate?: string) => {
@@ -173,9 +177,12 @@ export default function CapitalWhatIf() {
             .then(() => convertWishlistItem(item.id,
                 { sourceKind: item.kind, target, createRecurringPayments, planDate })));
         setFixBusy(false);
+        if (failure) {
+            setFixError(failure);
+            return;
+        }
+        setFixItem(null);
         refetch();
-        if (failure) setFixError(failure);
-        else setFixItem(null);
     };
 
     const handleFixWithoutConversion = async () => {
@@ -185,9 +192,21 @@ export default function CapitalWhatIf() {
         setFixError(null);
         const failure = await attempt(() => persistTrial(item).then(() => changeStatus(item, 'FIXED')));
         setFixBusy(false);
+        if (failure) {
+            setFixError(failure);
+            return;
+        }
+        setFixItem(null);
         refetch();
-        if (failure) setFixError(failure);
-        else setFixItem(null);
+    };
+
+    /**
+     * Закрыть без записи. После отказа — перечитать: примерка могла записаться до отказа
+     * конверсии. Без попытки — не перечитывать, иначе простое «Отмена» сбросило бы подкрученное.
+     */
+    const closeFix = () => {
+        setFixItem(null);
+        if (fixError) refetch();
     };
 
     const openDelete = (item: WishlistItem) => {
@@ -309,7 +328,7 @@ export default function CapitalWhatIf() {
                     }}
                     busy={fixBusy}
                     error={fixError}
-                    onClose={() => setFixItem(null)}
+                    onClose={closeFix}
                     onConfirm={handleFixConfirm}
                     onFixWithoutConversion={handleFixWithoutConversion}
                 />

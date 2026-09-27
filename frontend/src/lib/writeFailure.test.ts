@@ -69,6 +69,13 @@ describe('фраза отказа удаления', () => {
         const ok = () => Promise.resolve();
         expect(await deleteTogether([{ kind: 'EVENT', run: ok }, { kind: 'FUND', run: ok }])).toBeNull();
     });
+
+    it('уже удалённое — не отказ: повтор после частичного удаления называет деньги, а не пропажу', async () => {
+        const gone = () => Promise.reject(refused(404));
+        const holds = () => Promise.reject(refused(409));
+        expect(await deleteTogether([{ kind: 'EVENT', run: gone }, { kind: 'FUND', run: holds }])).toBe(FUND_HOLDS_MONEY);
+        expect(await deleteTogether([{ kind: 'EVENT', run: gone }])).toBeNull();
+    });
 });
 
 describe('запись с ответом для экрана', () => {
@@ -113,6 +120,22 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
         const body = handlerBody(BLOCK, name);
         expect(body).toMatch(write);
         expect(body).toMatch(shown);
+    });
+
+    it.each(['handleFixConfirm', 'handleFixWithoutConversion'])(
+        '%s: на отказе список не перечитывается, пока диалог открыт — иначе повтор запишет прежние числа',
+        (name) => {
+            // Перечитывание сбрасывает подкрученное (overrideMap), а диалог держит снимок хотелки
+            // с записанными числами: повтор из диалога ушёл бы с ними. Найдено перечиткой диффа.
+            const body = handlerBody(BLOCK, name);
+            expect(body.match(/refetch\(\)/g)).toHaveLength(1);
+            expect(body).toMatch(/setFixItem\(null\);\s*refetch\(\);/);
+        });
+
+    it('закрытие диалога фиксации перечитывает список только после отказа', () => {
+        // После отказа примерка могла записаться до отказа конверсии; без попытки перечитывание
+        // сбросило бы подкрученное простым «Отмена».
+        expect(handlerBody(BLOCK, 'closeFix')).toMatch(/if\s*\(fixError\)\s*refetch\(\)/);
     });
 
     it('ни один обработчик не прячет отказ за перечитыванием', () => {

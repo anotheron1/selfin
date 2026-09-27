@@ -37,8 +37,18 @@ export function deleteFailure(err: unknown, kind: Deletable): string {
     return fundMovementMessage(err) ?? DELETE_FAILED;
 }
 
+/** 404 на удалении — части уже нет: цель достигнута, это не отказ. */
+function alreadyGone(result: PromiseSettledResult<unknown>): boolean {
+    return result.status === 'rejected'
+        && (result.reason as { status?: unknown } | null | undefined)?.status === 404;
+}
+
 /**
  * Удаляет части вместе — хотелку и созданный из неё план или копилку. Параллельно, как и раньше.
+ *
+ * Уже удалённая часть — не отказ. Иначе повтор после частичного удаления (хотелка ушла,
+ * копилка с деньгами — нет) назвал бы вместо денег пропавшую хотелку, а повтор после
+ * потерянного ответа — отказом то, что удалилось.
  *
  * @returns `null`, если удалилось всё; иначе фраза об отказавшей части
  */
@@ -46,7 +56,7 @@ export async function deleteTogether(
     parts: { kind: Deletable; run: () => Promise<unknown> }[],
 ): Promise<string | null> {
     const results = await Promise.allSettled(parts.map(p => p.run()));
-    const failed = results.findIndex(r => r.status === 'rejected');
+    const failed = results.findIndex(r => r.status === 'rejected' && !alreadyGone(r));
     if (failed < 0) return null;
     return deleteFailure((results[failed] as PromiseRejectedResult).reason, parts[failed].kind);
 }
