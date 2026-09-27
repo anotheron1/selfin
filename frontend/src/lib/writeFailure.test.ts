@@ -122,21 +122,25 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
         expect(body).toMatch(shown);
     });
 
-    it.each(['handleFixConfirm', 'handleFixWithoutConversion'])(
-        '%s: на отказе список не перечитывается, пока диалог открыт — иначе повтор запишет прежние числа',
+    it.each(['handleStatusChange', 'handleFixConfirm', 'handleFixWithoutConversion', 'handleDeleteConfirm'])(
+        '%s: на отказе список не перечитывается',
         (name) => {
-            // Перечитывание сбрасывает подкрученное (overrideMap), а диалог держит снимок хотелки
-            // с записанными числами: повтор из диалога ушёл бы с ними. Найдено перечиткой диффа.
+            // Перечитывание сбрасывает подкрученное (overrideMap): диалог держит снимок хотелки с
+            // записанными числами, и повтор ушёл бы с ними — найдено перечиткой диффа. И уводит блок
+            // в загрузку, а без связи — в ошибку загрузки: карточка со строкой отказа пропадает
+            // (ревью Codex, #108).
             const body = handlerBody(BLOCK, name);
             expect(body.match(/refetch\(\)/g)).toHaveLength(1);
-            expect(body).toMatch(/setFixItem\(null\);\s*refetch\(\);/);
+            expect(body).toMatch(/if \(failure\) \{[\s\S]*?return;\s*\}[\s\S]*refetch\(\);/);
         });
 
-    it('закрытие диалога фиксации перечитывает список только после отказа', () => {
-        // После отказа примерка могла записаться до отказа конверсии; без попытки перечитывание
-        // сбросило бы подкрученное простым «Отмена».
-        expect(handlerBody(BLOCK, 'closeFix')).toMatch(/if\s*\(fixError\)\s*refetch\(\)/);
-    });
+    it.each([['closeFix', 'fixError'], ['closeDelete', 'deleteError']])(
+        '%s перечитывает список только после отказа',
+        (name, error) => {
+            // После отказа часть записи могла пройти: примерка до отказа конверсии, одна из двух
+            // частей удаления. Без попытки перечитывание сбросило бы подкрученное простым «Отмена».
+            expect(handlerBody(BLOCK, name)).toMatch(new RegExp(`if\\s*\\(${error}\\)\\s*refetch\\(\\)`));
+        });
 
     it('ни один обработчик не прячет отказ за перечитыванием', () => {
         const src = read(BLOCK);

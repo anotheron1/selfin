@@ -139,7 +139,13 @@ export default function CapitalWhatIf() {
     const changeStatus = (item: WishlistItem, status: WishlistStatus): Promise<unknown> =>
         (item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus)(item.id, status);
 
-    /** «Отклонить» и «Вернуть в обсуждение»: отказ — строкой на карточке, до следующего нажатия. */
+    /**
+     * «Отклонить» и «Вернуть в обсуждение»: отказ — строкой на карточке, до следующего нажатия.
+     *
+     * <p>На отказе список не перечитывается (ревью Codex, #108): перечитывание уводит блок в
+     * загрузку, а без связи — в ошибку загрузки, и карточка со строкой отказа пропадает. Статус
+     * не сменился — перечитывать нечего; повтор той же смены безопасен.
+     */
     const handleStatusChange = async (item: WishlistItem, status: WishlistStatus) => {
         setStatusErrors(prev => {
             const next = { ...prev };
@@ -147,8 +153,11 @@ export default function CapitalWhatIf() {
             return next;
         });
         const failure = await attempt(() => changeStatus(item, status));
+        if (failure) {
+            setStatusErrors(prev => ({ ...prev, [item.id]: failure }));
+            return;
+        }
         refetch();
-        if (failure) setStatusErrors(prev => ({ ...prev, [item.id]: failure }));
     };
 
     const openFix = (item: WishlistItem) => {
@@ -226,9 +235,18 @@ export default function CapitalWhatIf() {
         if (alsoArtifact && item.convertedTo) parts.push(remove(item.convertedTo.kind, item.convertedTo.id));
         const failure = await deleteTogether(parts);
         setDeleteBusy(false);
+        if (failure) {
+            setDeleteError(failure);
+            return;
+        }
+        setDeleteItem(null);
         refetch();
-        if (failure) setDeleteError(failure);
-        else setDeleteItem(null);
+    };
+
+    /** Закрыть без удаления. После отказа — перечитать: одна из двух частей могла удалиться. */
+    const closeDelete = () => {
+        setDeleteItem(null);
+        if (deleteError) refetch();
     };
 
     const currentMonth = data?.baseline.currentMonth ?? '';
@@ -339,7 +357,7 @@ export default function CapitalWhatIf() {
                     item={deleteItem}
                     busy={deleteBusy}
                     error={deleteError}
-                    onClose={() => setDeleteItem(null)}
+                    onClose={closeDelete}
                     onConfirm={handleDeleteConfirm}
                 />
             )}
