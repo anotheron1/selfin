@@ -33,9 +33,13 @@ export class AttemptKeys {
         return key;
     }
 
-    /** Запись удалась: попытка закончена. */
-    done(target: string): void {
-        this.pending.delete(target);
+    /**
+     * Запись с ключом `key` удалась: её попытка закончена. Если попытку цели уже заменила более
+     * новая — две записи наложились, — её ключ остаётся (ревью #104): иначе повтор новой после
+     * потерянного ответа пришёл бы с новым ключом.
+     */
+    done(target: string, key: string): void {
+        if (this.pending.get(target)?.key === key) this.pending.delete(target);
     }
 }
 

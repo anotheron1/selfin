@@ -36,10 +36,24 @@ describe('ключ попытки записи (ANO-192)', () => {
         const keys = counting();
 
         const first = keys.keyFor('fact:plan-1', { factAmount: 100 });
-        keys.done('fact:plan-1');
+        keys.done('fact:plan-1', first);
         const next = keys.keyFor('fact:plan-1', { factAmount: 100 });
 
         expect(next).not.toBe(first);
+    });
+
+    it('успех забывает только свой ключ: более новая попытка той же цели остаётся (ревью #104)', () => {
+        // Две записи в одну цель наложились: вторая, с другими данными, заменила попытку. Первая
+        // завершилась — её успех не должен стереть ключ второй, иначе повтор второй после
+        // потерянного ответа пришёл бы с новым ключом.
+        const keys = counting();
+
+        const older = keys.keyFor('transfer:fund-1', { amount: 100 });
+        const newer = keys.keyFor('transfer:fund-1', { amount: 200 });
+        keys.done('transfer:fund-1', older);
+        const newerRetry = keys.keyFor('transfer:fund-1', { amount: 200 });
+
+        expect(newerRetry).toBe(newer);
     });
 
     it('у каждой цели своя попытка: запись в другую не сбивает ключ этой', () => {
@@ -47,7 +61,7 @@ describe('ключ попытки записи (ANO-192)', () => {
 
         const a = keys.keyFor('fact:plan-a', { factAmount: 100 });
         const b = keys.keyFor('fact:plan-b', { factAmount: 100 });
-        keys.done('fact:plan-b');
+        keys.done('fact:plan-b', b);
         const aRetry = keys.keyFor('fact:plan-a', { factAmount: 100 });
 
         expect(b).not.toBe(a);

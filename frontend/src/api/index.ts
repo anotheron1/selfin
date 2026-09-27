@@ -80,8 +80,9 @@ export const fetchEvents = (startDate: string, endDate: string) =>
  * Правило ключа — `lib/attemptKey.ts`.
  */
 async function withAttempt<T>(target: string, data: unknown, send: (key: string) => Promise<T>): Promise<T> {
-    const result = await send(attempts.keyFor(target, data));
-    attempts.done(target);
+    const key = attempts.keyFor(target, data);
+    const result = await send(key);
+    attempts.done(target, key);
     return result;
 }
 
@@ -92,9 +93,10 @@ async function withAttempt<T>(target: string, data: unknown, send: (key: string)
  * возвращает тот же план, и второго плана нет. Поэтому ключ плана забывается только после факта.
  */
 export async function createPlanWithFact(dto: FinancialEventCreateDto, fact?: FactCreateDto): Promise<FinancialEvent> {
-    const plan = await post<FinancialEvent>('/events', dto, { 'Idempotency-Key': attempts.keyFor('plan', dto) });
+    const planKey = attempts.keyFor('plan', dto);
+    const plan = await post<FinancialEvent>('/events', dto, { 'Idempotency-Key': planKey });
     if (fact) await createLinkedFact(plan.id, fact);
-    attempts.done('plan');
+    attempts.done('plan', planKey);
     return plan;
 }
 
