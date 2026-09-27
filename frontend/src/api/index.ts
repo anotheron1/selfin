@@ -226,14 +226,18 @@ export const deleteFund = (id: string) => del(`/funds/${id}`);
  *              уже сделан; не задан — сегодня, как у кнопки «Пополнить»
  */
 export const transferToFund = (fundId: string, amount: number, confirm?: boolean, scope?: string, date?: string) => {
-    const body = {
+    const transfer = {
         amount,
-        ...(confirm === undefined ? {} : { confirm }),
         ...(scope === undefined ? {} : { scope }),
         ...(date === undefined ? {} : { date }),
     };
-    return withAttempt(`transfer:${fundId}`, body, key =>
-        post<TargetFund>(`/funds/${fundId}/transfer`, body, { 'Idempotency-Key': key }));
+    // Подтверждение — разрешение, а не другая запись: ключ попытки берётся без него. Иначе
+    // повтор после потерянного ответа на подтверждённый перевод начинался бы запросом без
+    // подтверждения с новым ключом — и деньги ушли бы второй раз.
+    return withAttempt(`transfer:${fundId}`, transfer, key =>
+        post<TargetFund>(`/funds/${fundId}/transfer`,
+            { ...transfer, ...(confirm === undefined ? {} : { confirm }) },
+            { 'Idempotency-Key': key }));
 };
 
 // --- Snapshots ---

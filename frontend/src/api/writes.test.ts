@@ -4,17 +4,25 @@ import type { FinancialEventCreateDto } from '../types/api';
 
 type Call = { url: string; key: string | undefined };
 
+/** Отказ сервера: статус и тело ошибки. */
+class Refused {
+    constructor(readonly status: number, readonly body: object) {}
+}
+
 /**
  * Сеть по сценарию. 'lost' — запрос ушёл, а ответ потерян: страница получает `TypeError`, как при
- * обрыве связи, хотя сервер, возможно, уже записал. Объект — ответ сервера.
+ * обрыве связи, хотя сервер, возможно, уже записал. `Refused` — отказ сервера. Объект — ответ.
  */
-function network(...script: ('lost' | object)[]): Call[] {
+function network(...script: ('lost' | Refused | object)[]): Call[] {
     const calls: Call[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
         calls.push({ url, key: (init.headers as Record<string, string>)['Idempotency-Key'] });
         const step = script.shift();
         if (step === undefined) throw new Error(`лишний запрос: ${url}`);
         if (step === 'lost') throw new TypeError('Failed to fetch');
+        if (step instanceof Refused) {
+            return { ok: false, status: step.status, json: async () => step.body } as Response;
+        }
         return { ok: true, status: 200, json: async () => step } as Response;
     }));
     return calls;
@@ -62,6 +70,24 @@ describe('записи денег держат ключ попытки (ANO-192)
         expect(calls[0].key).toMatch(UUID);
         expect(calls[1].key, 'повтор — тот же ключ: второго перевода нет').toBe(calls[0].key);
         expect(calls[2].key, 'после успеха — новый перевод').not.toBe(calls[1].key);
+    });
+
+    it('перевод с подтверждением: подтверждение — та же попытка, повтор не переводит второй раз', async () => {
+        // «Пополнить» при нехватке — два запроса: без подтверждения (сервер переспрашивает, 409,
+        // ничего не записав) и с ним. Потерян ответ на подтверждённый — человек жмёт снова, и
+        // первый же запрос повтора обязан прийти с ключом того, что уже записано.
+        const calls = network(
+            new Refused(409, { message: 'Needs confirmation', details: ['CONFIRM_REQUIRED'] }),
+            'lost',
+            { id: 'fund-2' },
+        );
+
+        await expect(transferToFund('fund-confirm', 1000, undefined, 'SECOND_INCOME')).rejects.toThrow();
+        await expect(transferToFund('fund-confirm', 1000, true, 'SECOND_INCOME')).rejects.toThrow();
+        await transferToFund('fund-confirm', 1000, undefined, 'SECOND_INCOME');
+
+        expect(calls[1].key, 'подтверждение не меняет ключ').toBe(calls[0].key);
+        expect(calls[2].key, 'повтор — ключ записанного перевода: сервер его вернёт').toBe(calls[1].key);
     });
 
     it('план с фактом: факт не дошёл — повтор шлёт и план, и факт с прежними ключами, второго плана нет', async () => {
