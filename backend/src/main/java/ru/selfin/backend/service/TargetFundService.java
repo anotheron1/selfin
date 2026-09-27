@@ -8,6 +8,7 @@ import ru.selfin.backend.dto.FundsOverviewDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
 import ru.selfin.backend.exception.ConfirmationRequiredException;
+import ru.selfin.backend.exception.FundMovementRefusedException;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
@@ -299,7 +300,7 @@ public class TargetFundService {
                 // кармашек и остаток растут. confirm=true — подтверждать нечего, это возврат
                 // своих же.
                 if (recorded.signum() != 0) {
-                    doTransfer(id, UUID.randomUUID(), recorded.negate(), true, null);
+                    doTransfer(id, UUID.randomUUID(), recorded.negate(), true, null, null);
                 }
             } else {
                 // Деньги потрачены на цель. Журнал обязан назвать это тратой, а не
@@ -409,10 +410,22 @@ public class TargetFundService {
     @Transactional
     public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount,
                                           boolean confirm, String scope) {
+        return transferToPocket(fundId, idempotencyKey, amount, confirm, scope, null);
+    }
+
+    /**
+     * То же днём, который назвал человек (ANO-169): быстрый ввод записывает перевод, который
+     * уже сделан, — возможно, вчера.
+     *
+     * @param date день перевода; {@code null} — сегодня; будущий — 400
+     */
+    @Transactional
+    public TargetFundDto transferToPocket(UUID fundId, UUID idempotencyKey, BigDecimal amount,
+                                          boolean confirm, String scope, LocalDate date) {
         // Идемпотентность: повторный запрос с тем же ключом возвращает закэшированный результат
         return transactionRepository.findByIdempotencyKey(idempotencyKey)
                 .map(tx -> toDto(tx.getFund()))
-                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount, confirm, scope));
+                .orElseGet(() -> doTransfer(fundId, idempotencyKey, amount, confirm, scope, date));
     }
 
     /**
@@ -423,11 +436,12 @@ public class TargetFundService {
      * @param fundId         идентификатор фонда
      * @param idempotencyKey UUID для записи транзакции
      * @param amount         сумма пополнения
+     * @param date           день перевода; {@code null} — сегодня (ANO-169)
      * @return обновлённый фонд
      * @throws ResourceNotFoundException если фонд не найден или удалён
      */
     private TargetFundDto doTransfer(UUID fundId, UUID idempotencyKey, BigDecimal amount,
-                                     boolean confirm, String scope) {
+                                     boolean confirm, String scope, LocalDate date) {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
@@ -436,6 +450,22 @@ public class TargetFundService {
         if (amount.signum() == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Transfer amount must not be zero");
+        }
+        LocalDate today = LocalDate.now(clock);
+        // ANO-169: факт перевода и движение копилки — одним днём, тем, что назвал человек.
+        // Будущего перевода не бывает: деньги ещё не ушли, и в копилке их нет (ANO-155).
+        LocalDate day = date != null ? date : today;
+        if (day.isAfter(today)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Transfer date " + day + " is in the future");
+        }
+        // Ревью #96: дата здесь — ради «уже перевёл» из быстрого ввода, то есть вклада. Снятие
+        // прошлым днём проверялось бы ниже по СЕГОДНЯШНЕМУ остатку: вчера в копилке могло не быть
+        // денег, положенных сегодня, и её история ушла бы в минус. Экран снятие с датой не шлёт —
+        // поэтому снятие только сегодняшним днём, а не проверка по остатку того дня.
+        if (amount.signum() < 0 && day.isBefore(today)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A withdrawal from a fund is recorded today, not on " + day);
         }
         // ANO-87 (спека §4.1). Снять можно только то, что накоплено. Это не запрет, а
         // арифметика: в копилке столько физически нет. В отличие от перевода СВЕРХ остатка
@@ -457,7 +487,6 @@ public class TargetFundService {
         //
         // Основания проверяются ДО записи перевода: сам факт перевода — тоже факт, и после
         // записи у человека без якоря и фактов «основания» появились бы из его же действия.
-        LocalDate today = LocalDate.now(clock);
         boolean askIfShort = amount.signum() > 0 && !confirm
                 && accountBalanceService.knowsFreeMoneyAt(today);
 
@@ -472,7 +501,7 @@ public class TargetFundService {
                 .fund(fund)
                 .idempotencyKey(idempotencyKey)
                 .amount(amount)
-                .transactionDate(LocalDate.now(clock))
+                .transactionDate(day)
                 .build();
         transactionRepository.save(tx);
 
@@ -483,7 +512,7 @@ public class TargetFundService {
                 .type(EventType.FUND_TRANSFER)
                 .status(EventStatus.EXECUTED)
                 .factAmount(amount)
-                .date(LocalDate.now(clock))
+                .date(day)
                 .category(category)
                 .targetFundId(fund.getId())
                 .description("В копилку: " + fund.getName())
@@ -533,40 +562,70 @@ public class TargetFundService {
     }
 
     /**
-     * Выполняет перевод в фонд для уже существующего FUND_TRANSFER события.
-     * Не создаёт новое FinancialEvent — оно уже есть.
-     * Идемпотентен по idempotencyKey.
+     * Приводит движение копилки к факту перевода (ANO-169, ANO-201).
      *
-     * @param fundId          идентификатор фонда
-     * @param amount          сумма пополнения
-     * @param idempotencyKey  ключ идемпотентности события
+     * <p>Факт {@code FUND_TRANSFER} уменьшает остаток счёта, движение {@link FundTransaction}
+     * с тем же ключом увеличивает копилку, и вместе они гасят друг друга — капитал от перевода
+     * не меняется (спека капитала {@code 2026-05-10-capital-net-worth-design.md:63-66}). Кнопка
+     * «Пополнить» пишет обе записи сама ({@link #doTransfer}). Этот метод — для трёх путей,
+     * которые меняют уже записанный или записываемый факт: факт к плану, правка суммы,
+     * удаление. До ANO-201 они писали только первую запись: деньги пропадали или появлялись
+     * из воздуха (замер — спека {@code 2026-09-27-fund-transfer-fact-design.md}).
+     *
+     * <p>Когда копилка сдвинуться не может, отказ бросается ДО любой записи, и транзакция
+     * вызывающего откатывает факт вместе с ней — факт и копилка меняются только вместе:
+     * <ul>
+     *   <li>копилка удалена — её переводы история: «вернуть» закрыло её обратным переводом,
+     *       «потрачено» — списанием, и правка после этого оставила бы деньги-призраки;</li>
+     *   <li>копилка на счёте — её деньги двигаются на самом счёте (§3.3, ANO-158);</li>
+     *   <li>баланс ушёл бы в минус — та же арифметика, что снятие сверх накопленного (ANO-87).</li>
+     * </ul>
+     *
+     * @param fundId  копилка перевода
+     * @param key     ключ события — он же ключ движения
+     * @param date    день факта: им датируется новое движение, чтобы две записи сходились
+     *                и в капитале за прошлые даты
+     * @param desired сумма, которую должно нести движение: сумма факта; ноль — факта больше нет
+     * @throws FundMovementRefusedException если копилка не может сдвинуться вместе с фактом
      */
     @Transactional
-    public void doTransferForEvent(UUID fundId, BigDecimal amount, UUID idempotencyKey) {
-        if (transactionRepository.existsByIdempotencyKey(idempotencyKey)) return;
+    public void syncMovement(UUID fundId, UUID key, LocalDate date, BigDecimal desired) {
+        FundTransaction tx = transactionRepository.findByIdempotencyKey(key).orElse(null);
+        BigDecimal current = tx != null && !tx.isDeleted() ? tx.getAmount() : BigDecimal.ZERO;
+        BigDecimal delta = desired.subtract(current);
+        if (delta.signum() == 0) return;
 
-        TargetFund fund = fundRepository.findById(fundId)
-                .filter(f -> !f.isDeleted())
+        // Деньги уже лежат в копилке движения — она и двигается; копилка события — для нового.
+        TargetFund fund = tx != null ? tx.getFund() : fundRepository.findById(fundId)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
-        rejectTransferToAccountBackedFund(fund);
-
-        BigDecimal newBalance = fund.getCurrentBalance().add(amount);
-        fund.setCurrentBalance(newBalance);
-        if (fund.getTargetAmount() != null && newBalance.compareTo(fund.getTargetAmount()) >= 0) {
-            fund.setStatus(FundStatus.REACHED);
+        if (fund.isDeleted()) throw FundMovementRefusedException.closed(fund.getName());
+        if (fund.getAccountId() != null) throw FundMovementRefusedException.onAccount(fund.getName());
+        BigDecimal newBalance = fund.getCurrentBalance().add(delta);
+        if (newBalance.signum() < 0) {
+            throw FundMovementRefusedException.holdsLess(fund.getName(), fund.getCurrentBalance());
         }
-        fundRepository.save(fund);
 
-        FundTransaction tx = FundTransaction.builder()
-                .fund(fund)
-                .idempotencyKey(idempotencyKey)
-                .amount(amount)
-                .transactionDate(LocalDate.now(clock))
-                .build();
+        if (tx == null) {
+            tx = FundTransaction.builder()
+                    .fund(fund)
+                    .idempotencyKey(key)
+                    .amount(desired)
+                    .transactionDate(date)
+                    .build();
+        } else if (desired.signum() == 0) {
+            tx.setDeleted(true);
+        } else {
+            tx.setAmount(desired);
+            tx.setDeleted(false);
+        }
         transactionRepository.save(tx);
 
-        log.info("fund_transfer_for_event fund_id={} amount={} balance_after={} key={}",
-                fundId, amount, newBalance, idempotencyKey);
+        fund.setCurrentBalance(newBalance);
+        applyStatusByBalance(fund);
+        fundRepository.save(fund);
+
+        log.info("fund_movement_sync fund_id={} key={} movement={} delta={} balance_after={}",
+                fund.getId(), key, desired, delta, newBalance);
     }
 
     /**
