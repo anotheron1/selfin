@@ -8,6 +8,7 @@ import PocketTrajectoryChart from '../components/pocket/PocketTrajectoryChart';
 import UpcomingList from '../components/dashboard/UpcomingList';
 import { buildWatchdogAlert, withoutSameGap } from '../lib/watchdogAlert';
 import { fmtDayMonth as fmtLocalDate, fmtRub } from '../lib/format';
+import { factAmountText } from '../lib/factSign';
 
 const fmt = fmtRub;
 
@@ -99,7 +100,7 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                                     )}
                                 </div>
                                 <span className="font-medium shrink-0" style={{ color: 'var(--color-success)' }}>
-                                    +{fmtAmt(e.factAmount ?? e.plannedAmount)}
+                                    {factAmountText(e.type, e.factAmount ?? e.plannedAmount, fmtAmt)}
                                 </span>
                             </div>
                         ))}
@@ -121,7 +122,8 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                                     )}
                                 </div>
                                 <span className="font-medium shrink-0" style={{ color: 'var(--color-text-muted)' }}>
-                                    -{fmtAmt(e.factAmount ?? e.plannedAmount)}
+                                    {/* ANO-184: возврат из копилки — перевод с минусом, знак от правила, не от группы */}
+                                    {factAmountText(e.type, e.factAmount ?? e.plannedAmount, fmtAmt)}
                                 </span>
                             </div>
                         ))}

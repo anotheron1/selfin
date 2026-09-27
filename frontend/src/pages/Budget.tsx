@@ -9,6 +9,7 @@ import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { canRecordFact, todayIso } from '../lib/factDate';
 import { ruPlural } from '../lib/plural';
 import { PRIORITY_DOT_CONFIG } from '../lib/priority';
+import { factAmountText } from '../lib/factSign';
 import EditEventSheet from '../components/EditEventSheet';
 import FactCreateSheet from '../components/FactCreateSheet';
 import PriorityButton from '../components/PriorityButton';
@@ -274,7 +275,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                     {new Date(lastFact.date! + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
                                     {' · '}
                                     <span className="font-medium" style={{ color: 'var(--color-text)' }}>
-                                        -{fmt(lastFact.factAmount)}
+                                        {factAmountText(lastFact.type, lastFact.factAmount, fmt)}
                                     </span>
                                 </span>
                             </div>
@@ -504,7 +505,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                             </div>
                                                                         ) : (
                                                                             <div className="text-sm font-semibold" style={{ color: amountColor }}>
-                                                                                {isIncome ? '+' : '-'}{fmt(event.factAmount)}
+                                                                                {factAmountText(event.type, event.factAmount, fmt)}
                                                                             </div>
                                                                         )}
                                                                     </div>
