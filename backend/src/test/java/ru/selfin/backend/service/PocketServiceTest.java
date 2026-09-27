@@ -136,6 +136,69 @@ class PocketServiceTest {
         verify(eventRepository, never()).findAllById(any());
     }
 
+    // ── ANO-95: виновник дня минимума без описания называется категорией ────
+
+    private static ru.selfin.backend.model.FinancialEvent planNamedIn(String categoryName, String description,
+                                                                      LocalDate date, long amount) {
+        var e = planIn(categoryName, date, amount);
+        e.setDescription(description);
+        return e;
+    }
+
+    /** День минимума 12.03: безымянный расход 8 000 и «Бензин» 3 300 — как на стенде 27.09. */
+    private PocketResultDto pocketWithCulprit(String culpritDescription) {
+        var culprit = planNamedIn("Продукты", culpritDescription, LocalDate.of(2026, 3, 12), 8_000);
+        var benzin = planNamedIn("Авто", "Бензин", LocalDate.of(2026, 3, 12), 3_300);
+        incomeDates(LocalDate.of(2026, 3, 13));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of(culprit, benzin));
+        when(eventRepository.findAllById(any())).thenReturn(List.of(culprit, benzin));
+        return pocketService.getPocket(null, TODAY);
+    }
+
+    @Test
+    @DisplayName("ANO-95: у крупнейшего расхода дня минимума нет описания — виновник назван категорией")
+    void culprit_withoutDescription_isNamedByCategory() {
+        PocketResultDto r = pocketWithCulprit(null);
+
+        assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 12));
+        assertThat(r.minPoint().drivenBy()).isEqualTo("Продукты");
+    }
+
+    @Test
+    @DisplayName("ANO-95: описание есть — виновник назван описанием, а не категорией")
+    void culprit_withDescription_keepsDescription() {
+        assertThat(pocketWithCulprit("Страховка").minPoint().drivenBy()).isEqualTo("Страховка");
+    }
+
+    @Test
+    @DisplayName("ANO-95: описание из пробелов — как без описания")
+    void culprit_blankDescription_isNamedByCategory() {
+        assertThat(pocketWithCulprit("   ").minPoint().drivenBy()).isEqualTo("Продукты");
+    }
+
+    /**
+     * Прогнозный минимум идёт тем же путём, но поднять прогноз в сервисном тесте — это три
+     * месяца наблюдений в моках. Подстановка проверяется на готовом ответе: у главного минимума
+     * виновник с описанием, у прогнозного — без него.
+     */
+    @Test
+    @DisplayName("ANO-95: у прогнозного минимума — та же подстановка, описание главного не тронуто")
+    void culprit_forecastPoint_isNamedByCategory() {
+        var unnamed = planNamedIn("Продукты", null, LocalDate.of(2026, 3, 12), 8_000);
+        when(eventRepository.findAllById(any())).thenReturn(List.of(unnamed));
+        var main = new PocketResultDto.MinPoint(LocalDate.of(2026, 3, 12), BigDecimal.valueOf(-11_300),
+                "Кафе", java.util.UUID.randomUUID());
+        var withForecast = new PocketResultDto.MinPoint(LocalDate.of(2026, 3, 12), BigDecimal.valueOf(-12_000),
+                null, unnamed.getId());
+        PocketResultDto raw = new PocketResultDto(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null, null,
+                main, List.of(), List.of(), List.of(), null, null, BigDecimal.ZERO, withForecast, List.of(), false);
+
+        PocketResultDto r = pocketService.withCulpritCategories(raw);
+
+        assertThat(r.minPoint().drivenBy()).isEqualTo("Кафе");
+        assertThat(r.minPointWithForecast().drivenBy()).isEqualTo("Продукты");
+    }
+
     /** Стаб дат доходов в стандартном окне поиска (asOf, asOf+92]. */
     private void incomeDates(LocalDate... dates) {
         when(eventRepository.findPlannedIncomeDates(eq(TODAY), eq(TODAY.plusDays(92)), anyBoolean(), any()))

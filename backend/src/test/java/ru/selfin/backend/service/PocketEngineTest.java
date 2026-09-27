@@ -910,6 +910,33 @@ class PocketEngineTest {
         assertThat(smeared.minPointWithForecast().drivenBy()).isNull();
     }
 
+    /**
+     * ANO-95. Крупнейший расход дня минимума без описания — виновник не назван, хотя строка
+     * есть. Движок имён категорий не видит (снимки плоские), поэтому отдаёт id строки, а
+     * категорию подставляет сервис. Доход на следующий день держит прогнозный минимум на том
+     * же дне: иначе его унесла бы размазка прогноза.
+     */
+    @Test
+    @DisplayName("ANO-95: у безымянного виновника точка минимума несёт его id — главная и прогнозная")
+    void minPointCarriesUnnamedCulpritId() {
+        EventSnapshot unnamed = planNamed(EventType.EXPENSE, LocalDate.of(2026, 3, 12), 9_000, null);
+        PocketInput in = base()
+                .monthsScope(3, LocalDate.of(2026, 6, 1))
+                .forecast(1_400, "Продукты")
+                .events(unnamed,
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 3, 12), 2_000, "Кафе"),
+                        plan(EventType.INCOME, LocalDate.of(2026, 3, 13), 100_000, Priority.HIGH))
+                .build();
+
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.minPoint().date()).isEqualTo(LocalDate.of(2026, 3, 12));
+        assertThat(r.minPoint().drivenBy()).isNull();
+        assertThat(r.minPoint().drivenByEventId()).isEqualTo(unnamed.id());
+        assertThat(r.minPointWithForecast().date()).isEqualTo(LocalDate.of(2026, 3, 12));
+        assertThat(r.minPointWithForecast().drivenByEventId()).isEqualTo(unnamed.id());
+    }
+
     // ── без чекпоинта ────────────────────────────────────────────────────────
 
     @Test

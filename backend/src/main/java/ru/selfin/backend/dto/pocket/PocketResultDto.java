@@ -79,13 +79,36 @@ public record PocketResultDto(
                 planHasExpectations);
     }
 
+    /** Копия с подставленными виновниками обоих минимумов (ANO-95) — имена знает сервис, а не движок. */
+    public PocketResultDto withMinPoints(MinPoint main, MinPoint withForecast) {
+        return new PocketResultDto(pocket, currentBalance, buffer, checkpointDate, horizon,
+                main, breakdown, trajectory, wishlistCandidates, pocketAfterCreditRestore,
+                pocketWithDeposits, pocketWithForecast, withForecast, upcoming,
+                planHasExpectations);
+    }
+
     public record Horizon(PocketScope.Type type, LocalDate endDate, String label, boolean fallback) {}
     /**
-     * Точка минимума; drivenBy = описание самого крупного планового расхода дня минимума.
-     * null — если минимум в день 0, если в день минимума нет расходов-событий (типовой случай:
-     * минимум создан размазкой прогноза незапланированных) или у события нет описания.
+     * Точка минимума; drivenBy = описание самого крупного планового расхода дня минимума, а без
+     * описания — его категория (ANO-95). null — если минимум в день 0, если в день минимума нет
+     * расходов-событий (типовой случай: минимум создан размазкой прогноза незапланированных) или
+     * у безымянного расхода нет и категории.
+     *
+     * @param drivenByEventId строка-виновник. Движок видит только описание — имена категорий
+     *                        подставляет сервис по этому id, как в «осталось потратить».
+     *                        {@code null} у синтетики и там, где виновника нет
      */
-    public record MinPoint(LocalDate date, BigDecimal balance, String drivenBy) {}
+    public record MinPoint(LocalDate date, BigDecimal balance, String drivenBy, java.util.UUID drivenByEventId) {
+        /** Без строки-виновника — примерка и тесты, которым id не нужен. */
+        public MinPoint(LocalDate date, BigDecimal balance, String drivenBy) {
+            this(date, balance, drivenBy, null);
+        }
+
+        /** Та же точка с подставленным именем виновника. */
+        public MinPoint withDrivenBy(String name) {
+            return new MinPoint(date, balance, name, drivenByEventId);
+        }
+    }
     /**
      * Точка траектории с дневными суммами (спека §3.6, дополнение 2026-07-04).
      *

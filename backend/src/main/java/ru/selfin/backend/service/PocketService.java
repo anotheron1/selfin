@@ -28,7 +28,7 @@ import java.util.UUID;
 public class PocketService {
 
     private final PocketInputAssembler assembler;
-    /** ANO-119: только чтобы подставить имена категорий в список «осталось потратить». */
+    /** ANO-119, ANO-95: только чтобы подставить имена категорий — в «осталось потратить» и виновнику минимума. */
     private final FinancialEventRepository eventRepository;
 
     public PocketResultDto getPocket(String rawScope, LocalDate asOfDate) {
@@ -38,8 +38,39 @@ public class PocketService {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
-        return withCategoryNames(
-                PocketEngine.calculate(assembler.build(scope, asOfDate).input()));
+        return withCulpritCategories(withCategoryNames(
+                PocketEngine.calculate(assembler.build(scope, asOfDate).input())));
+    }
+
+    /**
+     * Называет виновника дня минимума категорией, если у него нет описания (ANO-95).
+     *
+     * <p>Движок берёт виновником описание крупнейшего расхода дня минимума, а без описания
+     * отдавал {@code null} — и плашка разрыва на 122 212 ₽ молчала о причине, хотя расход
+     * в этот день был. Порядок — описание, затем категория того же расхода (решение владельца
+     * в задаче). Приём тот же, что у {@link #withCategoryNames}: запрос по одному-двум id.
+     * У синтетики id нет — она остаётся со своим описанием.
+     */
+    PocketResultDto withCulpritCategories(PocketResultDto result) {
+        List<UUID> ids = java.util.stream.Stream.of(result.minPoint(), result.minPointWithForecast())
+                .filter(PocketService::needsName)
+                .map(PocketResultDto.MinPoint::drivenByEventId)
+                .toList();
+        if (ids.isEmpty()) return result;
+
+        Map<UUID, String> names = new HashMap<>();
+        for (FinancialEvent e : eventRepository.findAllById(ids)) {
+            if (e.getCategory() != null) names.put(e.getId(), e.getCategory().getName());
+        }
+        return result.withMinPoints(named(result.minPoint(), names), named(result.minPointWithForecast(), names));
+    }
+
+    private static boolean needsName(PocketResultDto.MinPoint p) {
+        return p != null && p.drivenByEventId() != null && (p.drivenBy() == null || p.drivenBy().isBlank());
+    }
+
+    private static PocketResultDto.MinPoint named(PocketResultDto.MinPoint p, Map<UUID, String> names) {
+        return needsName(p) ? p.withDrivenBy(names.get(p.drivenByEventId())) : p;
     }
 
     /**
