@@ -45,6 +45,17 @@ export function unansweredThreads(comments, { at } = {}) {
 
 const BADGE = /!\[P\d Badge\]/;
 
+// Заголовок и ответ сравниваются без разметки: ответ копируют с отрисованной страницы, где нет ни обратных кавычек,
+// ни ссылок, ни звёздочек (ревью Codex на #98). Регистр и пробелы — тоже не в счёт.
+const plain = (text) => text
+  .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+  .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/<\/?[a-z][^>]*>/gi, '')
+  .replace(/[`*_~]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .toLowerCase();
+
 /**
  * Замечания в теле ревью Codex, на которые нет ответа (ANO-204). Строка, на которую ссылается замечание, может
  * не меняться в диффе — тогда ветку привязать не к чему, и Codex пишет в тело ревью (#96, 02:20). Каждая строка тела
@@ -63,7 +74,7 @@ export function unansweredReviewRemarks({ reviews, issueComments }, { at } = {})
     .flatMap((r) => (r.body ?? '').split('\n')
       .filter((line) => BADGE.test(line))
       .map((line) => ({ at: r.submittedAt, ...remarkTitle(line) })))
-    .filter((remark) => !answers.some((a) => time(a.at) > time(remark.at) && a.body.includes(remark.title)));
+    .filter((remark) => !answers.some((a) => time(a.at) > time(remark.at) && plain(a.body).includes(plain(remark.title))));
 }
 
 // Заголовок прогона «Ответов Codex» задан run-name: «Ответы Codex — <событие> <действие> #<номер PR>». По нему виден

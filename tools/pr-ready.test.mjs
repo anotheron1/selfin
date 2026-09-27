@@ -728,3 +728,11 @@ test('пункт «Замечания Codex» — и ветки, и тело р�
   ].join('\n'));
   assert.equal(repliesItem({ comments: [], reviews: [review96], issueComments: [answered96] }).text, 'без ответа нет');
 });
+
+// Ревью Codex на #98: заголовок с разметкой — обратные кавычки, ссылка. Ответ копируют с отрисованной страницы,
+// где разметки нет, — буквальное сравнение его бы не узнало.
+test('заголовок с разметкой — ответ без неё засчитан', () => {
+  const marked = { ...review96, body: `### 💡 Codex Review\n\n${bodyRemark('Use `requireNotFuture` in [updateFact](https://example.com/x) **before** syncing')}` };
+  const reply = feedAnswer('2026-09-27T05:01:10Z', 'Про «Use requireNotFuture in updateFact before syncing»: исправлено.');
+  assert.deepEqual(unansweredReviewRemarks({ reviews: [marked], issueComments: [reply] }), []);
+});
