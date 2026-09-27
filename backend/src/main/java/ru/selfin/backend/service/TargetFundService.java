@@ -112,7 +112,8 @@ public class TargetFundService {
     }
 
     /**
-     * Обновляет название, целевую сумму, срок достижения и приоритет фонда.
+     * Обновляет название, целевую сумму, срок достижения и приоритет фонда. Статус конверта
+     * пересчитывается по новой цели (ANO-199).
      *
      * @param id  идентификатор фонда
      * @param dto новые данные фонда
@@ -147,11 +148,17 @@ public class TargetFundService {
         // отменена решением от 16.09.2026 — см. поправку в самой спеке.
         if (fund.getAccountId() != null && dto.accountId() == null) {
             fund.setCurrentBalance(transactionRepository.sumLiveByFundId(id));
-            applyStatusByBalance(fund);
         }
         UUID accountId = validateAccountLink(dto.accountId(), fund.getId());
         recordAccountLink(fund.getId(), fund.getAccountId(), accountId);
         fund.setAccountId(accountId);
+        // ANO-199: статус — производная от накопленного И цели, а правка меняет цель. Раньше он
+        // пересчитывался только при отвязке, и поднятая цель оставляла «Цель достигнута» при 50%
+        // без кнопки пополнения. У копилки на счёте поле баланса — не её деньги (§3.3), статус по
+        // нему не выводится; её случай — C11 (ANO-164, ANO-174).
+        if (fund.getAccountId() == null) {
+            applyStatusByBalance(fund);
+        }
         return toDto(fundRepository.save(fund));
     }
 
@@ -201,10 +208,16 @@ public class TargetFundService {
      * она может перестать быть достигнутой, и оставлять её {@code REACHED} значило бы врать
      * на экране (ANO-87). Правило живёт в одном месте — двух копий «слово в слово» этому
      * репозиторию уже хватило (ANO-155).
+     *
+     * <p>Цель задана, только если она больше нуля (ANO-199). Ноль — копилка без цели: так её
+     * заводили в обход обязательного поля, и первый же взнос в 1 ₽ «достигал» цели 0 — копилка
+     * закрывалась и больше не принимала денег. Правило здесь, а не у формы: цель приходит ещё
+     * из ручки, из конверсии хотелки (сумма хотелки бывает 0) и из старых записей.
      */
     private void applyStatusByBalance(TargetFund fund) {
-        fund.setStatus(fund.getTargetAmount() != null
-                && fund.getCurrentBalance().compareTo(fund.getTargetAmount()) >= 0
+        BigDecimal target = fund.getTargetAmount();
+        fund.setStatus(target != null && target.signum() > 0
+                && fund.getCurrentBalance().compareTo(target) >= 0
                 ? FundStatus.REACHED : FundStatus.FUNDING);
     }
 
