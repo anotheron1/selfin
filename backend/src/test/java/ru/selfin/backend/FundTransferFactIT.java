@@ -265,6 +265,24 @@ class FundTransferFactIT {
         assertThat(fundBalance(fundId)).isEqualByComparingTo("500");
     }
 
+    /**
+     * Ревью #96. Дата у ручки перевода — для «уже перевёл» из быстрого ввода, то есть для вклада.
+     * Снятие прошлым днём проверялось бы по сегодняшнему остатку: положил 100 сегодня, снял 100
+     * вчерашним днём — и история копилки за вчера ушла в минус. Экран снятие с датой не шлёт.
+     */
+    @Test
+    @DisplayName("снятие из копилки прошлым днём — 400; сегодняшним — можно")
+    void withdrawalWithPastDate_isRejected() throws Exception {
+        String fundId = createFund("Отпуск");
+        transfer(fundId, "100", true, null).andExpect(status().isOk());
+
+        transfer(fundId, "-100", true, YESTERDAY).andExpect(status().isBadRequest());
+        assertThat(fundBalance(fundId)).as("отказ ничего не снял").isEqualByComparingTo("100");
+
+        transfer(fundId, "-100", true, TODAY).andExpect(status().isOk());
+        assertThat(fundBalance(fundId)).isEqualByComparingTo("0");
+    }
+
     // ── оснастка ────────────────────────────────────────────────────────────
 
     private String createFund(String name) {

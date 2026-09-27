@@ -459,6 +459,14 @@ public class TargetFundService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Transfer date " + day + " is in the future");
         }
+        // Ревью #96: дата здесь — ради «уже перевёл» из быстрого ввода, то есть вклада. Снятие
+        // прошлым днём проверялось бы ниже по СЕГОДНЯШНЕМУ остатку: вчера в копилке могло не быть
+        // денег, положенных сегодня, и её история ушла бы в минус. Экран снятие с датой не шлёт —
+        // поэтому снятие только сегодняшним днём, а не проверка по остатку того дня.
+        if (amount.signum() < 0 && day.isBefore(today)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A withdrawal from a fund is recorded today, not on " + day);
+        }
         // ANO-87 (спека §4.1). Снять можно только то, что накоплено. Это не запрет, а
         // арифметика: в копилке столько физически нет. В отличие от перевода СВЕРХ остатка
         // счёта, здесь подтверждать нечего — отказ безусловный.
