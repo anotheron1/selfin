@@ -5,7 +5,7 @@ import { confirmQuestion, needsConfirmation, transferFreeLine } from '../lib/tra
 import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
-import { fmtRub } from '../lib/format';
+import { fundTarget } from '../lib/fundTarget';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { AmountInput, amountValue } from "../components/ui/amount-input";
 import { Input } from '../components/ui/input';
@@ -15,8 +15,6 @@ import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import type { PurchaseType } from '../types/api';
-
-const fmt = (n: number | null) => (n != null ? fmtRub(n) : '∞');
 
 /**
  * Выбор счёта, на котором физически лежат деньги цели (ANO-9 §3.3). Пусто — виртуальный
@@ -398,9 +396,8 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
     onTransfer: (f: TargetFund) => void;
     onEdit: (f: TargetFund) => void;
 }) {
-    const pct = fund.targetAmount
-        ? Math.min(Math.round((fund.currentBalance / fund.targetAmount) * 100), 100)
-        : 100;
+    // ANO-199: цель необязательна — без цели процента и полосы нет, «Накоплено» — одна сумма.
+    const { pct, amountLine } = fundTarget(fund);
     const reached = fund.status === 'REACHED';
     return (
         <div className="rounded-2xl p-5 space-y-3"
@@ -418,7 +415,9 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
                     )}
                 </div>
                 <div className="flex items-center gap-1.5">
-                    <span className="text-2xl font-bold" style={{ color: 'var(--color-accent)' }}>{pct}%</span>
+                    {pct != null && (
+                        <span className="text-2xl font-bold" style={{ color: 'var(--color-accent)' }}>{pct}%</span>
+                    )}
                     {/* У копилки на счёте перевода нет: деньги двигаются на самом счёте, а
                         перевод создал бы вторую запись за те же рубли (бэкенд вернёт 400).
                         По сумме кармашка кнопку НЕ прячем (ANO-157): ноль означает и «денег
@@ -443,15 +442,15 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
                     </Button>
                 </div>
             </div>
-            {fund.targetAmount && (
+            {pct != null && (
                 <Progress
-                    value={Math.min(100, (fund.currentBalance / fund.targetAmount) * 100)}
+                    value={pct}
                     className={cn("h-2 mt-2", reached && "[&>div]:bg-[var(--color-success)]")}
                 />
             )}
             <div className="flex justify-between text-sm">
                 <span style={{ color: 'var(--color-text-muted)' }}>Накоплено</span>
-                <span className="font-medium">{fmt(fund.currentBalance)} / {fmt(fund.targetAmount)}</span>
+                <span className="font-medium">{amountLine}</span>
             </div>
             {fund.targetDate && (
                 <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>

@@ -179,6 +179,12 @@ public class FinancialEventService {
      */
     @Transactional
     public FinancialEventDto createStandaloneFact(StandaloneFactCreateDto dto) {
+        // ANO-201: у такого факта нет ни копилки, ни движения — он уменьшил бы счёт и никуда
+        // не положил деньги. Перевод записывается ручкой перевода: там копилка и ключ.
+        if (dto.type() == EventType.FUND_TRANSFER) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A transfer into a fund is recorded by POST /funds/{id}/transfer, not as a standalone fact");
+        }
         Category category = categoryRepository.findById(dto.categoryId())
                 .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
@@ -230,7 +236,7 @@ public class FinancialEventService {
         }
 
         if (scope == ScopeEnum.THIS) {
-            Category category = resolveCategoryForUpdate(dto);
+            Category category = resolveCategoryForUpdate(event, dto);
             applyDto(event, dto, category);
             FinancialEvent saved = eventRepository.save(event);
             // Ревью #45: плановую сумму только что могли поднять поверх уже уплаченного —
@@ -256,13 +262,14 @@ public class FinancialEventService {
                         "Regenerate dropped the trigger date " + event.getDate() + " for rule " + rule.getId()));
     }
 
-    /** Extracted from old update() — verbatim category resolution. */
-    private Category resolveCategoryForUpdate(FinancialEventCreateDto dto) {
+    /** An existing plan may retain its own archived category, but cannot adopt another one. */
+    private Category resolveCategoryForUpdate(FinancialEvent event, FinancialEventCreateDto dto) {
         if (dto.type() == EventType.FUND_TRANSFER && dto.categoryId() == null) {
             return targetFundService.getOrCreateFundTransferCategory();
         }
         return categoryRepository.findById(dto.categoryId())
-                .filter(c -> !c.isDeleted())
+                .filter(c -> !c.isDeleted() || (event.getCategory() != null
+                        && c.getId().equals(event.getCategory().getId())))
                 .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
     }
 
@@ -301,6 +308,15 @@ public class FinancialEventService {
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent (PLAN)", planId));
         requireNotFuture(dto.date());
 
+        // ANO-169: факт к плану перевода — это перевод. Раньше он брал у плана категорию и
+        // тип, но не копилку, и движения не писал: счёт уменьшался, копилка стояла на месте,
+        // деньги пропадали из капитала. Замерено: на счёте 60 000 → 59 000, копилка 0.
+        boolean transfer = plan.getType() == EventType.FUND_TRANSFER;
+        if (transfer && plan.getTargetFundId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Transfer plan " + planId + " has no fund to transfer into");
+        }
+
         FinancialEvent fact = FinancialEvent.builder()
                 .idempotencyKey(UUID.randomUUID())
                 .eventKind(EventKind.FACT)
@@ -308,6 +324,7 @@ public class FinancialEventService {
                 .date(dto.date())
                 .category(plan.getCategory())
                 .type(plan.getType())
+                .targetFundId(plan.getTargetFundId())
                 .factAmount(dto.factAmount())
                 .priority(dto.priority() != null ? dto.priority() : plan.getPriority())
                 // ANO-91: правило фактом НЕ наследуется. recurring_rule_id — поле ПЛАНА: им
@@ -330,10 +347,39 @@ public class FinancialEventService {
                 .build();
 
         FinancialEvent savedFact = eventRepository.save(fact);
+        if (transfer) {
+            targetFundService.syncMovement(plan.getTargetFundId(), savedFact.getIdempotencyKey(),
+                    savedFact.getDate(), savedFact.getFactAmount());
+        }
 
         resettlePlan(plan);
 
         return toDto(savedFact, null, plan);
+    }
+
+    /**
+     * Факт перевода и копилка меняются только вместе (ANO-169, ANO-201) — правило целиком в
+     * {@link TargetFundService#syncMovement}; здесь только выбор копилки и ключа.
+     *
+     * <p>Копилка — события, иначе его плана: факты к плану, записанные до ANO-169, копилки не
+     * помнили. Правка такого факта создаёт недостающее движение, а сам факт узнаёт свою
+     * копилку; удаление обходится без движения — его и не было, счёт просто получает назад то,
+     * что потерял. Нет ни копилки, ни ключа — связать нечего: новое движение легло бы вторым
+     * поверх неизвестного старого.
+     *
+     * @param amount сумма, которую факт несёт после действия; {@code null} — факта больше нет
+     */
+    private void syncTransferMovement(FinancialEvent event, BigDecimal amount) {
+        UUID fundId = event.getTargetFundId();
+        if (fundId == null && event.getParentEventId() != null) {
+            fundId = eventRepository.findById(event.getParentEventId())
+                    .map(FinancialEvent::getTargetFundId)
+                    .orElse(null);
+            event.setTargetFundId(fundId);
+        }
+        if (fundId == null || event.getIdempotencyKey() == null) return;
+        targetFundService.syncMovement(fundId, event.getIdempotencyKey(), event.getDate(),
+                event.isDeleted() || amount == null ? BigDecimal.ZERO : amount);
     }
 
     /**
@@ -377,7 +423,8 @@ public class FinancialEventService {
     /**
      * Обновляет фактическую сумму события (PATCH-семантика).
      * Автоматически переключает статус самой записи: PLANNED ↔ EXECUTED по наличию factAmount.
-     * Для FUND_TRANSFER при первичном заполнении факта инициирует перевод в копилку.
+     * Для FUND_TRANSFER копилка идёт за суммой факта на разницу — и при первом заполнении, и при
+     * любой смене суммы ({@link #syncTransferMovement}, ANO-201).
      *
      * <p>Единственный путь правки уже записанного FACT (экран правки транзакции). Если у
      * записи есть родительский план, его статус пересчитывается по новому погашению
@@ -394,6 +441,14 @@ public class FinancialEventService {
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
 
+        // Ревью #96: старый путь пишет факт в строку плана, и дата факта — дата плана. Перевод
+        // будущей датой поднял бы копилку уже сегодня, а счёт — только в день плана: ещё не
+        // ушедшие деньги можно было бы снять. Правило то же, что у факта к плану и у ручки
+        // перевода. Снять факт можно всегда — иначе такие записи, сделанные раньше, не исправить.
+        if (event.getType() == EventType.FUND_TRANSFER && dto.factAmount() != null) {
+            requireNotFuture(event.getDate());
+        }
+
         BigDecimal oldFact = event.getFactAmount();
         event.setFactAmount(dto.factAmount());
         if (dto.description() != null) event.setDescription(dto.description());
@@ -404,13 +459,11 @@ public class FinancialEventService {
         else if (dto.factAmount() == null && event.getStatus() == EventStatus.EXECUTED)
             event.setStatus(EventStatus.PLANNED);
 
-        if (event.getType() == EventType.FUND_TRANSFER
-                && event.getTargetFundId() != null
-                && dto.factAmount() != null
-                && oldFact == null
-                && event.getIdempotencyKey() != null) {
-            targetFundService.doTransferForEvent(
-                    event.getTargetFundId(), dto.factAmount(), event.getIdempotencyKey());
+        // ANO-201: раньше копилка двигалась только при ПЕРВОМ заполнении факта (oldFact == null);
+        // смена суммы уже записанного перевода меняла счёт и не трогала копилку — замерено:
+        // 100 → 150 сдвинуло капитал на −50. Теперь копилка идёт за фактом на разницу.
+        if (event.getType() == EventType.FUND_TRANSFER) {
+            syncTransferMovement(event, dto.factAmount());
         }
 
         BigDecimal delta = (dto.factAmount() != null ? dto.factAmount() : BigDecimal.ZERO)
@@ -541,6 +594,13 @@ public class FinancialEventService {
             event.setDeleted(true);
             eventRepository.save(event);
             eventRepository.flush();
+
+            // ANO-201: удалённый перевод обязан забрать деньги и из копилки. Раньше движение с
+            // тем же ключом оставалось живым: счёт получал деньги назад, копилка их не отдавала
+            // — замерено +100 к капиталу из воздуха. Отказ здесь откатывает и само удаление.
+            if (event.getType() == EventType.FUND_TRANSFER) {
+                syncTransferMovement(event, null);
+            }
 
             // Удалили факт — план погашен меньше, чем был. Ревью #45: раньше план
             // возвращался в PLANNED, только если фактов не осталось ВОВСЕ, и удаление

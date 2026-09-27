@@ -201,13 +201,16 @@ export const deleteFund = (id: string) => del(`/funds/${id}`);
 /**
  * @param scope горизонт карточки кармашка (ANO-88): сервер переспрашивает по тому же числу,
  *              что человек видит; не задан — «до дохода»
+ * @param date  день перевода, YYYY-MM-DD (ANO-169): быстрый ввод записывает перевод, который
+ *              уже сделан; не задан — сегодня, как у кнопки «Пополнить»
  */
-export const transferToFund = (fundId: string, amount: number, confirm?: boolean, scope?: string) =>
+export const transferToFund = (fundId: string, amount: number, confirm?: boolean, scope?: string, date?: string) =>
     post<TargetFund>(`/funds/${fundId}/transfer`,
         {
             amount,
             ...(confirm === undefined ? {} : { confirm }),
             ...(scope === undefined ? {} : { scope }),
+            ...(date === undefined ? {} : { date }),
         },
         { 'Idempotency-Key': generateUUID() });
 

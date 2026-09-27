@@ -83,7 +83,7 @@ public class TargetFundController {
             @Parameter(description = "UUID для идемпотентности", required = true) @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @Valid @RequestBody TransferRequest request) {
         return fundService.transferToPocket(id, idempotencyKey, request.amount(),
-                request.confirmed(), request.scope());
+                request.confirmed(), request.scope(), request.date());
     }
 
     @Operation(summary = "Сменить wishlist-статус копилки/кредита (OPEN/FIXED/DISMISSED)")
@@ -108,8 +108,12 @@ public class TargetFundController {
      *        {@code null} трактуется как «не подтверждено» (спека §4.2).
      * @param scope   горизонт, выбранный на карточке кармашка (ANO-88): вопрос задаётся по тому
      *        же числу, что человек видит. {@code null} — «до дохода», как по умолчанию.
+     * @param date    день перевода (ANO-169): быстрый ввод записывает перевод, который человек
+     *        уже сделал, — возможно, вчера. {@code null} — сегодня, как у кнопки «Пополнить».
+     *        Будущий день — 400: перевода, которого ещё не было, нет и в копилке.
      */
-    record TransferRequest(@NotNull BigDecimal amount, Boolean confirm, String scope) {
+    record TransferRequest(@NotNull BigDecimal amount, Boolean confirm, String scope,
+                           java.time.LocalDate date) {
 
         boolean confirmed() {
             return Boolean.TRUE.equals(confirm);

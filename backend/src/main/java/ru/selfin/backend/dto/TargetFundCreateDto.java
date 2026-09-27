@@ -5,7 +5,6 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 
@@ -14,6 +13,10 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
+ * @param targetAmount цель; {@code null} или 0 — копилка без цели (ANO-199). Поле формы подписано
+ *                     «необязательно» с 16.03, вместе со спекой планировщика, где такая копилка
+ *                     описана явно, — а сервер требовал цель с 08.03. Ноль — не отказ: его вводят
+ *                     как раз те, кто хотел копилку без цели (правило 5).
  * @param accountId счёт, на котором физически лежат деньги цели (спека §3.3). {@code null} —
  *                  виртуальный конверт, как раньше: пополняется переводом и держит собственный
  *                  остаток. Если задан, {@code currentBalance} перестаёт быть источником правды
@@ -22,7 +25,7 @@ import java.util.UUID;
  */
 public record TargetFundCreateDto(
                 @NotBlank String name,
-                @NotNull @PositiveOrZero BigDecimal targetAmount,
+                @PositiveOrZero BigDecimal targetAmount,
                 Integer priority,
                 LocalDate targetDate,
                 FundPurchaseType purchaseType,
