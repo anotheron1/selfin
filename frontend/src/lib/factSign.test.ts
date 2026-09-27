@@ -21,6 +21,13 @@ describe('знак суммы факта — по направлению ден�
         expect(factAmountText('FUND_TRANSFER', -100, rub)).toBe('+100 ₽');
     });
 
+    it('расход и перевод на ноль — минус, доход на ноль — плюс: правка факта разрешает ноль (ревью #105)', () => {
+        // -0 < 0 ложно: без явной ветки ноль расхода выходил «+0 ₽», как приход.
+        expect(factAmountText('EXPENSE', 0, rub)).toBe('-0 ₽');
+        expect(factAmountText('FUND_TRANSFER', 0, rub)).toBe('-0 ₽');
+        expect(factAmountText('INCOME', 0, rub)).toBe('+0 ₽');
+    });
+
     it('суммы нет — знака нет: прочерк форматтера', () => {
         expect(factAmountText('EXPENSE', null, rub)).toBe('—');
     });

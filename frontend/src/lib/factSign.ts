@@ -13,8 +13,11 @@ import type { EventType } from '../types/api';
  * Спека: docs/superpowers/specs/2026-09-27-fact-sign-design.md
  */
 export function signedFact(type: EventType, amount: number): { sign: '+' | '-'; amount: number } {
-    const toFree = type === 'INCOME' ? amount : -amount;
-    return { sign: toFree < 0 ? '-' : '+', amount: Math.abs(toFree) };
+    const outflow = type !== 'INCOME';
+    const toFree = outflow ? -amount : amount;
+    // Ноль — по направлению (ревью #105): правка факта разрешает ноль, а -0 < 0 ложно.
+    const sign = toFree < 0 || (toFree === 0 && outflow) ? '-' : '+';
+    return { sign, amount: Math.abs(toFree) };
 }
 
 /** Сумма факта со знаком для экрана; без суммы — что скажет форматтер, без знака. */
