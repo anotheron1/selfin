@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
-  CODEX, unansweredThreads, codexState, headTransitions, headAt, linearLinks, declaredClosing, linearState, ciState, pullRequestChecks,
+  CODEX, unansweredThreads, unansweredReviewRemarks, repliesItem, codexState, headTransitions, headAt, linearLinks, declaredClosing, linearState, ciState, pullRequestChecks,
   requiredChecks,
   baseState, stackedOn, summary,
 } from './pr-ready.mjs';
@@ -657,4 +657,74 @@ test('итог: пять чистых пунктов — готово, любо�
   const clean = ['CI', 'Codex', 'Замечания', 'База', 'Linear'].map((title) => ({ title, ok: true, text: 'ок' }));
   assert.equal(summary(clean).ok, true);
   assert.equal(summary([...clean.slice(0, 4), { title: 'Linear', ok: false, text: 'нет строки' }]).ok, false);
+});
+
+// ── ANO-204: замечание в теле ревью ─────────────────────────────────────────
+// #96, 02:20: повторное ревью Codex пришло одним ревью без веток — строка файла, на которую оно ссылается, в диффе
+// не менялась, и замечание легло в тело. Время и коммит — из истории #96, текст замечаний выдуман.
+const bodyRemark = (title, p = 'P2') =>
+  `https://github.com/anotheron1/selfin/blob/8420b0f/backend/X.java#L465\n`
+  + `**<sub><sub>![${p} Badge](https://img.shields.io/badge/${p}-yellow?style=flat)</sub></sub>  ${title}**\n\nПодробности.\n`;
+const review96 = { user: CODEX, submittedAt: '2026-09-27T02:20:39Z', commitId: '8420b0fd7ba5f5f4f73a19447a0e0a725218d0fc',
+  body: `\n### 💡 Codex Review\n\n${bodyRemark('Снятие проверяется не той датой')}\n<details> <summary>About Codex</summary></details>` };
+const feedAnswer = (createdAt, body) => ({ id: 1, user: ME, createdAt, body });
+const answered96 = feedAnswer('2026-09-27T05:01:10Z', 'Ответ на ревью Codex 02:20 — P2 «Снятие проверяется не той датой». Исправлено.');
+
+test('#96 на 02:25: замечание в теле ревью без ответа — с приоритетом, заголовком и временем ревью', () => {
+  assert.deepEqual(unansweredReviewRemarks({ reviews: [review96], issueComments: [] }), [
+    { at: '2026-09-27T02:20:39Z', priority: 'P2', title: 'Снятие проверяется не той датой' },
+  ]);
+});
+
+test('#96 сейчас: ответ в ленте с заголовком после ревью — без ответа ноль', () => {
+  assert.deepEqual(unansweredReviewRemarks({ reviews: [review96], issueComments: [answered96] }), []);
+});
+
+test('ответ своим ревью с заголовком — засчитан', () => {
+  const own = { user: ME, submittedAt: '2026-09-27T05:01:10Z', commitId: 'ab6cc50', body: 'Про «Снятие проверяется не той датой»: исправлено.' };
+  assert.deepEqual(unansweredReviewRemarks({ reviews: [review96, own], issueComments: [] }), []);
+});
+
+test('заголовок в ленте до ревью — не ответ', () => {
+  const early = feedAnswer('2026-09-27T02:10:00Z', 'Снятие проверяется не той датой — подумать.');
+  assert.equal(unansweredReviewRemarks({ reviews: [review96], issueComments: [early] }).length, 1);
+});
+
+test('комментарий Codex с тем же заголовком — не ответ', () => {
+  const bot = { id: 2, user: CODEX, createdAt: '2026-09-27T03:00:00Z', body: 'Снятие проверяется не той датой' };
+  assert.equal(unansweredReviewRemarks({ reviews: [review96], issueComments: [bot] }).length, 1);
+});
+
+test('ответ без заголовка — не ответ', () => {
+  const vague = feedAnswer('2026-09-27T05:01:10Z', 'Исправлено в 74a04b2.');
+  assert.equal(unansweredReviewRemarks({ reviews: [review96], issueComments: [vague] }).length, 1);
+});
+
+test('в теле два замечания, ответ на одно — остаётся второе', () => {
+  const two = { ...review96, body: `### 💡 Codex Review\n\n${bodyRemark('Снятие проверяется не той датой')}\n${bodyRemark('Второе замечание', 'P1')}` };
+  assert.deepEqual(unansweredReviewRemarks({ reviews: [two], issueComments: [answered96] }), [
+    { at: '2026-09-27T02:20:39Z', priority: 'P1', title: 'Второе замечание' },
+  ]);
+});
+
+test('ревью без значков — замечаний нет', () => {
+  assert.deepEqual(unansweredReviewRemarks({ reviews: [review('2026-09-26T12:10:00Z', HEAD)], issueComments: [] }), []);
+});
+
+test('--at: ревью позже момента не в счёт; ответ позже момента — тоже', () => {
+  const lists = { reviews: [review96], issueComments: [answered96] };
+  assert.deepEqual(unansweredReviewRemarks(lists, { at: '2026-09-27T02:00:00Z' }), []);
+  assert.equal(unansweredReviewRemarks(lists, { at: '2026-09-27T02:25:00Z' }).length, 1);
+});
+
+test('пункт «Замечания Codex» — и ветки, и тело ревью', () => {
+  const thread = { id: 9, inReplyTo: null, user: CODEX, createdAt: '2026-09-27T01:52:18Z', path: 'a.java', line: 457, body: remark('Будущая дата') };
+  const item = repliesItem({ comments: [thread], reviews: [review96], issueComments: [] });
+  assert.equal(item.ok, false);
+  assert.equal(item.text, [
+    'без ответа 2:',
+    '      a.java:457 P2 Будущая дата',
+    '      тело ревью 2026-09-27 02:20 P2 Снятие проверяется не той датой',
+  ].join('\n'));
+  assert.equal(repliesItem({ comments: [], reviews: [review96], issueComments: [answered96] }).text, 'без ответа нет');
 });
