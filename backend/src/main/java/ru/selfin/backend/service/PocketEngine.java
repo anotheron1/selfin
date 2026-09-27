@@ -150,6 +150,8 @@ public final class PocketEngine {
         BigDecimal minBalance = running;
         LocalDate minDate = in.asOfDate();
         String minDrivenBy = null;
+        // ANO-95: строка-виновник — сервис назовёт её категорией, если описания нет.
+        UUID minDrivenById = null;
         BigDecimal expensesCum = todayExpenses;
         BigDecimal incomeCum = BigDecimal.ZERO;
         BigDecimal contribCum = BigDecimal.ZERO;
@@ -167,6 +169,7 @@ public final class PocketEngine {
         BigDecimal minForecast = runningForecast;
         LocalDate minForecastDate = in.asOfDate();
         String minForecastDrivenBy = null;
+        UUID minForecastDrivenById = null;
         boolean hasForecast = false;
 
         for (LocalDate d = in.asOfDate().plusDays(1); !d.isAfter(trajEnd); d = d.plusDays(1)) {
@@ -174,6 +177,7 @@ public final class PocketEngine {
             BigDecimal dayExpense = BigDecimal.ZERO;
             BigDecimal dayTopExpenseAmount = BigDecimal.ZERO;
             String dayTopExpense = null;
+            UUID dayTopExpenseId = null;
             for (EventSnapshot e : futureByDay.getOrDefault(d, List.of())) {
                 // ANO-155: удерживается непогашенный остаток, а не полная плановая сумма.
                 BigDecimal amount = remainderOf(e, settled);
@@ -196,6 +200,7 @@ public final class PocketEngine {
                     if (amount.compareTo(dayTopExpenseAmount) > 0) {
                         dayTopExpenseAmount = amount;
                         dayTopExpense = e.description();
+                        dayTopExpenseId = e.id();
                     }
                 }
             }
@@ -214,6 +219,7 @@ public final class PocketEngine {
                     minBalance = running;
                     minDate = d;
                     minDrivenBy = dayTopExpense;
+                    minDrivenById = dayTopExpenseId;
                     expensesAtMin = expensesCum;
                     incomeAtMin = incomeCum;
                     contribAtMin = contribCum;
@@ -223,6 +229,7 @@ public final class PocketEngine {
                     minForecast = runningForecast;
                     minForecastDate = d;
                     minForecastDrivenBy = dayTopExpense;
+                    minForecastDrivenById = dayTopExpenseId;
                 }
             }
         }
@@ -234,7 +241,7 @@ public final class PocketEngine {
         // «оговорка равна нулю» — для экрана одно и то же, и null избавляет фронт от решения.
         BigDecimal pocketWithForecast = hasForecast ? minForecast.subtract(buffer) : null;
         PocketResultDto.MinPoint minPointWithForecast = hasForecast
-                ? new PocketResultDto.MinPoint(minForecastDate, minForecast, minForecastDrivenBy)
+                ? new PocketResultDto.MinPoint(minForecastDate, minForecast, minForecastDrivenBy, minForecastDrivenById)
                 : null;
 
         // 5а. Второе и третье числа (ANO-9 §4.2, §4.3). Оба — оговорки к кармашку, а не
@@ -275,7 +282,7 @@ public final class PocketEngine {
         return new PocketResultDto(pocket, currentBalance, buffer, in.checkpointDate(),
                 new PocketResultDto.Horizon(in.scope().type(), in.horizonEnd(),
                         horizonLabel(in), in.fallbackKind() != FallbackKind.NONE),
-                new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy),
+                new PocketResultDto.MinPoint(minDate, minBalance, minDrivenBy, minDrivenById),
                 breakdown, trajectory, candidates,
                 pocketAfterCreditRestore, pocketWithDeposits,
                 pocketWithForecast, minPointWithForecast, upcoming, planHasExpectations);
