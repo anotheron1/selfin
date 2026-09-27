@@ -43,6 +43,40 @@ export function unansweredThreads(comments, { at } = {}) {
     .map((last) => ({ path: last.path, line: last.line, ...remarkTitle(last.body) }));
 }
 
+const BADGE = /!\[P\d Badge\]/;
+
+// Заголовок и ответ сравниваются без разметки: ответ копируют с отрисованной страницы, где нет ни обратных кавычек,
+// ни ссылок, ни звёздочек (ревью Codex на #98). Регистр и пробелы — тоже не в счёт.
+const plain = (text) => text
+  .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+  .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  .replace(/<\/?[a-z][^>]*>/gi, '')
+  .replace(/[`*_~]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .toLowerCase();
+
+/**
+ * Замечания в теле ревью Codex, на которые нет ответа (ANO-204). Строка, на которую ссылается замечание, может
+ * не меняться в диффе — тогда ветку привязать не к чему, и Codex пишет в тело ревью (#96, 02:20). Каждая строка тела
+ * со значком приоритета — замечание. Ветки у него нет, поэтому ответ — наше слово после ревью, в котором есть
+ * заголовок замечания: комментарий в ленте или своё ревью с текстом.
+ * reviews — [{ user, submittedAt, body }]; issueComments — [{ user, createdAt, body }].
+ */
+export function unansweredReviewRemarks({ reviews, issueComments }, { at } = {}) {
+  const until = (iso) => at === undefined || time(iso) <= time(at);
+  const answers = [
+    ...issueComments.map((c) => ({ user: c.user, at: c.createdAt, body: c.body ?? '' })),
+    ...reviews.map((r) => ({ user: r.user, at: r.submittedAt, body: r.body ?? '' })),
+  ].filter((a) => a.user !== CODEX && until(a.at));
+  return reviews
+    .filter((r) => r.user === CODEX && until(r.submittedAt))
+    .flatMap((r) => (r.body ?? '').split('\n')
+      .filter((line) => BADGE.test(line))
+      .map((line) => ({ at: r.submittedAt, ...remarkTitle(line) })))
+    .filter((remark) => !answers.some((a) => time(a.at) > time(remark.at) && plain(a.body).includes(plain(remark.title))));
+}
+
 // Заголовок прогона «Ответов Codex» задан run-name: «Ответы Codex — <событие> <действие> #<номер PR>». По нему виден
 // прогон по opened именно этого PR — запись о голове на его открытии. С одной ветки бывают открыты два PR в разные
 // базы (пятнадцатое ревью Codex на #86). У прогонов CI заголовок — название PR.
@@ -361,13 +395,23 @@ function headHistory(pr) {
   return headTransitions({ number: pr.number, branch: pr.headRefName, repo, openedAt: pr.createdAt, runs });
 }
 
-function codexData(n, headSha) {
-  const reactions = (path) => ghList(path, '{user: .user.login, content, createdAt: .created_at}');
-  const issueComments = ghList(`${REPO}/issues/${n}/comments`, '{id, user: .user.login, createdAt: .created_at, body}')
-    .map((c) => ({ ...c, reactions: REVIEW_REQUEST.test(c.body) ? reactions(`${REPO}/issues/comments/${c.id}/reactions`) : [] }));
+/** Лента PR и ревью — их читают и замечания в теле ревью (ANO-204), и вердикт Codex. */
+function feed(n) {
+  const issueComments = ghList(`${REPO}/issues/${n}/comments`, '{id, user: .user.login, createdAt: .created_at, body}');
   const reviews = ghList(`${REPO}/pulls/${n}/reviews`, '{user: .user.login, submittedAt: .submitted_at, commitId: .commit_id, body}')
     .filter((r) => r.submittedAt);
-  return { reviews, prReactions: reactions(`${REPO}/issues/${n}/reactions`), issueComments, headSha };
+  return { issueComments, reviews };
+}
+
+function codexData(n, headSha, { issueComments, reviews }) {
+  const reactions = (path) => ghList(path, '{user: .user.login, content, createdAt: .created_at}');
+  return {
+    reviews,
+    prReactions: reactions(`${REPO}/issues/${n}/reactions`),
+    issueComments: issueComments
+      .map((c) => ({ ...c, reactions: REVIEW_REQUEST.test(c.body) ? reactions(`${REPO}/issues/comments/${c.id}/reactions`) : [] })),
+    headSha,
+  };
 }
 
 // На PR GitHub гоняет workflow из merge-коммита PR, а не из рабочей копии: у PR, открытого до нового
@@ -394,11 +438,14 @@ function ciChecks(n) {
   return out ? JSON.parse(out) : [];
 }
 
-function repliesItem(comments, at) {
-  const open = unansweredThreads(comments, { at });
-  const text = open.length === 0
-    ? 'без ответа нет'
-    : [`без ответа ${open.length}:`, ...open.map((r) => `      ${r.path}:${r.line} ${r.priority ? `${r.priority} ` : ''}${r.title}`)].join('\n');
+/** Пункт «Замечания Codex»: ветки без ответа и замечания в теле ревью без ответа (ANO-204). */
+export function repliesItem({ comments, reviews, issueComments }, at) {
+  const priority = (r) => (r.priority ? `${r.priority} ` : '');
+  const open = [
+    ...unansweredThreads(comments, { at }).map((r) => `      ${r.path}:${r.line} ${priority(r)}${r.title}`),
+    ...unansweredReviewRemarks({ reviews, issueComments }, { at }).map((r) => `      тело ревью ${hhmm(r.at)} ${priority(r)}${r.title}`),
+  ];
+  const text = open.length === 0 ? 'без ответа нет' : [`без ответа ${open.length}:`, ...open].join('\n');
   return { title: 'Замечания Codex', ok: open.length === 0, text };
 }
 
@@ -425,7 +472,8 @@ function main(argv) {
   const { number, only, at } = parseArgs(argv);
   const pr = ghJson(['pr', 'view', String(number), '--json', 'number,title,body,headRefName,headRepository,headRepositoryOwner,isCrossRepository,baseRefName,headRefOid,baseRefOid,createdAt']);
   const header = `PR #${pr.number} — ${pr.title}${at ? ` (на ${at})` : ''}`;
-  const replies = repliesItem(reviewComments(number), at);
+  const fed = feed(number);
+  const replies = repliesItem({ comments: reviewComments(number), ...fed }, at);
 
   if (only === 'codex-replies') {
     const s = summary([replies]);
@@ -433,7 +481,7 @@ function main(argv) {
     return s.ok;
   }
 
-  const codex = codexState({ ...codexData(number, pr.headRefOid), transitions: headHistory(pr), at });
+  const codex = codexState({ ...codexData(number, pr.headRefOid, fed), transitions: headHistory(pr), at });
   const children = stackedOn({
     number: pr.number,
     crossRepository: pr.isCrossRepository,
