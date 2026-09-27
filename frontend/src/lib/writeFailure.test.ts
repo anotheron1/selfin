@@ -178,6 +178,11 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
         expect(src).not.toMatch(/'FUND_WITH_CREDIT'\s*\]/);
     });
 
+    it('обе кнопки фиксации заперты, когда примерку не записать (ревью Codex, #108)', () => {
+        // Запись примерки идёт до любой фиксации: вне границ откажет и «без конверсии».
+        expect(read(FIX).match(/!choice\.savable/g)).toHaveLength(2);
+    });
+
     it('в диалог уходят ставка и срок, которые запишет persistTrial, — подкрученные (fixPatch)', () => {
         const src = read(BLOCK);
         expect(src).toMatch(/rate:\s*fixView\.rate/);

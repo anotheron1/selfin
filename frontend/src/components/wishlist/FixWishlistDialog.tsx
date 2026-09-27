@@ -98,10 +98,11 @@ export default function FixWishlistDialog({ open, item, busy, error, onClose, on
                             Создать платёжный график (recurring)
                         </label>
                     )}
-                    {/* Спрятанный пункт без объяснения — стена (довод из Funds.tsx). */}
+                    {/* Спрятанный пункт без объяснения — стена (довод из Funds.tsx). Границы — те,
+                        что примет запись копилки: вне них не пройдёт никакая фиксация. */}
                     {choice.creditNeedsParams && (
                         <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                            Для кредита нужны ставка и срок — они в «Параметрах кредита» на карточке.
+                            Для кредита нужны ставка от 0,01 до 99,99 % и срок от 1 до 360 месяцев — они в «Параметрах кредита» на карточке.
                         </p>
                     )}
                     {error && (
@@ -109,11 +110,11 @@ export default function FixWishlistDialog({ open, item, busy, error, onClose, on
                     )}
                 </div>
                 <DialogFooter className="flex-col sm:flex-row gap-2">
-                    <Button variant="ghost" disabled={busy} onClick={onFixWithoutConversion}>
+                    <Button variant="ghost" disabled={busy || !choice.savable} onClick={onFixWithoutConversion}>
                         Зафиксировать без конверсии
                     </Button>
                     <Button
-                        disabled={busy || !canConfirmConversion(target, planDate, todayIso)}
+                        disabled={busy || !choice.savable || !canConfirmConversion(target, planDate, todayIso)}
                         onClick={() => onConfirm(target, createRecurring, planDate || undefined)}
                     >
                         Зафиксировать

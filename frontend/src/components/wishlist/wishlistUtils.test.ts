@@ -273,8 +273,14 @@ describe('во что превратить хотелку — только то,
         expect(conversionChoice('CREDIT', 24, 12).targets).toEqual(ALL);
     });
 
-    it('ставка 0 — рассрочка: сервер её принимает, «Кредит» есть', () => {
-        expect(conversionChoice('CREDIT', 0, 12).targets).toEqual(ALL);
+    it('границы — ровно те, что примет запись копилки: 0,01–99,99 % и 1–360 месяцев', () => {
+        // Запись примерки (PUT /funds, TargetFundCreateDto) идёт до конверсии — ревью Codex, #108.
+        expect(conversionChoice('CREDIT', 0.01, 1).targets).toEqual(ALL);
+        expect(conversionChoice('CREDIT', 99.99, 360).targets).toEqual(ALL);
+    });
+
+    it('ставка 0 — рассрочка: запись копилки её не примет, «Кредита» нет', () => {
+        expect(conversionChoice('CREDIT', 0, 12).targets).toEqual(WITHOUT_CREDIT);
     });
 
     it('срок 0 или ставки нет — «Кредита» нет', () => {
@@ -283,9 +289,27 @@ describe('во что превратить хотелку — только то,
         expect(conversionChoice('CREDIT', 24, null).targets).toEqual(WITHOUT_CREDIT);
     });
 
+    it('ставка или срок вне границ — не записать ничего: запись примерки идёт первой', () => {
+        for (const [rate, term] of [[0, 12], [100, 12], [24, 0], [24, 361], [24, 1.5]]) {
+            expect(conversionChoice('CREDIT', rate, term).savable, `${rate} % на ${term} мес.`).toBe(false);
+        }
+    });
+
+    it('ставки и срока нет — запись пройдёт, просто без кредита', () => {
+        expect(conversionChoice('SAVINGS', null, null).savable).toBe(true);
+        expect(conversionChoice('CREDIT', null, null).savable).toBe(true);
+        expect(conversionChoice('CREDIT', 24, 12).savable).toBe(true);
+    });
+
+    it('хотелке-событию ставка и срок не пишутся — записать можно всегда', () => {
+        expect(conversionChoice('WISHLIST', 0, 0).savable).toBe(true);
+    });
+
     it('не число — всё равно что нет: в JSON NaN уходит пустым', () => {
         expect(conversionChoice('CREDIT', Number.NaN, 12).targets).toEqual(WITHOUT_CREDIT);
         expect(conversionChoice('CREDIT', 24, Number.NaN).targets).toEqual(WITHOUT_CREDIT);
+        // Пустое сервер запишет — запирать кнопки не за что.
+        expect(conversionChoice('CREDIT', Number.NaN, 12).savable).toBe(true);
     });
 
     it('цель по умолчанию — прежняя по виду хотелки', () => {

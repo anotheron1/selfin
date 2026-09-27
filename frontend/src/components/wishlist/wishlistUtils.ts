@@ -135,9 +135,23 @@ export function canConfirmConversion(target: ConvertTarget, planDate: string,
 export interface ConversionChoice {
     targets: ConvertTarget[];
     initial: ConvertTarget;
-    /** Кредит без ставки или срока: пункта нет, и диалог говорит почему. */
+    /** Кредит без годных ставки и срока: пункта нет, и диалог говорит почему. */
     creditNeedsParams: boolean;
+    /**
+     * Примерку можно записать. Нельзя — ставка или срок заданы, но вне границ записи копилки:
+     * тогда откажет любая фиксация, ведь запись примерки идёт первой (ревью Codex, #108).
+     */
+    savable: boolean;
 }
+
+/** Границы записи копилки — `TargetFundCreateDto`: `persistTrial` пишет ставку и срок до конверсии. */
+const RATE_MIN = 0.01;
+const RATE_MAX = 99.99;
+const TERM_MIN = 1;
+const TERM_MAX = 360;
+
+/** Задано ли число. NaN и бесконечность в JSON уходят пустыми — для сервера их нет. */
+const given = (v: number | null | undefined): v is number => Number.isFinite(v);
 
 /** Прежняя цель по умолчанию — по виду хотелки. */
 const PREFERRED: Record<WishlistKind, ConvertTarget> = {
@@ -149,19 +163,25 @@ const PREFERRED: Record<WishlistKind, ConvertTarget> = {
 /**
  * ANO-141: диалог предлагает только то, что сервер примет.
  *
- * Сервер — `WishlistConversionService`: у хотелки-события ветки «Кредит» нет вовсе, а копилке
- * она открыта только со ставкой и сроком больше нуля. Ставка 0 — рассрочка, она проходит.
- * Раньше пункты были одни на всех, отказ глотался, и «Зафиксировать» выглядело как «ничего
- * не произошло».
+ * Фиксация копилки — два запроса: сначала запись примерки (`PUT /funds`, границы
+ * `TargetFundCreateDto`: ставка 0,01–99,99, срок — целое 1–360), потом конверсия
+ * (`WishlistConversionService`: «Кредит» — только копилке со ставкой и сроком больше нуля;
+ * у хотелки-события такой ветки нет вовсе). Пункт предлагается, если пройдут оба. Ставка 0 —
+ * рассрочка — не проходит первый (ревью Codex, #108). Раньше пункты были одни на всех, отказ
+ * глотался, и «Зафиксировать» выглядело как «ничего не произошло».
  *
- * Ставка и срок — те, что уйдут в запись: подкрученные на карточке (`fixPatch`). Сервер
- * читает копилку уже после `persistTrial`. Не число — всё равно что нет: в JSON NaN уходит
- * пустым.
+ * Ставка и срок — те, что уйдут в запись: подкрученные на карточке (`fixPatch`). Не заданы —
+ * запись пройдёт, но без кредита; заданы вне границ — не пройдёт никакая фиксация.
  */
 export function conversionChoice(kind: WishlistKind, rate: number | null | undefined,
                                  termMonths: number | null | undefined): ConversionChoice {
-    const creditReady = Number.isFinite(rate) && Number.isFinite(termMonths) && (termMonths as number) > 0;
-    const targets: ConvertTarget[] = kind !== 'WISHLIST' && creditReady
+    // Хотелка-событие пишется через PUT /events: ставки и срока там нет.
+    const rateOk = kind === 'WISHLIST' || !given(rate) || (rate >= RATE_MIN && rate <= RATE_MAX);
+    const termOk = kind === 'WISHLIST' || !given(termMonths)
+        || (Number.isInteger(termMonths) && termMonths >= TERM_MIN && termMonths <= TERM_MAX);
+    const savable = rateOk && termOk;
+    const creditReady = kind !== 'WISHLIST' && given(rate) && given(termMonths) && savable;
+    const targets: ConvertTarget[] = creditReady
         ? ['PLAN_EVENT', 'FUND', 'FUND_WITH_CREDIT']
         : ['PLAN_EVENT', 'FUND'];
     const preferred = PREFERRED[kind];
@@ -169,6 +189,7 @@ export function conversionChoice(kind: WishlistKind, rate: number | null | undef
         targets,
         initial: targets.includes(preferred) ? preferred : targets[0],
         creditNeedsParams: kind === 'CREDIT' && !creditReady,
+        savable,
     };
 }
 
