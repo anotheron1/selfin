@@ -255,6 +255,7 @@ class RecurringEventControllerIT {
 
         String headEventId = objectMapper.readTree(createResp).get("id").asText();
         String headEventDate = objectMapper.readTree(createResp).get("date").asText();
+        String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
 
         // PATCH-fact the head event to turn it EXECUTED
         String patchBody = """
@@ -312,9 +313,15 @@ class RecurringEventControllerIT {
                 .as("EXECUTED event plannedAmount must remain at original value (5000), not updated to 9999")
                 .isEqualTo(5000.0);
 
-        // All PLANNED events (non-executed) should have new amount 9999
-        events.stream()
+        // All PLANNED events (non-executed) should have new amount 9999.
+        // ANO-200: только события этого правила — окно «завтра + 5 месяцев» делят с ним
+        // соседние тесты класса, и без фильтра проверка держалась на порядке запуска.
+        List<Map<String, Object>> plannedOfRule = events.stream()
+                .filter(e -> ruleId.equals(e.get("recurringRuleId")))
                 .filter(e -> "PLANNED".equals(e.get("status")))
+                .toList();
+        assertThat(plannedOfRule).as("PLANNED events of this rule").isNotEmpty();
+        plannedOfRule
                 .forEach(e -> {
                     Object amount = e.get("plannedAmount");
                     assertThat(((Number) amount).doubleValue())
@@ -631,12 +638,14 @@ class RecurringEventControllerIT {
             }
             """.formatted(startDate, catId, startDate, endDate);
 
-        mockMvc.perform(post("/api/v1/events")
+        String createResp = mockMvc.perform(post("/api/v1/events")
                         .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recurringRuleId").exists());
+                .andExpect(jsonPath("$.recurringRuleId").exists())
+                .andReturn().getResponse().getContentAsString();
+        String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
 
         String listJson = mockMvc.perform(get("/api/v1/events")
                         .param("startDate", startDate)
@@ -644,7 +653,14 @@ class RecurringEventControllerIT {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        List<Map<String, Object>> events = objectMapper.readValue(listJson, List.class);
+        // ANO-200: фильтруем по ruleId, как остальные тесты класса, — они делят одну БД.
+        // Соседний scopeAll_update_preserves_executed_fact_event кладёт месячное событие на
+        // «сегодня + 1 день + 5 месяцев»; с 27.09.2026 оно попадает в это окно, и счёт без
+        // фильтра давал 5 вместо 4.
+        List<Map<String, Object>> allEvents = objectMapper.readValue(listJson, List.class);
+        List<Map<String, Object>> events = allEvents.stream()
+                .filter(e -> ruleId.equals(e.get("recurringRuleId")))
+                .toList();
         assertThat(events).hasSize(4);
 
         List<String> expectedDates = List.of("2027-02-28", "2028-02-29", "2029-02-28", "2030-02-28");
