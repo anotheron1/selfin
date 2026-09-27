@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import EditEventScopePicker from './EditEventScopePicker';
 import DeleteRecurringDialog from './DeleteRecurringDialog';
 import { PRIORITY_DOT_CONFIG, PRIORITY_FIELD_LABEL, PRIORITY_ORDER } from '../lib/priority';
+import { fundMovementMessage } from '../lib/fundMovement';
 
 interface EditEventSheetProps {
     event: FinancialEvent;
@@ -32,6 +33,10 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
     const [loading, setLoading] = useState(false);
     const [scope, setScope] = useState<ScopeEnum>('FOLLOWING');
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    // ANO-201: отказ сервера виден. Раньше ошибка правки уходила в консоль, а удаления — никуда:
+    // кнопка молча не срабатывала. Теперь сервер отказывает, например, удалить перевод, из
+    // копилки которого часть денег уже взяли, — и этот отказ обязан дойти до экрана.
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         fetchCategories().then(setCategories).catch(console.error);
@@ -40,6 +45,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setError(null);
         try {
             if (event.eventKind === 'FACT') {
                 // FACT records are updated via PATCH /events/{id}/fact
@@ -68,6 +74,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
             onClose();
         } catch (err) {
             console.error(err);
+            setError(fundMovementMessage(err) ?? 'Не записалось — попробуйте ещё раз');
         } finally {
             setLoading(false);
         }
@@ -79,10 +86,14 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
         } else {
             if (!confirm('Удалить запись?')) return;
             setLoading(true);
+            setError(null);
             try {
                 await deleteEvent(event.id);
                 onSuccess();
                 onClose();
+            } catch (err) {
+                console.error(err);
+                setError(fundMovementMessage(err) ?? 'Не удалилось — попробуйте ещё раз');
             } finally {
                 setLoading(false);
             }
@@ -201,6 +212,9 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                     {event.recurringRuleId && event.eventKind === 'PLAN' && (
                         <EditEventScopePicker value={scope} onChange={setScope} />
                     )}
+                    {error && (
+                        <p className="text-sm" style={{ color: 'var(--color-warning)' }}>{error}</p>
+                    )}
                     <div className="flex gap-2 pt-1">
                         <Button
                             type="button"
@@ -226,10 +240,17 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
             open={deleteDialogOpen}
             onClose={() => setDeleteDialogOpen(false)}
             onConfirm={async (deleteScope) => {
-                await deleteEvent(event.id, deleteScope);
-                setDeleteDialogOpen(false);
-                onSuccess();
-                onClose();
+                setError(null);
+                try {
+                    await deleteEvent(event.id, deleteScope);
+                    setDeleteDialogOpen(false);
+                    onSuccess();
+                    onClose();
+                } catch (err) {
+                    console.error(err);
+                    setDeleteDialogOpen(false);
+                    setError(fundMovementMessage(err) ?? 'Не удалилось — попробуйте ещё раз');
+                }
             }}
         />
         </>

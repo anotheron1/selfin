@@ -130,6 +130,22 @@ public class GlobalExceptionHandler {
                 HttpStatus.CONFLICT.value(), ex.getMessage(), details));
     }
 
+    /**
+     * Факт перевода не может сдвинуться вместе с копилкой (ANO-169, ANO-201). Тот же приём, что
+     * у подтверждаемого отказа выше: код первым в {@code details}, по нему экран называет
+     * причину словами; дальше подсказки — имя копилки и сколько в ней сейчас.
+     */
+    @ExceptionHandler(ru.selfin.backend.exception.FundMovementRefusedException.class)
+    public ResponseEntity<ErrorResponse> handleFundMovementRefused(
+            ru.selfin.backend.exception.FundMovementRefusedException ex) {
+        log.warn("fund movement refused {}: {}", ex.code(), ex.getMessage());
+        List<String> details = new java.util.ArrayList<>();
+        details.add(ex.code());
+        details.addAll(ex.hints());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of(
+                HttpStatus.CONFLICT.value(), ex.getMessage(), details));
+    }
+
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
     public ResponseEntity<ErrorResponse> handleResponseStatus(
             org.springframework.web.server.ResponseStatusException ex) {
