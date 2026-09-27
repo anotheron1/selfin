@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
-    effectiveDelta,
+    effectiveDelta, conversionChoice,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -248,5 +248,61 @@ describe('примерка не пишет по жесту (ANO-139)', () => {
         const src = readFileSync(new URL('./WishlistItemCard.tsx', import.meta.url), 'utf8');
         expect(src).not.toMatch(/persist/i);
         expect(src).not.toMatch(/updateEvent|updateFund/);
+    });
+});
+
+describe('во что превратить хотелку — только то, что примет сервер (ANO-141)', () => {
+    // Сервер: WishlistConversionService. У хотелки-события ветки «Кредит» нет вовсе — 400
+    // «Unsupported target for WISHLIST source». Копилке «Кредит» — только со ставкой и сроком
+    // больше нуля — 400 «credit rate and positive term are required». Замер 28.09 — спека
+    // 2026-09-28-wishlist-write-errors-design.md, пути 1 и 2.
+    const WITHOUT_CREDIT = ['PLAN_EVENT', 'FUND'];
+    const ALL = ['PLAN_EVENT', 'FUND', 'FUND_WITH_CREDIT'];
+
+    it('хотелке-событию — без «Кредита», даже со ставкой и сроком', () => {
+        expect(conversionChoice('WISHLIST', null, null).targets).toEqual(WITHOUT_CREDIT);
+        expect(conversionChoice('WISHLIST', 12, 12).targets).toEqual(WITHOUT_CREDIT);
+    });
+
+    it('копилке без ставки и срока — без «Кредита»', () => {
+        expect(conversionChoice('SAVINGS', null, null).targets).toEqual(WITHOUT_CREDIT);
+        expect(conversionChoice('SAVINGS', undefined, undefined).targets).toEqual(WITHOUT_CREDIT);
+    });
+
+    it('кредиту со ставкой и сроком — «Кредит» есть', () => {
+        expect(conversionChoice('CREDIT', 24, 12).targets).toEqual(ALL);
+    });
+
+    it('ставка 0 — рассрочка: сервер её принимает, «Кредит» есть', () => {
+        expect(conversionChoice('CREDIT', 0, 12).targets).toEqual(ALL);
+    });
+
+    it('срок 0 или ставки нет — «Кредита» нет', () => {
+        expect(conversionChoice('CREDIT', 24, 0).targets).toEqual(WITHOUT_CREDIT);
+        expect(conversionChoice('CREDIT', null, 12).targets).toEqual(WITHOUT_CREDIT);
+        expect(conversionChoice('CREDIT', 24, null).targets).toEqual(WITHOUT_CREDIT);
+    });
+
+    it('не число — всё равно что нет: в JSON NaN уходит пустым', () => {
+        expect(conversionChoice('CREDIT', Number.NaN, 12).targets).toEqual(WITHOUT_CREDIT);
+        expect(conversionChoice('CREDIT', 24, Number.NaN).targets).toEqual(WITHOUT_CREDIT);
+    });
+
+    it('цель по умолчанию — прежняя по виду хотелки', () => {
+        expect(conversionChoice('WISHLIST', null, null).initial).toBe('PLAN_EVENT');
+        expect(conversionChoice('SAVINGS', null, null).initial).toBe('FUND');
+        expect(conversionChoice('CREDIT', 24, 12).initial).toBe('FUND_WITH_CREDIT');
+    });
+
+    it('кредиту без ставки или срока — первая из доступных и строка «почему нет пункта»', () => {
+        const choice = conversionChoice('CREDIT', 24, 0);
+        expect(choice.initial).toBe('PLAN_EVENT');
+        expect(choice.creditNeedsParams).toBe(true);
+    });
+
+    it('строки «почему нет пункта» нет там, где «Кредит» и не был намерением', () => {
+        expect(conversionChoice('WISHLIST', null, null).creditNeedsParams).toBe(false);
+        expect(conversionChoice('SAVINGS', null, null).creditNeedsParams).toBe(false);
+        expect(conversionChoice('CREDIT', 24, 12).creditNeedsParams).toBe(false);
     });
 });

@@ -2,28 +2,24 @@ import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import type { WishlistItem, WishlistKind } from '../../types/api';
-import { canConfirmConversion, type ConvertTarget } from './wishlistUtils';
+import type { WishlistItem } from '../../types/api';
+import { canConfirmConversion, conversionChoice, type ConvertTarget } from './wishlistUtils';
 
 export type { ConvertTarget };
 
 interface Props {
     open: boolean;
+    /** Ставка и срок — те, что уйдут в запись (подкрученные): по ним решается пункт «Кредит». */
     item: WishlistItem;
+    /** Идёт запись: кнопки заняты, закрыть нельзя (ANO-141). */
+    busy: boolean;
+    /** Отказ последней записи словами экрана; `null` — отказа не было. */
+    error: string | null;
     onClose: () => void;
     /** Зафиксировать с конверсией в выбранный артефакт. */
     onConfirm: (target: ConvertTarget, createRecurringPayments: boolean, planDate?: string) => void;
     /** Зафиксировать без конверсии (статус FIXED, артефакт не создаётся). */
     onFixWithoutConversion: () => void;
-}
-
-/** Дефолтная цель конверсии по типу item'а. */
-function defaultTarget(kind: WishlistKind): ConvertTarget {
-    switch (kind) {
-        case 'WISHLIST': return 'PLAN_EVENT';
-        case 'SAVINGS': return 'FUND';
-        case 'CREDIT': return 'FUND_WITH_CREDIT';
-    }
 }
 
 const TARGET_LABEL: Record<ConvertTarget, string> = {
@@ -33,12 +29,13 @@ const TARGET_LABEL: Record<ConvertTarget, string> = {
 };
 
 /**
- * Диалог фиксации хотелки: выбор цели конверсии (radio, дефолт по kind),
+ * Диалог фиксации хотелки: выбор цели конверсии — только той, что примет сервер (ANO-141),
  * для FUND_WITH_CREDIT — чекбокс «создать платёжный график», и отдельное
- * действие «Зафиксировать без конверсии».
+ * действие «Зафиксировать без конверсии». Отказ записи остаётся в диалоге строкой.
  */
-export default function FixWishlistDialog({ open, item, onClose, onConfirm, onFixWithoutConversion }: Props) {
-    const [target, setTarget] = useState<ConvertTarget>(defaultTarget(item.kind));
+export default function FixWishlistDialog({ open, item, busy, error, onClose, onConfirm, onFixWithoutConversion }: Props) {
+    const choice = conversionChoice(item.kind, item.rate, item.termMonths);
+    const [target, setTarget] = useState<ConvertTarget>(choice.initial);
     const [createRecurring, setCreateRecurring] = useState(true);
     // ANO-138: срок плана. У хотелки «когда-нибудь» его нет — спрашиваем здесь,
     // выдумывать дату нельзя (ANO-29).
@@ -52,16 +49,14 @@ export default function FixWishlistDialog({ open, item, onClose, onConfirm, onFi
     // Сброс на дефолт при открытии/смене item'а.
     useEffect(() => {
         if (open) {
-            setTarget(defaultTarget(item.kind));
+            setTarget(choice.initial);
             setCreateRecurring(true);
             setPlanDate(item.targetDate ?? '');
         }
-    }, [open, item.id, item.kind, item.targetDate]);
-
-    const targets: ConvertTarget[] = ['PLAN_EVENT', 'FUND', 'FUND_WITH_CREDIT'];
+    }, [open, item.id, item.kind, item.targetDate, choice.initial]);
 
     return (
-        <Dialog open={open} onOpenChange={o => !o && onClose()}>
+        <Dialog open={open} onOpenChange={o => !o && !busy && onClose()}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Зафиксировать: {item.name}</DialogTitle>
@@ -70,7 +65,7 @@ export default function FixWishlistDialog({ open, item, onClose, onConfirm, onFi
                     <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         Во что превратить решение:
                     </p>
-                    {targets.map(t => (
+                    {choice.targets.map(t => (
                         <label key={t} className="flex items-center gap-2 text-sm">
                             <input
                                 type="radio"
@@ -103,13 +98,22 @@ export default function FixWishlistDialog({ open, item, onClose, onConfirm, onFi
                             Создать платёжный график (recurring)
                         </label>
                     )}
+                    {/* Спрятанный пункт без объяснения — стена (довод из Funds.tsx). */}
+                    {choice.creditNeedsParams && (
+                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                            Для кредита нужны ставка и срок — они в «Параметрах кредита» на карточке.
+                        </p>
+                    )}
+                    {error && (
+                        <p className="text-sm" style={{ color: 'var(--color-warning)' }}>{error}</p>
+                    )}
                 </div>
                 <DialogFooter className="flex-col sm:flex-row gap-2">
-                    <Button variant="ghost" onClick={onFixWithoutConversion}>
+                    <Button variant="ghost" disabled={busy} onClick={onFixWithoutConversion}>
                         Зафиксировать без конверсии
                     </Button>
                     <Button
-                        disabled={!canConfirmConversion(target, planDate, todayIso)}
+                        disabled={busy || !canConfirmConversion(target, planDate, todayIso)}
                         onClick={() => onConfirm(target, createRecurring, planDate || undefined)}
                     >
                         Зафиксировать

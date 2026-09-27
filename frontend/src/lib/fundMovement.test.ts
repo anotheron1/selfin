@@ -67,7 +67,9 @@ describe('формы журнала показывают отказ (ANO-169, AN
         expect(src).toContain('{error && (');
     });
 
-    it('быстрый ввод называет отказ копилки словами', () => {
-        expect(read('../components/Fab.tsx')).toContain('setError(fundMovementMessage(err) ??');
+    it('быстрый ввод называет отказ копилки словами, остальное — «Не записалось» (ANO-170)', () => {
+        // writeFailure — это fundMovementMessage, а без кода — запасная фраза записи:
+        // lib/writeFailure.test.ts. Догадку про поля ловит сторож словаря (правило 5).
+        expect(read('../components/Fab.tsx')).toContain('setError(writeFailure(err))');
     });
 });

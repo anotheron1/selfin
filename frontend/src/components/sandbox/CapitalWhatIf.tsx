@@ -16,6 +16,7 @@ import {
     updateEvent, updateFund, deleteEvent, deleteFund,
 } from '../../api';
 import type { WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
+import { attempt, deleteTogether, type Deletable } from '../../lib/writeFailure';
 import { Button } from '../ui/button';
 
 /** Худшая зона риска по вектору (для solo-бейджа). */
@@ -42,6 +43,13 @@ export default function CapitalWhatIf() {
 
     const [fixItem, setFixItem] = useState<WishlistItem | null>(null);
     const [deleteItem, setDeleteItem] = useState<WishlistItem | null>(null);
+    // ANO-141: отказ записи виден там, где нажали. Раньше диалог закрывался до запроса,
+    // а отказ глотался перечитыванием списка — снаружи это было «ничего не произошло».
+    const [fixBusy, setFixBusy] = useState(false);
+    const [fixError, setFixError] = useState<string | null>(null);
+    const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
 
     const monthlyExpensesAvg = data?.constraints.monthlyExpensesAvg ?? 0;
     const effThresholds = thresholds ?? data?.thresholds ?? { capitalThresholdRub: null, cashBufferMonths: 1 };
@@ -128,48 +136,86 @@ export default function CapitalWhatIf() {
         });
     };
 
-    const handleStatusChange = (item: WishlistItem, status: WishlistStatus) => {
-        const call = item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus;
-        call(item.id, status).then(refetch).catch(refetch);
+    const changeStatus = (item: WishlistItem, status: WishlistStatus): Promise<unknown> =>
+        (item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus)(item.id, status);
+
+    /** «Отклонить» и «Вернуть в обсуждение»: отказ — строкой на карточке, до следующего нажатия. */
+    const handleStatusChange = async (item: WishlistItem, status: WishlistStatus) => {
+        setStatusErrors(prev => {
+            const next = { ...prev };
+            delete next[item.id];
+            return next;
+        });
+        const failure = await attempt(() => changeStatus(item, status));
+        refetch();
+        if (failure) setStatusErrors(prev => ({ ...prev, [item.id]: failure }));
     };
 
-    const handleFixConfirm = (target: ConvertTarget, createRecurringPayments: boolean,
-                              planDate?: string) => {
+    const openFix = (item: WishlistItem) => {
+        setFixError(null);
+        setFixItem(item);
+    };
+
+    /**
+     * Диалог закрывается только на успехе; отказ остаётся в нём строкой. Список перечитывается
+     * в обоих случаях: запись примерки могла пройти до отказа конверсии.
+     */
+    const handleFixConfirm = async (target: ConvertTarget, createRecurringPayments: boolean,
+                                    planDate?: string) => {
         if (!fixItem) return;
         const item = fixItem;
-        setFixItem(null);
+        setFixBusy(true);
+        setFixError(null);
         // Сначала запись подкрученного, только потом конверсия: иначе план создастся
         // на прежнюю сумму. Если запись не прошла — не конвертируем: план на устаревшем
         // числе хуже, чем несработавшая кнопка.
-        persistTrial(item, planDate)
+        const failure = await attempt(() => persistTrial(item, planDate)
             .then(() => convertWishlistItem(item.id,
-                { sourceKind: item.kind, target, createRecurringPayments, planDate }))
-            .then(refetch)
-            .catch(refetch);
+                { sourceKind: item.kind, target, createRecurringPayments, planDate })));
+        setFixBusy(false);
+        refetch();
+        if (failure) setFixError(failure);
+        else setFixItem(null);
     };
 
-    const handleFixWithoutConversion = () => {
+    const handleFixWithoutConversion = async () => {
         if (!fixItem) return;
         const item = fixItem;
-        setFixItem(null);
-        persistTrial(item)
-            .then(() => handleStatusChange(item, 'FIXED'))
-            .catch(refetch);
+        setFixBusy(true);
+        setFixError(null);
+        const failure = await attempt(() => persistTrial(item).then(() => changeStatus(item, 'FIXED')));
+        setFixBusy(false);
+        refetch();
+        if (failure) setFixError(failure);
+        else setFixItem(null);
     };
 
-    const handleDeleteConfirm = (alsoArtifact: boolean) => {
+    const openDelete = (item: WishlistItem) => {
+        setDeleteError(null);
+        setDeleteItem(item);
+    };
+
+    const handleDeleteConfirm = async (alsoArtifact: boolean) => {
         if (!deleteItem) return;
         const item = deleteItem;
-        setDeleteItem(null);
-        const deleteSource = item.kind === 'WISHLIST' ? deleteEvent(item.id) : deleteFund(item.id);
-        const deleteArtifact = alsoArtifact && item.convertedTo
-            ? (item.convertedTo.kind === 'EVENT' ? deleteEvent(item.convertedTo.id) : deleteFund(item.convertedTo.id))
-            : Promise.resolve();
-        Promise.allSettled([deleteSource, deleteArtifact]).then(refetch);
+        setDeleteBusy(true);
+        setDeleteError(null);
+        const remove = (kind: Deletable, id: string) => ({
+            kind, run: () => (kind === 'EVENT' ? deleteEvent(id) : deleteFund(id)),
+        });
+        const parts = [remove(item.kind === 'WISHLIST' ? 'EVENT' : 'FUND', item.id)];
+        if (alsoArtifact && item.convertedTo) parts.push(remove(item.convertedTo.kind, item.convertedTo.id));
+        const failure = await deleteTogether(parts);
+        setDeleteBusy(false);
+        refetch();
+        if (failure) setDeleteError(failure);
+        else setDeleteItem(null);
     };
 
     const currentMonth = data?.baseline.currentMonth ?? '';
     const hasBaseline = !!data && data.baseline.points.length > 0;
+    /** Что уйдёт в запись при фиксации — подкрученное поверх записанного (ANO-139). */
+    const fixView = fixItem && fixPatch(fixItem, overrideMap[fixItem.id]);
 
     return (
         <div className="space-y-3">
@@ -238,24 +284,31 @@ export default function CapitalWhatIf() {
                         onAmountChange={actions.setAmountOverride}
                         onDateChange={actions.setDateOverride}
                         onParamsRecompute={handleParamsRecompute}
-                        onFix={setFixItem}
-                        onDelete={setDeleteItem}
+                        onFix={openFix}
+                        onDelete={openDelete}
                         onStatusChange={handleStatusChange}
+                        statusErrors={statusErrors}
                         onCreated={refetch}
                     />
                 </>
             )}
 
-            {fixItem && (
+            {fixItem && fixView && (
                 <FixWishlistDialog
                     open={!!fixItem}
                     /* ANO-139: диалог обязан показывать подкрученное — человек фиксирует
-                       то, на что смотрел, а не то, что записано. */
+                       то, на что смотрел, а не то, что записано. ANO-141: ставка и срок —
+                       тоже подкрученные: по ним решается пункт «Кредит», а сервер читает
+                       копилку уже после persistTrial. */
                     item={{
                         ...fixItem,
-                        amount: fixPatch(fixItem, overrideMap[fixItem.id]).amount,
-                        targetDate: fixPatch(fixItem, overrideMap[fixItem.id]).targetDate ?? null,
+                        amount: fixView.amount,
+                        targetDate: fixView.targetDate ?? null,
+                        rate: fixView.rate ?? null,
+                        termMonths: fixView.termMonths ?? null,
                     }}
+                    busy={fixBusy}
+                    error={fixError}
                     onClose={() => setFixItem(null)}
                     onConfirm={handleFixConfirm}
                     onFixWithoutConversion={handleFixWithoutConversion}
@@ -265,6 +318,8 @@ export default function CapitalWhatIf() {
                 <DeleteWishlistDialog
                     open={!!deleteItem}
                     item={deleteItem}
+                    busy={deleteBusy}
+                    error={deleteError}
                     onClose={() => setDeleteItem(null)}
                     onConfirm={handleDeleteConfirm}
                 />

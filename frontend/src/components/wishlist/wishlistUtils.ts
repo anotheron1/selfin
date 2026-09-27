@@ -1,4 +1,4 @@
-import type { MonthDelta, WishlistItem } from '../../types/api';
+import type { MonthDelta, WishlistItem, WishlistKind } from '../../types/api';
 
 export interface BaselinePoint { account: number; capital: number; }
 export interface ActiveItem { active: boolean; delta: MonthDelta[]; }
@@ -129,6 +129,47 @@ export function canConfirmConversion(target: ConvertTarget, planDate: string,
                                      todayIso: string): boolean {
     if (target !== 'PLAN_EVENT') return true;
     return planDate !== '' && planDate > todayIso;
+}
+
+/** Что показывает диалог фиксации: пункты, выбранный при открытии и строку «почему нет кредита». */
+export interface ConversionChoice {
+    targets: ConvertTarget[];
+    initial: ConvertTarget;
+    /** Кредит без ставки или срока: пункта нет, и диалог говорит почему. */
+    creditNeedsParams: boolean;
+}
+
+/** Прежняя цель по умолчанию — по виду хотелки. */
+const PREFERRED: Record<WishlistKind, ConvertTarget> = {
+    WISHLIST: 'PLAN_EVENT',
+    SAVINGS: 'FUND',
+    CREDIT: 'FUND_WITH_CREDIT',
+};
+
+/**
+ * ANO-141: диалог предлагает только то, что сервер примет.
+ *
+ * Сервер — `WishlistConversionService`: у хотелки-события ветки «Кредит» нет вовсе, а копилке
+ * она открыта только со ставкой и сроком больше нуля. Ставка 0 — рассрочка, она проходит.
+ * Раньше пункты были одни на всех, отказ глотался, и «Зафиксировать» выглядело как «ничего
+ * не произошло».
+ *
+ * Ставка и срок — те, что уйдут в запись: подкрученные на карточке (`fixPatch`). Сервер
+ * читает копилку уже после `persistTrial`. Не число — всё равно что нет: в JSON NaN уходит
+ * пустым.
+ */
+export function conversionChoice(kind: WishlistKind, rate: number | null | undefined,
+                                 termMonths: number | null | undefined): ConversionChoice {
+    const creditReady = Number.isFinite(rate) && Number.isFinite(termMonths) && (termMonths as number) > 0;
+    const targets: ConvertTarget[] = kind !== 'WISHLIST' && creditReady
+        ? ['PLAN_EVENT', 'FUND', 'FUND_WITH_CREDIT']
+        : ['PLAN_EVENT', 'FUND'];
+    const preferred = PREFERRED[kind];
+    return {
+        targets,
+        initial: targets.includes(preferred) ? preferred : targets[0],
+        creditNeedsParams: kind === 'CREDIT' && !creditReady,
+    };
 }
 
 // ── Фиксация примерки (ANO-139) ───────────────────────────────────────────────

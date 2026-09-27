@@ -11,7 +11,7 @@ import RecurringFields from './RecurringFields';
 import { canRecordFact, todayIso } from '../lib/factDate';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
 import { ON_ACCOUNT_NOTE, canSubmitQuickAdd, quickAddAction, transferFundChoice } from '../lib/quickAdd';
-import { fundMovementMessage } from '../lib/fundMovement';
+import { writeFailure } from '../lib/writeFailure';
 import { AttemptKeys } from '../lib/attemptKey';
 
 /**
@@ -141,8 +141,9 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             onClose();
         } catch (err) {
             console.error('Ошибка создания транзакции:', err);
-            // Отказ копилки называется словами (ANO-169); общий текст — дело ANO-170.
-            setError(fundMovementMessage(err) ?? 'Не удалось сохранить. Проверьте заполненные поля и попробуйте снова.');
+            // Отказ копилки называется словами (ANO-169), остальное — «Не записалось», как в
+            // «Записать факт». Догадка про поля отправляла искать пустое поле, которого нет (ANO-170).
+            setError(writeFailure(err));
         } finally {
             setLoading(false);
         }

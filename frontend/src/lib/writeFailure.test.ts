@@ -1,0 +1,160 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
+import { FUND_ON_ACCOUNT } from './fundMovement';
+import {
+    DELETE_FAILED, FUND_HOLDS_MONEY, WRITE_FAILED,
+    attempt, deleteFailure, deleteTogether, writeFailure,
+} from './writeFailure';
+
+const lost = () => new TypeError('Failed to fetch');
+/** Отказ, как его бросает api/client.ts: статус, коды и английский текст сервера в сообщении. */
+const refused = (status: number, ...details: string[]) => ({
+    status, details,
+    message: `API error: ${status} /wishlist/items/1/convert — Unsupported target for WISHLIST source: FUND_WITH_CREDIT`,
+});
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+/**
+ * ANO-141, ANO-170. Отказ записи доходит до человека словами продукта — не текстом сервера
+ * (он по-английски, ANO-203) и не догадкой про поля (правило 5). Замер 28.09 — спека
+ * 2026-09-28-wishlist-write-errors-design.md.
+ */
+describe('фраза отказа записи', () => {
+    it('обрыв связи — «Не записалось — попробуйте ещё раз»: повтор безопасен (ANO-192)', () => {
+        expect(WRITE_FAILED).toBe('Не записалось — попробуйте ещё раз');
+        expect(writeFailure(lost())).toBe(WRITE_FAILED);
+    });
+
+    it('отказ сервера без кода — та же фраза, текст сервера на экран не идёт', () => {
+        const msg = writeFailure(refused(400));
+        expect(msg).toBe(WRITE_FAILED);
+        expect(msg).not.toContain('Unsupported');
+    });
+
+    it('отказ копилки с кодом — её словами, как везде (ANO-169)', () => {
+        expect(writeFailure(refused(409, FUND_ON_ACCOUNT, 'fund:Отпуск'))).toContain('«Отпуск» лежит на счёте');
+    });
+
+    it('те же слова, что в «Записать факт» и листе правки: одна фраза на один случай', () => {
+        expect(read('../components/FactCreateSheet.tsx')).toContain(`'${WRITE_FAILED}'`);
+        expect(read('../components/EditEventSheet.tsx')).toContain(`'${WRITE_FAILED}'`);
+        expect(read('../components/EditEventSheet.tsx')).toContain(`'${DELETE_FAILED}'`);
+    });
+});
+
+describe('фраза отказа удаления', () => {
+    it('копилка, 409 — в ней лежат деньги: повтор не поможет, «попробуйте ещё раз» соврало бы', () => {
+        expect(deleteFailure(refused(409), 'FUND')).toBe(FUND_HOLDS_MONEY);
+        expect(FUND_HOLDS_MONEY).toBe('Не удалилось: в копилке лежат деньги');
+    });
+
+    it('копилка, обрыв связи — «Не удалилось — попробуйте ещё раз»', () => {
+        expect(DELETE_FAILED).toBe('Не удалилось — попробуйте ещё раз');
+        expect(deleteFailure(lost(), 'FUND')).toBe(DELETE_FAILED);
+    });
+
+    it('событие, 409 — это не деньги копилки: общая фраза', () => {
+        expect(deleteFailure(refused(409), 'EVENT')).toBe(DELETE_FAILED);
+    });
+
+    it('из двух удалений называется отказавшее — в каком бы порядке оно ни стояло', async () => {
+        const ok = () => Promise.resolve();
+        const holds = () => Promise.reject(refused(409));
+        expect(await deleteTogether([{ kind: 'EVENT', run: ok }, { kind: 'FUND', run: holds }])).toBe(FUND_HOLDS_MONEY);
+        expect(await deleteTogether([{ kind: 'FUND', run: holds }, { kind: 'EVENT', run: ok }])).toBe(FUND_HOLDS_MONEY);
+    });
+
+    it('удалилось всё — фразы нет', async () => {
+        const ok = () => Promise.resolve();
+        expect(await deleteTogether([{ kind: 'EVENT', run: ok }, { kind: 'FUND', run: ok }])).toBeNull();
+    });
+});
+
+describe('запись с ответом для экрана', () => {
+    it('записалось — фразы нет', async () => {
+        expect(await attempt(() => Promise.resolve('ok'))).toBeNull();
+    });
+
+    it('отказ — фраза записи', async () => {
+        expect(await attempt(() => Promise.reject(lost()))).toBe(WRITE_FAILED);
+    });
+});
+
+/** Текст инициализатора `const имя = …` — тело обработчика. */
+function handlerBody(path: string, name: string): string {
+    const src = read(path);
+    const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    let body: string | null = null;
+    const visit = (node: ts.Node): void => {
+        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)
+            && node.name.text === name && node.initializer) {
+            body = node.initializer.getText(sf);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    if (body === null) throw new Error(`${path}: нет обработчика ${name}`);
+    return body;
+}
+
+describe('«Что с капиталом» не глотает отказ (ANO-141, сторож по исходнику)', () => {
+    // Компонентных тестов во фронте нет, а вернуть `.catch(refetch)` — правка в одну строку.
+    const BLOCK = '../components/sandbox/CapitalWhatIf.tsx';
+    const FIX = '../components/wishlist/FixWishlistDialog.tsx';
+    const DELETE = '../components/wishlist/DeleteWishlistDialog.tsx';
+
+    it.each([
+        ['handleStatusChange', /attempt\(/, /setStatusErrors\(/],
+        ['handleFixConfirm', /attempt\(/, /setFixError\(failure\)/],
+        ['handleFixWithoutConversion', /attempt\(/, /setFixError\(failure\)/],
+        ['handleDeleteConfirm', /deleteTogether\(/, /setDeleteError\(failure\)/],
+    ])('%s передаёт отказ на экран', (name, write, shown) => {
+        const body = handlerBody(BLOCK, name);
+        expect(body).toMatch(write);
+        expect(body).toMatch(shown);
+    });
+
+    it('ни один обработчик не прячет отказ за перечитыванием', () => {
+        const src = read(BLOCK);
+        expect(src).not.toMatch(/\.catch\(\s*refetch\s*\)/);
+        expect(src).not.toMatch(/allSettled/);
+    });
+
+    it('отказ и занятость доходят до диалогов и карточек', () => {
+        const src = read(BLOCK);
+        expect(src).toMatch(/busy=\{fixBusy\}/);
+        expect(src).toMatch(/error=\{fixError\}/);
+        expect(src).toMatch(/busy=\{deleteBusy\}/);
+        expect(src).toMatch(/error=\{deleteError\}/);
+        expect(src).toMatch(/statusErrors=\{statusErrors\}/);
+        expect(read('../components/wishlist/WishlistItemList.tsx'))
+            .toMatch(/statusError=\{p\.statusErrors\[item\.id\]\}/);
+    });
+
+    it('диалоги показывают отказ и не отпускают, пока идёт запись: обе кнопки заняты', () => {
+        for (const path of [FIX, DELETE]) {
+            const src = read(path);
+            expect(src, path).toMatch(/\{error\s*&&/);
+            expect(src.match(/disabled=\{busy/g), path).toHaveLength(2);
+            expect(src, path).toMatch(/!busy\s*&&\s*onClose\(\)/);
+        }
+    });
+
+    it('карточка показывает отказ смены статуса', () => {
+        expect(read('../components/wishlist/WishlistItemCard.tsx')).toMatch(/\{statusError\s*&&/);
+    });
+
+    it('диалог фиксации строит пункты правилом, а не одним списком на всех', () => {
+        const src = read(FIX);
+        expect(src).toMatch(/conversionChoice\(/);
+        expect(src).not.toMatch(/'FUND_WITH_CREDIT'\s*\]/);
+    });
+
+    it('в диалог уходят ставка и срок, которые запишет persistTrial, — подкрученные (fixPatch)', () => {
+        const src = read(BLOCK);
+        expect(src).toMatch(/rate:\s*fixView\.rate/);
+        expect(src).toMatch(/termMonths:\s*fixView\.termMonths/);
+        expect(src).toMatch(/fixView\s*=\s*fixItem\s*&&\s*fixPatch\(/);
+    });
+});

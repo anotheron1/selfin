@@ -21,6 +21,8 @@ interface Props {
     onFix: (item: WishlistItem) => void;
     onDelete: (item: WishlistItem) => void;
     onStatusChange: (item: WishlistItem, status: WishlistStatus) => void;
+    /** Отказы смены статуса по id item'а — строкой на его карточке (ANO-141). */
+    statusErrors: Record<string, string>;
     /** После создания нового item'а — refetch родителя. */
     onCreated: () => void;
 }
@@ -44,6 +46,7 @@ function renderCard(item: WishlistItem, p: Props) {
             onFix={() => p.onFix(item)}
             onDelete={() => p.onDelete(item)}
             onStatusChange={s => p.onStatusChange(item, s)}
+            statusError={p.statusErrors[item.id]}
         />
     );
 }
