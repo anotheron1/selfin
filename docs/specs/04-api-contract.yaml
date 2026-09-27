@@ -103,6 +103,15 @@ paths:
   /events/facts:
     post:
       summary: Создать внеплановый факт (standalone FACT без родительского PLAN)
+      description: Повтор с тем же Idempotency-Key возвращает уже записанный факт (ANO-192).
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: UUID попытки записи; клиент держит его, пока повторяет ту же запись
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -206,11 +215,20 @@ paths:
   /events/{planId}/facts:
     post:
       summary: Создать связанный факт к плановому событию
-      description: Создаёт FACT-запись, привязанную к PLAN. Дата и сумма факта могут отличаться от плана.
+      description: >-
+        Создаёт FACT-запись, привязанную к PLAN. Дата и сумма факта могут отличаться от плана.
+        Повтор с тем же Idempotency-Key возвращает уже записанный факт (ANO-192).
       parameters:
         - name: planId
           in: path
           required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: UUID попытки записи; клиент держит его, пока повторяет ту же запись
           schema:
             type: string
             format: uuid

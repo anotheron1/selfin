@@ -176,9 +176,16 @@ public class FinancialEventService {
     /**
      * Создаёт standalone FACT-запись без родительского PLAN.
      * Используется для внеплановых трат, когда план не создавался.
+     *
+     * @param idempotencyKey UUID попытки из заголовка {@code Idempotency-Key}: повтор с ним же
+     *                       возвращает уже записанный факт (ANO-192)
      */
     @Transactional
-    public FinancialEventDto createStandaloneFact(StandaloneFactCreateDto dto) {
+    public FinancialEventDto createStandaloneFact(UUID idempotencyKey, StandaloneFactCreateDto dto) {
+        // ANO-192: повтор с тем же ключом — потерянный ответ, а не вторая трата.
+        var recorded = eventRepository.findByIdempotencyKey(idempotencyKey);
+        if (recorded.isPresent()) return toDto(recorded.get(), null, null);
+
         // ANO-201: у такого факта нет ни копилки, ни движения — он уменьшил бы счёт и никуда
         // не положил деньги. Перевод записывается ручкой перевода: там копилка и ключ.
         if (dto.type() == EventType.FUND_TRANSFER) {
@@ -191,7 +198,7 @@ public class FinancialEventService {
         requireNotFuture(dto.date());
 
         FinancialEvent fact = FinancialEvent.builder()
-                .idempotencyKey(UUID.randomUUID())
+                .idempotencyKey(idempotencyKey)
                 .eventKind(EventKind.FACT)
                 .date(dto.date())
                 .category(category)
@@ -296,16 +303,23 @@ public class FinancialEventService {
      * EXECUTED — только когда факты покрыли плановую сумму.
      * FACT наследует категорию и тип от PLAN.
      *
-     * @param planId идентификатор родительского PLAN-события
-     * @param dto    фактическая сумма и описание
+     * @param planId         идентификатор родительского PLAN-события
+     * @param idempotencyKey UUID попытки из заголовка {@code Idempotency-Key}: повтор с ним же
+     *                       возвращает уже записанный факт (ANO-192). У факта перевода это и ключ
+     *                       движения копилки
+     * @param dto            фактическая сумма и описание
      * @return DTO созданной FACT-записи
      * @throws ResourceNotFoundException если PLAN не найден или удалён
      */
     @Transactional
-    public FinancialEventDto createLinkedFact(UUID planId, FactCreateDto dto) {
+    public FinancialEventDto createLinkedFact(UUID planId, UUID idempotencyKey, FactCreateDto dto) {
         FinancialEvent plan = eventRepository.findById(planId)
                 .filter(e -> !e.isDeleted() && e.getEventKind() == EventKind.PLAN)
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent (PLAN)", planId));
+        // ANO-192: повтор с тем же ключом — потерянный ответ. Факт уже записан, копилка сдвинута,
+        // план пересчитан: вернуть записанное и больше ничего не делать.
+        var recorded = eventRepository.findByIdempotencyKey(idempotencyKey);
+        if (recorded.isPresent()) return toDto(recorded.get(), null, plan);
         requireNotFuture(dto.date());
 
         // ANO-169: факт к плану перевода — это перевод. Раньше он брал у плана категорию и
@@ -318,7 +332,7 @@ public class FinancialEventService {
         }
 
         FinancialEvent fact = FinancialEvent.builder()
-                .idempotencyKey(UUID.randomUUID())
+                .idempotencyKey(idempotencyKey)
                 .eventKind(EventKind.FACT)
                 .parentEventId(planId)
                 .date(dto.date())

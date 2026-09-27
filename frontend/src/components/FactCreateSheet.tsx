@@ -4,6 +4,7 @@ import { Input } from './ui/input';
 import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { createLinkedFact } from '../api';
+import { AttemptKeys } from '../lib/attemptKey';
 import { PRIORITY_DOT_CONFIG, PRIORITY_FIELD_LABEL, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
 import { canRecordFact, todayIso } from '../lib/factDate';
 import { fundMovementMessage } from '../lib/fundMovement';
@@ -44,6 +45,13 @@ export default function FactCreateSheet({
     // молча не срабатывал — например, на плане перевода в копилку на счёте.
     const [error, setError] = useState<string | null>(null);
 
+    // ANO-192, ревью #104: попытка живёт, пока лист открыт. Повтор после сбоя — тот же ключ;
+    // закрыл и открыл снова — новая запись, а не повтор оставленной.
+    const [attempts, setAttempts] = useState(() => new AttemptKeys());
+    useEffect(() => {
+        if (open) setAttempts(new AttemptKeys());
+    }, [open]);
+
     // Synchronise priority with the selected plan whenever the sheet opens
     useEffect(() => {
         if (open) setPriority(planPriority);
@@ -80,7 +88,7 @@ export default function FactCreateSheet({
                 priority,
                 rawInput: amountRawInput(amount),
             };
-            await createLinkedFact(planId, dto);
+            await createLinkedFact(attempts, planId, dto);
             onCreated();
             onClose();
         } catch (err) {

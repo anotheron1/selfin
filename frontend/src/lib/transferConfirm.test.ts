@@ -101,7 +101,7 @@ describe('диалог «Пополнить фонд» (ANO-88)', () => {
 
     it('спрашивает с датой и шлёт горизонт карточки', () => {
         expect(src).toContain('confirmQuestion(err, pocket)');
-        expect(src).toContain('transferToFund(fund.id, num, undefined, scope)');
-        expect(src).toContain('transferToFund(fund.id, num, true, scope)');
+        expect(src).toContain('transferToFund(attempts, fund.id, num, undefined, scope)');
+        expect(src).toContain('transferToFund(attempts, fund.id, num, true, scope)');
     });
 });

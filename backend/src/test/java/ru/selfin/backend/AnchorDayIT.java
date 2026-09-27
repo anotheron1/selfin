@@ -222,7 +222,7 @@ class AnchorDayIT {
         String categoryId = jdbc.queryForObject(
                 "SELECT id::text FROM categories WHERE type = 'EXPENSE' AND is_deleted = false LIMIT 1",
                 String.class);
-        mockMvc.perform(post("/api/v1/events/facts")
+        mockMvc.perform(post("/api/v1/events/facts").header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"date": "%s", "categoryId": "%s", "type": "EXPENSE",

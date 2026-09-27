@@ -57,7 +57,7 @@ class RecurringFactIT {
         // на чужой уникальный ключ). Дата факта — сегодня: план заведён на завтра, а факт
         // в будущем запрещён (ANO-155). Суть воспроизведения — факт на порождённом правилом
         // плане, а не его дата.
-        mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
+        mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId).header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(factBody(LocalDate.now().toString(), 23598)))
                 .andExpect(status().isOk());
@@ -68,7 +68,7 @@ class RecurringFactIT {
     void factOnRecurringPlan_carriesNoRuleButKeepsParent() throws Exception {
         Recurring r = createMonthlyRule("Подписка");
 
-        String resp = mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
+        String resp = mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId).header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(factBody(LocalDate.now().toString(), 500)))
                 .andExpect(status().isOk())
@@ -93,11 +93,11 @@ class RecurringFactIT {
         // Мультифактовость заложена дизайном: в репозитории есть COUNT+SUM фактов
         // GROUP BY parentEventId. Широкий индекс её ломал — второй факт садился на тот же
         // ключ (rule_id, date), что и первый.
-        mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
+        mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId).header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(factBody(LocalDate.now().toString(), 3000)))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId)
+        mockMvc.perform(post("/api/v1/events/{planId}/facts", r.planId).header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(factBody(LocalDate.now().toString(), 2000)))
                 .andExpect(status().isOk());

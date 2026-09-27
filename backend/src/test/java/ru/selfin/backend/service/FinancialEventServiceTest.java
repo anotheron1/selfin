@@ -52,7 +52,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findById(any())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                service.createLinkedFact(UUID.randomUUID(),
+                service.createLinkedFact(UUID.randomUUID(), UUID.randomUUID(),
                         new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null, null)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
@@ -65,7 +65,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findById(factId)).thenReturn(Optional.of(fact));
 
         assertThatThrownBy(() ->
-                service.createLinkedFact(factId,
+                service.createLinkedFact(factId, UUID.randomUUID(),
                         new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null, null)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
@@ -94,7 +94,7 @@ class FinancialEventServiceTest {
         when(eventRepository.save(any())).thenReturn(savedFact, plan);
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
 
-        FinancialEventDto result = service.createLinkedFact(planId,
+        FinancialEventDto result = service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now(), BigDecimal.TEN, "оплатил", null, null));
 
         assertThat(result.eventKind()).isEqualTo(EventKind.FACT);
@@ -127,7 +127,7 @@ class FinancialEventServiceTest {
         when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(List.of(agg(planId, "300")));
 
-        service.createLinkedFact(planId,
+        service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now(), new BigDecimal("300"), null, null, null));
 
         assertThat(plan.getStatus())
@@ -144,7 +144,7 @@ class FinancialEventServiceTest {
         when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(List.of(agg(planId, "5000")));
 
-        service.createLinkedFact(planId,
+        service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now(), new BigDecimal("5000"), null, null, null));
 
         assertThat(plan.getStatus()).isEqualTo(EventStatus.EXECUTED);
@@ -159,7 +159,7 @@ class FinancialEventServiceTest {
         when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(List.of(agg(planId, "7300")));
 
-        service.createLinkedFact(planId,
+        service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now(), new BigDecimal("7300"), null, null, null));
 
         assertThat(plan.getStatus()).isEqualTo(EventStatus.EXECUTED);
@@ -176,7 +176,7 @@ class FinancialEventServiceTest {
         FinancialEvent plan = aPlan(planId, category(), EventStatus.PLANNED);
         when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
 
-        assertThatThrownBy(() -> service.createLinkedFact(planId,
+        assertThatThrownBy(() -> service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now().plusDays(1), new BigDecimal("5480"), null, null, null)))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("must not be in the future");
@@ -196,7 +196,7 @@ class FinancialEventServiceTest {
         Category cat = category();
         when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
 
-        assertThatThrownBy(() -> service.createStandaloneFact(new StandaloneFactCreateDto(
+        assertThatThrownBy(() -> service.createStandaloneFact(UUID.randomUUID(), new StandaloneFactCreateDto(
                 LocalDate.now().plusDays(1), cat.getId(), EventType.EXPENSE,
                 new BigDecimal("300"), null, null, null)))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
@@ -217,7 +217,7 @@ class FinancialEventServiceTest {
             return e;
         });
 
-        FinancialEventDto result = service.createStandaloneFact(new StandaloneFactCreateDto(
+        FinancialEventDto result = service.createStandaloneFact(UUID.randomUUID(), new StandaloneFactCreateDto(
                 LocalDate.now(), cat.getId(), EventType.EXPENSE,
                 new BigDecimal("300"), null, null, null));
 
@@ -243,7 +243,7 @@ class FinancialEventServiceTest {
         });
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
 
-        service.createLinkedFact(planId,
+        service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, null, null));
 
         assertThat(saved[0].getPriority()).isEqualTo(Priority.HIGH);
@@ -267,7 +267,7 @@ class FinancialEventServiceTest {
         });
         when(eventRepository.findFactAggregatesByPlanIds(any())).thenReturn(Collections.emptyList());
 
-        service.createLinkedFact(planId,
+        service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now(), BigDecimal.TEN, null, Priority.LOW, null));
 
         assertThat(saved[0].getPriority()).isEqualTo(Priority.LOW);
@@ -345,7 +345,7 @@ class FinancialEventServiceTest {
         var factDto = new ru.selfin.backend.dto.FactCreateDto(
                 LocalDate.now(), new BigDecimal("90000"), "Оплачено", null, null);
 
-        service.createLinkedFact(planId, factDto);
+        service.createLinkedFact(planId, UUID.randomUUID(), factDto);
 
         ArgumentCaptor<FinancialEvent> cap = ArgumentCaptor.forClass(FinancialEvent.class);
         verify(eventRepository, atLeastOnce()).save(cap.capture());
@@ -877,7 +877,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
         when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        service.createLinkedFact(planId,
+        service.createLinkedFact(planId, UUID.randomUUID(),
                 new FactCreateDto(LocalDate.now(), new BigDecimal("300"), null, null, null));
 
         assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);

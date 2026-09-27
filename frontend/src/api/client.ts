@@ -118,13 +118,3 @@ export function patch<T>(path: string, body?: unknown) {
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 }
-
-/**
- * Генерирует UUID v4 на клиенте для использования в качестве `Idempotency-Key`.
- * Использует встроенный `crypto.randomUUID()` — доступен во всех современных браузерах.
- *
- * @returns строка вида `"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"`
- */
-export function generateUUID(): string {
-    return crypto.randomUUID();
-}

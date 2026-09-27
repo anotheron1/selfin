@@ -166,13 +166,13 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             .catch(console.error);
     }, [refreshSignal]);
 
-    // Запись факта не идемпотентна: кружок занят, пока журнал не перечитан после записи, —
-    // иначе строка ещё показывает прежний остаток, и второе касание записало бы второй факт.
+    // Повтор после сбоя безопасен — тот же ключ попытки (ANO-192). Но после записи кружок занят,
+    // пока журнал не перечитан: строка ещё показывает прежний остаток, и новое касание — уже новый факт.
     const closePlan = (plan: FinancialEvent, amount: number, date: string) => {
         if (!guard.begin(plan.id)) return;
         setCloseFailedId(null);
         guardChanged();
-        createLinkedFact(plan.id, { date, factAmount: amount })
+        createLinkedFact(guard.attempts, plan.id, { date, factAmount: amount })
             .then(
                 () => { guard.wrote(plan.id); guardChanged(); return load(true); },
                 (err) => { console.error(err); guard.failed(plan.id); setCloseFailedId(plan.id); guardChanged(); },
