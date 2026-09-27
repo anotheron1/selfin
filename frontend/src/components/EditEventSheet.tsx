@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import EditEventScopePicker from './EditEventScopePicker';
 import DeleteRecurringDialog from './DeleteRecurringDialog';
 import { PRIORITY_DOT_CONFIG, PRIORITY_FIELD_LABEL, PRIORITY_ORDER } from '../lib/priority';
+import { categoryChoices } from '../lib/categoryChoices';
 
 interface EditEventSheetProps {
     event: FinancialEvent;
@@ -28,7 +29,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
     const [categoryId, setCategoryId] = useState(event.categoryId ?? '');
     const [type, setType] = useState<EventType>(event.type);
     const [priority, setPriority] = useState<Priority>(event.priority ?? 'MEDIUM');
-    const [categories, setCategories] = useState<Category[]>([]);
+    const [categories, setCategories] = useState<Category[] | null>(null);
     const [loading, setLoading] = useState(false);
     const [scope, setScope] = useState<ScopeEnum>('FOLLOWING');
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -154,7 +155,7 @@ export default function EditEventSheet({ event, onClose, onSuccess }: EditEventS
                                     <SelectValue placeholder="Выберите категорию" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {categories.map(cat => (
+                                    {categoryChoices(categories, event).map(cat => (
                                         <SelectItem key={cat.id} value={cat.id}>
                                             {cat.name}
                                         </SelectItem>
