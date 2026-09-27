@@ -1,5 +1,5 @@
 import { get, post, put, patch, del } from './client';
-import { attempts } from '../lib/attemptKey';
+import type { AttemptKeys } from '../lib/attemptKey';
 import type {
     Account,
     AccountCreateDto,
@@ -77,9 +77,9 @@ export const fetchEvents = (startDate: string, endDate: string) =>
 /**
  * Запись денег с ключом попытки (ANO-192): повтор после сбоя уходит с тем же ключом, и сервер
  * вернёт уже записанное; после успеха ключ забыт — следующая такая же запись новая.
- * Правило ключа — `lib/attemptKey.ts`.
+ * Правило ключа — `lib/attemptKey.ts`; память попыток — у экрана, который пишет (ревью #104).
  */
-async function withAttempt<T>(target: string, data: unknown, send: (key: string) => Promise<T>): Promise<T> {
+async function withAttempt<T>(attempts: AttemptKeys, target: string, data: unknown, send: (key: string) => Promise<T>): Promise<T> {
     const key = attempts.keyFor(target, data);
     const result = await send(key);
     attempts.done(target, key);
@@ -92,10 +92,10 @@ async function withAttempt<T>(target: string, data: unknown, send: (key: string)
  * План записан, а ответ на факт потерян — повтор отдаёт план с тем же ключом, сервер
  * возвращает тот же план, и второго плана нет. Поэтому ключ плана забывается только после факта.
  */
-export async function createPlanWithFact(dto: FinancialEventCreateDto, fact?: FactCreateDto): Promise<FinancialEvent> {
+export async function createPlanWithFact(attempts: AttemptKeys, dto: FinancialEventCreateDto, fact?: FactCreateDto): Promise<FinancialEvent> {
     const planKey = attempts.keyFor('plan', dto);
     const plan = await post<FinancialEvent>('/events', dto, { 'Idempotency-Key': planKey });
-    if (fact) await createLinkedFact(plan.id, fact);
+    if (fact) await createLinkedFact(attempts, plan.id, fact);
     attempts.done('plan', planKey);
     return plan;
 }
@@ -135,13 +135,13 @@ export const deleteEvent = (id: string, scope: ScopeEnum = 'THIS') => del(`/even
 
 
 /** Создаёт фактическое исполнение (FACT) для планового события (PLAN). Повтор — тот же ключ (ANO-192). */
-export const createLinkedFact = (planId: string, dto: FactCreateDto) =>
-    withAttempt(`fact:${planId}`, dto, key =>
+export const createLinkedFact = (attempts: AttemptKeys, planId: string, dto: FactCreateDto) =>
+    withAttempt(attempts, `fact:${planId}`, dto, key =>
         post<FinancialEvent>(`/events/${planId}/facts`, dto, { 'Idempotency-Key': key }));
 
 /** Создаёт внеплановый факт без родительского PLAN. Повтор — тот же ключ (ANO-192). */
-export const createStandaloneFact = (dto: StandaloneFactCreateDto) =>
-    withAttempt('standaloneFact', dto, key =>
+export const createStandaloneFact = (attempts: AttemptKeys, dto: StandaloneFactCreateDto) =>
+    withAttempt(attempts, 'standaloneFact', dto, key =>
         post<FinancialEvent>('/events/facts', dto, { 'Idempotency-Key': key }));
 
 // --- Analytics ---
@@ -227,7 +227,7 @@ export const deleteFund = (id: string) => del(`/funds/${id}`);
  * @param date  день перевода, YYYY-MM-DD (ANO-169): быстрый ввод записывает перевод, который
  *              уже сделан; не задан — сегодня, как у кнопки «Пополнить»
  */
-export const transferToFund = (fundId: string, amount: number, confirm?: boolean, scope?: string, date?: string) => {
+export const transferToFund = (attempts: AttemptKeys, fundId: string, amount: number, confirm?: boolean, scope?: string, date?: string) => {
     const transfer = {
         amount,
         ...(scope === undefined ? {} : { scope }),
@@ -236,7 +236,7 @@ export const transferToFund = (fundId: string, amount: number, confirm?: boolean
     // Подтверждение — разрешение, а не другая запись: ключ попытки берётся без него. Иначе
     // повтор после потерянного ответа на подтверждённый перевод начинался бы запросом без
     // подтверждения с новым ключом — и деньги ушли бы второй раз.
-    return withAttempt(`transfer:${fundId}`, transfer, key =>
+    return withAttempt(attempts, `transfer:${fundId}`, transfer, key =>
         post<TargetFund>(`/funds/${fundId}/transfer`,
             { ...transfer, ...(confirm === undefined ? {} : { confirm }) },
             { 'Idempotency-Key': key }));

@@ -66,7 +66,7 @@ describe('быстрый ввод «В копилку» (ANO-169)', () => {
 
     it('«уже перевёл» — перевод без вопроса и той датой, что в форме', () => {
         expect(src).toContain('quickAddAction(isFundTransfer, hasPlanAmount, hasFactAmount)');
-        expect(src).toContain('transferToFund(form.targetFundId!, factAmount!, true, undefined, form.date!)');
+        expect(src).toContain('transferToFund(attempts, form.targetFundId!, factAmount!, true, undefined, form.date!)');
     });
 
     it('факт к плану перевода больше не пропускается', () => {

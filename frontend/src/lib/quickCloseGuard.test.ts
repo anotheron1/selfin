@@ -88,3 +88,47 @@ describe('кружок занят, пока закрытие брони не р�
         expect(g.stale('A')).toBe(false);
     });
 });
+
+describe('попытка кружка живёт, пока журнал не показал её исход (ANO-192, ревью #104)', () => {
+    const DATA = { date: '2026-09-27', factAmount: 192 };
+
+    it('запрос упал — повтор с тем же ключом: сервер мог записать, а ответ потеряться', () => {
+        const g = new QuickCloseGuard();
+        g.begin('A');
+        const first = g.attempts.keyFor('fact:A', DATA);
+        g.failed('A');
+        g.begin('A');
+        expect(g.attempts.keyFor('fact:A', DATA)).toBe(first);
+    });
+
+    it('журнал перечитан после сбоя — попытка кончилась: такая же запись позже — новый ключ', () => {
+        // Иначе оставленная попытка жила бы до конца сессии: записанный факт удалили, такой же
+        // записали заново — сервер вернул бы удалённый по старому ключу, и запись молча пропала бы.
+        const g = new QuickCloseGuard();
+        g.begin('A');
+        const first = g.attempts.keyFor('fact:A', DATA);
+        g.failed('A');
+        g.readSucceeded(g.readStarted());
+        expect(g.attempts.keyFor('fact:A', DATA)).not.toBe(first);
+    });
+
+    it('чтение, начатое до сбоя, попытку не кончает: исхода записи в нём ещё нет', () => {
+        const g = new QuickCloseGuard();
+        const early = g.readStarted();
+        g.begin('A');
+        const first = g.attempts.keyFor('fact:A', DATA);
+        g.failed('A');
+        g.readSucceeded(early);
+        expect(g.attempts.keyFor('fact:A', DATA)).toBe(first);
+    });
+
+    it('чтение не кончает попытку, которая ещё в пути', () => {
+        const g = new QuickCloseGuard();
+        const read = g.readStarted();
+        g.begin('A');
+        const first = g.attempts.keyFor('fact:A', DATA);
+        g.readSucceeded(read);
+        g.failed('A');
+        expect(g.attempts.keyFor('fact:A', DATA)).toBe(first);
+    });
+});

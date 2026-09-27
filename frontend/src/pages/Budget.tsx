@@ -172,7 +172,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         if (!guard.begin(plan.id)) return;
         setCloseFailedId(null);
         guardChanged();
-        createLinkedFact(plan.id, { date, factAmount: amount })
+        createLinkedFact(guard.attempts, plan.id, { date, factAmount: amount })
             .then(
                 () => { guard.wrote(plan.id); guardChanged(); return load(true); },
                 (err) => { console.error(err); guard.failed(plan.id); setCloseFailedId(plan.id); guardChanged(); },

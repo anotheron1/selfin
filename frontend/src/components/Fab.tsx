@@ -12,6 +12,7 @@ import { canRecordFact, todayIso } from '../lib/factDate';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
 import { ON_ACCOUNT_NOTE, canSubmitQuickAdd, quickAddAction, transferFundChoice } from '../lib/quickAdd';
 import { fundMovementMessage } from '../lib/fundMovement';
+import { AttemptKeys } from '../lib/attemptKey';
 
 /**
  * Модальная форма быстрого добавления транзакции (bottom sheet).
@@ -34,6 +35,8 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     const [plannedAmountLocal, setPlannedAmountLocal] = useState<string>('');
     const [factAmountLocal, setFactAmountLocal] = useState<string>('');
     const [loading, setLoading] = useState(false);
+    // ANO-192, ревью #104: попытка живёт, пока открыт быстрый ввод — повтор после сбоя тот же.
+    const [attempts] = useState(() => new AttemptKeys());
     // ANO-155: факт значит «деньги ушли» — у события с будущей датой его быть не может.
     const factAllowed = !form.date || canRecordFact(form.date, today);
     const [error, setError] = useState<string | null>(null);
@@ -106,10 +109,10 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                 // «В копилку: X», копилка растёт. Раньше здесь создавался план без суммы, а сумма
                 // выбрасывалась. Без вопроса «отложить всё равно?» (confirm): человек записывает
                 // то, что уже сделал, — спрашивать о нём значит сомневаться в его вводе (правило 5).
-                await transferToFund(form.targetFundId!, factAmount!, true, undefined, form.date!);
+                await transferToFund(attempts, form.targetFundId!, factAmount!, true, undefined, form.date!);
             } else if (action === 'standaloneFact') {
                 // Внеплановый факт — только фактическая сумма, без плана
-                await createStandaloneFact({
+                await createStandaloneFact(attempts, {
                     date: form.date!,
                     categoryId: form.categoryId!,
                     type: form.type!,
@@ -124,7 +127,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                 // ANO-169: у перевода факт к плану переводит деньги сервер — раньше этот шаг
                 // для копилки пропускался, и сумма факта терялась. ANO-192: план и факт — одна
                 // попытка, повтор после сбоя не создаст второй план.
-                await createPlanWithFact({
+                await createPlanWithFact(attempts, {
                     ...form as FinancialEventCreateDto,
                     priority: effectivePriority,
                     recurring: recurringEnabled && !isFundTransfer ? { ...recurring, startDate: form.date } : null,

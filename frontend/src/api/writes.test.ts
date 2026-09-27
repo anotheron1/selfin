@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLinkedFact, createPlanWithFact, createStandaloneFact, transferToFund } from './index';
 import type { FinancialEventCreateDto } from '../types/api';
+import { AttemptKeys } from '../lib/attemptKey';
 
 type Call = { url: string; key: string | undefined };
 
@@ -32,15 +33,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
-// У каждого теста своя цель записи — свой план или копилка: память попыток одна на приложение.
+// У каждого теста своя память попыток — как у каждого экрана записи.
 describe('записи денег держат ключ попытки (ANO-192)', () => {
     it('факт к плану: повтор после потерянного ответа — тот же ключ, следующая запись — новый', async () => {
+        const attempts = new AttemptKeys();
         const calls = network('lost', { id: 'fact-1' }, { id: 'fact-2' });
         const dto = { date: '2026-09-27', factAmount: 192 };
 
-        await expect(createLinkedFact('plan-linked', dto)).rejects.toThrow();
-        await createLinkedFact('plan-linked', dto);
-        await createLinkedFact('plan-linked', dto);
+        await expect(createLinkedFact(attempts, 'plan-linked', dto)).rejects.toThrow();
+        await createLinkedFact(attempts, 'plan-linked', dto);
+        await createLinkedFact(attempts, 'plan-linked', dto);
 
         expect(calls[0].key).toMatch(UUID);
         expect(calls[1].key, 'повтор — тот же ключ: сервер вернёт уже записанное').toBe(calls[0].key);
@@ -48,12 +50,13 @@ describe('записи денег держат ключ попытки (ANO-192)
     });
 
     it('факт без плана: повтор после потерянного ответа — тот же ключ, следующая запись — новый', async () => {
+        const attempts = new AttemptKeys();
         const calls = network('lost', { id: 'fact-1' }, { id: 'fact-2' });
         const dto = { date: '2026-09-27', categoryId: 'cat-1', type: 'EXPENSE' as const, factAmount: 150 };
 
-        await expect(createStandaloneFact(dto)).rejects.toThrow();
-        await createStandaloneFact(dto);
-        await createStandaloneFact(dto);
+        await expect(createStandaloneFact(attempts, dto)).rejects.toThrow();
+        await createStandaloneFact(attempts, dto);
+        await createStandaloneFact(attempts, dto);
 
         expect(calls[0].key).toMatch(UUID);
         expect(calls[1].key, 'повтор — тот же ключ: сервер вернёт уже записанное').toBe(calls[0].key);
@@ -61,11 +64,12 @@ describe('записи денег держат ключ попытки (ANO-192)
     });
 
     it('перевод в копилку: повтор после потерянного ответа — тот же ключ, следующий перевод — новый', async () => {
+        const attempts = new AttemptKeys();
         const calls = network('lost', { id: 'fund-1' }, { id: 'fund-1' });
 
-        await expect(transferToFund('fund-transfer', 1000, undefined, 'SECOND_INCOME')).rejects.toThrow();
-        await transferToFund('fund-transfer', 1000, undefined, 'SECOND_INCOME');
-        await transferToFund('fund-transfer', 1000, undefined, 'SECOND_INCOME');
+        await expect(transferToFund(attempts, 'fund-transfer', 1000, undefined, 'SECOND_INCOME')).rejects.toThrow();
+        await transferToFund(attempts, 'fund-transfer', 1000, undefined, 'SECOND_INCOME');
+        await transferToFund(attempts, 'fund-transfer', 1000, undefined, 'SECOND_INCOME');
 
         expect(calls[0].key).toMatch(UUID);
         expect(calls[1].key, 'повтор — тот же ключ: второго перевода нет').toBe(calls[0].key);
@@ -73,6 +77,7 @@ describe('записи денег держат ключ попытки (ANO-192)
     });
 
     it('перевод с подтверждением: подтверждение — та же попытка, повтор не переводит второй раз', async () => {
+        const attempts = new AttemptKeys();
         // «Пополнить» при нехватке — два запроса: без подтверждения (сервер переспрашивает, 409,
         // ничего не записав) и с ним. Потерян ответ на подтверждённый — человек жмёт снова, и
         // первый же запрос повтора обязан прийти с ключом того, что уже записано.
@@ -82,15 +87,16 @@ describe('записи денег держат ключ попытки (ANO-192)
             { id: 'fund-2' },
         );
 
-        await expect(transferToFund('fund-confirm', 1000, undefined, 'SECOND_INCOME')).rejects.toThrow();
-        await expect(transferToFund('fund-confirm', 1000, true, 'SECOND_INCOME')).rejects.toThrow();
-        await transferToFund('fund-confirm', 1000, undefined, 'SECOND_INCOME');
+        await expect(transferToFund(attempts, 'fund-confirm', 1000, undefined, 'SECOND_INCOME')).rejects.toThrow();
+        await expect(transferToFund(attempts, 'fund-confirm', 1000, true, 'SECOND_INCOME')).rejects.toThrow();
+        await transferToFund(attempts, 'fund-confirm', 1000, undefined, 'SECOND_INCOME');
 
         expect(calls[1].key, 'подтверждение не меняет ключ').toBe(calls[0].key);
         expect(calls[2].key, 'повтор — ключ записанного перевода: сервер его вернёт').toBe(calls[1].key);
     });
 
     it('план с фактом: факт не дошёл — повтор шлёт и план, и факт с прежними ключами, второго плана нет', async () => {
+        const attempts = new AttemptKeys();
         const calls = network(
             { id: 'plan-9' }, 'lost',            // план записан, ответ на факт потерян
             { id: 'plan-9' }, { id: 'fact-9' },  // повтор: сервер узнаёт план по ключу
@@ -101,9 +107,9 @@ describe('записи денег держат ключ попытки (ANO-192)
         } as FinancialEventCreateDto;
         const fact = { date: '2026-09-27', factAmount: 500 };
 
-        await expect(createPlanWithFact(plan, fact)).rejects.toThrow();
-        await createPlanWithFact(plan, fact);
-        await createPlanWithFact(plan, fact);
+        await expect(createPlanWithFact(attempts, plan, fact)).rejects.toThrow();
+        await createPlanWithFact(attempts, plan, fact);
+        await createPlanWithFact(attempts, plan, fact);
 
         expect(calls[0].key).toMatch(UUID);
         expect(calls[2].key, 'план повторён с тем же ключом — второго плана нет').toBe(calls[0].key);

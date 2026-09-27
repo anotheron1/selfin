@@ -1,3 +1,5 @@
+import { AttemptKeys } from './attemptKey';
+
 /**
  * Когда кружок закрытия брони снова можно нажать (ANO-176, ревью #56).
  *
@@ -16,6 +18,18 @@ export class QuickCloseGuard {
     private readonly sending = new Set<string>();
     private readonly written = new Set<string>();
     private readonly unread = new Set<string>();
+    /**
+     * Попытки кружка (ревью #104). Живут, пока журнал не показал их исход: удачное чтение,
+     * начатое после последнего сбоя, когда ничего не в пути, их кончает. Дольше жить им нельзя —
+     * оставленная попытка отдала бы свой ключ такой же записи позже, и та молча пропала бы.
+     */
+    private scope = new AttemptKeys();
+    private failures = 0;
+
+    /** Память попыток для записи факта кружком. */
+    get attempts(): AttemptKeys {
+        return this.scope;
+    }
 
     /** false — эта бронь уже закрывается, касание ничего не делает. */
     begin(id: string): boolean {
@@ -24,9 +38,10 @@ export class QuickCloseGuard {
         return true;
     }
 
-    /** Запрос не прошёл: факта нет. */
+    /** Запрос не прошёл: факта, может быть, и нет — попытка ждёт повтора или чтения журнала. */
     failed(id: string): void {
         this.sending.delete(id);
+        this.failures++;
     }
 
     /** Факт записан: держать, пока журнал не перечитан. */
@@ -35,20 +50,23 @@ export class QuickCloseGuard {
         this.written.add(id);
     }
 
-    /** Начало чтения журнала: какие брони освободит его успех — записанные до этого момента. */
-    readStarted(): readonly string[] {
-        return [...this.written];
+    /** Начало чтения журнала: что освободит его успех — брони, записанные до этого момента. */
+    readStarted(): ReadTicket {
+        return { releases: [...this.written], failures: this.failures };
     }
 
-    readSucceeded(ids: readonly string[]): void {
-        for (const id of ids) {
+    readSucceeded(read: ReadTicket): void {
+        for (const id of read.releases) {
             this.written.delete(id);
             this.unread.delete(id);
         }
+        // Журнал показал исход всех сбоев до начала чтения. Сбой после начала или запрос в пути —
+        // их исхода в чтении нет, и попытки остаются.
+        if (read.failures === this.failures && this.sending.size === 0) this.scope = new AttemptKeys();
     }
 
-    readFailed(ids: readonly string[]): void {
-        for (const id of ids) if (this.written.has(id)) this.unread.add(id);
+    readFailed(read: ReadTicket): void {
+        for (const id of read.releases) if (this.written.has(id)) this.unread.add(id);
     }
 
     held(id: string): boolean {
@@ -59,4 +77,10 @@ export class QuickCloseGuard {
     stale(id: string): boolean {
         return this.unread.has(id);
     }
+}
+
+/** Отметка начала чтения журнала: что его успех освободит и сколько сбоев было до него. */
+export interface ReadTicket {
+    readonly releases: readonly string[];
+    readonly failures: number;
 }

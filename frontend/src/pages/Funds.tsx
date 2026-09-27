@@ -6,6 +6,7 @@ import type { Account, FundsOverview, TargetFund, PocketResponse } from '../type
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
 import { fundTarget } from '../lib/fundTarget';
+import { AttemptKeys } from '../lib/attemptKey';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { AmountInput, amountValue } from "../components/ui/amount-input";
 import { Input } from '../components/ui/input';
@@ -198,6 +199,8 @@ function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
 }) {
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
+    // ANO-192, ревью #104: попытка живёт, пока лист открыт — повтор после сбоя тот же.
+    const [attempts] = useState(() => new AttemptKeys());
     const freeLine = transferFreeLine(pocket);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -209,14 +212,14 @@ function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
         setLoading(true);
         try {
             try {
-                await transferToFund(fund.id, num, undefined, scope);
+                await transferToFund(attempts, fund.id, num, undefined, scope);
             } catch (err) {
                 // Подтверждаемый отказ — единственный, который мы предлагаем отменить.
                 // Безусловный («снять больше накопленного») пробрасываем: повтор с confirm
                 // упёрся бы в тот же отказ, а вопрос был бы враньём.
                 if (!needsConfirmation(err)) throw err;
                 if (!confirm(confirmQuestion(err, pocket))) return;
-                await transferToFund(fund.id, num, true, scope);
+                await transferToFund(attempts, fund.id, num, true, scope);
             }
             onSuccess();
             onClose();
