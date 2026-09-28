@@ -344,6 +344,17 @@ class FinancialEventControllerIT {
                 .andExpect(jsonPath("$.priority").value("LOW"));
     }
 
+    // ── ANO-161: старой выборки хотелок больше нет ──
+
+    @Test
+    void legacyWishlistList_isGone() throws Exception {
+        // GET /events/wishlist кормил только «Структуру месяца» и отбирал не хотелки: замер 28.09 —
+        // пять строк характера «Хотелка» из прошлых месяцев без факта, ни одной с экрана «Хотелки».
+        // Карточка ушла (ANO-165), ручка — вместе с ней. Заведение хотелки — POST — остаётся.
+        mockMvc.perform(get("/api/v1/events/wishlist"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
     // ── ANO-162: правка плана перевода не снимает копилку ──
     //
     // Путь экрана: журнал → карточка ожиданий → «Записать факт» → «изменить ожидание» → форма

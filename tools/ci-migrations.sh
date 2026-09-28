@@ -139,7 +139,6 @@ fingerprint() {
 # Сколько записей видно через API — миграция может спрятать строки от чтения, не тронув их.
 API_COUNTED=(
   "/events?startDate=2000-01-01&endDate=2100-12-31"
-  /events/wishlist
   /accounts
   /categories
   /balance-checkpoints
@@ -213,7 +212,6 @@ ENDPOINTS=(
   /analytics/forecast-readiness
   "/analytics/multi-month?startDate=${FROM}&endDate=${TO}"
   "/events?startDate=2000-01-01&endDate=2100-12-31"
-  /events/wishlist
   /funds
   /funds/planner
   /accounts

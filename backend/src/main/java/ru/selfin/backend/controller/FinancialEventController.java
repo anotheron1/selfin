@@ -96,13 +96,6 @@ public class FinancialEventController {
         return eventService.cyclePriority(id);
     }
 
-    @Operation(summary = "Нереализованные хотелки",
-            description = "LOW-priority PLANNED события с датой раньше сегодня")
-    @GetMapping("/wishlist")
-    public List<FinancialEventDto> getWishlist() {
-        return eventService.findWishlist();
-    }
-
     /** Ручное создание новой хотелки. */
     @Operation(summary = "Создать хотелку вручную")
     @PostMapping("/wishlist")
