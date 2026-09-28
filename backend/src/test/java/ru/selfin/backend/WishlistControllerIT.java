@@ -508,6 +508,37 @@ class WishlistControllerIT {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ANO-104 — правило платежей только у кредита
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void convert_recurringPaymentsForFund_returns400_andChangesNothing() throws Exception {
+        // Воспроизведение из задачи: «копить по 30 000 в месяц» — копилка с флагом правила.
+        // Было 200 и recurringRuleId: null — копилка создана, правила нет, и ни слова об этом.
+        FinancialEvent src = eventRepository.save(
+                datedWishlist("Отпуск со взносами", LocalDate.now().plusMonths(6)));
+        long fundsBefore = fundRepository.count();
+        long rulesBefore = ruleRepository.count();
+
+        mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceKind":"WISHLIST","target":"FUND","createRecurringPayments":true}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("createRecurringPayments")));
+
+        FinancialEvent reloaded = eventRepository.findById(src.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus())
+                .as("хотелка остаётся в обсуждении: ничего не создано")
+                .isEqualTo(WishlistStatus.OPEN);
+        assertThat(reloaded.getConvertedToFundId()).isNull();
+        assertThat(fundRepository.count()).as("копилка не создана").isEqualTo(fundsBefore);
+        assertThat(ruleRepository.count()).as("правило не создано").isEqualTo(rulesBefore);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Task 4.6 — status FIXED→OPEN preserves the converted artifact
     // ─────────────────────────────────────────────────────────────────────────
 

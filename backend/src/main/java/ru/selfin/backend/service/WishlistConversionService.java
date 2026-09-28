@@ -74,7 +74,8 @@ public class WishlistConversionService {
      * @return ссылка на созданный артефакт + новый статус
      * @throws ResourceNotFoundException 404, если источник не найден
      * @throws ResponseStatusException   409, если источник уже сконвертирован;
-     *                                   400, если у плана нет срока или он не в будущем
+     *                                   400, если у плана нет срока или он не в будущем,
+     *                                   и если правило платежей просят не у кредита (ANO-104)
      */
     @Transactional
     public ConvertWishlistResponseDto convertItem(UUID itemId, ConvertWishlistRequestDto req) {
@@ -84,6 +85,13 @@ public class WishlistConversionService {
     /** Тестовый вход с явным «сегодня»: проверка даты плана календарно-зависима. */
     @Transactional
     ConvertWishlistResponseDto convertItem(UUID itemId, ConvertWishlistRequestDto req, LocalDate today) {
+        // ANO-104: правило платежей бывает только у кредита. У копилки и плана флаг молча
+        // выбрасывался — 200, правила нет, — и «копить по N в месяц» пропадало без слова.
+        // Взносы копилки откладывает расчёт свободных по её сроку; строками журнала — ANO-207.
+        if (Boolean.TRUE.equals(req.createRecurringPayments()) && !"FUND_WITH_CREDIT".equals(req.target())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "createRecurringPayments is supported only for FUND_WITH_CREDIT, not " + req.target());
+        }
         boolean fromEvent = "WISHLIST".equals(req.sourceKind());
         return fromEvent
                 ? convertFromEvent(itemId, req, today)

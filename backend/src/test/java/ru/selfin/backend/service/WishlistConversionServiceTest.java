@@ -1,6 +1,8 @@
 package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import ru.selfin.backend.dto.wishlist.ConvertWishlistRequestDto;
 import ru.selfin.backend.dto.wishlist.SandboxFixRequestDto;
@@ -234,6 +236,67 @@ class WishlistConversionServiceTest {
                 .createFromDto(any(), any(), any(), any(), any(), any(), any(), any());
         assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.OPEN);
         assertThat(src.getConvertedToFundId()).isNull();
+    }
+
+    /**
+     * ANO-104, вариант А владельца 28.09: правило платежей бывает только у «Кредита». Флаг у
+     * копилки и плана молча выбрасывался — 200, правила нет. Теперь отказ до любой записи, у обоих
+     * источников: хотелки-события и копилки.
+     */
+    @ParameterizedTest(name = "{0} → {1}")
+    @CsvSource({
+            "WISHLIST, PLAN_EVENT",
+            "WISHLIST, FUND",
+            "SAVINGS, PLAN_EVENT",
+            "SAVINGS, FUND",
+            "CREDIT, PLAN_EVENT",
+            "CREDIT, FUND",
+    })
+    void convert_recurringPaymentsForNonCreditTarget_throws400_andSavesNothing(String sourceKind,
+                                                                               String target) {
+        UUID id = UUID.randomUUID();
+        FinancialEvent event = openWishlist(id);
+        TargetFund fund = TargetFund.builder().id(id).name("Машина")
+                .purchaseType("CREDIT".equals(sourceKind) ? FundPurchaseType.CREDIT : FundPurchaseType.SAVINGS)
+                .wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).targetDate(LocalDate.now().plusMonths(2))
+                .creditRate(new BigDecimal("16.5")).creditTermMonths(60).build();
+        // Источник находится: проверка, съехавшая за чтение источника, дошла бы до записи, а не
+        // отказала бы 404-м — «ничего не записано» обязано смотреть на этот путь.
+        when(eventRepo.findById(id)).thenReturn(Optional.of(event));
+        when(fundRepo.findById(id)).thenReturn(Optional.of(fund));
+        stubEventSave();
+        stubFundSave();
+
+        assertThatThrownBy(() -> service.convertItem(id,
+                new ConvertWishlistRequestDto(sourceKind, target, true)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(400));
+
+        verify(eventRepo, never()).save(any());
+        verify(fundRepo, never()).save(any());
+        verify(recurringRuleService, never())
+                .createFromDto(any(), any(), any(), any(), any(), any(), any(), any());
+        assertThat(event.getWishlistStatus()).isEqualTo(WishlistStatus.OPEN);
+        assertThat(fund.getWishlistStatus()).isEqualTo(WishlistStatus.OPEN);
+    }
+
+    @Test
+    void convert_recurringPaymentsFalse_forFund_isAccepted() {
+        // false у копилки шлёт экран после ANO-104 и синтетика стенда (seed-synthetic.mjs):
+        // отказ — только на просьбу о правиле, которого у копилки нет.
+        UUID id = UUID.randomUUID();
+        when(eventRepo.findById(id)).thenReturn(Optional.of(openWishlist(id)));
+        stubEventSave();
+        stubFundSave();
+
+        var resp = service.convertItem(id, new ConvertWishlistRequestDto("WISHLIST", "FUND", false));
+
+        assertThat(resp.artifactKind()).isEqualTo("FUND");
+        assertThat(resp.recurringRuleId()).isNull();
+        verify(recurringRuleService, never())
+                .createFromDto(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
