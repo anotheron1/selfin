@@ -1,4 +1,4 @@
-import type { Priority } from '../types/api';
+import type { Priority, WishlistStatus } from '../types/api';
 
 /**
  * Характер плановой строки — единственное место, где у него есть имена на экране (ANO-173).
@@ -24,3 +24,14 @@ export const PRIORITY_ORDER: Priority[] = ['HIGH', 'MEDIUM', 'LOW'];
 
 /** «Ожидание — сумма примерная, тратится по ходу»: для всплывающих подсказок. */
 export const priorityTitle = (p: Priority) => `${PRIORITY_DOT_CONFIG[p].name} — ${PRIORITY_DOT_CONFIG[p].hint}`;
+
+/**
+ * Строка с экрана «Хотелки» характер не меняет — он у неё всегда «Хотелка» (ANO-183; инвариант I1
+ * спеки 29.05, сервер отказывает 400, база — ограничением). У обычной строки характер меняется,
+ * в том числе у «Хотелки» журнала: статуса хотелки у неё нет.
+ */
+export const characterLocked = (event: { wishlistStatus?: WishlistStatus | null }): boolean =>
+    event.wishlistStatus != null;
+
+/** Строка формы вместо выбора характера у запертой строки. Имя экрана — из навигации (BottomNav.tsx). */
+export const WISHLIST_CHARACTER_NOTE = 'Хотелка с экрана «Хотелки»: характер не меняется, решают о ней там';

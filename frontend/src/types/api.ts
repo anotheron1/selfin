@@ -59,6 +59,8 @@ export interface FinancialEvent {
     recurringFrequency?: RecurringFrequency | null;
     recurringDayOfMonth?: number | null;
     recurringMonthOfYear?: number | null;
+    /** Статус хотелки у строки с экрана «Хотелки», null у обычной (ANO-183). */
+    wishlistStatus?: WishlistStatus | null;
 }
 
 export interface WishlistCreateDto {

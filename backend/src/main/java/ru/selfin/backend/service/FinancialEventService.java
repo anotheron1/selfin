@@ -298,12 +298,15 @@ public class FinancialEventService {
 
     /** Extracted from old update() — verbatim setter sequence. */
     private void applyDto(FinancialEvent event, FinancialEventCreateDto dto, Category category) {
+        Priority priority = dto.priority() != null ? dto.priority() : category.getPriority();
+        // ANO-183: до первого сеттера — отказ не оставляет строку наполовину переписанной.
+        requireWishlistCharacter(event, priority);
         BigDecimal oldFact = event.getFactAmount();
         event.setDate(dto.date());
         event.setCategory(category);
         event.setType(dto.type());
         event.setPlannedAmount(dto.plannedAmount());
-        event.setPriority(dto.priority() != null ? dto.priority() : category.getPriority());
+        event.setPriority(priority);
         event.setDescription(dto.description());
         event.setRawInput(dto.rawInput());
         event.setTargetFundId(dto.targetFundId());
@@ -518,14 +521,33 @@ public class FinancialEventService {
      * @param id идентификатор события
      * @return обновлённый DTO
      * @throws ResourceNotFoundException если событие не найдено
+     * @throws ResponseStatusException   400, если строка — хотелка с экрана «Хотелки» (ANO-183)
      */
     @Transactional
     public FinancialEventDto cyclePriority(UUID id) {
         FinancialEvent event = eventRepository.findById(id)
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
-        event.setPriority(categoryService.nextPriority(event.getPriority()));
+        Priority next = categoryService.nextPriority(event.getPriority());
+        requireWishlistCharacter(event, next);
+        event.setPriority(next);
         return toDto(eventRepository.save(event), null, null);
+    }
+
+    /**
+     * Характер строки с экрана «Хотелки» — всегда «Хотелка» (ANO-183): инвариант I1 спеки 29.05,
+     * в базе — {@code chk_wishlist_status_only_low}. Без проверки здесь запись доходила до базы, и
+     * наружу уходило 409 «Operation conflicts with a data constraint», по которому экран не может
+     * сказать, в чём дело. О хотелке решают на её экране: зафиксировать, отложить, вернуть в
+     * обсуждение.
+     *
+     * @throws ResponseStatusException 400, если строка — хотелка, а характер не LOW
+     */
+    private static void requireWishlistCharacter(FinancialEvent event, Priority priority) {
+        if (event.getWishlistStatus() != null && priority != Priority.LOW) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Priority of a wishlist item is always LOW — decide on it on the wishlist screen");
+        }
     }
 
     /**
@@ -709,7 +731,8 @@ public class FinancialEventService {
                 e.getTargetFundId(), fundName, e.getUrl(),
                 e.getEventKind(), e.getParentEventId(),
                 linkedFactsCount, linkedFactsAmount, parentPlanDescription,
-                recurringRuleId, recurringFrequency, recurringDayOfMonth, recurringMonthOfYear);
+                recurringRuleId, recurringFrequency, recurringDayOfMonth, recurringMonthOfYear,
+                e.getWishlistStatus());
     }
 
     /**
