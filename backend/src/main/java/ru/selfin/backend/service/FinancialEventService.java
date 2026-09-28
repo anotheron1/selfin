@@ -48,8 +48,14 @@ public class FinancialEventService {
      * @return обогащённый список DTO, отсортированный по дате
      */
     public List<FinancialEventDto> findByPeriod(LocalDate start, LocalDate end) {
+        // ANO-106: хотелка, превращённая в план или копилку, — не событие периода: её деньги
+        // несёт созданное. Раньше журнал показывал её рядом с планом из неё — две одинаковые
+        // строки, складывал обе в «Расходы … план», а факт, записанный в исходную, закрывал её
+        // и оставлял план открытым — свободные считали покупку дважды. Факты остаются: деньги,
+        // записанные в исходную до правки, — настоящие.
         List<FinancialEvent> events =
-                eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(start, end);
+                eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(start, end)
+                        .stream().filter(e -> !e.convertedToArtifact()).toList();
 
         // Aggregate fact counts/amounts for PLAN enrichment
         List<UUID> planIds = events.stream()

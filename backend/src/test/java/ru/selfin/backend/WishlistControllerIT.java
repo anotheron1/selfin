@@ -69,6 +69,9 @@ class WishlistControllerIT {
     void cleanDb() {
         // FK-safe order: события и фонды ссылаются друг на друга через converted_to_* (ON DELETE SET NULL),
         // recurring-правила ссылаются события. Чистим events → funds → rules → settings.
+        // Факт ссылается на свой план (parent_event_id) — факты первыми (ANO-106).
+        eventRepository.deleteAll(eventRepository.findAll().stream()
+                .filter(e -> e.getEventKind() == EventKind.FACT).toList());
         eventRepository.deleteAll();
         fundRepository.deleteAll();
         ruleRepository.deleteAll();
@@ -282,6 +285,74 @@ class WishlistControllerIT {
         assertThat(events.stream().anyMatch(e -> artifactId.toString().equals(e.get("id"))))
                 .as("план виден в выборке за свой месяц — то, чего не случалось с пустой датой")
                 .isTrue();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ANO-106 — сконвертированная хотелка не событие периода
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void convertedWishlist_isNotReturnedByPeriod_itsArtifactIs() throws Exception {
+        // Замер 28.09 на стенде: после конверсии GET /events отдавал две одинаковые строки,
+        // журнал их показывал и складывал в «Расходы … план» дважды. Факт в исходную строку
+        // закрывал её, а созданный план оставался открытым — свободные считали покупку дважды.
+        LocalDate day = LocalDate.now().plusMonths(3);
+        FinancialEvent toPlan = eventRepository.save(datedWishlist("В план", day));
+        FinancialEvent toFund = eventRepository.save(datedWishlist("В копилку", day));
+
+        UUID planId = convert(toPlan, """
+                {"sourceKind":"WISHLIST","target":"PLAN_EVENT","planDate":"%s"}
+                """.formatted(day));
+        convert(toFund, """
+                {"sourceKind":"WISHLIST","target":"FUND"}
+                """);
+
+        List<String> ids = idsOnDay(day);
+        assertThat(ids)
+                .as("из двух одинаковых строк остаётся созданный план; хотелка, ставшая копилкой, — не план дня")
+                .containsExactly(planId.toString());
+    }
+
+    @Test
+    void factRecordedIntoConvertedWishlist_staysVisible() throws Exception {
+        // Деньги, записанные до правки в исходную строку, не пропадают: факт — не хотелка.
+        LocalDate day = LocalDate.now();
+        FinancialEvent src = eventRepository.save(datedWishlist("Факт в исходную", day.plusDays(1)));
+        convert(src, """
+                {"sourceKind":"WISHLIST","target":"PLAN_EVENT","planDate":"%s"}
+                """.formatted(day.plusDays(1)));
+        FinancialEvent fact = eventRepository.save(FinancialEvent.builder()
+                .eventKind(EventKind.FACT).parentEventId(src.getId())
+                .type(EventType.EXPENSE).status(EventStatus.EXECUTED)
+                .priority(Priority.LOW).factAmount(new BigDecimal("1063"))
+                .date(day).category(src.getCategory()).build());
+
+        assertThat(idsOnDay(day)).contains(fact.getId().toString());
+    }
+
+    private FinancialEvent datedWishlist(String description, LocalDate date) {
+        FinancialEvent e = datelessWishlist(description);
+        e.setDate(date);
+        return e;
+    }
+
+    private UUID convert(FinancialEvent src, String body) throws Exception {
+        String resp = mockMvc.perform(post("/api/v1/wishlist/items/" + src.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(om.readTree(resp).get("convertedTo").get("id").asText());
+    }
+
+    private List<String> idsOnDay(LocalDate day) throws Exception {
+        String listJson = mockMvc.perform(get("/api/v1/events")
+                        .param("startDate", day.toString())
+                        .param("endDate", day.toString()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<Map<String, Object>> events = om.readValue(listJson, List.class);
+        return events.stream().map(e -> (String) e.get("id")).toList();
     }
 
     /** Хотелка «когда-нибудь»: срок не задан — законное состояние (WishlistCreateDto.date). */

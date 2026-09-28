@@ -73,7 +73,7 @@ public record EventSnapshot(
         return new EventSnapshot(
                 e.getId(), e.getDate(), e.getType(), e.getEventKind(), e.getStatus(),
                 e.getPriority(), e.getPlannedAmount(), e.getFactAmount(), e.getWishlistStatus(),
-                e.getConvertedToEventId() != null || e.getConvertedToFundId() != null,
+                e.convertedToArtifact(),
                 e.getDescription(), null, e.getCreatedAt(), e.getParentEventId());
     }
 }
