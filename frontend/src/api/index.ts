@@ -25,6 +25,7 @@ import type {
     FinancialEvent,
     FinancialEventCreateDto,
     FundPlannerData,
+    FundMoney,
     FundsOverview,
     MultiMonthReport,
     PocketResponse,
@@ -207,8 +208,12 @@ export const updateFund = (id: string, body: { name: string; targetAmount?: numb
 export const fetchPlannerData = (): Promise<FundPlannerData> =>
     get('/funds/planner');
 
-/** Удаляет целевой фонд (soft delete). */
-export const deleteFund = (id: string) => del(`/funds/${id}`);
+/**
+ * Удаляет целевой фонд (soft delete). Если в копилке лежат деньги, сервер ждёт ответа, что с ними
+ * (ANO-86): без него 409. Ответ спрашивает экран — `FundMoneyQuestion` (ANO-198).
+ */
+export const deleteFund = (id: string, money?: FundMoney) =>
+    del(`/funds/${id}${money ? `?money=${money}` : ''}`);
 
 /**
  * Пополняет целевой фонд на указанную сумму.
