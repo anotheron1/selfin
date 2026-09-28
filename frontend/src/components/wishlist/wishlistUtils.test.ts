@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
-    effectiveDelta, conversionChoice, recurringPaymentsFor,
+    effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -157,6 +158,58 @@ describe('график платежей — только у «Кредита» (
         expect(dialog()).toContain('Создать график платежей');
         expect(dialog()).toContain("'Кредит (копилка + график платежей)'");
         expect(dialog()).not.toMatch(/\(recurring\)/);
+    });
+});
+
+describe('путь назад у отложенной (ANO-107)', () => {
+    // «Отложить» было дорогой в один конец: строка пропадала отовсюду, раздел «Отклонено» в «Что с
+    // капиталом» был нарисован, но сервер не отдавал ему данных. Теперь отложенная приходит с пустой
+    // дельтой, раздел «Отложено» рисует её короткой карточкой, а примерка говорит, где её искать.
+    const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+    /** Текст инициализатора `const имя = …` — тело обработчика. */
+    const handlerBody = (path: string, name: string): string => {
+        const src = read(path);
+        const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+        let body: string | null = null;
+        const visit = (node: ts.Node): void => {
+            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)
+                && node.name.text === name && node.initializer) {
+                body = node.initializer.getText(sf);
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(sf);
+        if (body === null) throw new Error(`${path}: нет обработчика ${name}`);
+        return body;
+    };
+
+    it('заметка после «Отложить» говорит, где вернуть', () => {
+        expect(dismissedNotice('Велосипед'))
+            .toBe('Отложено: «Велосипед». Вернуть можно ниже — в «Что с капиталом», раздел «Отложено».');
+    });
+
+    it('«Отложить» в примерке ставит эту заметку', () => {
+        // Сторож по исходнику: компонентных тестов нет, а без заметки строка просто пропадает.
+        expect(handlerBody('../../pages/Wishlist.tsx', 'dismiss'))
+            .toMatch(/setNotice\(dismissedNotice\(item\.name\)\)/);
+    });
+
+    it('раздел «Отложено» рисует отложенные короткой карточкой', () => {
+        expect(read('./WishlistItemList.tsx'))
+            .toMatch(/<CollapsibleSection title="Отложено"[^>]*>\s*\{dismissed\.map\(item => <DismissedItemCard/);
+    });
+
+    it('у короткой карточки одно действие — вернуть; ни галочки, ни ползунков, ни фиксации', () => {
+        // Отложенная в расчёт не входит: трогать в ней нечего.
+        const card = read('./DismissedItemCard.tsx');
+        expect(card).not.toMatch(/type="checkbox"|type="range"|onFix|onToggleActive/);
+        expect(card).toMatch(/onStatusChange\('OPEN'\)/);
+        expect(card).toContain('Вернуть в обсуждение');
+    });
+
+    it('на карточке обсуждаемой и зафиксированной — «Отложить»', () => {
+        expect(read('./WishlistItemCard.tsx')).toMatch(/onStatusChange\('DISMISSED'\)[\s\S]{0,300}Отложить/);
     });
 });
 

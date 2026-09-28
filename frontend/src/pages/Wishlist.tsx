@@ -20,6 +20,7 @@ import SandboxChart from '../components/sandbox/SandboxChart';
 import SandboxItemRow from '../components/sandbox/SandboxItemRow';
 import AdhocRow from '../components/sandbox/AdhocRow';
 import CapitalWhatIf from '../components/sandbox/CapitalWhatIf';
+import { dismissedNotice } from '../components/wishlist/wishlistUtils';
 
 const SCOPES: { key: string | undefined; label: string }[] = [
     { key: undefined, label: 'До дохода' },
@@ -186,9 +187,16 @@ export default function Wishlist() {
         call(item.ref.id, 'OPEN').then(() => afterFix(item.ref)).catch(failed);
     };
 
+    /**
+     * «Отложить»: строка уходит из примерки, а вернуть её можно ниже, в разделе «Отложено» блока
+     * «Что с капиталом» (ANO-107). Заметка говорит, где, — иначе путь назад не найти.
+     */
     const dismiss = (item: SandboxItem) => {
         const call = item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus;
-        call(item.ref.id, 'DISMISSED').then(() => afterFix(item.ref)).catch(failed);
+        call(item.ref.id, 'DISMISSED').then(() => {
+            afterFix(item.ref);
+            setNotice(dismissedNotice(item.name));
+        }).catch(failed);
     };
 
     const afterFix = (ref: SandboxRef) => {

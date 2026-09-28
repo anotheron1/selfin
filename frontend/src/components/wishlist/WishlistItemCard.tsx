@@ -257,27 +257,19 @@ export default function WishlistItemCard(props: Props) {
                 </div>
             )}
 
-            {/* Status affordance: dismiss / restore */}
+            {/* Отложить. Отложенная рисуется не здесь, а короткой карточкой в разделе «Отложено»
+                (DismissedItemCard, ANO-107); имя действия — одно с примеркой. */}
             {/* ANO-141: отказ смены статуса — здесь, у кнопки, которую нажали. */}
             {statusError && (
                 <p className="text-xs text-right" style={{ color: 'var(--color-warning)' }}>{statusError}</p>
             )}
             <div className="flex justify-end">
-                {item.status === 'DISMISSED' ? (
-                    <button
-                        onClick={() => onStatusChange('OPEN')}
-                        className="text-xs underline"
-                        style={{ color: 'var(--color-text-muted)' }}>
-                        Вернуть в обсуждение
-                    </button>
-                ) : (
-                    <button
-                        onClick={() => onStatusChange('DISMISSED')}
-                        className="text-xs underline"
-                        style={{ color: 'var(--color-text-muted)' }}>
-                        Отклонить
-                    </button>
-                )}
+                <button
+                    onClick={() => onStatusChange('DISMISSED')}
+                    className="text-xs underline"
+                    style={{ color: 'var(--color-text-muted)' }}>
+                    Отложить
+                </button>
             </div>
         </div>
     );
