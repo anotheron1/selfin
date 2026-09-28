@@ -107,15 +107,17 @@ class FinancialEventServiceWishlistTest {
 
     @Test
     void applyWishlistParams_withoutDate_keepsDate() {
-        // Срок из примерки не пришёл — у хотелки он прежний, в том числе пустой (ANO-29).
-        FinancialEvent row = wishlistRow(null);
+        // Срок не прислан — у хотелки он прежний. Строка со сроком: у пустого срока «прежний» и
+        // «стёртый» неотличимы, и запись, стирающая срок, прошла бы (мутация MB5). Пустой срок
+        // хотелки без срока (ANO-29) — WishlistControllerIT.wishlistParams_datelessWishlist_….
+        FinancialEvent row = wishlistRow(LocalDate.of(2026, 11, 15));
         when(eventRepository.findById(row.getId())).thenReturn(Optional.of(row));
         when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         service().applyWishlistParams(row.getId(), new EventWishlistParamsDto(new BigDecimal("618800"), null));
 
         assertThat(row.getPlannedAmount()).isEqualByComparingTo("618800");
-        assertThat(row.getDate()).isNull();
+        assertThat(row.getDate()).isEqualTo(LocalDate.of(2026, 11, 15));
     }
 
     @Test
