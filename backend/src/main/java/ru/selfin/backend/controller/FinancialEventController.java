@@ -145,6 +145,16 @@ public class FinancialEventController {
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "Записать параметры примерки хотелки: сумму и срок (ANO-162)",
+            description = "Только их: описание, исходный текст, категорию и характер не трогает. "
+                    + "Срок необязателен — без него не меняется. Не хотелка — 404.")
+    @PatchMapping("/{id}/wishlist-params")
+    public void applyWishlistParams(
+            @Parameter(description = "ID хотелки") @PathVariable UUID id,
+            @Valid @RequestBody ru.selfin.backend.dto.wishlist.EventWishlistParamsDto dto) {
+        eventService.applyWishlistParams(id, dto);
+    }
+
     @Operation(summary = "Сменить wishlist-статус события (OPEN/FIXED/DISMISSED)",
             description = "Применимо только к LOW-приоритетным событиям (хотелкам).")
     @PatchMapping("/{id}/wishlist-status")

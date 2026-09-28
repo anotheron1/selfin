@@ -344,6 +344,53 @@ class FinancialEventControllerIT {
                 .andExpect(jsonPath("$.priority").value("LOW"));
     }
 
+    // ── ANO-162: правка плана перевода не снимает копилку ──
+    //
+    // Путь экрана: журнал → карточка ожиданий → «Записать факт» → «изменить ожидание» → форма
+    // правки → «Сохранить». Форма копилку не знает и не шлёт; раньше сервер писал null, и факт к
+    // плану падал 400 «Transfer plan … has no fund to transfer into». Замер 28.09 — «кеке».
+
+    @Test
+    void updateTransferPlan_asJournalFormSends_keepsFund_andFactGoesThrough() throws Exception {
+        String fundBody = mockMvc.perform(post("/api/v1/funds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\": \"Проба ANO-162\", \"targetAmount\": 100000}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String fundId = objectMapper.readTree(fundBody).get("id").asText();
+
+        // План «В копилку», как его заводит быстрый ввод: перевод, «Ожидание», копилка задана.
+        LocalDate today = LocalDate.now();
+        String planBody = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new FinancialEventCreateDto(
+                                today, null, EventType.FUND_TRANSFER, BigDecimal.valueOf(1183),
+                                Priority.MEDIUM, null, null, UUID.fromString(fundId), null))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode plan = objectMapper.readTree(planBody);
+        String planId = plan.get("id").asText();
+
+        // Тело формы журнала: дата, категория, тип, сумма, характер — без копилки.
+        mockMvc.perform(put("/api/v1/events/" + planId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new FinancialEventCreateDto(
+                                today, UUID.fromString(plan.get("categoryId").asText()),
+                                EventType.FUND_TRANSFER, BigDecimal.valueOf(1184),
+                                Priority.MEDIUM, null, null, null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetFundId").value(fundId));
+
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new FactCreateDto(today, BigDecimal.valueOf(1184), null, null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetFundId").value(fundId));
+    }
+
     @Test
     void getByPeriod_tellsWishlistRowFromRegularOne() throws Exception {
         LocalDate date = LocalDate.now().plusDays(5);

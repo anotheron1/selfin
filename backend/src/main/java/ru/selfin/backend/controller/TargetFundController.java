@@ -86,6 +86,16 @@ public class TargetFundController {
                 request.confirmed(), request.scope(), request.date());
     }
 
+    @Operation(summary = "Записать параметры примерки копилки/кредита: цель, срок, ставку и срок кредита (ANO-162)",
+            description = "Только их: счёт, имя, вид и приоритет не трогает — отсутствующий счёт здесь не "
+                    + "«отвязать», как в PUT. Не присланное не меняется, кроме цели. Не хотелка — 404.")
+    @PatchMapping("/{id}/wishlist-params")
+    public void applyWishlistParams(
+            @Parameter(description = "ID фонда") @PathVariable UUID id,
+            @Valid @RequestBody ru.selfin.backend.dto.wishlist.FundWishlistParamsDto dto) {
+        fundService.applyWishlistParams(id, dto);
+    }
+
     @Operation(summary = "Сменить wishlist-статус копилки/кредита (OPEN/FIXED/DISMISSED)")
     @PatchMapping("/{id}/wishlist-status")
     public void setWishlistStatus(

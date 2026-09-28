@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.FundsOverviewDto;
 import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
+import ru.selfin.backend.dto.wishlist.FundWishlistParamsDto;
 import ru.selfin.backend.exception.ConfirmationRequiredException;
 import ru.selfin.backend.exception.FundMovementRefusedException;
 import ru.selfin.backend.exception.ResourceNotFoundException;
@@ -384,6 +385,32 @@ public class TargetFundService {
         }
         f.setWishlistStatus(status);
         fundRepository.save(f);
+    }
+
+    /**
+     * Переносит параметры примерки в копилку или кредит — цель и, если присланы, срок, ставку и
+     * срок кредита (ANO-162). Только их: счёт, имя, вид и приоритет не трогает. Путь «Что с
+     * капиталом»; раньше он шёл полной перезаписью {@link #update}, а отсутствующий счёт там —
+     * «отвязать»: копилка на счёте после фиксации теряла счёт и накопленное.
+     *
+     * <p>Статус конверта пересчитывается по новой цели, как в {@link #update} (ANO-199), — у
+     * копилки не на счёте: у копилки на счёте поле баланса — не её деньги (§3.3).
+     *
+     * @throws ResourceNotFoundException если копилки нет или она не хотелка
+     */
+    @Transactional
+    public void applyWishlistParams(UUID id, FundWishlistParamsDto dto) {
+        TargetFund fund = fundRepository.findById(id)
+                .filter(f -> !f.isDeleted() && f.getWishlistStatus() != null)
+                .orElseThrow(() -> new ResourceNotFoundException("TargetFund (wishlist)", id));
+        fund.setTargetAmount(dto.targetAmount());
+        if (dto.targetDate() != null) fund.setTargetDate(dto.targetDate());
+        if (dto.creditRate() != null) fund.setCreditRate(dto.creditRate());
+        if (dto.creditTermMonths() != null) fund.setCreditTermMonths(dto.creditTermMonths());
+        if (fund.getAccountId() == null) {
+            applyStatusByBalance(fund);
+        }
+        fundRepository.save(fund);
     }
 
     /**
