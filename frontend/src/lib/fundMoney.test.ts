@@ -69,6 +69,13 @@ describe('«Цели» спрашивают, что с деньгами (ANO-198
         expect(body, 'иной отказ — строкой листа, а не молча').toMatch(/if \(failure\) \{\s*setDeleteError\(failure\);\s*return;\s*\}/);
     });
 
+    it('после листа правки карточка свободных денег перечитывается — «вырастут» видно сразу', () => {
+        // Найдено на стенде 29.09: «Вернуть в свободные» прошло, а карточка наверху «Целей» осталась
+        // на «не хватит 193 412 ₽» — лист перечитывал только копилки. Так же после «Пополнить».
+        expect(read(PAGE)).toMatch(
+            /<EditFundModal[\s\S]*?onSuccess=\{\(\) => \{ setEditFund\(null\); load\(\); setPocketBump\(b => b \+ 1\); \}\}/);
+    });
+
     it('лист показывает вопрос и отказ; кнопка удаления не передаёт событие клика как ответ', () => {
         const src = read(PAGE);
         expect(src).toMatch(/<FundMoneyQuestion[\s\S]*?onAnswer=\{money => handleDelete\(money\)\}/);

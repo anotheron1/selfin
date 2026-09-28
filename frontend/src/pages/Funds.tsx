@@ -603,7 +603,9 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                     fund={editFund}
                     accounts={accounts}
                     onClose={() => setEditFund(null)}
-                    onSuccess={() => { setEditFund(null); load(); }}
+                    // ANO-198: удаление с «Вернуть в свободные» двигает свободные деньги, а правка цели
+                    // и срока — взносы в копилку. Карточка наверху перечитывается, как после «Пополнить».
+                    onSuccess={() => { setEditFund(null); load(); setPocketBump(b => b + 1); }}
                 />
             )}
         </>
