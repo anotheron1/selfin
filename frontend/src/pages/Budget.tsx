@@ -8,7 +8,7 @@ import { anchorDateOf, quickClose, type QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { canRecordFact, todayIso } from '../lib/factDate';
 import { ruPlural } from '../lib/plural';
-import { PRIORITY_DOT_CONFIG } from '../lib/priority';
+import { PRIORITY_DOT_CONFIG, characterLocked } from '../lib/priority';
 import { factAmountText } from '../lib/factSign';
 import EditEventSheet from '../components/EditEventSheet';
 import FactCreateSheet from '../components/FactCreateSheet';
@@ -425,9 +425,10 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                     <div className="flex-1 min-w-0">
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="font-medium text-sm truncate">{displayName}</span>
+                                                                            {/* ANO-183: у строки с экрана «Хотелки» характер не меняется — точка не нажимается, как у факта. */}
                                                                             <PriorityButton
                                                                                 priority={event.priority}
-                                                                                onCycle={isPlan ? () => cycleEventPriority(event.id).then(() => load(true)) : undefined}
+                                                                                onCycle={isPlan && !characterLocked(event) ? () => cycleEventPriority(event.id).then(() => load(true)) : undefined}
                                                                             />
                                                                             {/* На телефоне место отдано названию: сумма факта и так под плановой суммой. */}
                                                                             {isPlan && event.linkedFactsCount > 0 && (
