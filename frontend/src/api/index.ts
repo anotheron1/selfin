@@ -9,7 +9,6 @@ import type {
     ForecastReadiness,
     BalanceCheckpoint,
     BalanceCheckpointCreateDto,
-    BudgetSnapshot,
     CapitalItem,
     CapitalItemCreateDto,
     CapitalItemKind,
@@ -240,20 +239,6 @@ export const transferToFund = (attempts: AttemptKeys, fundId: string, amount: nu
             { ...transfer, ...(confirm === undefined ? {} : { confirm }) },
             { 'Idempotency-Key': key }));
 };
-
-// --- Snapshots ---
-
-/** Загружает список снимков бюджета за последние 12 месяцев. */
-export const fetchSnapshots = () => get<BudgetSnapshot[]>('/snapshots');
-
-/**
- * Создаёт снимок бюджета для указанного месяца.
- * Идемпотентен: повторный вызов вернёт существующий снимок без дублирования.
- *
- * @param date любая дата внутри нужного месяца в формате `YYYY-MM-DD`; по умолчанию — сегодня
- */
-export const createSnapshot = (date?: string) =>
-    post<BudgetSnapshot>(`/snapshots${date ? `?date=${date}` : ''}`, {});
 
 // --- Balance Checkpoints ---
 

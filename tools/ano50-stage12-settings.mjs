@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
- * ANO-50, первый проход по этапу 12 — настройки, снимки и остальное.
+ * ANO-50, первый проход по этапу 12 — настройки и остальное.
  *
  * ВНИМАНИЕ: имя занято под этапы 1–2 (ano50-stage12.mjs = «этапы 1 и 2»). Этот файл —
  * этап ДВЕНАДЦАТЬ. Чтобы не путать, он называется ano50-stage12-settings.mjs.
+ *
+ * Блоков 12.1–12.2 — снимок бюджета — больше нет: функция снимков убрана 29.09 (ANO-121),
+ * ручек `/snapshots` нет. Прогон начинается с 12.3.
  *
  *   node tools/ano50-stage12-settings.mjs
  */
@@ -68,23 +71,8 @@ function riskZones(points, thresholds, monthlyExpensesAvg) {
 }
 const countZones = (z) => z.reduce((acc, k) => ({ ...acc, [k]: (acc[k] ?? 0) + 1 }), {});
 
-/** Шесть чисел — проверять, что чтение ничего не меняет. */
-async function six() {
-  const [p, accounts, capital] = await Promise.all([
-    must('/pocket'), must('/accounts'), must('/capital/summary'),
-  ]);
-  const cash = accounts.filter((a) => a.trackBalance && (a.kind === 'DEBIT' || a.kind === 'CASH'))
-    .reduce((s, a) => s + (num(a.balance) ?? 0), 0);
-  return {
-    кармашек: num(p.pocket), минимум: num(p.minPoint?.balance), датаМинимума: p.minPoint?.date ?? null,
-    остаток: cash, капитал: num(capital.total), обязательства: num(capital.liabilitiesTotal),
-  };
-}
-const diffSix = (a, b) => Object.keys(a)
-  .filter((k) => (typeof a[k] === 'number' ? !eq(a[k], b[k]) : a[k] !== b[k]));
-
 async function main() {
-  console.log(`\nANO-50 · первый проход, этап 12 — настройки, снимки и остальное · ${today}`);
+  console.log(`\nANO-50 · первый проход, этап 12 — настройки и остальное · ${today}`);
   console.log('='.repeat(78));
 
   const pocket0 = await pocketOf();
@@ -94,54 +82,7 @@ async function main() {
     + `порог капитала ${wishSettings0.capitalThresholdRub ?? 'выключен'}, `
     + `буфер хотелок ${wishSettings0.cashBufferMonths} мес\n`);
 
-  // ── 12.1 снимок бюджета ──────────────────────────────────────────────────
-  {
-    const before = await six();
-    const listBefore = await must('/snapshots');
-    const snap = await api('/snapshots', send('POST', {}));
-    if (!snap.ok) {
-      record('12.1', 'РАСХОЖДЕНИЕ', `создание снимка упало с ${snap.status}`, { тело: snap.body });
-    } else {
-      const listAfter = await must('/snapshots');
-      const found = listAfter.find((s) => s.id === snap.body.id);
-      found
-        ? record('12.1', 'СОШЛОСЬ', `снимок в списке: период ${found.periodStart}…${found.periodEnd}, создан ${String(found.snapshotDate).slice(0, 19)}`)
-        : record('12.1', 'РАСХОЖДЕНИЕ', 'созданный снимок не появился в списке', { id: snap.body.id });
-
-      const after = await six();
-      const moved = diffSix(before, after);
-      moved.length === 0
-        ? record('12.1', 'СОШЛОСЬ', 'создание снимка не тронуло ни одного из шести чисел')
-        : record('12.1', 'РАСХОЖДЕНИЕ', 'создание снимка сдвинуло данные — снимок это чтение',
-          { разошлись: moved, до: before, после: after });
-
-      // Идемпотентность объявлена в описании ручки: повтор за тот же месяц вернёт тот же снимок.
-      const again = await api('/snapshots', send('POST', {}));
-      const listRepeat = await must('/snapshots');
-      again.ok && again.body.id === snap.body.id
-        ? record('12.1', 'СОШЛОСЬ', 'повторный снимок за тот же месяц вернул существующий — идемпотентно')
-        : record('12.1', 'РАСХОЖДЕНИЕ', 'повтор создал второй снимок за тот же месяц',
-          { первый: snap.body.id, второй: again.body?.id, сталоВсего: listRepeat.length, былоДо: listBefore.length });
-    }
-  }
-
-  // ── 12.2 снимок против текущего состояния ────────────────────────────────
-  {
-    const list = await must('/snapshots');
-    const one = list[0];
-    const keys = one ? Object.keys(one) : [];
-    const hasContent = keys.some((k) => /data|events|items|rows|payload/i.test(k));
-    if (hasContent) {
-      record('12.2', 'СМОТРЕТЬ', 'в ответе снимка есть поле с содержимым — проверить неизменность', { поля: keys });
-    } else {
-      record('12.2', 'НЕЛЬЗЯ',
-        'содержимое снимка прочитать нечем: API отдаёт только даты, ручки детального просмотра нет',
-        { поляОтвета: keys, естьРучки: ['POST /snapshots', 'GET /snapshots'] });
-      record('12.2', 'РАСХОЖДЕНИЕ',
-        'снимок бюджета пишется, но не читается: snapshot_data сохраняется в базу и наружу не отдаётся ни одним эндпоинтом',
-        { комментарийВКоде: 'запрашивается отдельно при необходимости — такой ручки не существует' });
-    }
-  }
+  console.log('12.1–12.2  снимка бюджета больше нет — функция убрана 29.09 (ANO-121)\n');
 
   // ── 12.3 настройки кармашка ──────────────────────────────────────────────
   {

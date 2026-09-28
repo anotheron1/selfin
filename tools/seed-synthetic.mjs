@@ -279,13 +279,12 @@ await post(`/wishlist/items/${tent.id}/convert`, {
   sourceKind: 'WISHLIST', target: 'FUND', fundTargetDate: monthDay(6, 1), createRecurringPayments: false,
 });
 
-// ── Настройки, капитал, снимок ──────────────────────────────────────────────
+// ── Настройки, капитал ──────────────────────────────────────────────────────
 await put('/settings/pocket', { bufferAmount: 10000 });
 await put('/settings/wishlist', { capitalThresholdRub: 500000, cashBufferMonths: 2 });
 const flat = await post('/capital/items', { kind: 'ASSET', name: 'Квартира', initialValue: 8000000, initialValuedAt: day(-365) });
 await post(`/capital/items/${flat.id}/revaluations`, { value: 8400000, valuedAt: day(-30), note: 'оценка' });
 await post('/capital/items', { kind: 'LIABILITY', name: 'Остаток ипотеки', initialValue: 5200000, initialValuedAt: day(-365) });
-await post(`/snapshots?date=${today}`);
 
 // ── Итог ────────────────────────────────────────────────────────────────────
 const events = await get(EVERYTHING);
