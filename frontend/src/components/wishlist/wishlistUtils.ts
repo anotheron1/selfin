@@ -89,6 +89,15 @@ export function effectiveDelta(
     return item.delta;
 }
 
+/**
+ * Сумма, на которой просить пересчёт (ANO-105, ревью Codex #124). Подкрученный ноль — не основа:
+ * от нуля дельту не масштабировать, и поднятая после сумма не сдвинула бы график. Тогда пересчёт
+ * идёт на сумме хотелки, а подкрученный ноль даёт масштаб в `effectiveDelta`.
+ */
+export function recomputeBasis(amount: number, itemAmount: number): number {
+    return amount !== 0 ? amount : itemAmount;
+}
+
 export type RiskLevel = 'green' | 'yellow' | 'red';
 
 export function riskZones(

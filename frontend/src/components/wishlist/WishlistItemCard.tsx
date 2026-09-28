@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import WishlistRiskBadge from './WishlistRiskBadge';
-import { calcPMT, type RiskLevel } from './wishlistUtils';
+import { calcPMT, recomputeBasis, type RiskLevel } from './wishlistUtils';
 import type { WishlistItem, WishlistStatus } from '../../types/api';
 import { fmtRub, fmtYearMonthFull } from '../strategy/strategyChartUtils';
 
@@ -114,7 +114,7 @@ export default function WishlistItemCard(props: Props) {
 
     const buildRecomputeReq = (over: Partial<RecomputeRequest> = {}): RecomputeRequest => ({
         kind: item.kind,
-        amount,
+        amount: recomputeBasis(amount, item.amount),
         targetDate,
         rate: rate ? Number(rate) : undefined,
         termMonths: term ? Number(term) : undefined,
@@ -123,10 +123,13 @@ export default function WishlistItemCard(props: Props) {
 
     // ANO-105: «Когда» двигает график. Дата меняет месяц оттока, у копилки — ещё и число взносов;
     // это считает только сервер. Пересчёт — когда ползунок замер на паузу, а не на каждый шаг:
-    // одно правило на мышь, палец и клавиатуру. Сумма, ставка и срок — текущие.
+    // одно правило на мышь, палец и клавиатуру. Сумма, ставка и срок — на момент срабатывания, не
+    // постановки: ставка, изменённая за паузу, иначе вернулась бы старой (ревью Codex #124).
+    const recomputeNow = useRef(() => {});
+    recomputeNow.current = () => onParamsRecompute(buildRecomputeReq());
     useEffect(() => {
         if (dateOverride == null) return;
-        const t = setTimeout(() => onParamsRecompute(buildRecomputeReq()), RECOMPUTE_PAUSE_MS);
+        const t = setTimeout(() => recomputeNow.current(), RECOMPUTE_PAUSE_MS);
         return () => clearTimeout(t);
     }, [dateOverride]);
 

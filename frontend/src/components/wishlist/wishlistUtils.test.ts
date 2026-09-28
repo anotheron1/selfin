@@ -4,6 +4,7 @@ import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
     effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams, dismissQuestion,
+    recomputeBasis,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -316,6 +317,16 @@ describe('дельта строки примерки (ANO-142)', () => {
         expect(effectiveDelta(item(), { amount: 200000 })[0].accountDelta).toBe(-20000);
     });
 
+    it('подкрученный ноль — не основа пересчёта: иначе поднятая после сумма не сдвинет график (ревью Codex #124)', () => {
+        // От нуля дельту не масштабировать: scaleDelta оставляет её прежней при любой новой сумме.
+        expect(recomputeBasis(0, 544544)).toBe(544544);
+        expect(recomputeBasis(272272, 544544)).toBe(272272);
+        // Пересчёт на сумме хотелки, подкрученная — ноль, потом 50 000: график идёт за суммой.
+        const recomputed = { delta: [month(-6000)], deltaAmount: recomputeBasis(0, 100000) };
+        expect(effectiveDelta(item(), { ...recomputed, amount: 0 })[0].accountDelta).toBeCloseTo(0);
+        expect(effectiveDelta(item(), { ...recomputed, amount: 50000 })[0].accountDelta).toBe(-3000);
+    });
+
     it('у сконвертированной дельты нет, что бы ни подкрутили: деньги несёт артефакт', () => {
         // Ревью Codex #73: ставка или срок на карточке сконвертированного кредита запрашивали
         // пересчёт, он возвращал полную дельту кредита, и покупка ложилась второй раз.
@@ -509,9 +520,17 @@ describe('ползунок «Когда» двигает график (ANO-105, 
     // «Когда» октябрь → апрель график не двигал, запроса пересчёта не было.
     const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
-    it('карточка: подкрученная дата и пауза — пересчёт с текущими суммой, датой, ставкой и сроком', () => {
+    it('карточка: подкрученная дата и пауза — пересчёт с суммой, ставкой и сроком на момент срабатывания', () => {
+        // Ревью Codex #124: таймер, взявший ставку в момент постановки, после ставки, изменённой за
+        // паузу, отправлял старую — его ответ последний и перебивал новый, а примерка получала
+        // прежнюю ставку, которую записала бы фиксация.
         const src = read('./WishlistItemCard.tsx');
-        expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(dateOverride == null\) return;\s*const t = setTimeout\(\(\) => onParamsRecompute\(buildRecomputeReq\(\)\), RECOMPUTE_PAUSE_MS\);\s*return \(\) => clearTimeout\(t\);\s*\}, \[dateOverride\]\);/);
+        expect(src).toMatch(/recomputeNow\.current = \(\) => onParamsRecompute\(buildRecomputeReq\(\)\);/);
+        expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(dateOverride == null\) return;\s*const t = setTimeout\(\(\) => recomputeNow\.current\(\), RECOMPUTE_PAUSE_MS\);\s*return \(\) => clearTimeout\(t\);\s*\}, \[dateOverride\]\);/);
+    });
+
+    it('карточка просит пересчёт на сумме, от которой можно масштабировать (ревью Codex #124)', () => {
+        expect(read('./WishlistItemCard.tsx')).toMatch(/amount: recomputeBasis\(amount, item\.amount\),/);
     });
 
     it('хук кладёт рядом с пересчитанной дельтой сумму, на которой её считали', () => {
