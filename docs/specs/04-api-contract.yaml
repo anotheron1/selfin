@@ -149,6 +149,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FinancialEvent'
+        '400':
+          description: >-
+            Среди прочего — строка-хотелка с экрана «Хотелки» и приоритет не LOW: присланный или,
+            если не прислан, приоритет категории (ANO-183).
     delete:
       summary: Мягкое удаление события
       parameters:
@@ -211,6 +215,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FinancialEvent'
+        '400':
+          description: >-
+            Строка — хотелка с экрана «Хотелки» (wishlistStatus не null): её приоритет всегда LOW,
+            инвариант I1 спеки 29.05 (ANO-183). До ANO-183 отказывала база — 409.
 
   /events/{planId}/facts:
     post:
@@ -567,6 +575,13 @@ components:
           type: string
           nullable: true
           description: Для FACT — описание родительского PLAN (денормализовано для UI)
+        wishlistStatus:
+          type: string
+          enum: [OPEN, FIXED, DISMISSED]
+          nullable: true
+          description: >-
+            Статус хотелки у строки с экрана «Хотелки», null у обычной (ANO-183). У такой строки
+            приоритет всегда LOW, и журнал его сменить не предлагает.
 
     FinancialEventInput:
       type: object
