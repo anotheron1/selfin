@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchMultiMonthReport, fetchAnalyticsReport, fetchWishlist } from '../api';
+import { fetchMultiMonthReport, fetchAnalyticsReport } from '../api';
 import CategoryProgressSection from '../components/analytics/CategoryProgressSection';
-import type { AnalyticsReport, FinancialEvent, MultiMonthReport, MultiMonthRow } from '../types/api';
+import type { AnalyticsReport, MultiMonthReport, MultiMonthRow } from '../types/api';
 import { differenceSign } from '../lib/planFact';
 import BudgetStructureSection from '../components/BudgetStructureSection';
 import { ScrollArea } from '../components/ui/scroll-area';
@@ -39,21 +39,16 @@ export default function Analytics() {
     const [report, setReport] = useState<MultiMonthReport | null>(null);
     const [analytics, setAnalytics] = useState<AnalyticsReport | null>(null);
     const [loading, setLoading] = useState(true);
-    const [lowEvents, setLowEvents] = useState<FinancialEvent[]>([]);
 
     useEffect(() => {
         setLoading(true);
         if (preset === '1m') {
             setReport(null);
-            Promise.all([fetchAnalyticsReport(), fetchWishlist()])
-                .then(([rep, low]) => {
-                    setAnalytics(rep);
-                    setLowEvents(low);
-                })
+            fetchAnalyticsReport()
+                .then(setAnalytics)
                 .finally(() => setLoading(false));
         } else {
             setAnalytics(null);
-            setLowEvents([]);
             const { startDate, endDate } = getDateRange(preset);
             fetchMultiMonthReport(startDate, endDate)
                 .then(setReport)
@@ -107,15 +102,10 @@ export default function Analytics() {
                         </div>
                         {showPlanFact && <PlanFactSection planFact={analytics.planFact} />}
                         {showPlanFact && <CategoryProgressSection />}
-                        {/* «Структура месяца» — тот же разбор прошлого и с теми же оценками
-                            («сэкономил», «перерасход», «0 из 5 выполнена»), поэтому живёт
-                            под тем же раскрытием. Найдено на стенде: свернуть один отчёт
-                            и оставить рядом второй значило бы закрыть ANO-122 на словах. */}
+                        {/* «Структура месяца» — тот же разбор прошлого, поэтому живёт под тем же
+                            раскрытием (ANO-122). С ANO-165 — только числа, без оценок. */}
                         {showPlanFact && analytics.priorityBreakdown && (
-                            <BudgetStructureSection
-                                breakdown={analytics.priorityBreakdown}
-                                wishlistItems={lowEvents}
-                            />
+                            <BudgetStructureSection breakdown={analytics.priorityBreakdown} />
                         )}
                     </div>
                 </ScrollArea>

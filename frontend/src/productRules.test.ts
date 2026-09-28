@@ -62,11 +62,7 @@ const DICTIONARY: { rule: Rule; stem: string; why: string }[] = [
 
 /** Сегодняшние нарушения. Каждое — со своей задачей; число — сколько строк с этой основой в файле. */
 const DEBTS: { file: string; stem: string; count: number; task: string }[] = [
-    // «Структура месяца»: «сэкономил», «перерасход», «% бюджета», «0 из 5 выполнена».
-    { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'сэкономил', count: 1, task: 'ANO-165' },
-    { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'перерасход', count: 2, task: 'ANO-165' },
-    { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'бюджет', count: 1, task: 'ANO-165' },
-    { file: 'frontend/src/components/BudgetStructureSection.tsx', stem: 'выполнен', count: 2, task: 'ANO-165' },
+    // «Структура месяца» — вычеркнута 28.09 (ANO-165): блок показывает только факт и план.
     // «Снимки бюджета» — имя функции, чья судьба решается там же.
     { file: 'frontend/src/pages/Settings.tsx', stem: 'бюджет', count: 1, task: 'ANO-121' },
 ];

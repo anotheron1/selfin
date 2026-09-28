@@ -125,9 +125,6 @@ export const patchEventFact = (
 /** Циклически меняет приоритет события (HIGH → MEDIUM → LOW → HIGH). */
 export const cycleEventPriority = (id: string) => patch<FinancialEvent>(`/events/${id}/priority`);
 
-/** Загружает нереализованные хотелки: LOW-priority PLANNED события с датой в прошлом. */
-export const fetchWishlist = () => get<FinancialEvent[]>('/events/wishlist');
-
 /** Создаёт новую хотелку вручную. */
 export const createWishlistItem = (dto: WishlistCreateDto): Promise<FinancialEvent> =>
     post<FinancialEvent>('/events/wishlist', dto);
