@@ -7,13 +7,13 @@ import FixWishlistDialog, { type ConvertTarget } from '../wishlist/FixWishlistDi
 import DeleteWishlistDialog from '../wishlist/DeleteWishlistDialog';
 import { type RecomputeRequest } from '../wishlist/WishlistItemCard';
 import {
-    composeTimeline, riskZones, effectiveDelta, fixPatch,
+    composeTimeline, riskZones, effectiveDelta, fixPatch, trialParams,
     type ActiveItem, type BaselinePoint, type RiskLevel,
 } from '../wishlist/wishlistUtils';
 import {
     recomputeWishlistItem, convertWishlistItem,
     setEventWishlistStatus, setFundWishlistStatus,
-    updateEvent, updateFund, deleteEvent, deleteFund,
+    setEventWishlistParams, setFundWishlistParams, deleteEvent, deleteFund,
 } from '../../api';
 import type { WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
 import { attempt, deleteTogether, type Deletable } from '../../lib/writeFailure';
@@ -111,29 +111,12 @@ export default function CapitalWhatIf() {
      *                     и ровно она уйдёт в создаваемый план.
      */
     const persistTrial = (item: WishlistItem, explicitDate?: string): Promise<unknown> => {
-        const patch = fixPatch(item, overrideMap[item.id]);
-        const date = explicitDate ?? patch.targetDate;
-        if (item.kind === 'WISHLIST') {
-            // PUT /events требует дату. У хотелки без срока её нет, а выдумывать нельзя
-            // (ANO-29): без даты не пишем вовсе.
-            if (!date) return Promise.resolve();
-            return updateEvent(item.id, {
-                date,
-                categoryId: item.categoryId ?? undefined,
-                type: 'EXPENSE',
-                priority: 'LOW',
-                plannedAmount: patch.amount,
-                description: item.name,
-            });
-        }
-        return updateFund(item.id, {
-            name: item.name,
-            targetAmount: patch.amount,
-            targetDate: date,
-            purchaseType: item.kind === 'CREDIT' ? 'CREDIT' : 'SAVINGS',
-            creditRate: patch.rate,
-            creditTermMonths: patch.termMonths,
-        });
+        // ANO-162: только параметры примерки, отдельной записью. Полная перезапись (PUT) отвязывала
+        // копилку от счёта и стирала исходный текст хотелки, а хотелку без срока не писала вовсе.
+        const write = trialParams(item, fixPatch(item, overrideMap[item.id]), explicitDate);
+        return write.kind === 'event'
+            ? setEventWishlistParams(item.id, write.body)
+            : setFundWishlistParams(item.id, write.body);
     };
 
     const changeStatus = (item: WishlistItem, status: WishlistStatus): Promise<unknown> =>

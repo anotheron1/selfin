@@ -1,4 +1,4 @@
-import type { MonthDelta, WishlistItem, WishlistKind } from '../../types/api';
+import type { EventWishlistParams, FundWishlistParams, MonthDelta, WishlistItem, WishlistKind } from '../../types/api';
 
 export interface BaselinePoint { account: number; capital: number; }
 export interface ActiveItem { active: boolean; delta: MonthDelta[]; }
@@ -161,7 +161,7 @@ export interface ConversionChoice {
     savable: boolean;
 }
 
-/** Границы записи копилки — `TargetFundCreateDto`: `persistTrial` пишет ставку и срок до конверсии. */
+/** Границы записи копилки — `FundWishlistParamsDto`: `persistTrial` пишет ставку и срок до конверсии. */
 const RATE_MIN = 0.01;
 const RATE_MAX = 99.99;
 const TERM_MIN = 1;
@@ -241,6 +241,35 @@ export interface FixPatch {
  *
  * Подстановка через `??`, а не `||`: ноль — законная сумма и законная ставка.
  */
+/** Что «Что с капиталом» записывает при фиксации — и куда: в хотелку или в копилку (ANO-162). */
+export type TrialWrite =
+    | { kind: 'event'; body: EventWishlistParams }
+    | { kind: 'fund'; body: FundWishlistParams };
+
+/**
+ * Параметры примерки для записи — и ничего сверх (ANO-162). Раньше блок писал полной перезаписью
+ * тем, что знал: копилка на счёте отвязывалась, хотелка без описания получала имя категории и
+ * теряла исходный текст, а хотелку без срока не писал вовсе — `PUT /events` требует дату.
+ *
+ * @param explicitDate дата из диалога фиксации (только «Плановое событие») — главнее подкрученной:
+ *                     последний явный выбор человека
+ */
+export function trialParams(item: { kind: WishlistKind }, patch: FixPatch, explicitDate?: string): TrialWrite {
+    const date = explicitDate ?? patch.targetDate;
+    if (item.kind === 'WISHLIST') {
+        return { kind: 'event', body: { plannedAmount: patch.amount, ...(date ? { date } : {}) } };
+    }
+    return {
+        kind: 'fund',
+        body: {
+            targetAmount: patch.amount,
+            ...(date ? { targetDate: date } : {}),
+            ...(given(patch.rate) ? { creditRate: patch.rate } : {}),
+            ...(given(patch.termMonths) ? { creditTermMonths: patch.termMonths } : {}),
+        },
+    };
+}
+
 export function fixPatch(
     item: { amount: number; targetDate: string | null; rate?: number | null; termMonths?: number | null },
     trial: TrialParams | undefined,
