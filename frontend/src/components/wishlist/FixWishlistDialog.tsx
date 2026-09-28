@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import type { WishlistItem } from '../../types/api';
-import { canConfirmConversion, conversionChoice, type ConvertTarget } from './wishlistUtils';
+import { canConfirmConversion, conversionChoice, recurringPaymentsFor, type ConvertTarget } from './wishlistUtils';
 
 export type { ConvertTarget };
 
@@ -30,8 +30,9 @@ const TARGET_LABEL: Record<ConvertTarget, string> = {
 
 /**
  * Диалог фиксации хотелки: выбор цели конверсии — только той, что примет сервер (ANO-141),
- * для FUND_WITH_CREDIT — чекбокс «создать платёжный график», и отдельное
- * действие «Зафиксировать без конверсии». Отказ записи остаётся в диалоге строкой.
+ * для FUND_WITH_CREDIT — чекбокс «создать график платежей», он и уходит в запрос только там
+ * (ANO-104), и отдельное действие «Зафиксировать без конверсии». Отказ записи остаётся
+ * в диалоге строкой.
  */
 export default function FixWishlistDialog({ open, item, busy, error, onClose, onConfirm, onFixWithoutConversion }: Props) {
     const choice = conversionChoice(item.kind, item.rate, item.termMonths);
@@ -95,7 +96,7 @@ export default function FixWishlistDialog({ open, item, busy, error, onClose, on
                                 checked={createRecurring}
                                 onChange={e => setCreateRecurring(e.target.checked)}
                             />
-                            Создать платёжный график (recurring)
+                            Создать график платежей
                         </label>
                     )}
                     {/* Спрятанный пункт без объяснения — стена (довод из Funds.tsx). Границы — те,
@@ -115,7 +116,7 @@ export default function FixWishlistDialog({ open, item, busy, error, onClose, on
                     </Button>
                     <Button
                         disabled={busy || !choice.savable || !canConfirmConversion(target, planDate, todayIso)}
-                        onClick={() => onConfirm(target, createRecurring, planDate || undefined)}
+                        onClick={() => onConfirm(target, recurringPaymentsFor(target, createRecurring), planDate || undefined)}
                     >
                         Зафиксировать
                     </Button>

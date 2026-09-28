@@ -7,7 +7,9 @@ import java.time.LocalDate;
  *
  * @param sourceKind             WISHLIST | SAVINGS | CREDIT — что конвертируем
  * @param target                 PLAN_EVENT | FUND | FUND_WITH_CREDIT — во что
- * @param createRecurringPayments для FUND_WITH_CREDIT — создать ли recurring PMT-правило
+ * @param createRecurringPayments только для FUND_WITH_CREDIT — создать ли правило ежемесячных
+ *                               платежей; у других целей {@code true} — 400 (ANO-104): правила
+ *                               взносов у копилки нет, флаг раньше молча выбрасывался
  * @param fundTargetDate         для target=FUND: дата цели создаваемой копилки; null = дата
  *                               источника. Фиксация растянутой примерки (ANO-16 §8) передаёт
  *                               последний день месяца последнего взноса — тогда резервирование

@@ -368,31 +368,26 @@ async function main() {
         : record('8.8', 'СМОТРЕТЬ', 'число копилок изменилось не на единицу', { до: vBefore, после: vAfter });
     }
 
+    // 8.9 «копить по 30 000 в месяц» — копилка с правилом взносов.
+    //
+    // ANO-104, вариант А владельца 28.09: правила взносов у копилки нет, и просьбу о нём продукт
+    // больше не принимает молча — раньше 200 и recurringRuleId: null. Теперь 400 до любой записи.
+    // Взносы копилки откладывает расчёт свободных по её сроку; строками журнала — ANO-207.
     const wishRule = await createWish(`Отпуск со взносами ${MARK}`, 120000, addMonths(6, 1));
     madeEvents.push(wishRule.id);
     const v2Before = await volumes();
     const r2 = await api(`/wishlist/items/${wishRule.id}/convert`, send('POST', {
       sourceKind: 'WISHLIST', target: 'FUND', createRecurringPayments: true,
     }));
-    if (!r2.ok) {
-      record('8.9', 'РАСХОЖДЕНИЕ', `конверсия с правилом взносов упала с ${r2.status}`, { тело: r2.body });
-    } else {
-      if (r2.body.convertedTo?.id) madeFunds.push(r2.body.convertedTo.id);
-      const v2After = await volumes();
-      r2.body.recurringRuleId
-        ? record('8.9', 'СОШЛОСЬ', 'копилка и правило взносов созданы одной операцией')
-        : record('8.9', 'РАСХОЖДЕНИЕ',
-          'флаг createRecurringPayments принят с кодом 200 и молча проигнорирован: '
-          + 'в WishlistConversionService он читается только в ветке FUND_WITH_CREDIT, у копилки ветки нет',
-          { ответ: r2.body, запрошено: { target: 'FUND', createRecurringPayments: true } });
-      v2After.правил - v2Before.правил === 1
-        ? record('8.9', 'СОШЛОСЬ', 'появилось ровно одно новое правило')
-        : record('8.9', 'СМОТРЕТЬ', 'число правил изменилось не на единицу', { до: v2Before, после: v2After });
-      // Задвоение взносов: и как правило, и как строка взносов копилки.
-      const t = byType(await pocketOf('MONTHS:6'));
-      record('8.9', 'СМОТРЕТЬ', 'взносы в кармашке на шести месяцах — проверить, не считаются ли дважды',
-        { строкаВзносов: t.SAVINGS_CONTRIBUTIONS ?? null, плановыеРасходы: t.PLANNED_EXPENSES ?? null });
-    }
+    if (r2.ok && r2.body.convertedTo?.id) madeFunds.push(r2.body.convertedTo.id);
+    const v2After = await volumes();
+    r2.status === 400
+      ? record('8.9', 'СОШЛОСЬ', 'просьба о правиле взносов у копилки отвергнута с кодом 400')
+      : record('8.9', 'РАСХОЖДЕНИЕ', `просьба о правиле взносов у копилки принята с кодом ${r2.status}`,
+        { ответ: r2.body, запрошено: { target: 'FUND', createRecurringPayments: true } });
+    v2After.копилок === v2Before.копилок && v2After.правил === v2Before.правил
+      ? record('8.9', 'СОШЛОСЬ', 'отказ ничего не создал: ни копилки, ни правила')
+      : record('8.9', 'РАСХОЖДЕНИЕ', 'отказ оставил следы', { до: v2Before, после: v2After });
   }
 
   // ── 8.12 отклонить хотелку ────────────────────────────────────────────────
