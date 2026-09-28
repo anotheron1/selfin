@@ -355,6 +355,7 @@ export const recomputeWishlistItem = (body: {
 
 export const convertWishlistItem = (itemId: string, body: {
     sourceKind: WishlistKind; target: 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT';
+    /** ANO-104: только для FUND_WITH_CREDIT — у остальных целей сервер отвечает 400. */
     createRecurringPayments?: boolean;
     /** ANO-16 §8: дата цели создаваемой копилки (фиксация растянутой примерки). */
     fundTargetDate?: string;

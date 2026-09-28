@@ -131,6 +131,15 @@ export function canConfirmConversion(target: ConvertTarget, planDate: string,
     return planDate !== '' && planDate > todayIso;
 }
 
+/**
+ * ANO-104: график платежей — только у «Кредита». Галочка видна только там, а уходила при любой
+ * цели: включена по умолчанию, и каждая фиксация в копилку или план просила правило, которого у
+ * них нет. Сервер такую просьбу отвергает (400) — без этого правила сломалась бы фиксация в копилку.
+ */
+export function recurringPaymentsFor(target: ConvertTarget, checked: boolean): boolean {
+    return target === 'FUND_WITH_CREDIT' && checked;
+}
+
 /** Что показывает диалог фиксации: пункты, выбранный при открытии и строку «почему нет кредита». */
 export interface ConversionChoice {
     targets: ConvertTarget[];

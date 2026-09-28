@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
-    effectiveDelta, conversionChoice,
+    effectiveDelta, conversionChoice, recurringPaymentsFor,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -124,6 +124,39 @@ describe('canConfirmConversion (ANO-138)', () => {
 
     it('кредиту срок в этом диалоге не нужен', () => {
         expect(canConfirmConversion('FUND_WITH_CREDIT', '', TODAY)).toBe(true);
+    });
+});
+
+describe('график платежей — только у «Кредита» (ANO-104)', () => {
+    // Галочка видна только у «Кредита», а уходила при любой цели: включена по умолчанию, и каждая
+    // фиксация в копилку или план просила правило платежей, о котором человек не знал. Сервер такую
+    // просьбу теперь отвергает — экран обязан её не слать.
+    it('«Кредит» с галочкой — график просится', () => {
+        expect(recurringPaymentsFor('FUND_WITH_CREDIT', true)).toBe(true);
+    });
+
+    it('«Кредит» без галочки — нет', () => {
+        expect(recurringPaymentsFor('FUND_WITH_CREDIT', false)).toBe(false);
+    });
+
+    it.each(['FUND', 'PLAN_EVENT'] as const)('%s — нет, хотя невидимая галочка включена', (target) => {
+        expect(recurringPaymentsFor(target, true)).toBe(false);
+    });
+
+    const dialog = () => readFileSync(new URL('./FixWishlistDialog.tsx', import.meta.url), 'utf8');
+
+    it('диалог шлёт галочку только через это правило', () => {
+        // Сторож по исходнику: компонентных тестов нет, а вернуть в onConfirm сырую галочку —
+        // правка в одну строку, и функция выше осталась бы зелёной.
+        expect(dialog()).toMatch(/onConfirm\(target, recurringPaymentsFor\(target, createRecurring\)/);
+        expect(dialog()).not.toMatch(/onConfirm\(target, createRecurring\b/);
+    });
+
+    it('галочка называется «график платежей», как пункт «Кредит», и без английского слова', () => {
+        // Правило 13: одна вещь — одно имя; «график платежей» говорят банки.
+        expect(dialog()).toContain('Создать график платежей');
+        expect(dialog()).toContain("'Кредит (копилка + график платежей)'");
+        expect(dialog()).not.toMatch(/\(recurring\)/);
     });
 });
 
