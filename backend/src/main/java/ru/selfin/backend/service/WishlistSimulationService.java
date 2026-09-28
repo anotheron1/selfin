@@ -72,13 +72,11 @@ public class WishlistSimulationService {
                 snap.firstMonth(), current, snap.horizonEnd(),
                 snap.predictionWindowMonths(), snap.fanEnabled(), snap.points());
 
-        // Collect all wishlist events and funds, drop DISMISSED
-        List<FinancialEvent> wishlistEvents = eventRepository.findAllWishlistEvents().stream()
-                .filter(e -> e.getWishlistStatus() != WishlistStatus.DISMISSED)
-                .toList();
-        List<TargetFund> wishlistFunds = fundRepository.findAllWishlistFunds().stream()
-                .filter(f -> f.getWishlistStatus() != WishlistStatus.DISMISSED)
-                .toList();
+        // ANO-107: отложенные тоже — с пустой дельтой (mapEventToItem, mapFundToItem). Раньше их
+        // выбрасывали, и разделу «Отложено» неоткуда было их взять: «Отложить» было дорогой в один
+        // конец. В расчёт они по-прежнему не входят — I5 спеки 29.05.
+        List<FinancialEvent> wishlistEvents = eventRepository.findAllWishlistEvents();
+        List<TargetFund> wishlistFunds = fundRepository.findAllWishlistFunds();
 
         List<WishlistItemDto> items = new ArrayList<>();
         for (FinancialEvent e : wishlistEvents) {
@@ -162,7 +160,9 @@ public class WishlistSimulationService {
         // ANO-142: у сконвертированной хотелки деньги несёт артефакт — план уже в baseline.
         // Дельта сверху посчитала бы её второй раз.
         boolean converted = e.getConvertedToEventId() != null || e.getConvertedToFundId() != null;
-        List<MonthDeltaDto> delta = (e.getDate() != null && !converted)
+        // ANO-107: отложенная приходит для раздела «Отложено», но в расчёт не входит.
+        boolean dismissed = e.getWishlistStatus() == WishlistStatus.DISMISSED;
+        List<MonthDeltaDto> delta = (e.getDate() != null && !converted && !dismissed)
                 ? computeWishlistDelta(amount, e.getDate(), current, horizonMonths)
                 : List.of();
         WishlistItemDto.ConvertedToDto convertedTo = buildConvertedTo(e.getConvertedToEventId(), e.getConvertedToFundId());
@@ -194,7 +194,9 @@ public class WishlistSimulationService {
         // ANO-142: у сконвертированной хотелки деньги несёт артефакт — копилка из конверсии со своей
         // дельтой. Дельта исходной посчитала бы покупку второй раз.
         boolean converted = f.getConvertedToEventId() != null || f.getConvertedToFundId() != null;
-        if (f.getTargetDate() != null && !converted) {
+        // ANO-107: отложенная приходит для раздела «Отложено», но в расчёт не входит.
+        boolean dismissed = f.getWishlistStatus() == WishlistStatus.DISMISSED;
+        if (f.getTargetDate() != null && !converted && !dismissed) {
             if (f.getPurchaseType() == FundPurchaseType.CREDIT
                     && f.getCreditRate() != null && f.getCreditTermMonths() != null) {
                 CreditResult cr = computeCreditDelta(amount, f.getTargetDate(), current, horizonMonths,

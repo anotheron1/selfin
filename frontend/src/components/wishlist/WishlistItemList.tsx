@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import WishlistItemCard, { type RecomputeRequest } from './WishlistItemCard';
+import DismissedItemCard from './DismissedItemCard';
 import AddWishlistDialog from './AddWishlistDialog';
 import type { RiskLevel } from './wishlistUtils';
 import type { ItemOverride } from './useWishlistSimulation';
@@ -57,7 +58,7 @@ interface CollapsibleProps {
     children: React.ReactNode;
 }
 
-/** Свёрнутая по умолчанию секция с счётчиком (FIXED / DISMISSED). */
+/** Свёрнутая по умолчанию секция со счётчиком: «Зафиксировано», «Отложено». */
 function CollapsibleSection({ title, count, children }: CollapsibleProps) {
     const [open, setOpen] = useState(false);
     return (
@@ -105,9 +106,16 @@ export default function WishlistItemList(props: Props) {
                 </CollapsibleSection>
             )}
 
+            {/* ANO-107: отложенные — короткой карточкой; в расчёт не входят, одно действие — вернуть. */}
             {dismissed.length > 0 && (
-                <CollapsibleSection title="Отклонено" count={dismissed.length}>
-                    {dismissed.map(item => renderCard(item, props))}
+                <CollapsibleSection title="Отложено" count={dismissed.length}>
+                    {dismissed.map(item => <DismissedItemCard
+                        key={item.id}
+                        item={item}
+                        onDelete={() => props.onDelete(item)}
+                        onStatusChange={s => props.onStatusChange(item, s)}
+                        statusError={props.statusErrors[item.id]}
+                    />)}
                 </CollapsibleSection>
             )}
 

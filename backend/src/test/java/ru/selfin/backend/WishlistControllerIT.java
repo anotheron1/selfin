@@ -99,11 +99,11 @@ class WishlistControllerIT {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Task 4.2 — wishlist item appears in simulation with delta; DISMISSED hidden
+    // Task 4.2 — wishlist item appears in simulation with delta; DISMISSED — without delta (ANO-107)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    void getSimulation_wishlistEvent_appearsWithDelta_andDismissedHidden() throws Exception {
+    void getSimulation_wishlistEvent_appearsWithDelta_andDismissedComesWithoutDelta() throws Exception {
         Category cat = seededExpenseCategory();
         LocalDate targetDate = LocalDate.now().plusMonths(6);
 
@@ -120,7 +120,7 @@ class WishlistControllerIT {
                 .description("Новый ноутбук")
                 .build());
 
-        // DISMISSED wishlist event — must NOT appear in the simulation list.
+        // DISMISSED wishlist event — приходит для раздела «Отложено», но в расчёт не входит (ANO-107).
         FinancialEvent dismissedItem = eventRepository.save(FinancialEvent.builder()
                 .priority(Priority.LOW)
                 .wishlistStatus(WishlistStatus.DISMISSED)
@@ -157,12 +157,54 @@ class WishlistControllerIT {
                 .as("wishlist outflow lowers the account")
                 .isLessThan(0.0);
 
-        // The DISMISSED item must be absent.
-        boolean dismissedPresent = items.stream()
-                .anyMatch(i -> dismissedItem.getId().toString().equals(i.get("id")));
-        assertThat(dismissedPresent)
-                .as("DISMISSED wishlist items must not appear in the simulation")
-                .isFalse();
+        // The DISMISSED item is present — the «Отложено» section reads it — with an empty delta.
+        Map<String, Object> dismissed = items.stream()
+                .filter(i -> dismissedItem.getId().toString().equals(i.get("id")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("DISMISSED item missing: «Отложено» has nothing to show"));
+        assertThat(dismissed.get("status")).isEqualTo("DISMISSED");
+        assertThat((List<?>) dismissed.get("delta"))
+                .as("отложенная в расчёт не входит")
+                .isEmpty();
+    }
+
+    @Test
+    void dismissedItem_comesBackToDiscussion() throws Exception {
+        // ANO-107: «Отложить» — не дорога в один конец. Отложенная видна без дельты, «Вернуть в
+        // обсуждение» возвращает её в расчёт примерки. Было: отложенная пропадала из ответа.
+        FinancialEvent src = eventRepository.save(
+                datedWishlist("Велосипед", LocalDate.now().plusMonths(5)));
+
+        setStatus(src, "DISMISSED");
+        Map<String, Object> dismissed = simulationItem(src.getId());
+        assertThat(dismissed.get("status")).isEqualTo("DISMISSED");
+        assertThat((List<?>) dismissed.get("delta")).isEmpty();
+
+        setStatus(src, "OPEN");
+        Map<String, Object> back = simulationItem(src.getId());
+        assertThat(back.get("status")).isEqualTo("OPEN");
+        assertThat((List<?>) back.get("delta"))
+                .as("вернувшаяся снова примеряется")
+                .isNotEmpty();
+    }
+
+    private void setStatus(FinancialEvent src, String status) throws Exception {
+        mockMvc.perform(patch("/api/v1/events/" + src.getId() + "/wishlist-status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"" + status + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    private Map<String, Object> simulationItem(UUID id) throws Exception {
+        String body = mockMvc.perform(get("/api/v1/wishlist/simulation"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) om.readValue(body, Map.class).get("items");
+        return items.stream()
+                .filter(i -> id.toString().equals(i.get("id")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("item " + id + " missing from /wishlist/simulation"));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

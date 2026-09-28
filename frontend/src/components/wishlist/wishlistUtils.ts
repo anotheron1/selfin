@@ -140,6 +140,14 @@ export function recurringPaymentsFor(target: ConvertTarget, checked: boolean): b
     return target === 'FUND_WITH_CREDIT' && checked;
 }
 
+/**
+ * ANO-107: заметка в примерке после «Отложить». Строка из примерки уходит, а вернуть её можно ниже,
+ * в разделе «Отложено» блока «Что с капиталом», — без заметки путь назад не найти.
+ */
+export function dismissedNotice(name: string): string {
+    return `Отложено: «${name}». Вернуть можно ниже — в «Что с капиталом», раздел «Отложено».`;
+}
+
 /** Что показывает диалог фиксации: пункты, выбранный при открытии и строку «почему нет кредита». */
 export interface ConversionChoice {
     targets: ConvertTarget[];

@@ -179,8 +179,12 @@ class WishlistSimulationServiceTest {
         assertThat(result.delta()).allSatisfy(d -> assertThat(d.monthIndex()).isLessThan(36));
     }
 
+    /**
+     * ANO-107: отложенная приходит в список — иначе разделу «Отложено» неоткуда её взять и вернуть
+     * в обсуждение нечем, — но с пустой дельтой: в расчёт она не входит (I5 спеки 29.05).
+     */
     @Test
-    void getSimulation_returnsBaselineAndItems_dismissedExcluded() {
+    void getSimulation_returnsBaselineAndItems_dismissedWithoutDelta() {
         YearMonth current = YearMonth.now();
         YearMonth first = current.minusMonths(3);
         YearMonth horizonEnd = current.plusMonths(36);
@@ -202,11 +206,12 @@ class WishlistSimulationServiceTest {
                 .category(cat)
                 .deleted(false)
                 .build();
-        // DISMISSED event (should be excluded)
+        // DISMISSED event: приходит, но без дельты. Дата в будущем — иначе дельта пуста и без правила.
         FinancialEvent dismissedEvent = FinancialEvent.builder()
                 .id(UUID.randomUUID())
                 .description("Автомобиль")
                 .plannedAmount(new BigDecimal("3000000"))
+                .date(current.plusMonths(4).atDay(1))
                 .wishlistStatus(WishlistStatus.DISMISSED)
                 .category(cat)
                 .deleted(false)
@@ -222,12 +227,42 @@ class WishlistSimulationServiceTest {
 
         WishlistSimulationDto result = simulationService.getSimulation(36);
 
-        // DISMISSED should be excluded
-        assertThat(result.items()).hasSize(1);
-        assertThat(result.items().get(0).name()).isEqualTo("Ноутбук");
-        assertThat(result.items().get(0).delta()).isNotNull();
+        assertThat(result.items()).hasSize(2);
+        var open = result.items().stream().filter(i -> i.name().equals("Ноутбук")).findFirst().orElseThrow();
+        assertThat(open.delta()).as("обсуждаемая — с дельтой").isNotEmpty();
+        var dismissed = result.items().stream().filter(i -> i.name().equals("Автомобиль")).findFirst().orElseThrow();
+        assertThat(dismissed.status()).isEqualTo("DISMISSED");
+        assertThat(dismissed.delta()).as("отложенная в расчёт не входит").isEmpty();
         // constraints non-null
         assertThat(result.constraints()).isNotNull();
+    }
+
+    /** ANO-107: то же у копилки — второе место, где строится строка хотелки. */
+    @Test
+    void getSimulation_dismissedFund_comesWithoutDelta() {
+        YearMonth current = YearMonth.now();
+        TimelineSnapshot snap = new TimelineSnapshot(current.minusMonths(3), current, current.plusMonths(36),
+                6, false, List.of());
+        when(baselineBuilder.build(36, true, BaselineTimelineBuilder.Wishlist.NONE)).thenReturn(snap);
+        TargetFund dismissedFund = TargetFund.builder()
+                .id(UUID.randomUUID()).name("Отпуск")
+                .purchaseType(FundPurchaseType.SAVINGS)
+                .targetAmount(new BigDecimal("120000"))
+                .targetDate(current.plusMonths(6).atDay(1))
+                .wishlistStatus(WishlistStatus.DISMISSED)
+                .build();
+        when(eventRepo.findAllWishlistEvents()).thenReturn(List.of());
+        when(fundRepo.findAllWishlistFunds()).thenReturn(List.of(dismissedFund));
+        when(userSettingsService.getWishlistSettings())
+                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null, new BigDecimal("1.0")));
+        when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("500000"));
+        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
+
+        WishlistSimulationDto result = simulationService.getSimulation(36);
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).status()).isEqualTo("DISMISSED");
+        assertThat(result.items().get(0).delta()).as("отложенная копилка в расчёт не входит").isEmpty();
     }
 
     @Test
