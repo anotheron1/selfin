@@ -40,6 +40,8 @@ interface Props {
     onFix: () => void;
     onDelete: () => void;
     onStatusChange: (status: WishlistStatus) => void;
+    /** Отказ последней смены статуса словами экрана (ANO-141); нет — отказа не было. */
+    statusError?: string | null;
 }
 
 const MIN_OFFSET = 1;
@@ -82,7 +84,7 @@ export default function WishlistItemCard(props: Props) {
     const {
         item, active, amountOverride, dateOverride, soloRisk, amountMax, currentMonth,
         onToggleActive, onAmountChange, onDateChange, onParamsRecompute,
-        onFix, onDelete, onStatusChange,
+        onFix, onDelete, onStatusChange, statusError,
     } = props;
 
     const amount = amountOverride ?? item.amount;
@@ -256,6 +258,10 @@ export default function WishlistItemCard(props: Props) {
             )}
 
             {/* Status affordance: dismiss / restore */}
+            {/* ANO-141: отказ смены статуса — здесь, у кнопки, которую нажали. */}
+            {statusError && (
+                <p className="text-xs text-right" style={{ color: 'var(--color-warning)' }}>{statusError}</p>
+            )}
             <div className="flex justify-end">
                 {item.status === 'DISMISSED' ? (
                     <button
