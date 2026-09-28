@@ -73,17 +73,8 @@ paths:
                 $ref: '#/components/schemas/FinancialEvent'
 
   /events/wishlist:
-    get:
-      summary: Хотелки (LOW-priority PLAN с датой раньше начала текущего месяца)
-      responses:
-        '200':
-          description: Список хотелок
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/FinancialEvent'
+    # GET — старая выборка хотелок — удалён 28.09 (ANO-161): отбирал строки «Хотелка» прошлых
+    # месяцев, а не хотелки, и кормил только счётчик «Структуры месяца» (ANO-165).
     post:
       summary: Создать хотелку вручную
       requestBody:

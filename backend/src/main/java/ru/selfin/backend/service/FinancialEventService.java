@@ -628,17 +628,6 @@ public class FinancialEventService {
     }
 
     /**
-     * Возвращает список хотелок: LOW-приоритетные PLANNED-события без даты.
-     *
-     * @return список DTO хотелок
-     */
-    public List<FinancialEventDto> findWishlist() {
-        LocalDate cutoff = LocalDate.now(clock).withDayOfMonth(1);
-        return eventRepository.findWishlistItems(Priority.LOW, EventStatus.PLANNED, cutoff)
-                .stream().map(e -> toDto(e, null, null)).toList();
-    }
-
-    /**
      * Удаляет событие с учётом scope. THIS — мягкое удаление только этого события
      * с сохранением контрактов плана-факта:
      * <ul>

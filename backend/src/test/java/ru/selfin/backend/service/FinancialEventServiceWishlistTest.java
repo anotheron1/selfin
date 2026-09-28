@@ -27,7 +27,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.List;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -47,23 +46,8 @@ class FinancialEventServiceWishlistTest {
     // Clock fixed to 2026-04-09
     Clock clock = Clock.fixed(Instant.parse("2026-04-09T12:00:00Z"), ZoneOffset.UTC);
 
-    @Test
-    void findWishlist_usesFirstDayOfMonth_notToday() {
-        // Inject clock via constructor (after implementation step)
-        FinancialEventService service = new FinancialEventService(
-                eventRepository, categoryRepository, targetFundRepository, categoryService, clock, ruleService, mock(WishlistArtifactService.class));
-
-        when(eventRepository.findWishlistItems(
-                Priority.LOW, EventStatus.PLANNED,
-                LocalDate.of(2026, 4, 1))) // first day of April, not April 9
-                .thenReturn(List.of());
-
-        service.findWishlist();
-
-        verify(eventRepository).findWishlistItems(
-                Priority.LOW, EventStatus.PLANNED,
-                LocalDate.of(2026, 4, 1));
-    }
+    // Тест старой выборки хотелок (`findWishlist`) удалён вместе с ней (ANO-161, 28.09): она отбирала
+    // строки «Хотелка» прошлых месяцев, а не хотелки, и кормила только счётчик «Структуры месяца».
 
     // ====== ANO-162: «Что с капиталом» пишет только параметры примерки ======
 

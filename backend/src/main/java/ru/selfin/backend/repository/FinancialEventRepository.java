@@ -43,17 +43,6 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     /** All non-deleted events with given priority, ordered by createdAt. */
     List<FinancialEvent> findAllByDeletedFalseAndPriorityOrderByCreatedAtAsc(Priority priority);
 
-    /** Хотелки: LOW-priority PLANNED события без даты ИЛИ с датой раньше начала текущего месяца. */
-    @Query("SELECT e FROM FinancialEvent e WHERE e.deleted = false " +
-           "AND e.priority = :priority AND e.status = :status " +
-           "AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN " +
-           "AND (e.date IS NULL OR e.date < :cutoff) " +
-           "ORDER BY e.createdAt ASC")
-    List<FinancialEvent> findWishlistItems(
-        @Param("priority") Priority priority,
-        @Param("status") EventStatus status,
-        @Param("cutoff") LocalDate cutoff);
-
     /** Планировщик фондов: все не-удалённые PLANы с любым статусом кроме CANCELLED */
     @Query("SELECT e FROM FinancialEvent e WHERE e.deleted = false " +
            "AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN " +
