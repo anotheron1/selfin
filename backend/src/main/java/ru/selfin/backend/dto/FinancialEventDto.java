@@ -5,6 +5,7 @@ import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.RecurringFrequency;
+import ru.selfin.backend.model.enums.WishlistStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -37,5 +38,9 @@ public record FinancialEventDto(
         UUID recurringRuleId,
         RecurringFrequency recurringFrequency,
         Integer recurringDayOfMonth,
-        Integer recurringMonthOfYear) {
+        Integer recurringMonthOfYear,
+        // ANO-183: статус хотелки у строки с экрана «Хотелки», null у обычной. Журналу больше
+        // неоткуда это узнать: категорию строки хотелки форма меняет, а характер LOW бывает и у
+        // обычной строки. У такой строки характер не меняется — экран его и не предлагает.
+        WishlistStatus wishlistStatus) {
 }

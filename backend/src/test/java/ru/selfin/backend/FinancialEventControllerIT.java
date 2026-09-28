@@ -1,5 +1,6 @@
 package ru.selfin.backend;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -252,5 +254,106 @@ class FinancialEventControllerIT {
         mockMvc.perform(get("/api/v1/events?startDate=" + today + "&endDate=" + today))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.id == '" + id + "')]").doesNotExist());
+    }
+
+    // ── ANO-183: характер строки с экрана «Хотелки» не меняется ──
+    //
+    // Инвариант I1 спеки 29.05 держала только база: запись упиралась в chk_wishlist_status_only_low,
+    // и наружу уходило 409 «Operation conflicts with a data constraint», по которому экран не может
+    // сказать, в чём дело. Теперь сервис отказывает 400 до записи, а ответ /events говорит журналу,
+    // какая строка — хотелка с экрана «Хотелки».
+
+    /** Хотелка со сроком — та, что видна в журнале; ручкой экрана «Хотелки». */
+    private JsonNode createDatedWishlistItem(String description, LocalDate date) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/events/wishlist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "description", description, "plannedAmount", 49504,
+                                "date", date.toString()))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body);
+    }
+
+    /** Строка журнала за день — так, как её получает экран. */
+    private JsonNode journalRow(String id, LocalDate date) throws Exception {
+        String body = mockMvc.perform(get("/api/v1/events?startDate=" + date + "&endDate=" + date))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        for (JsonNode row : objectMapper.readTree(body)) {
+            if (id.equals(row.get("id").asText())) return row;
+        }
+        throw new AssertionError("строки " + id + " нет в журнале за " + date);
+    }
+
+    private String createPlan(LocalDate date, Priority priority, String description) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new FinancialEventCreateDto(
+                                date, UUID.fromString(getFirstCategoryId()), EventType.EXPENSE,
+                                BigDecimal.valueOf(700), priority, description, null, null, null))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
+    }
+
+    @Test
+    void cyclePriority_wishlistRow_returns400_andRowStaysWishlist() throws Exception {
+        LocalDate date = LocalDate.now().plusDays(3);
+        String id = createDatedWishlistItem("Проба ANO-183 точка", date).get("id").asText();
+
+        mockMvc.perform(patch("/api/v1/events/" + id + "/priority"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(journalRow(id, date).get("priority").asText()).isEqualTo("LOW");
+        mockMvc.perform(get("/api/v1/wishlist/simulation"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.id == '" + id + "')].status").value("OPEN"));
+
+        // Граница: обычная строка характера «Хотелка» меняется точкой, как прежде.
+        String plainId = createPlan(date, Priority.LOW, "Обычная хотелка журнала");
+        mockMvc.perform(patch("/api/v1/events/" + plainId + "/priority"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value("HIGH"));
+    }
+
+    @Test
+    void updateEvent_wishlistRow_otherCharacter_returns400_sameCharacter_saves() throws Exception {
+        LocalDate date = LocalDate.now().plusDays(4);
+        JsonNode created = createDatedWishlistItem("Проба ANO-183 форма", date);
+        String id = created.get("id").asText();
+        UUID categoryId = UUID.fromString(created.get("categoryId").asText());
+
+        mockMvc.perform(put("/api/v1/events/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new FinancialEventCreateDto(
+                                date, categoryId, EventType.EXPENSE, BigDecimal.valueOf(49504),
+                                Priority.HIGH, "Проба ANO-183 форма", null, null, null))))
+                .andExpect(status().isBadRequest());
+        assertThat(journalRow(id, date).get("priority").asText()).isEqualTo("LOW");
+
+        // Граница: правка суммы с прежним характером проходит — форма шлёт его всегда.
+        mockMvc.perform(put("/api/v1/events/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new FinancialEventCreateDto(
+                                date, categoryId, EventType.EXPENSE, BigDecimal.valueOf(50000),
+                                Priority.LOW, "Проба ANO-183 форма", null, null, null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plannedAmount").value(50000))
+                .andExpect(jsonPath("$.priority").value("LOW"));
+    }
+
+    @Test
+    void getByPeriod_tellsWishlistRowFromRegularOne() throws Exception {
+        LocalDate date = LocalDate.now().plusDays(5);
+        String wishId = createDatedWishlistItem("Проба ANO-183 журнал", date).get("id").asText();
+        String plainId = createPlan(date, Priority.LOW, "Обычная хотелка журнала");
+
+        assertThat(journalRow(wishId, date).path("wishlistStatus").asText()).isEqualTo("OPEN");
+        JsonNode plainStatus = journalRow(plainId, date).path("wishlistStatus");
+        assertThat(plainStatus.isNull() || plainStatus.isMissingNode())
+                .as("у обычной строки характера «Хотелка» статуса хотелки нет: %s", plainStatus)
+                .isTrue();
     }
 }

@@ -2,6 +2,8 @@ package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import ru.selfin.backend.dto.*;
 import ru.selfin.backend.exception.ResourceNotFoundException;
@@ -942,6 +944,118 @@ class FinancialEventServiceTest {
         assertThat(service.findByPeriod(LocalDate.now(), LocalDate.now()))
                 .extracting(FinancialEventDto::id)
                 .containsExactly(paid.getId());
+    }
+
+    // ====== ANO-183: характер строки с экрана «Хотелки» не меняется ======
+    //
+    // Инвариант I1 спеки 29.05 держала только база (chk_wishlist_status_only_low): запись доходила
+    // до неё и получала 409 «Operation conflicts with a data constraint». Мок записи на ограничение
+    // не смотрит — поэтому на старом коде эти тесты видят успешную смену характера.
+
+    @ParameterizedTest
+    @EnumSource(WishlistStatus.class)
+    @DisplayName("ANO-183: точка у строки хотелки — 400 до записи, при любом статусе")
+    void cyclePriority_wishlistRow_throws400_andSavesNothing(WishlistStatus status) {
+        UUID id = UUID.randomUUID();
+        FinancialEvent row = aWishlistRow(id, status);
+        when(eventRepository.findById(id)).thenReturn(Optional.of(row));
+        when(categoryService.nextPriority(Priority.LOW)).thenReturn(Priority.HIGH);
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        assertThatThrownBy(() -> service.cyclePriority(id))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+        assertThat(row.getPriority()).isEqualTo(Priority.LOW);
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ANO-183: точка у обычной строки «Хотелка» меняет характер, как прежде")
+    void cyclePriority_regularLowRow_becomesHigh() {
+        // Граница правила: характер «Хотелка» без статуса хотелки — обычная строка журнала.
+        UUID id = UUID.randomUUID();
+        FinancialEvent row = aPlan(id, category(), EventStatus.PLANNED);
+        row.setPriority(Priority.LOW);
+        when(eventRepository.findById(id)).thenReturn(Optional.of(row));
+        when(categoryService.nextPriority(Priority.LOW)).thenReturn(Priority.HIGH);
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        assertThat(service.cyclePriority(id).priority()).isEqualTo(Priority.HIGH);
+        verify(eventRepository).save(row);
+    }
+
+    @Test
+    @DisplayName("ANO-183: форма со сменой характера у строки хотелки — 400, строка не тронута")
+    void update_wishlistRow_otherCharacter_throws400_andLeavesRowIntact() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent row = aWishlistRow(id, WishlistStatus.OPEN);
+        Category cat = row.getCategory();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(row));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        assertThatThrownBy(() -> service.update(id, ScopeEnum.THIS, new FinancialEventCreateDto(
+                row.getDate(), cat.getId(), EventType.EXPENSE, new BigDecimal("50000"),
+                Priority.HIGH, "Велокресло", null, null, null)))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+        // Отказ — до первого сеттера: строка не переписана наполовину.
+        assertThat(row.getPriority()).isEqualTo(Priority.LOW);
+        assertThat(row.getPlannedAmount()).isEqualByComparingTo("49504");
+        assertThat(row.getDescription()).isEqualTo("Детское велокресло");
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ANO-183: форма без характера у строки хотелки — характер категории, 400")
+    void update_wishlistRow_noCharacter_takesCategoryDefault_throws400() {
+        // Без характера сервер подставляет характер категории; у «Хотелок» по умолчанию — «Ожидание».
+        UUID id = UUID.randomUUID();
+        FinancialEvent row = aWishlistRow(id, WishlistStatus.OPEN);
+        Category cat = row.getCategory();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(row));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        assertThatThrownBy(() -> service.update(id, ScopeEnum.THIS, new FinancialEventCreateDto(
+                row.getDate(), cat.getId(), EventType.EXPENSE, new BigDecimal("49504"),
+                null, "Детское велокресло", null, null, null)))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+        assertThat(row.getPriority()).isEqualTo(Priority.LOW);
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ANO-183: форма с «Хотелкой» у строки хотелки записывает, как прежде")
+    void update_wishlistRow_keepsCharacter_saves() {
+        UUID id = UUID.randomUUID();
+        FinancialEvent row = aWishlistRow(id, WishlistStatus.OPEN);
+        Category cat = row.getCategory();
+        when(eventRepository.findById(id)).thenReturn(Optional.of(row));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.update(id, ScopeEnum.THIS, new FinancialEventCreateDto(
+                row.getDate(), cat.getId(), EventType.EXPENSE, new BigDecimal("50000"),
+                Priority.LOW, "Детское велокресло", null, null, null));
+
+        assertThat(row.getPlannedAmount()).isEqualByComparingTo("50000");
+        assertThat(row.getPriority()).isEqualTo(Priority.LOW);
+        verify(eventRepository).save(row);
+    }
+
+    /** Строка с экрана «Хотелки», как на стенде: категория «Хотелки» с характером по умолчанию «Ожидание». */
+    private FinancialEvent aWishlistRow(UUID id, WishlistStatus status) {
+        Category wishlist = Category.builder()
+                .id(UUID.randomUUID()).name("Хотелки").system(true)
+                .type(CategoryType.EXPENSE).priority(Priority.MEDIUM).build();
+        return FinancialEvent.builder()
+                .id(id).eventKind(EventKind.PLAN).category(wishlist)
+                .type(EventType.EXPENSE).plannedAmount(new BigDecimal("49504"))
+                .description("Детское велокресло")
+                .status(EventStatus.PLANNED).priority(Priority.LOW).wishlistStatus(status)
+                .date(LocalDate.now()).build();
     }
 
     private Category category() {
