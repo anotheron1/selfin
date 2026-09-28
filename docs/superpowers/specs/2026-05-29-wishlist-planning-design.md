@@ -205,6 +205,7 @@ CREATE TABLE user_settings (
 - **I3.** Удаление сконвертированного `FinancialEvent` через `DELETE /events/{id}` не каскадно удаляет исходный wishlist item, но обнуляет ссылку `converted_to_event_id` или `converted_to_fund_id` (`ON DELETE SET NULL`). Хотелка остаётся в `FIXED` без артефакта — пользователь увидит это в UI и сможет вернуть в `OPEN` или заново конвертировать.
 - **I4.** Повторная конверсия уже сконвертированного item'а → `409 Conflict`. Семантически — один item имеет максимум один артефакт.
 - **I5.** Item со статусом `DISMISSED` не отдаётся в `WishlistSimulationDto.items`, но остаётся в БД и виден на `/wishlist` в свёрнутой секции «Отклонённые». Может быть восстановлен.
+  **Поправка 28.09.2026 (ANO-107):** отдаётся в `items` со статусом `DISMISSED` и пустой дельтой. Секция брала список из тех же `items`, и без отложенных в них ей неоткуда было взять данные — восстановить было нечем. В расчёт отложенная по-прежнему не входит. Секция называется «Отложено», действие — «Отложить». Спека `2026-09-28-dismissed-way-back-design.md`.
 - **I6.** Один item конвертируется максимум в один артефакт — либо в `FinancialEvent` (`converted_to_event_id`), либо в `TargetFund` (`converted_to_fund_id`). Одновременно установленные обе ссылки запрещены: CHECK constraint `chk_single_conversion` (на `financial_events`) и `chk_fund_single_conversion` (на `target_funds`).
 
 ### Backfill и миграция данных
