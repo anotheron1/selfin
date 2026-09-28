@@ -382,11 +382,18 @@ export const fixSandboxItem = (itemId: string, body: {
     creditTermMonths?: number | null;
 }) => post<ConvertResponse>(`/wishlist/items/${itemId}/fix`, body);
 
-export const setEventWishlistStatus = (id: string, status: WishlistStatus) =>
-    patch<void>(`/events/${id}/wishlist-status`, { status });
+/**
+ * Смена статуса хотелки. `deleteArtifact` — удалить и созданный из неё план или копилку, одной записью
+ * со сменой статуса (ANO-103; «Отложить» с галочкой — ANO-210). Без флага созданное остаётся.
+ */
+const wishlistStatusBody = (status: WishlistStatus, deleteArtifact: boolean) =>
+    deleteArtifact ? { status, deleteArtifact: true } : { status };
 
-export const setFundWishlistStatus = (id: string, status: WishlistStatus) =>
-    patch<void>(`/funds/${id}/wishlist-status`, { status });
+export const setEventWishlistStatus = (id: string, status: WishlistStatus, deleteArtifact = false) =>
+    patch<void>(`/events/${id}/wishlist-status`, wishlistStatusBody(status, deleteArtifact));
+
+export const setFundWishlistStatus = (id: string, status: WishlistStatus, deleteArtifact = false) =>
+    patch<void>(`/funds/${id}/wishlist-status`, wishlistStatusBody(status, deleteArtifact));
 
 /**
  * Параметры примерки — отдельной записью, а не полной перезаписью (ANO-162): сервер пишет только

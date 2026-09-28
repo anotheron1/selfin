@@ -37,6 +37,19 @@ export function deleteFailure(err: unknown, kind: Deletable): string {
     return fundMovementMessage(err) ?? DELETE_FAILED;
 }
 
+/**
+ * Отказ «Отложить» с удалением созданного (ANO-210). Сервер удаляет созданное вместе со сменой
+ * статуса и отвергает 409 одно на каждый вид: у плана — по нему есть факты, у копилки — в ней лежат
+ * деньги. Отказ откатывает и статус, поэтому подсказка — отложить без галочки.
+ */
+export function dismissFailure(err: unknown, kind: Deletable): string {
+    const status = (err as { status?: unknown } | null | undefined)?.status;
+    if (status !== 409) return WRITE_FAILED;
+    return kind === 'EVENT'
+        ? 'Не отложилось: по созданному плану уже есть факт, и его не удалить. Без галочки — отложится, план останется.'
+        : 'Не отложилось: в созданной копилке лежат деньги, и её не удалить. Без галочки — отложится, копилка останется.';
+}
+
 /** 404 на удалении — части уже нет: цель достигнута, это не отказ. */
 function alreadyGone(result: PromiseSettledResult<unknown>): boolean {
     return result.status === 'rejected'

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
-    effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams,
+    effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams, dismissQuestion,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -464,5 +464,33 @@ describe('«Что с капиталом» пишет только параме�
         expect(block).toMatch(/setEventWishlistParams\(item\.id, write\.body\)/);
         expect(block).toMatch(/setFundWishlistParams\(item\.id, write\.body\)/);
         expect(block).not.toMatch(/\bupdateEvent\b|\bupdateFund\b/);
+    });
+});
+
+// ANO-210: «Отложить» у хотелки, из которой создан план или копилка, молча оставлял созданное в
+// расчёте. Замер 28.09: план на 10.10 на 1 111 ₽ остался в журнале, свободно −198 323. Спека модуля
+// 29.05 — «FIXED → DISMISSED с подтверждением, артефакт остаётся или удаляется по явному выбору».
+describe('«Отложить» у хотелки с созданным спрашивает (ANO-210)', () => {
+    const item = (status: WishlistItem['status'], convertedTo: WishlistItem['convertedTo']) => ({ status, convertedTo });
+
+    it('зафиксированная в план — строка про план и галочка «Удалить и созданный план»', () => {
+        expect(dismissQuestion(item('FIXED', { kind: 'EVENT', id: 'p' }))).toEqual({
+            stays: 'Созданный план останется в расчёте.', also: 'Удалить и созданный план',
+        });
+    });
+
+    it('зафиксированная в копилку — про копилку', () => {
+        expect(dismissQuestion(item('FIXED', { kind: 'FUND', id: 'f' }))).toEqual({
+            stays: 'Созданная копилка останется в расчёте.', also: 'Удалить и созданную копилку',
+        });
+    });
+
+    it('без созданного вопроса нет — ни у зафиксированной без конверсии, ни у обсуждаемой', () => {
+        expect(dismissQuestion(item('FIXED', null))).toBeNull();
+        expect(dismissQuestion(item('OPEN', null))).toBeNull();
+    });
+
+    it('вернувшаяся в обсуждение с созданным — тот же вопрос: план остался бы в расчёте молча', () => {
+        expect(dismissQuestion(item('OPEN', { kind: 'EVENT', id: 'p' }))).not.toBeNull();
     });
 });
