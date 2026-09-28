@@ -4,7 +4,7 @@ import ts from 'typescript';
 import { FUND_ON_ACCOUNT } from './fundMovement';
 import {
     DELETE_FAILED, FUND_HOLDS_MONEY, WRITE_FAILED,
-    attempt, deleteFailure, deleteTogether, writeFailure,
+    attempt, deleteFailure, deleteTogether, dismissFailure, writeFailure,
 } from './writeFailure';
 
 const lost = () => new TypeError('Failed to fetch');
@@ -105,24 +105,52 @@ function handlerBody(path: string, name: string): string {
     return body;
 }
 
+describe('фраза отказа «Отложить» с удалением созданного (ANO-210)', () => {
+    // Сервер отвергает удаление созданного 409 по-английски: у плана — есть факты, у копилки —
+    // лежат деньги. Повтор не поможет; поможет отложить без удаления.
+    it('план, 409 — по нему уже есть факт; подсказка — без галочки', () => {
+        expect(dismissFailure(refused(409), 'EVENT')).toBe(
+            'Не отложилось: по созданному плану уже есть факт, и его не удалить. Без галочки — отложится, план останется.');
+    });
+
+    it('копилка, 409 — в ней лежат деньги', () => {
+        expect(dismissFailure(refused(409), 'FUND')).toBe(
+            'Не отложилось: в созданной копилке лежат деньги, и её не удалить. Без галочки — отложится, копилка останется.');
+    });
+
+    it('обрыв связи — «Не записалось — попробуйте ещё раз»', () => {
+        expect(dismissFailure(lost(), 'EVENT')).toBe(WRITE_FAILED);
+        expect(dismissFailure(lost(), 'FUND')).toBe(WRITE_FAILED);
+    });
+
+    it('текст сервера на экран не идёт', () => {
+        for (const kind of ['EVENT', 'FUND'] as const) {
+            expect(dismissFailure(refused(409), kind)).not.toMatch(/[A-Za-z]/);
+        }
+    });
+});
+
 describe('«Что с капиталом» не глотает отказ (ANO-141, сторож по исходнику)', () => {
     // Компонентных тестов во фронте нет, а вернуть `.catch(refetch)` — правка в одну строку.
     const BLOCK = '../components/sandbox/CapitalWhatIf.tsx';
     const FIX = '../components/wishlist/FixWishlistDialog.tsx';
     const DELETE = '../components/wishlist/DeleteWishlistDialog.tsx';
+    const DISMISS = '../components/wishlist/DismissWishlistDialog.tsx';
 
     it.each([
         ['handleStatusChange', /attempt\(/, /setStatusErrors\(/],
         ['handleFixConfirm', /attempt\(/, /setFixError\(failure\)/],
         ['handleFixWithoutConversion', /attempt\(/, /setFixError\(failure\)/],
         ['handleDeleteConfirm', /deleteTogether\(/, /setDeleteError\(failure\)/],
+        ['handleDismissConfirm', /attempt\(/, /setDismissError\(failure\)/],
     ])('%s передаёт отказ на экран', (name, write, shown) => {
         const body = handlerBody(BLOCK, name);
         expect(body).toMatch(write);
         expect(body).toMatch(shown);
     });
 
-    it.each(['handleStatusChange', 'handleFixConfirm', 'handleFixWithoutConversion', 'handleDeleteConfirm'])(
+    it.each(['handleStatusChange', 'handleFixConfirm', 'handleFixWithoutConversion', 'handleDeleteConfirm',
+        'handleDismissConfirm'])(
         '%s: на отказе список не перечитывается',
         (name) => {
             // Перечитывание сбрасывает подкрученное (overrideMap): диалог держит снимок хотелки с
@@ -134,7 +162,7 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
             expect(body).toMatch(/if \(failure\) \{[\s\S]*?return;\s*\}[\s\S]*refetch\(\);/);
         });
 
-    it.each([['closeFix', 'fixError'], ['closeDelete', 'deleteError']])(
+    it.each([['closeFix', 'fixError'], ['closeDelete', 'deleteError'], ['closeDismiss', 'dismissError']])(
         '%s перечитывает список только после отказа',
         (name, error) => {
             // После отказа часть записи могла пройти: примерка до отказа конверсии, одна из двух
@@ -154,13 +182,34 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
         expect(src).toMatch(/error=\{fixError\}/);
         expect(src).toMatch(/busy=\{deleteBusy\}/);
         expect(src).toMatch(/error=\{deleteError\}/);
+        expect(src).toMatch(/busy=\{dismissBusy\}/);
+        expect(src).toMatch(/error=\{dismissError\}/);
         expect(src).toMatch(/statusErrors=\{statusErrors\}/);
         expect(read('../components/wishlist/WishlistItemList.tsx'))
             .toMatch(/statusError=\{p\.statusErrors\[item\.id\]\}/);
     });
 
+    it('«Отложить» у хотелки с созданным сначала спрашивает, а не пишет (ANO-210)', () => {
+        const body = handlerBody(BLOCK, 'handleStatusChange');
+        const ask = body.search(/status === 'DISMISSED' && dismissQuestion\(item\)\) \{\s*setDismissError\(null\);\s*setDismissItem\(item\);\s*return;/);
+        expect(ask, 'вопрос до записи').toBeGreaterThanOrEqual(0);
+        expect(ask, 'вопрос раньше записи статуса').toBeLessThan(body.search(/attempt\(/));
+        // С галочкой статус уходит вместе с удалением созданного — одной записью на сервере.
+        expect(handlerBody(BLOCK, 'handleDismissConfirm')).toMatch(/changeStatus\(item, 'DISMISSED', alsoArtifact\)/);
+        expect(handlerBody(BLOCK, 'handleDismissConfirm')).toMatch(/dismissFailure\(err, /);
+    });
+
+    it('диалог «Отложить»: вопрос, строка и галочка — выключенная при каждом открытии (ANO-210)', () => {
+        const src = read(DISMISS);
+        expect(src).toMatch(/Отложить «\{item\.name\}»\?/);
+        expect(src).toMatch(/\{question\.stays\}/);
+        expect(src).toMatch(/\{question\.also\}/);
+        expect(src).toMatch(/useState\(false\)/);
+        expect(src).toMatch(/if \(open\) setAlsoArtifact\(false\)/);
+    });
+
     it('диалоги показывают отказ и не отпускают, пока идёт запись: обе кнопки заняты', () => {
-        for (const path of [FIX, DELETE]) {
+        for (const path of [FIX, DELETE, DISMISS]) {
             const src = read(path);
             expect(src, path).toMatch(/\{error\s*&&/);
             expect(src.match(/disabled=\{busy/g), path).toHaveLength(2);

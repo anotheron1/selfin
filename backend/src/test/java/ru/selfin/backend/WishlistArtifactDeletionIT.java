@@ -5,6 +5,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.server.ResponseStatusException;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -29,6 +33,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * ANO-103, вторая половина. Спека {@code 2026-05-29-wishlist-planning-design.md:66}:
@@ -41,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * транзакции, а не про возвращаемое значение метода.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @Testcontainers
 class WishlistArtifactDeletionIT {
 
@@ -51,6 +58,7 @@ class WishlistArtifactDeletionIT {
     @Autowired FinancialEventRepository eventRepository;
     @Autowired TargetFundRepository fundRepository;
     @Autowired CategoryRepository categoryRepository;
+    @Autowired MockMvc mockMvc;
 
     @Test
     @DisplayName("без флага артефакт остаётся и ссылка цела — обратная совместимость")
@@ -154,6 +162,80 @@ class WishlistArtifactDeletionIT {
                 .doesNotThrowAnyException();
         assertThat(eventRepository.findById(wish.getId()).orElseThrow().getWishlistStatus())
                 .isEqualTo(WishlistStatus.OPEN);
+    }
+
+    // ── ANO-210: «Отложить» с выбором судьбы созданного — через HTTP ─────────
+    //
+    // Экран «Что с капиталом» спрашивает при «Отложить» у хотелки с созданным и шлёт статус вместе с
+    // флагом одной записью. Выше флаг гоняется через службу и только при возврате в обсуждение;
+    // здесь — тот путь, которым пойдёт экран: PATCH …/wishlist-status с DISMISSED, у событий и копилок.
+
+    private ResultActions dismiss(String resource, UUID id, boolean deleteArtifact) throws Exception {
+        String body = deleteArtifact
+                ? "{\"status\":\"DISMISSED\",\"deleteArtifact\":true}"
+                : "{\"status\":\"DISMISSED\"}";
+        return mockMvc.perform(patch("/api/v1/" + resource + "/{id}/wishlist-status", id)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
+
+    @Test
+    @DisplayName("ANO-210: «Отложить» с галочкой — план удалён, хотелка отложена, связь снята")
+    void dismissWithFlag_overHttp_deletesPlan() throws Exception {
+        FinancialEvent artifact = savePlan("план из хотелки", null);
+        FinancialEvent wish = saveWish(artifact.getId());
+
+        dismiss("events", wish.getId(), true).andExpect(status().isOk());
+
+        assertThat(eventRepository.findById(artifact.getId()).orElseThrow().isDeleted()).isTrue();
+        FinancialEvent reloaded = eventRepository.findById(wish.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.DISMISSED);
+        assertThat(reloaded.getConvertedToEventId()).isNull();
+    }
+
+    @Test
+    @DisplayName("ANO-210: «Отложить» без галочки — план остаётся, как решено: созданное остаётся в расчёте")
+    void dismissWithoutFlag_overHttp_keepsPlan() throws Exception {
+        FinancialEvent artifact = savePlan("план из хотелки", null);
+        FinancialEvent wish = saveWish(artifact.getId());
+
+        dismiss("events", wish.getId(), false).andExpect(status().isOk());
+
+        assertThat(eventRepository.findById(artifact.getId()).orElseThrow().isDeleted()).isFalse();
+        FinancialEvent reloaded = eventRepository.findById(wish.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.DISMISSED);
+        assertThat(reloaded.getConvertedToEventId()).isEqualTo(artifact.getId());
+    }
+
+    @Test
+    @DisplayName("ANO-210: план с фактом — 409, хотелка остаётся зафиксированной, план цел")
+    void dismissWithFlag_planWithFact_isRefused() throws Exception {
+        FinancialEvent artifact = savePlan("план с фактом", null);
+        saveFactFor(artifact);
+        FinancialEvent wish = saveWish(artifact.getId());
+
+        dismiss("events", wish.getId(), true).andExpect(status().isConflict());
+
+        assertThat(eventRepository.findById(wish.getId()).orElseThrow().getWishlistStatus())
+                .as("отказ откатывает и смену статуса").isEqualTo(WishlistStatus.FIXED);
+        assertThat(eventRepository.findById(artifact.getId()).orElseThrow().isDeleted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("ANO-210: копилка-хотелка — «Отложить» с галочкой через ручку копилок удаляет её план")
+    void dismissFundWithFlag_overHttp_deletesPlan() throws Exception {
+        FinancialEvent artifact = savePlan("план из копилки", null);
+        TargetFund wishFund = saveFund(BigDecimal.ZERO);
+        wishFund.setWishlistStatus(WishlistStatus.FIXED);
+        wishFund.setConvertedToEventId(artifact.getId());
+        wishFund = fundRepository.save(wishFund);
+
+        dismiss("funds", wishFund.getId(), true).andExpect(status().isOk());
+
+        assertThat(eventRepository.findById(artifact.getId()).orElseThrow().isDeleted()).isTrue();
+        TargetFund reloaded = fundRepository.findById(wishFund.getId()).orElseThrow();
+        assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.DISMISSED);
+        assertThat(reloaded.getConvertedToEventId()).isNull();
     }
 
     // ── оснастка ─────────────────────────────────────────────────────────────

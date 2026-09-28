@@ -5,9 +5,10 @@ import WishlistImpactChart from '../wishlist/WishlistImpactChart';
 import WishlistItemList from '../wishlist/WishlistItemList';
 import FixWishlistDialog, { type ConvertTarget } from '../wishlist/FixWishlistDialog';
 import DeleteWishlistDialog from '../wishlist/DeleteWishlistDialog';
+import DismissWishlistDialog from '../wishlist/DismissWishlistDialog';
 import { type RecomputeRequest } from '../wishlist/WishlistItemCard';
 import {
-    composeTimeline, riskZones, effectiveDelta, fixPatch, trialParams,
+    composeTimeline, riskZones, effectiveDelta, fixPatch, trialParams, dismissQuestion,
     type ActiveItem, type BaselinePoint, type RiskLevel,
 } from '../wishlist/wishlistUtils';
 import {
@@ -16,7 +17,7 @@ import {
     setEventWishlistParams, setFundWishlistParams, deleteEvent, deleteFund,
 } from '../../api';
 import type { WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
-import { attempt, deleteTogether, type Deletable } from '../../lib/writeFailure';
+import { attempt, deleteTogether, dismissFailure, type Deletable } from '../../lib/writeFailure';
 import { Button } from '../ui/button';
 
 /** Худшая зона риска по вектору (для solo-бейджа). */
@@ -50,6 +51,10 @@ export default function CapitalWhatIf() {
     const [deleteBusy, setDeleteBusy] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
+    // ANO-210: «Отложить» у хотелки с созданным планом или копилкой спрашивает, как удаление.
+    const [dismissItem, setDismissItem] = useState<WishlistItem | null>(null);
+    const [dismissBusy, setDismissBusy] = useState(false);
+    const [dismissError, setDismissError] = useState<string | null>(null);
 
     const monthlyExpensesAvg = data?.constraints.monthlyExpensesAvg ?? 0;
     const effThresholds = thresholds ?? data?.thresholds ?? { capitalThresholdRub: null, cashBufferMonths: 1 };
@@ -119,8 +124,9 @@ export default function CapitalWhatIf() {
             : setFundWishlistParams(item.id, write.body);
     };
 
-    const changeStatus = (item: WishlistItem, status: WishlistStatus): Promise<unknown> =>
-        (item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus)(item.id, status);
+    /** @param deleteArtifact удалить и созданный план или копилку — одной записью со статусом (ANO-210) */
+    const changeStatus = (item: WishlistItem, status: WishlistStatus, deleteArtifact = false): Promise<unknown> =>
+        (item.kind === 'WISHLIST' ? setEventWishlistStatus : setFundWishlistStatus)(item.id, status, deleteArtifact);
 
     /**
      * «Отложить» и «Вернуть в обсуждение»: отказ — строкой на карточке, до следующего нажатия.
@@ -130,6 +136,13 @@ export default function CapitalWhatIf() {
      * не сменился — перечитывать нечего; повтор той же смены безопасен.
      */
     const handleStatusChange = async (item: WishlistItem, status: WishlistStatus) => {
+        // ANO-210: у хотелки с созданным «Отложить» оставило бы созданное в расчёте молча —
+        // сначала вопрос, запись — из диалога.
+        if (status === 'DISMISSED' && dismissQuestion(item)) {
+            setDismissError(null);
+            setDismissItem(item);
+            return;
+        }
         setStatusErrors(prev => {
             const next = { ...prev };
             delete next[item.id];
@@ -199,6 +212,34 @@ export default function CapitalWhatIf() {
     const closeFix = () => {
         setFixItem(null);
         if (fixError) refetch();
+    };
+
+    /**
+     * «Отложить» из диалога (ANO-210): с галочкой созданное удаляется вместе со сменой статуса —
+     * одной записью на сервере. Диалог закрывается только на успехе; отказ остаётся в нём строкой.
+     * На отказе список не перечитывается: сервер откатил всё, перечитывать нечего.
+     */
+    const handleDismissConfirm = async (alsoArtifact: boolean) => {
+        if (!dismissItem?.convertedTo) return;
+        const item = dismissItem;
+        const kind = dismissItem.convertedTo.kind;
+        setDismissBusy(true);
+        setDismissError(null);
+        const failure = await attempt(() => changeStatus(item, 'DISMISSED', alsoArtifact),
+            err => dismissFailure(err, kind));
+        setDismissBusy(false);
+        if (failure) {
+            setDismissError(failure);
+            return;
+        }
+        setDismissItem(null);
+        refetch();
+    };
+
+    /** Закрыть без записи. После отказа — перечитать: ответ мог потеряться уже после записи. */
+    const closeDismiss = () => {
+        setDismissItem(null);
+        if (dismissError) refetch();
     };
 
     const openDelete = (item: WishlistItem) => {
@@ -342,6 +383,17 @@ export default function CapitalWhatIf() {
                     error={deleteError}
                     onClose={closeDelete}
                     onConfirm={handleDeleteConfirm}
+                />
+            )}
+            {dismissItem && dismissQuestion(dismissItem) && (
+                <DismissWishlistDialog
+                    open={!!dismissItem}
+                    item={dismissItem}
+                    question={dismissQuestion(dismissItem)!}
+                    busy={dismissBusy}
+                    error={dismissError}
+                    onClose={closeDismiss}
+                    onConfirm={handleDismissConfirm}
                 />
             )}
         </div>

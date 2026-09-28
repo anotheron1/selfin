@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLinkedFact, createPlanWithFact, createStandaloneFact, transferToFund } from './index';
+import {
+    createLinkedFact, createPlanWithFact, createStandaloneFact, setEventWishlistStatus, setFundWishlistStatus,
+    transferToFund,
+} from './index';
 import type { FinancialEventCreateDto } from '../types/api';
 import { AttemptKeys } from '../lib/attemptKey';
 
@@ -116,5 +119,26 @@ describe('записи денег держат ключ попытки (ANO-192)
         expect(calls[2].key, 'план повторён с тем же ключом — второго плана нет').toBe(calls[0].key);
         expect(calls[3].key, 'факт повторён с тем же ключом').toBe(calls[1].key);
         expect(calls[4].key, 'после успеха — новый план').not.toBe(calls[0].key);
+    });
+});
+
+// ANO-210: «Отложить» с удалением созданного — одна запись на сервере: статус и флаг вместе.
+describe('смена статуса хотелки несёт выбор судьбы созданного (ANO-210)', () => {
+    it('с флагом — deleteArtifact: true; без флага — только статус', async () => {
+        const bodies: unknown[] = [];
+        vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+            bodies.push(JSON.parse(init.body as string));
+            return new Response(null, { status: 200 });   // ручка статуса отвечает без тела (ANO-208)
+        }));
+        await setEventWishlistStatus('e1', 'DISMISSED', true);
+        await setEventWishlistStatus('e1', 'DISMISSED');
+        await setFundWishlistStatus('f1', 'DISMISSED', true);
+        await setFundWishlistStatus('f1', 'OPEN');
+        expect(bodies).toEqual([
+            { status: 'DISMISSED', deleteArtifact: true },
+            { status: 'DISMISSED' },
+            { status: 'DISMISSED', deleteArtifact: true },
+            { status: 'OPEN' },
+        ]);
     });
 });
