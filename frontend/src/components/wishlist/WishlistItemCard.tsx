@@ -46,6 +46,8 @@ interface Props {
 
 const MIN_OFFSET = 1;
 const MAX_OFFSET = 36;
+/** Пауза после движения «Когда» до пересчёта (ANO-105): сервер не дёргается на каждом шаге. */
+const RECOMPUTE_PAUSE_MS = 300;
 
 /** "YYYY-MM" + N месяцев → "YYYY-MM". */
 function addMonths(ym: string, n: number): string {
@@ -77,8 +79,8 @@ function offsetOf(targetDate: string, currentMonth: string): number {
  * не сохранилось», а запись делает отдельная кнопка «зафиксировать».
  *
  * <p>Изменения уходят наверх как примерка: сумма и дата — через onAmount/onDateChange,
- * ставка и срок — через onParamsRecompute. Что из этого попадёт в запись при фиксации,
- * решает {@code fixPatch} в wishlistUtils.
+ * ставка и срок — через onParamsRecompute; дата после паузы — тоже через него (ANO-105).
+ * Что из этого попадёт в запись при фиксации, решает {@code fixPatch} в wishlistUtils.
  */
 export default function WishlistItemCard(props: Props) {
     const {
@@ -118,6 +120,15 @@ export default function WishlistItemCard(props: Props) {
         termMonths: term ? Number(term) : undefined,
         ...over,
     });
+
+    // ANO-105: «Когда» двигает график. Дата меняет месяц оттока, у копилки — ещё и число взносов;
+    // это считает только сервер. Пересчёт — когда ползунок замер на паузу, а не на каждый шаг:
+    // одно правило на мышь, палец и клавиатуру. Сумма, ставка и срок — текущие.
+    useEffect(() => {
+        if (dateOverride == null) return;
+        const t = setTimeout(() => onParamsRecompute(buildRecomputeReq()), RECOMPUTE_PAUSE_MS);
+        return () => clearTimeout(t);
+    }, [dateOverride]);
 
     // PMT/contribution строка: для кредита локально считаем PMT (мгновенный отклик),
     // иначе показываем месячный взнос копилки из item.

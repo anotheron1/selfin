@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useWishlistSimulation } from '../wishlist/useWishlistSimulation';
 import WishlistThresholdsHeader from '../wishlist/WishlistThresholdsHeader';
 import WishlistImpactChart from '../wishlist/WishlistImpactChart';
@@ -18,6 +18,7 @@ import {
 } from '../../api';
 import type { WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
 import { attempt, deleteTogether, dismissFailure, type Deletable } from '../../lib/writeFailure';
+import { LatestRequests } from '../../lib/latestRequests';
 import { Button } from '../ui/button';
 
 /** Худшая зона риска по вектору (для solo-бейджа). */
@@ -35,6 +36,8 @@ function worstZone(zones: RiskLevel[]): RiskLevel | undefined {
 export default function CapitalWhatIf() {
     const sim = useWishlistSimulation();
     const { data, isLoading, error, refetch, activeMap, overrideMap, composed, futureMonths, actions } = sim;
+    /** Номера пересчётов по строкам: опоздавший ответ не применяется (ANO-105). */
+    const recomputes = useRef(new LatestRequests()).current;
 
     // Локальные пороги — позволяют пересчитывать зоны риска мгновенно (хук читает data.thresholds).
     const [thresholds, setThresholds] = useState<WishlistThresholds | null>(null);
@@ -96,11 +99,16 @@ export default function CapitalWhatIf() {
         // ANO-139: подкрученные ставка/срок запоминаются как примерка. Раньше карточка
         // писала их в базу прямо по blur — здесь они только доезжают до fixPatch.
         actions.setCreditOverride(item.id, req.rate, req.termMonths);
+        // ANO-105: пересчётов по строке бывает несколько подряд — применяется только последний.
+        // Сумма запроса едет с дельтой: подкрученная после масштабирует от неё.
+        const n = recomputes.start(item.id);
         recomputeWishlistItem({
             kind: req.kind, amount: req.amount, targetDate: req.targetDate,
             rate: req.rate, termMonths: req.termMonths,
         })
-            .then(resp => actions.applyRecomputedDelta(item.id, resp.delta))
+            .then(resp => {
+                if (recomputes.isLatest(item.id, n)) actions.applyRecomputedDelta(item.id, resp.delta, req.amount);
+            })
             .catch(() => {/* старая delta остаётся; не блокируем UI */});
     };
 

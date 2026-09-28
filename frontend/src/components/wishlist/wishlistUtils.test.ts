@@ -299,8 +299,17 @@ describe('дельта строки примерки (ANO-142)', () => {
         expect(effectiveDelta(item(), undefined)).toEqual([month(-10000)]);
     });
 
-    it('пересчитанная важнее масштабированной суммой', () => {
-        expect(effectiveDelta(item(), { amount: 200000, delta: [month(-3000)] })).toEqual([month(-3000)]);
+    it('пересчитанная важнее исходной; сумма, не менявшаяся после пересчёта, её не трогает', () => {
+        // Сервер считает дельту на сумме запроса: 200 000 уже внутри неё.
+        expect(effectiveDelta(item(), { amount: 200000, delta: [month(-3000)], deltaAmount: 200000 }))
+            .toEqual([month(-3000)]);
+    });
+
+    it('сумма, подкрученная после пересчёта, масштабирует пересчитанную — от суммы пересчёта (ANO-105)', () => {
+        // Замер 29.09: после ставки кредита ползунок суммы график больше не двигал. С пересчётом по
+        // дате то же случилось бы у любой хотелки после первого движения «Когда».
+        expect(effectiveDelta(item(), { amount: 300000, delta: [month(-3000)], deltaAmount: 200000 })[0].accountDelta)
+            .toBe(-4500);
     });
 
     it('подкрученная сумма масштабирует исходную', () => {
@@ -492,5 +501,27 @@ describe('«Отложить» у хотелки с созданным спра�
 
     it('вернувшаяся в обсуждение с созданным — тот же вопрос: план остался бы в расчёте молча', () => {
         expect(dismissQuestion(item('OPEN', { kind: 'EVENT', id: 'p' }))).not.toBeNull();
+    });
+});
+
+describe('ползунок «Когда» двигает график (ANO-105, сторож по исходнику)', () => {
+    // Компонентных тестов нет, а снять пересчёт с даты — правка в одну строку. Замер 29.09:
+    // «Когда» октябрь → апрель график не двигал, запроса пересчёта не было.
+    const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+    it('карточка: подкрученная дата и пауза — пересчёт с текущими суммой, датой, ставкой и сроком', () => {
+        const src = read('./WishlistItemCard.tsx');
+        expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(dateOverride == null\) return;\s*const t = setTimeout\(\(\) => onParamsRecompute\(buildRecomputeReq\(\)\), RECOMPUTE_PAUSE_MS\);\s*return \(\) => clearTimeout\(t\);\s*\}, \[dateOverride\]\);/);
+    });
+
+    it('хук кладёт рядом с пересчитанной дельтой сумму, на которой её считали', () => {
+        expect(read('./useWishlistSimulation.ts'))
+            .toMatch(/\(id: string, delta: MonthDelta\[\], amount: number\) => \{\s*setOverrideMap\(prev => \(\{ \.\.\.prev, \[id\]: \{ \.\.\.prev\[id\], delta, deltaAmount: amount \} \}\)\);/);
+    });
+
+    it('«Что с капиталом» передаёт сумму запроса и отбрасывает опоздавший ответ', () => {
+        const src = read('../sandbox/CapitalWhatIf.tsx');
+        expect(src).toMatch(/const n = recomputes\.start\(item\.id\);/);
+        expect(src).toMatch(/if \(recomputes\.isLatest\(item\.id, n\)\) actions\.applyRecomputedDelta\(item\.id, resp\.delta, req\.amount\);/);
     });
 });
