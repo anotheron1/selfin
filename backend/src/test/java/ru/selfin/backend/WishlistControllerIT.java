@@ -330,6 +330,25 @@ class WishlistControllerIT {
         assertThat(idsOnDay(day)).contains(fact.getId().toString());
     }
 
+    @Test
+    void factPatchedIntoConvertedWishlistRow_keepsTheRow() throws Exception {
+        // Ревью #109: старый путь PATCH /events/{id}/fact пишет факт в саму строку. Строка с
+        // деньгами остаётся в журнале — прячется только обязательство без факта.
+        LocalDate day = LocalDate.now();
+        FinancialEvent src = eventRepository.save(datedWishlist("Факт в строку", day.plusDays(1)));
+        convert(src, """
+                {"sourceKind":"WISHLIST","target":"PLAN_EVENT","planDate":"%s"}
+                """.formatted(day.plusDays(1)));
+        mockMvc.perform(patch("/api/v1/events/" + src.getId() + "/fact")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"factAmount":1063}
+                                """))
+                .andExpect(status().isOk());
+
+        assertThat(idsOnDay(day.plusDays(1))).contains(src.getId().toString());
+    }
+
     private FinancialEvent datedWishlist(String description, LocalDate date) {
         FinancialEvent e = datelessWishlist(description);
         e.setDate(date);
