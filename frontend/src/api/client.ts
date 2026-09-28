@@ -24,8 +24,8 @@ export class ApiError extends Error {
 }
 
 /**
- * Базовый метод HTTP-запроса. Автоматически добавляет `Content-Type: application/json`
- * и обрабатывает 204 No Content (возвращает `undefined`).
+ * Базовый метод HTTP-запроса. Автоматически добавляет `Content-Type: application/json`;
+ * на успехе без тела — 204 или 200 без тела — возвращает `undefined` (ANO-208).
  *
  * @param path    путь относительно BASE_URL, например `/events?startDate=...`
  * @param options стандартный `RequestInit` плюс необязательный `extraHeaders` для
@@ -57,8 +57,11 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
         throw new ApiError(res.status, details,
             `API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
     }
-    if (res.status === 204) return undefined as T;
-    return res.json();
+    // ANO-208: у успеха без тела нет и данных — у 204 и у 200 без тела одинаково. Ручки статуса
+    // хотелки отвечают 200 без тела, и res.json() на нём падал: запись проходила, а экран писал
+    // «Не записалось».
+    const text = await res.text();
+    return (text === '' ? undefined : JSON.parse(text)) as T;
 }
 
 /**

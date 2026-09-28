@@ -21,10 +21,11 @@ function network(...script: ('lost' | Refused | object)[]): Call[] {
         const step = script.shift();
         if (step === undefined) throw new Error(`лишний запрос: ${url}`);
         if (step === 'lost') throw new TypeError('Failed to fetch');
+        // Настоящий Response: клиент читает тело текстом (ANO-208), а не только через json().
         if (step instanceof Refused) {
-            return { ok: false, status: step.status, json: async () => step.body } as Response;
+            return new Response(JSON.stringify(step.body), { status: step.status });
         }
-        return { ok: true, status: 200, json: async () => step } as Response;
+        return new Response(JSON.stringify(step), { status: 200 });
     }));
     return calls;
 }
