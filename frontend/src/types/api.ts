@@ -592,6 +592,20 @@ export interface StrategyTimelineDto {
 // --- Wishlist planning ---
 
 export type WishlistStatus = 'OPEN' | 'FIXED' | 'DISMISSED';
+
+/** Параметры примерки хотелки — `PATCH /events/{id}/wishlist-params` (ANO-162). Срока нет — не меняется. */
+export interface EventWishlistParams {
+    plannedAmount: number;
+    date?: string;
+}
+
+/** Параметры примерки копилки или кредита — `PATCH /funds/{id}/wishlist-params` (ANO-162). Не присланное не меняется. */
+export interface FundWishlistParams {
+    targetAmount: number;
+    targetDate?: string;
+    creditRate?: number;
+    creditTermMonths?: number;
+}
 export type WishlistKind = 'WISHLIST' | 'SAVINGS' | 'CREDIT';
 
 export interface MonthDelta {

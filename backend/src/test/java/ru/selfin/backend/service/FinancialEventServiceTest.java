@@ -1045,6 +1045,76 @@ class FinancialEventServiceTest {
         verify(eventRepository).save(row);
     }
 
+    // ====== ANO-162: правка плана перевода не снимает копилку ======
+    //
+    // Форма журнала шлёт правку без targetFundId — копилку она не знает. applyDto писал null, и
+    // факт к плану падал 400 «Transfer plan … has no fund to transfer into» — навсегда.
+
+    /** План «В копилку», как его заводит быстрый ввод: перевод, «Ожидание», копилка задана. */
+    private FinancialEvent aTransferPlan(UUID id, Category cat, UUID fundId) {
+        FinancialEvent plan = aPlan(id, cat, EventStatus.PLANNED);
+        plan.setType(EventType.FUND_TRANSFER);
+        plan.setPriority(Priority.MEDIUM);
+        plan.setTargetFundId(fundId);
+        return plan;
+    }
+
+    @Test
+    @DisplayName("ANO-162: правка плана перевода без копилки — копилка прежняя")
+    void update_transferPlanWithoutFund_keepsFund() {
+        UUID id = UUID.randomUUID();
+        UUID fundId = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aTransferPlan(id, cat, fundId);
+        when(eventRepository.findById(id)).thenReturn(Optional.of(plan));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        // Тело формы журнала: без targetFundId.
+        service.update(id, ScopeEnum.THIS, new FinancialEventCreateDto(
+                plan.getDate(), cat.getId(), EventType.FUND_TRANSFER, new BigDecimal("1184"),
+                Priority.MEDIUM, null, null, null, null));
+
+        assertThat(plan.getTargetFundId()).isEqualTo(fundId);
+        assertThat(plan.getPlannedAmount()).isEqualByComparingTo("1184");
+    }
+
+    @Test
+    @DisplayName("ANO-162: правка плана перевода с другой копилкой — пишется она")
+    void update_transferPlanWithOtherFund_setsIt() {
+        UUID id = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aTransferPlan(id, cat, UUID.randomUUID());
+        when(eventRepository.findById(id)).thenReturn(Optional.of(plan));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.update(id, ScopeEnum.THIS, new FinancialEventCreateDto(
+                plan.getDate(), cat.getId(), EventType.FUND_TRANSFER, new BigDecimal("1184"),
+                Priority.MEDIUM, null, null, other, null));
+
+        assertThat(plan.getTargetFundId()).isEqualTo(other);
+    }
+
+    @Test
+    @DisplayName("ANO-162: строка перестала быть переводом — копилки у неё нет")
+    void update_transferPlanBecomesExpense_dropsFund() {
+        // Граница правила: копилка держится, пока строка — перевод.
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent plan = aTransferPlan(id, cat, UUID.randomUUID());
+        when(eventRepository.findById(id)).thenReturn(Optional.of(plan));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.update(id, ScopeEnum.THIS, new FinancialEventCreateDto(
+                plan.getDate(), cat.getId(), EventType.EXPENSE, new BigDecimal("1184"),
+                Priority.MEDIUM, null, null, null, null));
+
+        assertThat(plan.getTargetFundId()).isNull();
+    }
+
     /** Строка с экрана «Хотелки», как на стенде: категория «Хотелки» с характером по умолчанию «Ожидание». */
     private FinancialEvent aWishlistRow(UUID id, WishlistStatus status) {
         Category wishlist = Category.builder()

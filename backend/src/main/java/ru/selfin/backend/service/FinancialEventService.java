@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.*;
+import ru.selfin.backend.dto.wishlist.EventWishlistParamsDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.*;
 import ru.selfin.backend.model.enums.*;
@@ -309,11 +310,42 @@ public class FinancialEventService {
         event.setPriority(priority);
         event.setDescription(dto.description());
         event.setRawInput(dto.rawInput());
-        event.setTargetFundId(dto.targetFundId());
+        event.setTargetFundId(targetFundFor(event, dto));
         if (oldFact != null) {
             log.info("plan_update event_id={} category={} planned={} (fact retained on FACT record)",
                     event.getId(), category.getName(), dto.plannedAmount());
         }
+    }
+
+    /**
+     * Копилка строки после правки (ANO-162). Прислали — она. Не прислали, а строка остаётся
+     * переводом — прежняя: форма журнала копилку не знает и не шлёт, а раньше её отсутствие
+     * снимало копилку с плана, и факт к нему навсегда падал 400 «has no fund to transfer into».
+     * Строка перестала быть переводом — копилки у неё нет.
+     */
+    private static UUID targetFundFor(FinancialEvent event, FinancialEventCreateDto dto) {
+        if (dto.targetFundId() != null) return dto.targetFundId();
+        return dto.type() == EventType.FUND_TRANSFER ? event.getTargetFundId() : null;
+    }
+
+    /**
+     * Переносит параметры примерки в хотелку — сумму и, если прислан, срок (ANO-162). Только их:
+     * описание, исходный текст, категорию, характер и ссылку не трогает. Путь «Что с капиталом»;
+     * раньше он шёл полной перезаписью {@code PUT /events}, и всё, чего блок не знал, стиралось.
+     *
+     * @param id  идентификатор хотелки
+     * @param dto сумма и срок из примерки
+     * @throws ResourceNotFoundException если строки нет или она не хотелка
+     */
+    @Transactional
+    public void applyWishlistParams(UUID id, EventWishlistParamsDto dto) {
+        FinancialEvent e = eventRepository.findById(id)
+                .filter(ev -> !ev.isDeleted() && ev.getWishlistStatus() != null)
+                .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent (wishlist)", id));
+        e.setPlannedAmount(dto.plannedAmount());
+        if (dto.date() != null) e.setDate(dto.date());
+        // Как правка: поднятая сумма могла снова открыть погашенный план.
+        resettlePlan(eventRepository.save(e));
     }
 
     /**

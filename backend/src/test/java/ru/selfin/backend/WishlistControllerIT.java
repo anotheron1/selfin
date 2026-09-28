@@ -12,10 +12,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.TargetFund;
+import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
@@ -23,6 +25,7 @@ import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
+import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.RecurringRuleRepository;
@@ -64,6 +67,7 @@ class WishlistControllerIT {
     @Autowired RecurringRuleRepository ruleRepository;
     @Autowired CategoryRepository categoryRepository;
     @Autowired UserSettingsRepository userSettingsRepository;
+    @Autowired AccountRepository accountRepository;
 
     @AfterEach
     void cleanDb() {
@@ -714,6 +718,148 @@ class WishlistControllerIT {
         assertThat(withoutFixed - withFixed)
                 .as("removing the FIXED overlay restores exactly the item amount (within rounding)")
                 .isCloseTo(amount.doubleValue(), org.assertj.core.data.Offset.offset(1.0));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ANO-162 — «Что с капиталом» пишет только параметры примерки
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // Раньше блок писал примерку полной перезаписью (PUT /funds, PUT /events) тем, что знал.
+    // Замер 28.09: копилка на счёте «Эталон» отвязывалась — накоплено 5 000 → 0; хотелка без
+    // описания получала имя категории и теряла исходный текст; у хотелки без срока подкрученная
+    // сумма не писалась вовсе — PUT /events требует дату.
+
+    /** Отслеживаемый счёт, на котором может жить цель: не кредитка (§3.3). */
+    private UUID trackedSavingsAccountId() {
+        return accountRepository.findAll().stream()
+                .filter(a -> !a.isDeleted() && a.isTrackBalance() && a.getKind() != AccountKind.CREDIT)
+                .map(Account::getId)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No tracked non-credit account in DB"));
+    }
+
+    @Test
+    void wishlistParams_fundOnAccount_keepsAccount_andWritesOnlyParams() throws Exception {
+        UUID accountId = trackedSavingsAccountId();
+        String body = mockMvc.perform(post("/api/v1/funds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(Map.of(
+                                "name", "Первый взнос", "targetAmount", 1000000,
+                                "purchaseType", "CREDIT", "creditRate", 12, "creditTermMonths", 24,
+                                "accountId", accountId.toString()))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID fundId = UUID.fromString(om.readTree(body).get("id").asText());
+        mockMvc.perform(patch("/api/v1/funds/{id}/wishlist-status", fundId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"OPEN\"}"))
+                .andExpect(status().isOk());
+
+        LocalDate date = LocalDate.now().plusMonths(8);
+        mockMvc.perform(patch("/api/v1/funds/{id}/wishlist-params", fundId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(Map.of(
+                                "targetAmount", 900000, "targetDate", date.toString(),
+                                "creditRate", 11.5, "creditTermMonths", 36))))
+                .andExpect(status().isOk());
+
+        TargetFund after = fundRepository.findById(fundId).orElseThrow();
+        assertThat(after.getAccountId()).as("копилка остаётся на счёте").isEqualTo(accountId);
+        assertThat(after.getName()).isEqualTo("Первый взнос");
+        assertThat(after.getPurchaseType()).isEqualTo(FundPurchaseType.CREDIT);
+        assertThat(after.getTargetAmount()).isEqualByComparingTo("900000");
+        assertThat(after.getTargetDate()).isEqualTo(date);
+        assertThat(after.getCreditRate()).isEqualByComparingTo("11.5");
+        assertThat(after.getCreditTermMonths()).isEqualTo(36);
+        assertThat(after.getWishlistStatus()).as("статус пишет не эта запись").isEqualTo(WishlistStatus.OPEN);
+    }
+
+    @Test
+    void wishlistParams_eventWithDescriptionAndRawInput_keepsThem() throws Exception {
+        Category cat = seededExpenseCategory();
+        String body = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(Map.of(
+                                "date", LocalDate.now().plusDays(10).toString(),
+                                "categoryId", cat.getId().toString(), "type", "EXPENSE",
+                                "plannedAmount", 1212, "priority", "LOW",
+                                "description", "Велокресло", "rawInput", "Велокресло детское"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID id = UUID.fromString(om.readTree(body).get("id").asText());
+        mockMvc.perform(patch("/api/v1/events/{id}/wishlist-status", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"OPEN\"}"))
+                .andExpect(status().isOk());
+
+        LocalDate date = LocalDate.now().plusDays(20);
+        mockMvc.perform(patch("/api/v1/events/{id}/wishlist-params", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(Map.of(
+                                "plannedAmount", 57000, "date", date.toString()))))
+                .andExpect(status().isOk());
+
+        FinancialEvent after = eventRepository.findById(id).orElseThrow();
+        assertThat(after.getPlannedAmount()).isEqualByComparingTo("57000");
+        assertThat(after.getDate()).isEqualTo(date);
+        assertThat(after.getDescription()).isEqualTo("Велокресло");
+        assertThat(after.getRawInput()).as("исходный текст — то, что человек напечатал")
+                .isEqualTo("Велокресло детское");
+        assertThat(after.getCategory().getId()).isEqualTo(cat.getId());
+        assertThat(after.getPriority()).isEqualTo(Priority.LOW);
+    }
+
+    @Test
+    void wishlistParams_datelessWishlist_writesAmount_keepsNoDate() throws Exception {
+        String body = mockMvc.perform(post("/api/v1/events/wishlist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(Map.of(
+                                "description", "Проба без срока", "plannedAmount", 1111))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID id = UUID.fromString(om.readTree(body).get("id").asText());
+
+        mockMvc.perform(patch("/api/v1/events/{id}/wishlist-params", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"plannedAmount\": 618800}"))
+                .andExpect(status().isOk());
+
+        FinancialEvent after = eventRepository.findById(id).orElseThrow();
+        assertThat(after.getPlannedAmount()).isEqualByComparingTo("618800");
+        assertThat(after.getDate()).as("срок не выдумывается (ANO-29)").isNull();
+    }
+
+    @Test
+    void wishlistParams_notAWishlistItem_returns404() throws Exception {
+        // Граница: запись параметров — только у хотелки. На старом коде ручки нет — тоже 404,
+        // поэтому красным на старом коде этот тест быть не может.
+        Category cat = seededExpenseCategory();
+        String body = mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(Map.of(
+                                "date", LocalDate.now().plusDays(5).toString(),
+                                "categoryId", cat.getId().toString(), "type", "EXPENSE",
+                                "plannedAmount", 700, "priority", "LOW"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID eventId = UUID.fromString(om.readTree(body).get("id").asText());
+        mockMvc.perform(patch("/api/v1/events/{id}/wishlist-params", eventId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"plannedAmount\": 800}"))
+                .andExpect(status().isNotFound());
+
+        String fund = mockMvc.perform(post("/api/v1/funds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\": \"Не хотелка\", \"targetAmount\": 1000}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID fundId = UUID.fromString(om.readTree(fund).get("id").asText());
+        mockMvc.perform(patch("/api/v1/funds/{id}/wishlist-params", fundId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetAmount\": 2000}"))
+                .andExpect(status().isNotFound());
     }
 
     /** GET /api/v1/strategy/timeline and read {@code balance} of the point with the given yearMonth. */

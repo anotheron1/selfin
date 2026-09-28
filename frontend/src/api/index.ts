@@ -1,6 +1,8 @@
 import { get, post, put, patch, del } from './client';
 import type { AttemptKeys } from '../lib/attemptKey';
 import type {
+    EventWishlistParams,
+    FundWishlistParams,
     Account,
     AccountCreateDto,
     AnalyticsReport,
@@ -385,6 +387,16 @@ export const setEventWishlistStatus = (id: string, status: WishlistStatus) =>
 
 export const setFundWishlistStatus = (id: string, status: WishlistStatus) =>
     patch<void>(`/funds/${id}/wishlist-status`, { status });
+
+/**
+ * Параметры примерки — отдельной записью, а не полной перезаписью (ANO-162): сервер пишет только
+ * их. Через `PUT` «Что с капиталом» отвязывал копилку от счёта и стирал исходный текст хотелки.
+ */
+export const setEventWishlistParams = (id: string, body: EventWishlistParams) =>
+    patch<void>(`/events/${id}/wishlist-params`, body);
+
+export const setFundWishlistParams = (id: string, body: FundWishlistParams) =>
+    patch<void>(`/funds/${id}/wishlist-params`, body);
 
 export const updateWishlistSettings = (body: WishlistThresholds) =>
     put<WishlistThresholds>('/settings/wishlist', body);

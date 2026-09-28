@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
-    effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice,
+    effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -414,5 +414,55 @@ describe('во что превратить хотелку — только то,
         expect(conversionChoice('WISHLIST', null, null).creditNeedsParams).toBe(false);
         expect(conversionChoice('SAVINGS', null, null).creditNeedsParams).toBe(false);
         expect(conversionChoice('CREDIT', 24, 12).creditNeedsParams).toBe(false);
+    });
+});
+
+// ANO-162: «Что с капиталом» писал примерку полной перезаписью (PUT /funds, PUT /events) тем, что
+// знал. Замер 28.09: копилка на счёте «Эталон» отвязывалась — накоплено 5 000 → 0; хотелка без
+// описания получала имя категории и теряла исходный текст; у хотелки без срока подкрученная сумма
+// не писалась вовсе. Теперь блок пишет только параметры примерки — отдельной записью.
+describe('«Что с капиталом» пишет только параметры примерки (ANO-162)', () => {
+    const item = (kind: WishlistItem['kind']) => ({ kind });
+
+    it('хотелка — сумма и срок; срок из диалога фиксации главнее подкрученного', () => {
+        expect(trialParams(item('WISHLIST'), { amount: 57000, targetDate: '2026-12-01' }))
+            .toEqual({ kind: 'event', body: { plannedAmount: 57000, date: '2026-12-01' } });
+        expect(trialParams(item('WISHLIST'), { amount: 57000, targetDate: '2026-12-01' }, '2027-01-15'))
+            .toEqual({ kind: 'event', body: { plannedAmount: 57000, date: '2027-01-15' } });
+    });
+
+    it('хотелка без срока — только сумма: срок не выдумывается (ANO-29), а сумма больше не теряется', () => {
+        expect(trialParams(item('WISHLIST'), { amount: 618800 }))
+            .toEqual({ kind: 'event', body: { plannedAmount: 618800 } });
+    });
+
+    it('копилка — цель и срок', () => {
+        expect(trialParams(item('SAVINGS'), { amount: 80000, targetDate: '2026-12-14' }))
+            .toEqual({ kind: 'fund', body: { targetAmount: 80000, targetDate: '2026-12-14' } });
+    });
+
+    it('кредит — ещё ставка и срок кредита из примерки', () => {
+        expect(trialParams(item('CREDIT'), { amount: 900000, targetDate: '2027-09-01', rate: 11.5, termMonths: 36 }))
+            .toEqual({ kind: 'fund', body: { targetAmount: 900000, targetDate: '2027-09-01', creditRate: 11.5, creditTermMonths: 36 } });
+    });
+
+    it('ничего сверх параметров: ни имени, ни описания, ни счёта, ни вида', () => {
+        for (const kind of ['WISHLIST', 'SAVINGS', 'CREDIT'] as const) {
+            const { body } = trialParams(item(kind), { amount: 1, targetDate: '2026-12-01', rate: 5, termMonths: 12 });
+            for (const key of Object.keys(body)) {
+                expect(['plannedAmount', 'date', 'targetAmount', 'targetDate', 'creditRate', 'creditTermMonths'], `${kind}: ${key}`)
+                    .toContain(key);
+            }
+        }
+    });
+
+    it('блок пишет примерку только через это правило и не зовёт полную перезапись', () => {
+        // Сторож по исходнику: компонентных тестов нет, а вернуть persistTrial к updateFund —
+        // правка в одну строку, и правило выше осталось бы зелёным.
+        const block = readFileSync(new URL('../sandbox/CapitalWhatIf.tsx', import.meta.url), 'utf8');
+        expect(block).toMatch(/trialParams\(item, fixPatch\(item, overrideMap\[item\.id\]\), explicitDate\)/);
+        expect(block).toMatch(/setEventWishlistParams\(item\.id, write\.body\)/);
+        expect(block).toMatch(/setFundWishlistParams\(item\.id, write\.body\)/);
+        expect(block).not.toMatch(/\bupdateEvent\b|\bupdateFund\b/);
     });
 });

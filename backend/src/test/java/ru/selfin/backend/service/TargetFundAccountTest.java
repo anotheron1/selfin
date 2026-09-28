@@ -14,7 +14,10 @@ import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
+import ru.selfin.backend.dto.wishlist.FundWishlistParamsDto;
+import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
+import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
@@ -370,5 +373,81 @@ class TargetFundAccountTest {
                 .isInstanceOf(ru.selfin.backend.exception.ConfirmationRequiredException.class);
         // «Ничего не записано» — дело отката транзакции, моки его не видят: закреплено
         // в TransferFreeMoneyIT (копилка, история и журнал после вопроса пусты).
+    }
+
+    // ====== ANO-162: «Что с капиталом» пишет только параметры примерки ======
+    //
+    // Раньше блок писал копилку полной перезаписью (update), а отсутствующий счёт там —
+    // «отвязать». Замер 28.09: «Первый взнос на ипотеку» на «Эталоне» — накоплено 5 000 → 0.
+
+    /** Копилка-кредит в обсуждении — такую «Что с капиталом» фиксирует. */
+    private static TargetFund wishlistCredit(UUID accountId, String storedBalance) {
+        TargetFund f = fund(accountId, storedBalance);
+        f.setName("Первый взнос на ипотеку");
+        f.setPurchaseType(FundPurchaseType.CREDIT);
+        f.setCreditRate(new BigDecimal("12"));
+        f.setCreditTermMonths(24);
+        f.setWishlistStatus(WishlistStatus.OPEN);
+        return f;
+    }
+
+    @Test
+    @DisplayName("ANO-162: параметры примерки не снимают копилку со счёта и не трогают имя и вид")
+    void applyWishlistParams_fundOnAccount_keepsAccountNameAndKind() {
+        UUID accountId = UUID.randomUUID();
+        TargetFund f = wishlistCredit(accountId, "0");
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+
+        service.applyWishlistParams(f.getId(), new FundWishlistParamsDto(
+                new BigDecimal("900000"), LocalDate.of(2027, 9, 1), new BigDecimal("11.5"), 36));
+
+        assertThat(f.getAccountId()).isEqualTo(accountId);
+        assertThat(f.getName()).isEqualTo("Первый взнос на ипотеку");
+        assertThat(f.getPurchaseType()).isEqualTo(FundPurchaseType.CREDIT);
+        assertThat(f.getPriority()).isEqualTo(100);
+        assertThat(f.getTargetAmount()).isEqualByComparingTo("900000");
+        assertThat(f.getTargetDate()).isEqualTo(LocalDate.of(2027, 9, 1));
+        assertThat(f.getCreditRate()).isEqualByComparingTo("11.5");
+        assertThat(f.getCreditTermMonths()).isEqualTo(36);
+        verify(fundRepo).save(f);
+        verify(linkRepo, never()).findByFundIdAndLinkedToIsNull(any());
+    }
+
+    @Test
+    @DisplayName("ANO-162: не присланные срок, ставка и срок кредита остаются прежними")
+    void applyWishlistParams_missingOptionals_keepThem() {
+        TargetFund f = wishlistCredit(null, "0");
+        f.setTargetDate(LocalDate.of(2027, 3, 1));
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+
+        service.applyWishlistParams(f.getId(), new FundWishlistParamsDto(new BigDecimal("500000"), null, null, null));
+
+        assertThat(f.getTargetAmount()).isEqualByComparingTo("500000");
+        assertThat(f.getTargetDate()).isEqualTo(LocalDate.of(2027, 3, 1));
+        assertThat(f.getCreditRate()).isEqualByComparingTo("12");
+        assertThat(f.getCreditTermMonths()).isEqualTo(24);
+    }
+
+    @Test
+    @DisplayName("ANO-162: у копилки не на счёте новая цель пересчитывает статус, как правка (ANO-199)")
+    void applyWishlistParams_offAccount_recomputesStatus() {
+        TargetFund f = wishlistCredit(null, "5000");
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+
+        service.applyWishlistParams(f.getId(), new FundWishlistParamsDto(new BigDecimal("5000"), null, null, null));
+
+        assertThat(f.getStatus()).as("накоплено 5 000 при цели 5 000").isEqualTo(FundStatus.REACHED);
+    }
+
+    @Test
+    @DisplayName("ANO-162: копилка не хотелка — 404, ничего не записано")
+    void applyWishlistParams_notAWishlistFund_404() {
+        TargetFund f = fund(null, "0");
+        when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+
+        assertThatThrownBy(() -> service.applyWishlistParams(f.getId(),
+                new FundWishlistParamsDto(BigDecimal.TEN, null, null, null)))
+                .isInstanceOf(ru.selfin.backend.exception.ResourceNotFoundException.class);
+        verify(fundRepo, never()).save(any());
     }
 }

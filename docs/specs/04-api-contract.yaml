@@ -129,6 +129,10 @@ paths:
   /events/{id}:
     put:
       summary: Обновить событие (план или факт целиком)
+      description: >-
+        Перезаписывает строку присланным. Исключение — копилка плана перевода (ANO-162): не
+        прислана, а строка остаётся FUND_TRANSFER — остаётся прежняя; форма журнала её не знает, и
+        без исключения факт к такому плану падал 400 «has no fund to transfer into».
       parameters:
         - name: id
           in: path
@@ -219,6 +223,41 @@ paths:
           description: >-
             Строка — хотелка с экрана «Хотелки» (wishlistStatus не null): её приоритет всегда LOW,
             инвариант I1 спеки 29.05 (ANO-183). До ANO-183 отказывала база — 409.
+
+  /events/{id}/wishlist-params:
+    patch:
+      summary: Записать параметры примерки хотелки — сумму и срок (ANO-162)
+      description: >-
+        Путь «Что с капиталом». Пишет только plannedAmount и, если прислан, date: описание,
+        исходный текст, категорию, приоритет и ссылку не трогает. Раньше блок писал полной
+        перезаписью PUT /events, и всё, чего не знал, стиралось.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plannedAmount]
+              properties:
+                plannedAmount:
+                  type: number
+                  minimum: 0
+                date:
+                  type: string
+                  format: date
+                  description: Не прислан — срок не меняется (у хотелки без срока его и нет)
+      responses:
+        '200':
+          description: Записано, тела нет
+        '404':
+          description: Строки нет или она не хотелка
 
   /events/{planId}/facts:
     post:
@@ -311,6 +350,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TargetFund'
+
+  /funds/{id}/wishlist-params:
+    patch:
+      summary: Записать параметры примерки копилки или кредита (ANO-162)
+      description: >-
+        Путь «Что с капиталом». Пишет только targetAmount и, если присланы, targetDate, creditRate,
+        creditTermMonths: счёт, имя, вид и приоритет не трогает. В PUT /funds отсутствующий accountId
+        значит «отвязать» — через него блок отвязывал копилку от счёта. targetAmount — полная цель,
+        как в «Что с капиталом», а не остаток, как в POST /wishlist/items/{id}/fix. Статус конверта
+        пересчитывается по новой цели у копилки не на счёте.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetAmount]
+              properties:
+                targetAmount:
+                  type: number
+                  minimum: 0
+                targetDate:
+                  type: string
+                  format: date
+                creditRate:
+                  type: number
+                  minimum: 0.01
+                  maximum: 99.99
+                creditTermMonths:
+                  type: integer
+                  minimum: 1
+                  maximum: 360
+      responses:
+        '200':
+          description: Записано, тела нет
+        '400':
+          description: Ставка или срок кредита вне границ
+        '404':
+          description: Копилки нет или она не хотелка
 
   /funds/{id}/transfer:
     post:
