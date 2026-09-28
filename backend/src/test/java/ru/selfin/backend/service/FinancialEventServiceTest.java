@@ -893,6 +893,57 @@ class FinancialEventServiceTest {
                 .status(EventStatus.EXECUTED).priority(Priority.HIGH).deleted(false).build();
     }
 
+    @Test
+    @DisplayName("findByPeriod: хотелка, превращённая в план или копилку, — не событие периода (ANO-106)")
+    void findByPeriod_skipsWishlistConvertedToArtifact() {
+        // Замер 28.09: после конверсии в журнале две одинаковые строки, а факт в исходную
+        // считал покупку дважды. Её деньги несёт созданное — план или копилка.
+        Category cat = category();
+        FinancialEvent plain = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
+        FinancialEvent open = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
+        open.setPriority(Priority.LOW);
+        open.setWishlistStatus(WishlistStatus.OPEN);
+        FinancialEvent toPlan = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
+        toPlan.setPriority(Priority.LOW);
+        toPlan.setWishlistStatus(WishlistStatus.FIXED);
+        toPlan.setConvertedToEventId(UUID.randomUUID());
+        FinancialEvent toFund = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
+        toFund.setPriority(Priority.LOW);
+        toFund.setWishlistStatus(WishlistStatus.FIXED);
+        toFund.setConvertedToFundId(UUID.randomUUID());
+        FinancialEvent fact = aFact(UUID.randomUUID());
+        fact.setDate(LocalDate.now());
+        when(eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(any(), any()))
+                .thenReturn(List.of(plain, open, toPlan, toFund, fact));
+        when(eventRepository.findFactAggregatesByPlanIds(anyList())).thenReturn(List.of());
+
+        List<UUID> ids = service.findByPeriod(LocalDate.now(), LocalDate.now()).stream()
+                .map(FinancialEventDto::id).toList();
+
+        assertThat(ids)
+                .as("обычный план, хотелка в обсуждении и факт остаются; сконвертированные — нет")
+                .containsExactly(plain.getId(), open.getId(), fact.getId());
+    }
+
+    @Test
+    @DisplayName("findByPeriod: факт, записанный прямо в строку сконвертированной хотелки, остаётся (ревью #109)")
+    void findByPeriod_keepsFactStoredOnConvertedWishlistRow() {
+        // Старый путь PATCH /events/{id}/fact пишет факт в саму строку плана. Спрятать строку —
+        // спрятать настоящие деньги.
+        FinancialEvent paid = aPlan(UUID.randomUUID(), category(), EventStatus.EXECUTED);
+        paid.setPriority(Priority.LOW);
+        paid.setWishlistStatus(WishlistStatus.FIXED);
+        paid.setConvertedToEventId(UUID.randomUUID());
+        paid.setFactAmount(new BigDecimal("1063"));
+        when(eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(any(), any()))
+                .thenReturn(List.of(paid));
+        when(eventRepository.findFactAggregatesByPlanIds(anyList())).thenReturn(List.of());
+
+        assertThat(service.findByPeriod(LocalDate.now(), LocalDate.now()))
+                .extracting(FinancialEventDto::id)
+                .containsExactly(paid.getId());
+    }
+
     private Category category() {
         return Category.builder()
                 .id(UUID.randomUUID()).name("Коммуналка")

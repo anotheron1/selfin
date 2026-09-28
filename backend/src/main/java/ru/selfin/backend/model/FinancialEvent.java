@@ -126,6 +126,17 @@ public class FinancialEvent implements FinancialRecord {
     @Column(name = "converted_to_fund_id")
     private UUID convertedToFundId;
 
+    /**
+     * Хотелка превращена в план или копилку: её деньги несёт созданное (ANO-106). Сама она —
+     * уже не событие периода и не трата: так её видят и расчёт свободных
+     * ({@code EventSnapshot.converted}), и журнал ({@code FinancialEventService.findByPeriod}).
+     *
+     * <p>Имя без {@code is}/{@code get}: это правило, а не поле, и сериализаторы его не подхватят.
+     */
+    public boolean convertedToArtifact() {
+        return convertedToEventId != null || convertedToFundId != null;
+    }
+
     @PreUpdate
     public void onUpdate() {
         this.updatedAt = LocalDateTime.now();
