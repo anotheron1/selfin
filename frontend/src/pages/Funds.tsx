@@ -4,6 +4,7 @@ import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAc
 import { confirmQuestion, needsConfirmation, transferFreeLine } from '../lib/transferConfirm';
 import { asksWhereMoney, deleteTogether } from '../lib/writeFailure';
 import FundMoneyQuestion from '../components/FundMoneyQuestion';
+import { NO_TRANSFER, fundAccountHint } from '../lib/fundAccount';
 import type { Account, FundMoney, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
@@ -27,11 +28,18 @@ import type { PurchaseType } from '../types/api';
  *
  * <p>Показывается, только когда счетов больше одного: с единственным счётом выбирать нечего,
  * а лишнее поле в форме — плата за возможность, которой ещё нет.
+ *
+ * <p>Подсказка говорит, что станет с накопленным (ANO-164): у листа правки она знает, была ли копилка
+ * на счёте и лежат ли в ней деньги. Слова — `lib/fundAccount.ts`, те же, что на карточке.
  */
-function FundAccountPicker({ accounts, value, onChange }: {
+function FundAccountPicker({ accounts, value, onChange, wasLinked = false, holdsOwnMoney = false }: {
     accounts: Account[];
     value: string;
     onChange: (v: string) => void;
+    /** Копилка была на счёте до правки. */
+    wasLinked?: boolean;
+    /** В копилке лежат деньги. */
+    holdsOwnMoney?: boolean;
 }) {
     // Кредитка и конверт без слежения отсеиваются: на кредитке «накоплено» показало бы
     // неизрасходованный лимит, а у конверта остаток не подтверждён ничем. Бэкенд обе
@@ -54,11 +62,9 @@ function FundAccountPicker({ accounts, value, onChange }: {
                     ))}
                 </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-                {value
-                    ? 'Накопленное берётся с остатка счёта. Пополнять переводом нельзя — двигай деньги на счёте и обновляй его остаток.'
-                    : 'Копилка держит свой баланс и пополняется переводом из свободных денег.'}
-            </p>
+            {fundAccountHint({ linked: !!value, wasLinked, holdsOwnMoney }).map(line => (
+                <p key={line} className="text-xs text-muted-foreground">{line}</p>
+            ))}
         </div>
     );
 }
@@ -389,7 +395,8 @@ function EditFundModal({ fund, accounts, onClose, onSuccess }: {
                             />
                         </>
                     )}
-                    <FundAccountPicker accounts={accounts} value={accountId} onChange={setAccountId} />
+                    <FundAccountPicker accounts={accounts} value={accountId} onChange={setAccountId}
+                        wasLinked={fund.accountId != null} holdsOwnMoney={fund.currentBalance !== 0} />
                     {error && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
                     <Button
                         type="submit"
@@ -444,9 +451,13 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
                         <Badge variant="outline" className="text-xs border-green-500/60 text-green-500">Цель достигнута</Badge>
                     )}
                     {fund.accountId && (
-                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                            Лежит на счёте{accountName ? `: ${accountName}` : ''}
-                        </p>
+                        <>
+                            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                Лежит на счёте{accountName ? `: ${accountName}` : ''}
+                            </p>
+                            {/* ANO-174: кнопки «Пополнить» нет по делу — без слова она выглядела поломкой. */}
+                            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{NO_TRANSFER}</p>
+                        </>
                     )}
                 </div>
                 <div className="flex items-center gap-1.5">
