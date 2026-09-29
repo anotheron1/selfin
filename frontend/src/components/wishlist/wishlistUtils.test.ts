@@ -587,8 +587,10 @@ describe('взнос копилки в примерке (ANO-105, ревью Cod
     });
 
     it('у сконвертированной — загруженный: примерка её не трогает, как и график', () => {
+        // Числа разведены: пересчитанный 30 000 от 120 000 к 60 000 — это 15 000, загруженный от суммы
+        // хотелки к 60 000 — 5 000, нетронутый — 10 000. Мутация MC15 нашла, что прежние числа совпадали.
         const converted = savings({ convertedTo: { kind: 'FUND', id: 'f1' } });
-        expect(effectiveContribution(converted, { amount: 60000, deltaAmount: 120000, monthlyContribution: 20000 }))
+        expect(effectiveContribution(converted, { amount: 60000, deltaAmount: 120000, monthlyContribution: 30000 }))
             .toBe(10000);
     });
 
