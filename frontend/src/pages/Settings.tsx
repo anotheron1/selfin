@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
     fetchCategories, createCategory, updateCategory, deleteCategory, cycleCategoryPriority,
-    fetchSnapshots, createSnapshot,
     fetchCheckpoints, createCheckpoint, updateCheckpoint, deleteCheckpoint,
     fetchAccounts,
     fetchForecastReadiness,
     fetchPocketSettings,
 } from '../api';
-import type { Account, BalanceCheckpoint, BudgetSnapshot, Category, CategoryType, ForecastReadiness } from '../types/api';
+import type { Account, BalanceCheckpoint, Category, CategoryType, ForecastReadiness } from '../types/api';
 import PriorityButton from '../components/PriorityButton';
 import AccountsSection from '../components/accounts/AccountsSection';
 import NzForm from '../components/pocket/NzForm';
-import { Plus, Camera, Pencil, Trash2, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { AmountInput, amountValue } from '../components/ui/amount-input';
 
@@ -53,10 +52,6 @@ export default function Settings() {
     /** ANO-80: когда прогноз станет доступен — чтобы «включил, а пусто» не читалось как поломка. */
     const [readiness, setReadiness] = useState<ForecastReadiness | null>(null);
 
-    // --- Snapshots ---
-    const [snapshots, setSnapshots] = useState<BudgetSnapshot[]>([]);
-    const [snapshotLoading, setSnapshotLoading] = useState(false);
-
     // --- Accounts (ANO-9) ---
     const [accounts, setAccounts] = useState<Account[]>([]);
 
@@ -81,32 +76,17 @@ export default function Settings() {
 
     const load = () => fetchCategories().then(setCategories);
     const loadReadiness = () => fetchForecastReadiness().then(setReadiness);
-    const loadSnapshots = () => fetchSnapshots().then(setSnapshots);
     const loadCheckpoints = () => fetchCheckpoints().then(setCheckpoints);
     const loadAccounts = () => fetchAccounts().then(setAccounts);
     const loadNz = () => fetchPocketSettings().then(s => setNz(s.bufferAmount));
 
-    useEffect(() => { load(); loadSnapshots(); loadCheckpoints(); loadAccounts(); loadReadiness(); loadNz(); }, []);
+    useEffect(() => { load(); loadCheckpoints(); loadAccounts(); loadReadiness(); loadNz(); }, []);
 
     /**
      * Правка счетов меняет и историю остатков: удалённый счёт уходит из выбора, переименованный
      * меняет подпись у своих записей. Поэтому после любой правки перечитываются оба списка.
      */
     const reloadAccounts = async () => { await loadAccounts(); await loadCheckpoints(); };
-
-    // --- Snapshot handlers ---
-    const handleSnapshot = async () => {
-        setSnapshotLoading(true);
-        try {
-            await createSnapshot();
-            await loadSnapshots();
-            showToast('План зафиксирован');
-        } catch {
-            showToast('Ошибка создания снимка');
-        } finally {
-            setSnapshotLoading(false);
-        }
-    };
 
     // --- Category handlers ---
     const handleCreate = async (e: React.FormEvent) => {
@@ -565,37 +545,6 @@ export default function Settings() {
                         ))}
                     </div>
                 ))}
-                {/* Снимки бюджета */}
-                <div className="rounded-2xl p-5 space-y-3"
-                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                    <div className="flex items-center justify-between">
-                        <h2 className="font-semibold text-sm" style={{ color: 'var(--color-text-muted)' }}>📸 СНИМКИ БЮДЖЕТА</h2>
-                        <button
-                            onClick={handleSnapshot}
-                            disabled={snapshotLoading}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white"
-                            style={{ background: 'var(--color-accent)', opacity: snapshotLoading ? 0.7 : 1 }}>
-                            <Camera size={14} />
-                            {snapshotLoading ? 'Фиксируем...' : 'Зафиксировать план'}
-                        </button>
-                    </div>
-                    <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Снимок сохраняет текущий план месяца для сравнения «план изначальный vs факт»
-                    </p>
-                    {snapshots.length === 0 ? (
-                        <p className="text-sm py-2" style={{ color: 'var(--color-text-muted)' }}>Снимков пока нет</p>
-                    ) : snapshots.map(s => (
-                        <div key={s.id} className="flex items-center justify-between py-2 px-1"
-                            style={{ borderBottom: '1px solid var(--color-border)' }}>
-                            <span className="text-sm">
-                                {new Date(s.periodStart).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
-                            </span>
-                            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                {new Date(s.snapshotDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
-                            </span>
-                        </div>
-                    ))}
-                </div>
             </div>
         </ScrollArea>
 

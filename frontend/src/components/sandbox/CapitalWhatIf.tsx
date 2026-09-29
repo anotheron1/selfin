@@ -16,8 +16,8 @@ import {
     setEventWishlistStatus, setFundWishlistStatus,
     setEventWishlistParams, setFundWishlistParams, deleteEvent, deleteFund,
 } from '../../api';
-import type { WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
-import { attempt, deleteTogether, dismissFailure, type Deletable } from '../../lib/writeFailure';
+import type { FundMoney, WishlistItem, WishlistStatus, WishlistThresholds } from '../../types/api';
+import { asksWhereMoney, attempt, deleteTogether, dismissFailure, type Deletable } from '../../lib/writeFailure';
 import { Button } from '../ui/button';
 
 /** Худшая зона риска по вектору (для solo-бейджа). */
@@ -50,6 +50,8 @@ export default function CapitalWhatIf() {
     const [fixError, setFixError] = useState<string | null>(null);
     const [deleteBusy, setDeleteBusy] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
+    /** ANO-198: сервер отказал удалить копилку с деньгами — диалог спрашивает, что с ними. */
+    const [deleteAsksMoney, setDeleteAsksMoney] = useState(false);
     const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
     // ANO-210: «Отложить» у хотелки с созданным планом или копилкой спрашивает, как удаление.
     const [dismissItem, setDismissItem] = useState<WishlistItem | null>(null);
@@ -244,21 +246,30 @@ export default function CapitalWhatIf() {
 
     const openDelete = (item: WishlistItem) => {
         setDeleteError(null);
+        setDeleteAsksMoney(false);
         setDeleteItem(item);
     };
 
-    const handleDeleteConfirm = async (alsoArtifact: boolean) => {
+    /**
+     * @param money ответ на вопрос «что с деньгами» (ANO-198) — уходит каждой удаляемой копилке; нет —
+     *              первая попытка: копилка с деньгами ответит 409, и диалог спросит
+     */
+    const handleDeleteConfirm = async (alsoArtifact: boolean, money?: FundMoney) => {
         if (!deleteItem) return;
         const item = deleteItem;
         setDeleteBusy(true);
         setDeleteError(null);
         const remove = (kind: Deletable, id: string) => ({
-            kind, run: () => (kind === 'EVENT' ? deleteEvent(id) : deleteFund(id)),
+            kind, run: () => (kind === 'EVENT' ? deleteEvent(id) : deleteFund(id, money)),
         });
         const parts = [remove(item.kind === 'WISHLIST' ? 'EVENT' : 'FUND', item.id)];
         if (alsoArtifact && item.convertedTo) parts.push(remove(item.convertedTo.kind, item.convertedTo.id));
         const failure = await deleteTogether(parts);
         setDeleteBusy(false);
+        if (!money && asksWhereMoney(failure)) {
+            setDeleteAsksMoney(true);
+            return;
+        }
         if (failure) {
             setDeleteError(failure);
             return;
@@ -267,10 +278,13 @@ export default function CapitalWhatIf() {
         refetch();
     };
 
-    /** Закрыть без удаления. После отказа — перечитать: одна из двух частей могла удалиться. */
+    /**
+     * Закрыть без удаления. После отказа или вопроса «что с деньгами» — перечитать: одна из двух
+     * частей могла удалиться, хотелка — да, копилка с деньгами — нет.
+     */
     const closeDelete = () => {
         setDeleteItem(null);
-        if (deleteError) refetch();
+        if (deleteError || deleteAsksMoney) refetch();
     };
 
     const currentMonth = data?.baseline.currentMonth ?? '';
@@ -381,6 +395,7 @@ export default function CapitalWhatIf() {
                     item={deleteItem}
                     busy={deleteBusy}
                     error={deleteError}
+                    asksMoney={deleteAsksMoney}
                     onClose={closeDelete}
                     onConfirm={handleDeleteConfirm}
                 />

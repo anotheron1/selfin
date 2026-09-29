@@ -131,6 +131,12 @@ export interface DashboardData {
 
 export type PurchaseType = 'SAVINGS' | 'CREDIT';
 
+/**
+ * Что с деньгами при удалении копилки (ANO-86): вернуть в свободные или признать потраченными на
+ * цель. Спрашивает экран — `FundMoneyQuestion` (ANO-198).
+ */
+export type FundMoney = 'RETURN' | 'SPENT';
+
 export interface TargetFund {
     id: string;
     name: string;
@@ -294,13 +300,6 @@ export interface SandboxResponse {
     fitted: PocketResponse;
     itemDeltas: SandboxItemDelta[];
     items: SandboxItem[];
-}
-
-export interface BudgetSnapshot {
-    id: string;
-    periodStart: string;
-    periodEnd: string;
-    snapshotDate: string;
 }
 
 // --- Analytics ---

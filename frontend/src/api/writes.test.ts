@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-    createLinkedFact, createPlanWithFact, createStandaloneFact, setEventWishlistStatus, setFundWishlistStatus,
-    transferToFund,
+    createLinkedFact, createPlanWithFact, createStandaloneFact, deleteFund, setEventWishlistStatus,
+    setFundWishlistStatus, transferToFund,
 } from './index';
 import type { FinancialEventCreateDto } from '../types/api';
 import { AttemptKeys } from '../lib/attemptKey';
@@ -139,6 +139,25 @@ describe('смена статуса хотелки несёт выбор суд�
             { status: 'DISMISSED' },
             { status: 'DISMISSED', deleteArtifact: true },
             { status: 'OPEN' },
+        ]);
+    });
+});
+
+// ANO-198: копилку с деньгами сервер удаляет только с ответом, что с ними (ANO-86): без него — 409.
+describe('удаление копилки несёт ответ «что с деньгами» (ANO-198)', () => {
+    it('ответ уходит параметром money; без ответа — без параметра', async () => {
+        const calls: string[] = [];
+        vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+            calls.push(`${init.method} ${url}`);
+            return new Response(null, { status: 204 });
+        }));
+        await deleteFund('f1', 'RETURN');
+        await deleteFund('f1', 'SPENT');
+        await deleteFund('f1');
+        expect(calls.map(c => c.replace(/ \S*\/funds\//, ' /funds/'))).toEqual([
+            'DELETE /funds/f1?money=RETURN',
+            'DELETE /funds/f1?money=SPENT',
+            'DELETE /funds/f1',
         ]);
     });
 });
