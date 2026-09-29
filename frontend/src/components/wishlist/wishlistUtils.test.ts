@@ -526,11 +526,19 @@ describe('ползунок «Когда» двигает график (ANO-105, 
         // прежнюю ставку, которую записала бы фиксация.
         const src = read('./WishlistItemCard.tsx');
         expect(src).toMatch(/recomputeNow\.current = \(\) => onParamsRecompute\(buildRecomputeReq\(\)\);/);
-        expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(dateOverride == null\) return;\s*const t = setTimeout\(\(\) => recomputeNow\.current\(\), RECOMPUTE_PAUSE_MS\);\s*return \(\) => clearTimeout\(t\);\s*\}, \[dateOverride\]\);/);
+        expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(dateOverride == null\) return;\s*pendingRecompute\.current = true;\s*const t = setTimeout\(\(\) => \{ pendingRecompute\.current = false; recomputeNow\.current\(\); \}, RECOMPUTE_PAUSE_MS\);\s*return \(\) => clearTimeout\(t\);\s*\}, \[dateOverride\]\);/);
     });
 
     it('карточка просит пересчёт на сумме, от которой можно масштабировать (ревью Codex #124)', () => {
         expect(read('./WishlistItemCard.tsx')).toMatch(/amount: recomputeBasis\(amount, item\.amount\),/);
+    });
+
+    it('свёрнутая до паузы карточка отправляет отложенный пересчёт сразу (ревью Codex #124, второй круг)', () => {
+        // Раздел «Зафиксировано» рисует карточки только открытым: свернули в пределах паузы —
+        // карточка ушла вместе с таймером, а график остался на прежней дате до нового открытия.
+        const src = read('./WishlistItemCard.tsx');
+        expect(src).toMatch(/pendingRecompute\.current = true;\s*const t = setTimeout\(\(\) => \{ pendingRecompute\.current = false; recomputeNow\.current\(\); \}, RECOMPUTE_PAUSE_MS\);/);
+        expect(src).toMatch(/useEffect\(\(\) => \(\) => \{ if \(pendingRecompute\.current\) recomputeNow\.current\(\); \}, \[\]\);/);
     });
 
     it('хук кладёт рядом с пересчитанной дельтой сумму, на которой её считали', () => {

@@ -127,11 +127,16 @@ export default function WishlistItemCard(props: Props) {
     // постановки: ставка, изменённая за паузу, иначе вернулась бы старой (ревью Codex #124).
     const recomputeNow = useRef(() => {});
     recomputeNow.current = () => onParamsRecompute(buildRecomputeReq());
+    const pendingRecompute = useRef(false);
     useEffect(() => {
         if (dateOverride == null) return;
-        const t = setTimeout(() => recomputeNow.current(), RECOMPUTE_PAUSE_MS);
+        pendingRecompute.current = true;
+        const t = setTimeout(() => { pendingRecompute.current = false; recomputeNow.current(); }, RECOMPUTE_PAUSE_MS);
         return () => clearTimeout(t);
     }, [dateOverride]);
+    // Карточку свернули в пределах паузы — раздел «Зафиксировано» рисует карточки только открытым:
+    // пересчёт уходит сразу, иначе график остался бы на прежней дате (ревью Codex #124).
+    useEffect(() => () => { if (pendingRecompute.current) recomputeNow.current(); }, []);
 
     // PMT/contribution строка: для кредита локально считаем PMT (мгновенный отклик),
     // иначе показываем месячный взнос копилки из item.
