@@ -2,8 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
 import { confirmQuestion, needsConfirmation, transferFreeLine } from '../lib/transferConfirm';
+import { asksWhereMoney, deleteTogether } from '../lib/writeFailure';
+import FundMoneyQuestion from '../components/FundMoneyQuestion';
 import { NO_TRANSFER, fundAccountHint } from '../lib/fundAccount';
-import type { Account, FundsOverview, TargetFund, PocketResponse } from '../types/api';
+import type { Account, FundMoney, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
 import { fundTarget } from '../lib/fundTarget';
@@ -275,6 +277,9 @@ function EditFundModal({ fund, accounts, onClose, onSuccess }: {
     const [accountId, setAccountId] = useState(fund.accountId ?? '');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    /** Сервер отказал удалить копилку с деньгами — спрашиваем, что с ними (ANO-198). */
+    const [asksMoney, setAsksMoney] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
 
     useEffect(() => {
         if (purchaseType !== 'CREDIT') {
@@ -305,14 +310,29 @@ function EditFundModal({ fund, accounts, onClose, onSuccess }: {
         } finally { setLoading(false); }
     };
 
-    const handleDelete = async () => {
-        if (!confirm(`Удалить копилку «${fund.name}»? Это действие нельзя отменить.`)) return;
+    /**
+     * ANO-198. Первая попытка — без ответа про деньги: у копилки со счётом своих денег нет, у пустой
+     * спрашивать не о чем, и решает это сервер. Копилка с деньгами отвечает 409 — тогда вопрос, а
+     * ответ повторяет удаление с ним. Раньше отказ не ловился вовсе: лист молчал.
+     *
+     * @param money ответ на вопрос «что с деньгами»; нет — первая попытка
+     */
+    const handleDelete = async (money?: FundMoney) => {
+        if (!money && !confirm(`Удалить копилку «${fund.name}»? Это действие нельзя отменить.`)) return;
         setLoading(true);
-        try {
-            await deleteFund(fund.id);
-            onSuccess();
-            onClose();
-        } finally { setLoading(false); }
+        setDeleteError(null);
+        const failure = await deleteTogether([{ kind: 'FUND', run: () => deleteFund(fund.id, money) }]);
+        setLoading(false);
+        if (!money && asksWhereMoney(failure)) {
+            setAsksMoney(true);
+            return;
+        }
+        if (failure) {
+            setDeleteError(failure);
+            return;
+        }
+        onSuccess();
+        onClose();
     };
 
     return (
@@ -385,13 +405,25 @@ function EditFundModal({ fund, accounts, onClose, onSuccess }: {
                         {loading ? 'Сохраняем...' : 'Сохранить'}
                     </Button>
                 </form>
-                <Button
-                    variant="ghost"
-                    className="w-full mt-2 text-destructive hover:text-destructive flex items-center gap-2"
-                    onClick={handleDelete}
-                    disabled={loading}>
-                    <Trash2 size={15} /> Удалить фонд
-                </Button>
+                {asksMoney ? (
+                    <div className="mt-4">
+                        <FundMoneyQuestion
+                            busy={loading}
+                            onAnswer={money => handleDelete(money)}
+                            onKeep={() => setAsksMoney(false)} />
+                    </div>
+                ) : (
+                    <Button
+                        variant="ghost"
+                        className="w-full mt-2 text-destructive hover:text-destructive flex items-center gap-2"
+                        onClick={() => handleDelete()}
+                        disabled={loading}>
+                        <Trash2 size={15} /> Удалить фонд
+                    </Button>
+                )}
+                {deleteError && (
+                    <p className="text-sm mt-2" style={{ color: 'var(--color-danger)' }}>{deleteError}</p>
+                )}
             </SheetContent>
         </Sheet>
     );
@@ -582,7 +614,9 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                     fund={editFund}
                     accounts={accounts}
                     onClose={() => setEditFund(null)}
-                    onSuccess={() => { setEditFund(null); load(); }}
+                    // ANO-198: удаление с «Вернуть в свободные» двигает свободные деньги, а правка цели
+                    // и срока — взносы в копилку. Карточка наверху перечитывается, как после «Пополнить».
+                    onSuccess={() => { setEditFund(null); load(); setPocketBump(b => b + 1); }}
                 />
             )}
         </>

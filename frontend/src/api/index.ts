@@ -9,7 +9,6 @@ import type {
     ForecastReadiness,
     BalanceCheckpoint,
     BalanceCheckpointCreateDto,
-    BudgetSnapshot,
     CapitalItem,
     CapitalItemCreateDto,
     CapitalItemKind,
@@ -25,6 +24,7 @@ import type {
     FinancialEvent,
     FinancialEventCreateDto,
     FundPlannerData,
+    FundMoney,
     FundsOverview,
     MultiMonthReport,
     PocketResponse,
@@ -207,8 +207,12 @@ export const updateFund = (id: string, body: { name: string; targetAmount?: numb
 export const fetchPlannerData = (): Promise<FundPlannerData> =>
     get('/funds/planner');
 
-/** Удаляет целевой фонд (soft delete). */
-export const deleteFund = (id: string) => del(`/funds/${id}`);
+/**
+ * Удаляет целевой фонд (soft delete). Если в копилке лежат деньги, сервер ждёт ответа, что с ними
+ * (ANO-86): без него 409. Ответ спрашивает экран — `FundMoneyQuestion` (ANO-198).
+ */
+export const deleteFund = (id: string, money?: FundMoney) =>
+    del(`/funds/${id}${money ? `?money=${money}` : ''}`);
 
 /**
  * Пополняет целевой фонд на указанную сумму.
@@ -240,20 +244,6 @@ export const transferToFund = (attempts: AttemptKeys, fundId: string, amount: nu
             { ...transfer, ...(confirm === undefined ? {} : { confirm }) },
             { 'Idempotency-Key': key }));
 };
-
-// --- Snapshots ---
-
-/** Загружает список снимков бюджета за последние 12 месяцев. */
-export const fetchSnapshots = () => get<BudgetSnapshot[]>('/snapshots');
-
-/**
- * Создаёт снимок бюджета для указанного месяца.
- * Идемпотентен: повторный вызов вернёт существующий снимок без дублирования.
- *
- * @param date любая дата внутри нужного месяца в формате `YYYY-MM-DD`; по умолчанию — сегодня
- */
-export const createSnapshot = (date?: string) =>
-    post<BudgetSnapshot>(`/snapshots${date ? `?date=${date}` : ''}`, {});
 
 // --- Balance Checkpoints ---
 
