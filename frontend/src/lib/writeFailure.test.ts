@@ -4,7 +4,7 @@ import ts from 'typescript';
 import { FUND_ON_ACCOUNT } from './fundMovement';
 import {
     DELETE_FAILED, FUND_HOLDS_MONEY, WRITE_FAILED,
-    attempt, deleteFailure, deleteTogether, dismissFailure, writeFailure,
+    asksWhereMoney, attempt, deleteFailure, deleteTogether, dismissFailure, writeFailure,
 } from './writeFailure';
 
 const lost = () => new TypeError('Failed to fetch');
@@ -78,6 +78,25 @@ describe('фраза отказа удаления', () => {
     });
 });
 
+// ANO-198. На деньги в копилке экран отвечает не строкой, а вопросом: ответ «что с ними» и есть
+// выход, повтор без него не поможет. Когда спрашивать, решает сервер (ANO-86) — копии правила
+// «у копилки со счётом своих денег нет» на экране нет.
+describe('отказ, на который отвечают вопросом «что с деньгами» (ANO-198)', () => {
+    const ok = () => Promise.resolve();
+    const holds = () => Promise.reject(refused(409));
+
+    it('копилка, 409 — вопрос, в каком бы месте удаления она ни стояла', async () => {
+        expect(asksWhereMoney(await deleteTogether([{ kind: 'FUND', run: holds }]))).toBe(true);
+        expect(asksWhereMoney(await deleteTogether([{ kind: 'EVENT', run: ok }, { kind: 'FUND', run: holds }]))).toBe(true);
+    });
+
+    it('событие, 409, обрыв связи и успех — не вопрос', async () => {
+        expect(asksWhereMoney(await deleteTogether([{ kind: 'EVENT', run: holds }]))).toBe(false);
+        expect(asksWhereMoney(await deleteTogether([{ kind: 'FUND', run: () => Promise.reject(lost()) }]))).toBe(false);
+        expect(asksWhereMoney(await deleteTogether([{ kind: 'FUND', run: ok }]))).toBe(false);
+    });
+});
+
 describe('запись с ответом для экрана', () => {
     it('записалось — фразы нет', async () => {
         expect(await attempt(() => Promise.resolve('ok'))).toBeNull();
@@ -113,9 +132,12 @@ describe('фраза отказа «Отложить» с удалением с�
             'Не отложилось: по созданному плану уже есть факт, и его не удалить. Без галочки — отложится, план останется.');
     });
 
-    it('копилка, 409 — в ней лежат деньги', () => {
+    it('копилка, 409 — в ней лежат деньги; удалить её можно на «Целях» (ANO-198)', () => {
+        // Сменой статуса сервер копилку с деньгами не удаляет — её удаляют на своём экране, где
+        // спрашивают, что с деньгами. До ANO-198 такого экрана не было, и строка говорила «её не удалить».
         expect(dismissFailure(refused(409), 'FUND')).toBe(
-            'Не отложилось: в созданной копилке лежат деньги, и её не удалить. Без галочки — отложится, копилка останется.');
+            'Не отложилось: в созданной копилке лежат деньги. Без галочки — отложится, а копилку можно '
+            + 'удалить на «Целях»: там спросят, что с ними.');
     });
 
     it('обрыв связи — «Не записалось — попробуйте ещё раз»', () => {
@@ -162,13 +184,19 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
             expect(body).toMatch(/if \(failure\) \{[\s\S]*?return;\s*\}[\s\S]*refetch\(\);/);
         });
 
-    it.each([['closeFix', 'fixError'], ['closeDelete', 'deleteError'], ['closeDismiss', 'dismissError']])(
+    it.each([['closeFix', 'fixError'], ['closeDismiss', 'dismissError']])(
         '%s перечитывает список только после отказа',
         (name, error) => {
             // После отказа часть записи могла пройти: примерка до отказа конверсии, одна из двух
             // частей удаления. Без попытки перечитывание сбросило бы подкрученное простым «Отмена».
             expect(handlerBody(BLOCK, name)).toMatch(new RegExp(`if\\s*\\(${error}\\)\\s*refetch\\(\\)`));
         });
+
+    it('closeDelete перечитывает список после отказа и после вопроса «что с деньгами» (ANO-198)', () => {
+        // Вопрос — тоже след попытки: хотелка могла удалиться, а копилка с деньгами — нет. «Не
+        // удалять» оставил бы на экране хотелку, которой уже нет.
+        expect(handlerBody(BLOCK, 'closeDelete')).toMatch(/if\s*\(deleteError \|\| deleteAsksMoney\)\s*refetch\(\)/);
+    });
 
     it('ни один обработчик не прячет отказ за перечитыванием', () => {
         const src = read(BLOCK);
