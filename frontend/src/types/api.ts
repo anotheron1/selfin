@@ -296,13 +296,6 @@ export interface SandboxResponse {
     items: SandboxItem[];
 }
 
-export interface BudgetSnapshot {
-    id: string;
-    periodStart: string;
-    periodEnd: string;
-    snapshotDate: string;
-}
-
 // --- Analytics ---
 
 export interface CashFlowDay {

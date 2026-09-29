@@ -12,7 +12,7 @@
 |---|------|----------|
 | 01 | [business-requirements.md](specs/01-business-requirements.md) | Бизнес-требования к MVP: цели продукта, границы, ключевые сущности, модель план-факт |
 | 02 | [system-design.md](specs/02-system-design.md) | Системный дизайн и архитектура: технологический стек, архитектурные решения, инфраструктура |
-| 03 | [data-model.md](specs/03-data-model.md) | Модель данных: описание сущностей БД (Category, FinancialEvent, TargetFund, FundTransaction, BudgetSnapshot) |
+| 03 | [data-model.md](specs/03-data-model.md) | Модель данных: описание сущностей БД (Category, FinancialEvent, TargetFund, FundTransaction) |
 | 04 | [api-contract.yaml](specs/04-api-contract.yaml) | OpenAPI 3.0 контракт: все REST-эндпоинты, схемы запросов и ответов |
 | 05 | [ui-design.md](specs/05-ui-design.md) | UI/UX дизайн: навигация, экраны Dashboard / Budget / Funds / Settings, компоненты |
 | 06 | [analytics.md](specs/06-analytics.md) | Модуль аналитики: кассовый календарь, отчёт план-факт, анализ обязательных трат |

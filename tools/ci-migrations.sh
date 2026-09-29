@@ -222,7 +222,6 @@ ENDPOINTS=(
   /capital/trajectory
   /settings/pocket
   /settings/wishlist
-  /snapshots
   /strategy/timeline
   /wishlist/simulation
 )
