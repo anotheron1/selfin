@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import WishlistRiskBadge from './WishlistRiskBadge';
-import { calcPMT, type RiskLevel } from './wishlistUtils';
+import { calcPMT, recomputeBasis, type RiskLevel } from './wishlistUtils';
 import type { WishlistItem, WishlistStatus } from '../../types/api';
 import { fmtRub, fmtYearMonthFull } from '../strategy/strategyChartUtils';
 
@@ -22,6 +22,8 @@ interface Props {
     active: boolean;
     amountOverride?: number;
     dateOverride?: string;
+    /** Взнос копилки в примерке — `effectiveContribution`; null — строки нет (ревью Codex #124). */
+    contribution: number | null;
     soloRisk: RiskLevel | undefined;
     /** Верхняя граница слайдера суммы (из constraints). */
     amountMax: number;
@@ -46,6 +48,8 @@ interface Props {
 
 const MIN_OFFSET = 1;
 const MAX_OFFSET = 36;
+/** Пауза после движения «Когда» до пересчёта (ANO-105): сервер не дёргается на каждом шаге. */
+const RECOMPUTE_PAUSE_MS = 300;
 
 /** "YYYY-MM" + N месяцев → "YYYY-MM". */
 function addMonths(ym: string, n: number): string {
@@ -77,12 +81,12 @@ function offsetOf(targetDate: string, currentMonth: string): number {
  * не сохранилось», а запись делает отдельная кнопка «зафиксировать».
  *
  * <p>Изменения уходят наверх как примерка: сумма и дата — через onAmount/onDateChange,
- * ставка и срок — через onParamsRecompute. Что из этого попадёт в запись при фиксации,
- * решает {@code fixPatch} в wishlistUtils.
+ * ставка и срок — через onParamsRecompute; дата после паузы — тоже через него (ANO-105).
+ * Что из этого попадёт в запись при фиксации, решает {@code fixPatch} в wishlistUtils.
  */
 export default function WishlistItemCard(props: Props) {
     const {
-        item, active, amountOverride, dateOverride, soloRisk, amountMax, currentMonth,
+        item, active, amountOverride, dateOverride, contribution, soloRisk, amountMax, currentMonth,
         onToggleActive, onAmountChange, onDateChange, onParamsRecompute,
         onFix, onDelete, onStatusChange, statusError,
     } = props;
@@ -112,15 +116,32 @@ export default function WishlistItemCard(props: Props) {
 
     const buildRecomputeReq = (over: Partial<RecomputeRequest> = {}): RecomputeRequest => ({
         kind: item.kind,
-        amount,
+        amount: recomputeBasis(amount, item.amount),
         targetDate,
         rate: rate ? Number(rate) : undefined,
         termMonths: term ? Number(term) : undefined,
         ...over,
     });
 
+    // ANO-105: «Когда» двигает график. Дата меняет месяц оттока, у копилки — ещё и число взносов;
+    // это считает только сервер. Пересчёт — когда ползунок замер на паузу, а не на каждый шаг:
+    // одно правило на мышь, палец и клавиатуру. Сумма, ставка и срок — на момент срабатывания, не
+    // постановки: ставка, изменённая за паузу, иначе вернулась бы старой (ревью Codex #124).
+    const recomputeNow = useRef(() => {});
+    recomputeNow.current = () => onParamsRecompute(buildRecomputeReq());
+    const pendingRecompute = useRef(false);
+    useEffect(() => {
+        if (dateOverride == null) return;
+        pendingRecompute.current = true;
+        const t = setTimeout(() => { pendingRecompute.current = false; recomputeNow.current(); }, RECOMPUTE_PAUSE_MS);
+        return () => clearTimeout(t);
+    }, [dateOverride]);
+    // Карточку свернули в пределах паузы — раздел «Зафиксировано» рисует карточки только открытым:
+    // пересчёт уходит сразу, иначе график остался бы на прежней дате (ревью Codex #124).
+    useEffect(() => () => { if (pendingRecompute.current) recomputeNow.current(); }, []);
+
     // PMT/contribution строка: для кредита локально считаем PMT (мгновенный отклик),
-    // иначе показываем месячный взнос копилки из item.
+    // иначе — месячный взнос копилки в примерке: он следует за суммой и датой (ревью Codex #124).
     let pmtLine: React.ReactNode = null;
     if (isCredit) {
         const r = rate ? Number(rate) : null;
@@ -138,10 +159,10 @@ export default function WishlistItemCard(props: Props) {
                 </span>
             );
         }
-    } else if (item.kind === 'SAVINGS' && item.monthlyContribution != null) {
+    } else if (item.kind === 'SAVINGS' && contribution != null) {
         pmtLine = (
             <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Взнос ≈ {fmtRub(Math.round(item.monthlyContribution))}/мес
+                Взнос ≈ {fmtRub(Math.round(contribution))}/мес
             </span>
         );
     }
