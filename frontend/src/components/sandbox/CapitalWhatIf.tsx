@@ -107,7 +107,9 @@ export default function CapitalWhatIf() {
             rate: req.rate, termMonths: req.termMonths,
         })
             .then(resp => {
-                if (recomputes.isLatest(item.id, n)) actions.applyRecomputedDelta(item.id, resp.delta, req.amount);
+                if (recomputes.isLatest(item.id, n)) {
+                    actions.applyRecomputedDelta(item.id, resp.delta, req.amount, resp.monthlyContribution);
+                }
             })
             .catch(() => {/* старая delta остаётся; не блокируем UI */});
     };

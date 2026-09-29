@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
     effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams, dismissQuestion,
-    recomputeBasis,
+    recomputeBasis, effectiveContribution,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -541,14 +541,58 @@ describe('ползунок «Когда» двигает график (ANO-105, 
         expect(src).toMatch(/useEffect\(\(\) => \(\) => \{ if \(pendingRecompute\.current\) recomputeNow\.current\(\); \}, \[\]\);/);
     });
 
-    it('хук кладёт рядом с пересчитанной дельтой сумму, на которой её считали', () => {
+    it('хук кладёт рядом с пересчитанной дельтой сумму, на которой её считали, и взнос копилки', () => {
         expect(read('./useWishlistSimulation.ts'))
-            .toMatch(/\(id: string, delta: MonthDelta\[\], amount: number\) => \{\s*setOverrideMap\(prev => \(\{ \.\.\.prev, \[id\]: \{ \.\.\.prev\[id\], delta, deltaAmount: amount \} \}\)\);/);
+            .toMatch(/\(id: string, delta: MonthDelta\[\], amount: number, monthlyContribution\?: number \| null\) => \{\s*setOverrideMap\(prev => \(\{ \.\.\.prev, \[id\]: \{ \.\.\.prev\[id\], delta, deltaAmount: amount, monthlyContribution \} \}\)\);/);
     });
 
-    it('«Что с капиталом» передаёт сумму запроса и отбрасывает опоздавший ответ', () => {
+    it('«Что с капиталом» передаёт сумму запроса и взнос из ответа и отбрасывает опоздавший ответ', () => {
         const src = read('../sandbox/CapitalWhatIf.tsx');
         expect(src).toMatch(/const n = recomputes\.start\(item\.id\);/);
-        expect(src).toMatch(/if \(recomputes\.isLatest\(item\.id, n\)\) actions\.applyRecomputedDelta\(item\.id, resp\.delta, req\.amount\);/);
+        expect(src).toMatch(/if \(recomputes\.isLatest\(item\.id, n\)\) \{\s*actions\.applyRecomputedDelta\(item\.id, resp\.delta, req\.amount, resp\.monthlyContribution\);\s*\}/);
+    });
+
+    it('строка «Взнос ≈» берёт взнос примерки, а не загруженный (ревью Codex #124, третий круг)', () => {
+        // Сдвинули «Когда» у копилки — график шёл по новому графику взносов, а строка под карточкой
+        // оставалась с прежней даты; за суммой она не следовала и до ANO-105.
+        expect(read('./WishlistItemList.tsx'))
+            .toMatch(/contribution=\{effectiveContribution\(item, p\.overrideMap\[item\.id\]\)\}/);
+        const card = read('./WishlistItemCard.tsx');
+        expect(card).toMatch(/Взнос ≈ \{fmtRub\(Math\.round\(contribution\)\)\}\/мес/);
+        expect(card).not.toMatch(/item\.monthlyContribution/);
+    });
+});
+
+describe('взнос копилки в примерке (ANO-105, ревью Codex #124)', () => {
+    const month = (accountDelta: number): MonthDelta =>
+        ({ monthIndex: 1, accountDelta, capitalDelta: accountDelta, fundDelta: null, liabilityDelta: null });
+    const savings = (over: Partial<WishlistItem> = {}): WishlistItem => ({
+        id: 's1', kind: 'SAVINGS', name: 'Отпуск', amount: 120000, targetDate: '2027-06-01', status: 'OPEN',
+        convertedTo: null, delta: [month(-10000)], monthlyContribution: 10000, ...over,
+    });
+
+    it('ничего не подкручено — загруженный взнос', () => {
+        expect(effectiveContribution(savings(), undefined)).toBe(10000);
+    });
+
+    it('подкрученная сумма масштабирует загруженный взнос: сервер делит сумму на число месяцев', () => {
+        expect(effectiveContribution(savings(), { amount: 60000 })).toBe(5000);
+    });
+
+    it('после пересчёта — взнос из ответа; сумма, подкрученная после, масштабирует от суммы пересчёта', () => {
+        // Дату сдвинули с 12 месяцев на 6: взнос 20 000 на сумме 120 000.
+        const recomputed = { delta: [month(-20000)], deltaAmount: 120000, monthlyContribution: 20000 };
+        expect(effectiveContribution(savings(), recomputed)).toBe(20000);
+        expect(effectiveContribution(savings(), { ...recomputed, amount: 60000 })).toBe(10000);
+    });
+
+    it('у сконвертированной — загруженный: примерка её не трогает, как и график', () => {
+        const converted = savings({ convertedTo: { kind: 'FUND', id: 'f1' } });
+        expect(effectiveContribution(converted, { amount: 60000, deltaAmount: 120000, monthlyContribution: 20000 }))
+            .toBe(10000);
+    });
+
+    it('взноса нет ни в хотелке, ни в пересчёте — строки нет', () => {
+        expect(effectiveContribution(savings({ monthlyContribution: null }), { amount: 60000 })).toBeNull();
     });
 });

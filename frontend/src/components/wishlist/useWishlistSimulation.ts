@@ -28,6 +28,8 @@ export interface ItemOverride {
     delta?: MonthDelta[];
     /** Сумма, на которой сервер посчитал `delta`: от неё масштабирует подкрученная после (ANO-105). */
     deltaAmount?: number;
+    /** Взнос копилки из того же пересчёта — строка «Взнос ≈» карточки (ревью Codex #124). */
+    monthlyContribution?: number | null;
 }
 
 export interface WishlistSimulationActions {
@@ -39,9 +41,10 @@ export interface WishlistSimulationActions {
     setDateOverride: (id: string, date: string) => void;
     /**
      * Карточка пересчитала delta на бэке (смена параметров) и проталкивает её обратно.
-     * `amount` — сумма запроса: пересчитанная дельта уже её содержит (ANO-105).
+     * `amount` — сумма запроса: пересчитанная дельта уже её содержит (ANO-105). `monthlyContribution` —
+     * взнос копилки из того же ответа.
      */
-    applyRecomputedDelta: (id: string, delta: MonthDelta[], amount: number) => void;
+    applyRecomputedDelta: (id: string, delta: MonthDelta[], amount: number, monthlyContribution?: number | null) => void;
     /** Подкрученные ставка/срок кредита — запоминаем до фиксации (ANO-139). */
     setCreditOverride: (id: string, rate?: number, termMonths?: number) => void;
 }
@@ -113,8 +116,8 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
         setOverrideMap(prev => ({ ...prev, [id]: { ...prev[id], targetDate: date } }));
     }, []);
 
-    const applyRecomputedDelta = useCallback((id: string, delta: MonthDelta[], amount: number) => {
-        setOverrideMap(prev => ({ ...prev, [id]: { ...prev[id], delta, deltaAmount: amount } }));
+    const applyRecomputedDelta = useCallback((id: string, delta: MonthDelta[], amount: number, monthlyContribution?: number | null) => {
+        setOverrideMap(prev => ({ ...prev, [id]: { ...prev[id], delta, deltaAmount: amount, monthlyContribution } }));
     }, []);
 
     const setCreditOverride = useCallback((id: string, rate?: number, termMonths?: number) => {

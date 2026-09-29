@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 import WishlistItemCard, { type RecomputeRequest } from './WishlistItemCard';
 import DismissedItemCard from './DismissedItemCard';
 import AddWishlistDialog from './AddWishlistDialog';
-import type { RiskLevel } from './wishlistUtils';
+import { effectiveContribution, type RiskLevel } from './wishlistUtils';
 import type { ItemOverride } from './useWishlistSimulation';
 import type { WishlistItem, WishlistStatus } from '../../types/api';
 
@@ -37,6 +37,7 @@ function renderCard(item: WishlistItem, p: Props) {
             active={!!p.activeMap[item.id]}
             amountOverride={p.overrideMap[item.id]?.amount}
             dateOverride={p.overrideMap[item.id]?.targetDate}
+            contribution={effectiveContribution(item, p.overrideMap[item.id])}
             soloRisk={p.soloRiskMap[item.id]}
             amountMax={p.maxFor(item)}
             currentMonth={p.currentMonth}

@@ -22,6 +22,8 @@ interface Props {
     active: boolean;
     amountOverride?: number;
     dateOverride?: string;
+    /** Взнос копилки в примерке — `effectiveContribution`; null — строки нет (ревью Codex #124). */
+    contribution: number | null;
     soloRisk: RiskLevel | undefined;
     /** Верхняя граница слайдера суммы (из constraints). */
     amountMax: number;
@@ -84,7 +86,7 @@ function offsetOf(targetDate: string, currentMonth: string): number {
  */
 export default function WishlistItemCard(props: Props) {
     const {
-        item, active, amountOverride, dateOverride, soloRisk, amountMax, currentMonth,
+        item, active, amountOverride, dateOverride, contribution, soloRisk, amountMax, currentMonth,
         onToggleActive, onAmountChange, onDateChange, onParamsRecompute,
         onFix, onDelete, onStatusChange, statusError,
     } = props;
@@ -139,7 +141,7 @@ export default function WishlistItemCard(props: Props) {
     useEffect(() => () => { if (pendingRecompute.current) recomputeNow.current(); }, []);
 
     // PMT/contribution строка: для кредита локально считаем PMT (мгновенный отклик),
-    // иначе показываем месячный взнос копилки из item.
+    // иначе — месячный взнос копилки в примерке: он следует за суммой и датой (ревью Codex #124).
     let pmtLine: React.ReactNode = null;
     if (isCredit) {
         const r = rate ? Number(rate) : null;
@@ -157,10 +159,10 @@ export default function WishlistItemCard(props: Props) {
                 </span>
             );
         }
-    } else if (item.kind === 'SAVINGS' && item.monthlyContribution != null) {
+    } else if (item.kind === 'SAVINGS' && contribution != null) {
         pmtLine = (
             <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Взнос ≈ {fmtRub(Math.round(item.monthlyContribution))}/мес
+                Взнос ≈ {fmtRub(Math.round(contribution))}/мес
             </span>
         );
     }
