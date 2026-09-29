@@ -4,6 +4,7 @@ import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
     effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams, dismissQuestion,
+    recomputeBasis, effectiveContribution,
 } from './wishlistUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
@@ -299,12 +300,31 @@ describe('дельта строки примерки (ANO-142)', () => {
         expect(effectiveDelta(item(), undefined)).toEqual([month(-10000)]);
     });
 
-    it('пересчитанная важнее масштабированной суммой', () => {
-        expect(effectiveDelta(item(), { amount: 200000, delta: [month(-3000)] })).toEqual([month(-3000)]);
+    it('пересчитанная важнее исходной; сумма, не менявшаяся после пересчёта, её не трогает', () => {
+        // Сервер считает дельту на сумме запроса: 200 000 уже внутри неё.
+        expect(effectiveDelta(item(), { amount: 200000, delta: [month(-3000)], deltaAmount: 200000 }))
+            .toEqual([month(-3000)]);
+    });
+
+    it('сумма, подкрученная после пересчёта, масштабирует пересчитанную — от суммы пересчёта (ANO-105)', () => {
+        // Замер 29.09: после ставки кредита ползунок суммы график больше не двигал. С пересчётом по
+        // дате то же случилось бы у любой хотелки после первого движения «Когда».
+        expect(effectiveDelta(item(), { amount: 300000, delta: [month(-3000)], deltaAmount: 200000 })[0].accountDelta)
+            .toBe(-4500);
     });
 
     it('подкрученная сумма масштабирует исходную', () => {
         expect(effectiveDelta(item(), { amount: 200000 })[0].accountDelta).toBe(-20000);
+    });
+
+    it('подкрученный ноль — не основа пересчёта: иначе поднятая после сумма не сдвинет график (ревью Codex #124)', () => {
+        // От нуля дельту не масштабировать: scaleDelta оставляет её прежней при любой новой сумме.
+        expect(recomputeBasis(0, 544544)).toBe(544544);
+        expect(recomputeBasis(272272, 544544)).toBe(272272);
+        // Пересчёт на сумме хотелки, подкрученная — ноль, потом 50 000: график идёт за суммой.
+        const recomputed = { delta: [month(-6000)], deltaAmount: recomputeBasis(0, 100000) };
+        expect(effectiveDelta(item(), { ...recomputed, amount: 0 })[0].accountDelta).toBeCloseTo(0);
+        expect(effectiveDelta(item(), { ...recomputed, amount: 50000 })[0].accountDelta).toBe(-3000);
     });
 
     it('у сконвертированной дельты нет, что бы ни подкрутили: деньги несёт артефакт', () => {
@@ -492,5 +512,89 @@ describe('«Отложить» у хотелки с созданным спра�
 
     it('вернувшаяся в обсуждение с созданным — тот же вопрос: план остался бы в расчёте молча', () => {
         expect(dismissQuestion(item('OPEN', { kind: 'EVENT', id: 'p' }))).not.toBeNull();
+    });
+});
+
+describe('ползунок «Когда» двигает график (ANO-105, сторож по исходнику)', () => {
+    // Компонентных тестов нет, а снять пересчёт с даты — правка в одну строку. Замер 29.09:
+    // «Когда» октябрь → апрель график не двигал, запроса пересчёта не было.
+    const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+    it('карточка: подкрученная дата и пауза — пересчёт с суммой, ставкой и сроком на момент срабатывания', () => {
+        // Ревью Codex #124: таймер, взявший ставку в момент постановки, после ставки, изменённой за
+        // паузу, отправлял старую — его ответ последний и перебивал новый, а примерка получала
+        // прежнюю ставку, которую записала бы фиксация.
+        const src = read('./WishlistItemCard.tsx');
+        expect(src).toMatch(/recomputeNow\.current = \(\) => onParamsRecompute\(buildRecomputeReq\(\)\);/);
+        expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(dateOverride == null\) return;\s*pendingRecompute\.current = true;\s*const t = setTimeout\(\(\) => \{ pendingRecompute\.current = false; recomputeNow\.current\(\); \}, RECOMPUTE_PAUSE_MS\);\s*return \(\) => clearTimeout\(t\);\s*\}, \[dateOverride\]\);/);
+    });
+
+    it('карточка просит пересчёт на сумме, от которой можно масштабировать (ревью Codex #124)', () => {
+        expect(read('./WishlistItemCard.tsx')).toMatch(/amount: recomputeBasis\(amount, item\.amount\),/);
+    });
+
+    it('свёрнутая до паузы карточка отправляет отложенный пересчёт сразу (ревью Codex #124, второй круг)', () => {
+        // Раздел «Зафиксировано» рисует карточки только открытым: свернули в пределах паузы —
+        // карточка ушла вместе с таймером, а график остался на прежней дате до нового открытия.
+        const src = read('./WishlistItemCard.tsx');
+        expect(src).toMatch(/pendingRecompute\.current = true;\s*const t = setTimeout\(\(\) => \{ pendingRecompute\.current = false; recomputeNow\.current\(\); \}, RECOMPUTE_PAUSE_MS\);/);
+        expect(src).toMatch(/useEffect\(\(\) => \(\) => \{ if \(pendingRecompute\.current\) recomputeNow\.current\(\); \}, \[\]\);/);
+    });
+
+    it('хук кладёт рядом с пересчитанной дельтой сумму, на которой её считали, и взнос копилки', () => {
+        expect(read('./useWishlistSimulation.ts'))
+            .toMatch(/\(id: string, delta: MonthDelta\[\], amount: number, monthlyContribution\?: number \| null\) => \{\s*setOverrideMap\(prev => \(\{ \.\.\.prev, \[id\]: \{ \.\.\.prev\[id\], delta, deltaAmount: amount, monthlyContribution \} \}\)\);/);
+    });
+
+    it('«Что с капиталом» передаёт сумму запроса и взнос из ответа и отбрасывает опоздавший ответ', () => {
+        const src = read('../sandbox/CapitalWhatIf.tsx');
+        expect(src).toMatch(/const n = recomputes\.start\(item\.id\);/);
+        expect(src).toMatch(/if \(recomputes\.isLatest\(item\.id, n\)\) \{\s*actions\.applyRecomputedDelta\(item\.id, resp\.delta, req\.amount, resp\.monthlyContribution\);\s*\}/);
+    });
+
+    it('строка «Взнос ≈» берёт взнос примерки, а не загруженный (ревью Codex #124, третий круг)', () => {
+        // Сдвинули «Когда» у копилки — график шёл по новому графику взносов, а строка под карточкой
+        // оставалась с прежней даты; за суммой она не следовала и до ANO-105.
+        expect(read('./WishlistItemList.tsx'))
+            .toMatch(/contribution=\{effectiveContribution\(item, p\.overrideMap\[item\.id\]\)\}/);
+        const card = read('./WishlistItemCard.tsx');
+        expect(card).toMatch(/Взнос ≈ \{fmtRub\(Math\.round\(contribution\)\)\}\/мес/);
+        expect(card).not.toMatch(/item\.monthlyContribution/);
+    });
+});
+
+describe('взнос копилки в примерке (ANO-105, ревью Codex #124)', () => {
+    const month = (accountDelta: number): MonthDelta =>
+        ({ monthIndex: 1, accountDelta, capitalDelta: accountDelta, fundDelta: null, liabilityDelta: null });
+    const savings = (over: Partial<WishlistItem> = {}): WishlistItem => ({
+        id: 's1', kind: 'SAVINGS', name: 'Отпуск', amount: 120000, targetDate: '2027-06-01', status: 'OPEN',
+        convertedTo: null, delta: [month(-10000)], monthlyContribution: 10000, ...over,
+    });
+
+    it('ничего не подкручено — загруженный взнос', () => {
+        expect(effectiveContribution(savings(), undefined)).toBe(10000);
+    });
+
+    it('подкрученная сумма масштабирует загруженный взнос: сервер делит сумму на число месяцев', () => {
+        expect(effectiveContribution(savings(), { amount: 60000 })).toBe(5000);
+    });
+
+    it('после пересчёта — взнос из ответа; сумма, подкрученная после, масштабирует от суммы пересчёта', () => {
+        // Дату сдвинули с 12 месяцев на 6: взнос 20 000 на сумме 120 000.
+        const recomputed = { delta: [month(-20000)], deltaAmount: 120000, monthlyContribution: 20000 };
+        expect(effectiveContribution(savings(), recomputed)).toBe(20000);
+        expect(effectiveContribution(savings(), { ...recomputed, amount: 60000 })).toBe(10000);
+    });
+
+    it('у сконвертированной — загруженный: примерка её не трогает, как и график', () => {
+        // Числа разведены: пересчитанный 30 000 от 120 000 к 60 000 — это 15 000, загруженный от суммы
+        // хотелки к 60 000 — 5 000, нетронутый — 10 000. Мутация MC15 нашла, что прежние числа совпадали.
+        const converted = savings({ convertedTo: { kind: 'FUND', id: 'f1' } });
+        expect(effectiveContribution(converted, { amount: 60000, deltaAmount: 120000, monthlyContribution: 30000 }))
+            .toBe(10000);
+    });
+
+    it('взноса нет ни в хотелке, ни в пересчёте — строки нет', () => {
+        expect(effectiveContribution(savings({ monthlyContribution: null }), { amount: 60000 })).toBeNull();
     });
 });

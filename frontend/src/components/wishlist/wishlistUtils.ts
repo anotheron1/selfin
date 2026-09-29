@@ -64,7 +64,8 @@ export function scaleDelta(delta: MonthDelta[], baseAmount: number, override: nu
 }
 
 /**
- * Дельта строки примерки с учётом подкрученного: пересчитанная > масштабированная суммой > исходная.
+ * Дельта строки примерки с учётом подкрученного: пересчитанная > исходная; подкрученная сумма
+ * масштабирует ту, что взята, — от суммы, на которой её считали (ANO-105).
  *
  * <p>ANO-142: у сконвертированной хотелки деньги несёт артефакт — план или копилка, — и они уже
  * в baseline. Её дельта пуста, что бы ни подкрутили: пересчёт ставки или срока вернул бы полную
@@ -73,12 +74,48 @@ export function scaleDelta(delta: MonthDelta[], baseAmount: number, override: nu
  */
 export function effectiveDelta(
     item: WishlistItem,
-    override: { amount?: number; delta?: MonthDelta[] } | undefined,
+    override: { amount?: number; delta?: MonthDelta[]; deltaAmount?: number } | undefined,
 ): MonthDelta[] {
     if (item.convertedTo) return [];
-    if (override?.delta != null) return override.delta;
+    if (override?.delta != null) {
+        // ANO-105: сервер посчитал дельту на сумме запроса — `deltaAmount`. Сумма, подкрученная после,
+        // масштабирует её от этой суммы, как исходную — от суммы хотелки. Иначе после пересчёта
+        // ставкой, сроком или датой ползунок суммы график больше не двигал.
+        return override.amount != null && override.deltaAmount != null
+            ? scaleDelta(override.delta, override.deltaAmount, override.amount)
+            : override.delta;
+    }
     if (override?.amount != null) return scaleDelta(item.delta, item.amount, override.amount);
     return item.delta;
+}
+
+/**
+ * Месячный взнос копилки в примерке — строка «Взнос ≈» карточки (ANO-105, ревью Codex #124).
+ *
+ * <p>Сервер делит сумму на число месяцев до срока, поэтому взнос, как и дельта, масштабируется суммой.
+ * Пересчитанный — из ответа пересчёта, от суммы, на которой считали; иначе загруженный — от суммы
+ * хотелки. У сконвертированной примерка ничего не двигает — как и график (ANO-142).
+ */
+export function effectiveContribution(
+    item: WishlistItem,
+    override: { amount?: number; deltaAmount?: number; monthlyContribution?: number | null } | undefined,
+): number | null {
+    const scale = (value: number, base: number) =>
+        override?.amount != null && base !== 0 ? value * override.amount / base : value;
+    if (!item.convertedTo && override?.monthlyContribution != null && override.deltaAmount != null) {
+        return scale(override.monthlyContribution, override.deltaAmount);
+    }
+    if (item.monthlyContribution == null) return null;
+    return item.convertedTo ? item.monthlyContribution : scale(item.monthlyContribution, item.amount);
+}
+
+/**
+ * Сумма, на которой просить пересчёт (ANO-105, ревью Codex #124). Подкрученный ноль — не основа:
+ * от нуля дельту не масштабировать, и поднятая после сумма не сдвинула бы график. Тогда пересчёт
+ * идёт на сумме хотелки, а подкрученный ноль даёт масштаб в `effectiveDelta`.
+ */
+export function recomputeBasis(amount: number, itemAmount: number): number {
+    return amount !== 0 ? amount : itemAmount;
 }
 
 export type RiskLevel = 'green' | 'yellow' | 'red';
