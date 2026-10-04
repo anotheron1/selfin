@@ -18,6 +18,15 @@ export function computedRow(kind: CapitalItemKind, s: CapitalSummary): ComputedR
     return row.value !== 0 ? row : null;
 }
 
+/**
+ * Экран «Капитала» пуст, только когда нет ни статей, ни денег, ни долгов по картам (ревью Codex на
+ * #135). Раньше заглушку решали одни статьи — и человек со счетами без ручных статей не видел ни
+ * капитала, ни строк, которые считаются сами.
+ */
+export function capitalIsEmpty(s: CapitalSummary): boolean {
+    return s.items.length === 0 && !computedRow('ASSET', s) && !computedRow('LIABILITY', s);
+}
+
 /** Итог раздела: строки без архивных плюс строка, которая считается сама. */
 export function sectionTotal(items: CapitalItem[], computed: ComputedRow | null): number {
     return items.filter(i => !i.isArchived).reduce((s, i) => s + i.currentValue, 0) + (computed?.value ?? 0);

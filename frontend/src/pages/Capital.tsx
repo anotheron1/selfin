@@ -3,7 +3,7 @@ import { HelpCircle } from 'lucide-react';
 import { fetchCapitalSummary } from '../api';
 import type { CapitalSummary, CapitalItem, CapitalItemKind } from '../types/api';
 import CapitalSummaryCard from '../components/CapitalSummaryCard';
-import { computedRow } from '../lib/capitalRows';
+import { capitalIsEmpty, computedRow } from '../lib/capitalRows';
 import CapitalItemList from '../components/CapitalItemList';
 import CapitalSheet, { type CapitalSheetMode } from '../components/CapitalSheet';
 import CapitalTrajectoryChart from '../components/CapitalTrajectoryChart';
@@ -36,7 +36,7 @@ export default function Capital({ refreshSignal }: Props) {
     if (error) return <div className="p-4 text-sm text-red-400">Ошибка: {error}</div>;
     if (!summary) return <div className="p-4 text-sm" style={{ color: 'var(--color-text-muted)' }}>Загрузка…</div>;
 
-    const isEmpty = summary.items.length === 0;
+    const isEmpty = capitalIsEmpty(summary);
 
     return (
         <div className="max-w-2xl mx-auto p-4 space-y-4 pb-24">
