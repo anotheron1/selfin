@@ -90,10 +90,113 @@ PR 2 спринта 4 (`2026-10-03-sprint-4-plan.md`, раздел 3). Реше�
 
 ## Нашлось по ходу
 
-* **Конверсия копилки в копилку заводит вторую с тем же именем** — на «Целях» две «цукцку»: исходная сконвертирована в новую. Путь «Копилка» диалога; не Р2. Задача — в Linear.
+* **Конверсия копилки в копилку заводит вторую с тем же именем** — на «Целях» две «цукцку»: исходная сконвертирована в новую. Путь «Копилка» диалога; не Р2. ANO-223, веха за владельцем.
 
 ## Как мерил
 
 * **Стенд** — `GET /api/v1/version`.
-* **Через API**, скрипт `scenario.mjs` в рабочей папке сессии: `POST /funds` и `PATCH /funds/{id}/wishlist-status` — завести кредит, как «Добавить» на «Хотелках»; `POST /wishlist/items/{id}/fix` — «Зафиксировать» в примерке; `POST /wishlist/items/{id}/convert` — диалог; `PATCH …/wishlist-status` с `deleteArtifact` — «Вернуть в обсуждение» с удалением созданного. Уборка — `DELETE /events/{id}?scope=ALL` и `DELETE /funds/{id}`.
+* **Через API**, скрипт — раздел «Скрипт сценария» в конце: `POST /funds` и `PATCH /funds/{id}/wishlist-status` — завести кредит, как «Добавить» на «Хотелках»; `POST /wishlist/items/{id}/fix` — «Зафиксировать» в примерке; `POST /wishlist/items/{id}/convert` — диалог; `PATCH …/wishlist-status` с `deleteArtifact` — «Вернуть в обсуждение» с удалением созданного. Уборка — `DELETE /events/{id}?scope=ALL` и `DELETE /funds/{id}`.
 * **Числа:** «Стратегия» — `GET /strategy/timeline?horizonMonths=12`, точка декабря; «Что с капиталом» при открытии — основа `GET /wishlist/simulation` плюс накопленные дельты зафиксированных, как `composeTimeline` (точки `FUTURE`, индекс 0 — следующий месяц); «Свободно» — `GET /pocket?scope=MONTHS:3`; карточки — `GET /funds`; брони — `GET /events`. Через SQL — ничего.
+
+## Выполнено
+
+Ветка `fix/ano-40-190-credit-fix-payments`; стенд «до» — `9ae1009`, «после» — `f09ea8d`, 05.10, одно состояние базы, сценарий из «Как мерил» с шагом «вернуть в обсуждение» сразу после фиксации в примерке.
+
+| шаг | «Стратегия», декабрь | «Что с капиталом», декабрь | карточек | броней платежа |
+|---|---|---|---|---|
+| «Зафиксировать» в примерке | 33 588 → **22 926,15** | 142 926,15 → **22 926,15** | 1 → 1 | 0 → **12** |
+| вернуть в обсуждение | — → 33 588 | — → 33 588 | — → 1 | — → **0** |
+| диалог «Кредит» с графиком | 22 926,15 → 22 926,15 | 132 264,30 → **22 926,15** | 2 → **1** | 12 → 12 |
+| вернуть в обсуждение, удалить созданное | 22 926,15 → **33 588** | 22 926,15 → 33 588 | 1 → 1 | 12 → **0** |
+
+Дельта кредита в блоке: в месяц покупки по оси счёта 0 вместо +120 000, дальше — платёж 10 661,85; капитал и долг — по формуле. «Свободно» на 3 месяца — −190 312 на всех шагах до и после. После сценария стенд вернулся к исходному: декабрь 33 588, броней 0, копилок «Проверка кредита» нет.
+
+**Тесты.** `CreditPaymentsIT` — 11 сценариев таблицы «Как проверяется»; `WishlistControllerIT` — конверсия кредита на месте; `WishlistConversionServiceTest` — фиксация кредита ставит график, без ставки — 400 до записи. Полный прогон — раздел ниже, после вливания `main` с #137.
+
+**Мутации — 14 из 14 красные, каждая своим тестом;** контроль на чистом коде зелёный, после прогона дерево чистое. Первая редакция теста прошедшего платежа мутант «снимать и прошедшие» не ловила: сдвинутый на вчера платёж лежал до старта правила, и «эту и следующие» его не трогала при любой отсечке. Тест поправлен — старт правила до платежа, — мутант красный.
+
+* примерка без графика; диалог без графика; график без ссылки на копилку — тесты фиксации, снятия, блока и примерки;
+* возврат не снимает — `leavingFixed_*`, `editedRule_stillRecognized`; удаление не снимает — `deleteCredit_*`; снимать и прошедшие — `leavingFixed_*`;
+* опознание по живым ссылкам — `editedRule_stillRecognized`; без замены графика — `refix_keepsOneSchedule`; удаление созданного не снимает — `oldCopy_*`;
+* ядро без шага 2б — `sandbox_scheduledCreditInBaseline`, `capitalBlock_equalsStrategy_*`; взнос у кредита — `capitalBlock_*`; старая формула платежа — `leavingFixed_*` (покупка в текущем месяце — платёж 0);
+* проверка ставки после записи — `fix_creditWithoutRate_throws400_andSavesNothing`; прежняя подпись диалога — сторож `wishlistUtils.test.ts`.
+
+## Скрипт сценария
+
+`node scenario.mjs` — стенд на `localhost:8081`, по шагам печатает «Стратегию», «Что с капиталом», «Свободно», карточки и брони; в конце убирает за собой.
+
+```js
+// PR 2 (Р2): замер «до» на стенде через API продукта. node scenario.mjs
+// Тестовый кредит из ANO-190: 120 000 под 12% на 12 месяцев, покупка 10.11, первый платёж — декабрь.
+import { randomUUID } from 'node:crypto';
+
+const API = 'http://localhost:8081/api/v1';
+const NAME = 'Проверка кредита';
+const DEC = '2026-12';
+
+async function call(method, path, body) {
+  const r = await fetch(API + path, {
+    method, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`${method} ${path} → ${r.status} ${text}`);
+  return text ? JSON.parse(text) : null;
+}
+
+/** «Что с капиталом» при открытии: основа + накопленные дельты включённых (зафиксированных) — как composeTimeline. */
+function blockAt(sim, ym) {
+  // Как useWishlistSimulation: дельты ложатся на точки FUTURE, индекс 0 — следующий месяц.
+  const future = sim.baseline.points.filter(p => p.phase === 'FUTURE');
+  const idx = future.findIndex(p => p.yearMonth === ym);
+  let v = future[idx].balance;
+  for (const it of sim.items) {
+    if (it.status !== 'FIXED') continue;
+    for (const d of it.delta) if (d.monthIndex <= idx) v += d.accountDelta;
+  }
+  return Math.round(v * 100) / 100;
+}
+
+async function measure(step) {
+  const strategy = await call('GET', '/strategy/timeline?horizonMonths=12');
+  const sdec = strategy.points.find(p => p.yearMonth === DEC);
+  const pocket3 = (await call('GET', '/pocket?scope=MONTHS:3')).pocket;
+  const sim = await call('GET', '/wishlist/simulation?horizonMonths=12');
+  const cards = (await call('GET', '/funds')).funds.filter(f => f.name === NAME).length;
+  const events = await call('GET', '/events?startDate=2026-10-01&endDate=2028-12-31');
+  const payments = events.filter(e => (e.description || '').startsWith(NAME + ' — платёж'));
+  const base = sim.baseline.points.find(p => p.yearMonth === DEC).balance;
+  console.log(`${step.padEnd(34)} | «Стратегия» дек ${sdec.balance} | «Свободно» 3 мес ${pocket3} | «Что с капиталом» дек ${blockAt(sim, DEC)} (основа ${base}) | карточек «${NAME}» ${cards} | броней платежа ${payments.length}${payments[0] ? ` (${payments[0].plannedAmount}, ${payments[0].priority})` : ''}`);
+  return { sim, payments };
+}
+
+await measure('0. исходно');
+const fund = await call('POST', '/funds', {
+  name: NAME, targetAmount: 120000, targetDate: '2026-11-10',
+  purchaseType: 'CREDIT', creditRate: 12, creditTermMonths: 12,
+});
+await call('PATCH', `/funds/${fund.id}/wishlist-status`, { status: 'OPEN' });
+await measure('1. кредит заведён, обсуждается');
+
+await call('POST', `/wishlist/items/${fund.id}/fix`, {
+  sourceKind: 'CREDIT', amount: 120000, date: '2026-11-10', stretchMonths: 0, creditRate: 12, creditTermMonths: 12,
+});
+await measure('2. «Зафиксировать» в примерке');
+
+await call('PATCH', `/funds/${fund.id}/wishlist-status`, { status: 'OPEN' });
+await measure('2б. вернуть в обсуждение');
+await call('POST', `/wishlist/items/${fund.id}/convert`, {
+  sourceKind: 'CREDIT', target: 'FUND_WITH_CREDIT', createRecurringPayments: true,
+});
+const { sim } = await measure('3. диалог «Что с капиталом» + график');
+const item = sim.items.find(i => i.id === fund.id);
+console.log('   дельта кредита в блоке:', JSON.stringify(item.delta.slice(0, 3)), '| копилок с этим именем:', sim.items.filter(i => i.name === NAME).length);
+
+await call('PATCH', `/funds/${fund.id}/wishlist-status`, { status: 'OPEN', deleteArtifact: true });
+const { payments } = await measure('4. вернуть в обсуждение, удалить созданное');
+
+// Уборка: платежи правила — одной командой «все в серии», тестовую копилку — с возвратом денег.
+if (payments[0]) await call('DELETE', `/events/${payments[0].id}?scope=ALL`);
+await call('DELETE', `/funds/${fund.id}?money=RETURN`);
+await measure('5. убрано');
+```
