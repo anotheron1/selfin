@@ -301,6 +301,10 @@ public class WishlistConversionService {
                 // оставляло её платежи в плане.
                 convertedTo = null;
                 artifactKind = "FUND_WITH_CREDIT";
+                // Источник мог быть копилкой-накоплением со ставкой и сроком: копия раньше заводилась
+                // кредитом, на месте вид меняется у самой копилки (ревью Codex на #138), иначе ядро не
+                // опознало бы её график.
+                src.setPurchaseType(FundPurchaseType.CREDIT);
                 if (Boolean.TRUE.equals(req.createRecurringPayments())) {
                     recurringRuleId = creditPayments.schedule(src);
                 }

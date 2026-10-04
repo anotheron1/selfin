@@ -198,6 +198,28 @@ class WishlistConversionServiceTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("Ревью Codex на #138: «Кредит» для копилки-накопления делает её кредитом — график и вид сходятся")
+    void convert_savingsWithCreditParams_becomesCredit() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder().id(id).name("Машина")
+                .purchaseType(FundPurchaseType.SAVINGS).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).targetDate(LocalDate.now().plusMonths(2))
+                .creditRate(new BigDecimal("16.5")).creditTermMonths(60).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        when(fundRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(recurringRuleService.createFromDto(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new RecurringRuleService.CreateResult(
+                        RecurringRule.builder().id(UUID.randomUUID()).build(), java.util.List.of()));
+
+        service.convertItem(id, new ConvertWishlistRequestDto("SAVINGS", "FUND_WITH_CREDIT", true));
+
+        // Раньше копия заводилась кредитом (buildCreditFund); на месте вид меняется у самой копилки —
+        // иначе ядро не опознало бы её график (findCreditPaymentLinks берёт только кредиты).
+        assertThat(src.getPurchaseType()).isEqualTo(FundPurchaseType.CREDIT);
+        verify(recurringRuleService).createFromDto(any(), any(), any(), any(), any(), eq(id), any(), any());
+    }
+
+    @Test
     @org.junit.jupiter.api.DisplayName("ANO-188: платёж по кредиту — бронь: сумма и дата известны заранее, пропущенный держится в резерве")
     void convert_creditWithRecurring_paymentRuleIsBooking() {
         UUID id = UUID.randomUUID();

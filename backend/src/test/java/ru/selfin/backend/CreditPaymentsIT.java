@@ -75,6 +75,7 @@ class CreditPaymentsIT {
     @Autowired RecurringRuleRepository ruleRepository;
     @Autowired RecurringRuleService recurringRuleService;
     @Autowired CreditPaymentService creditPayments;
+    @Autowired ru.selfin.backend.repository.CategoryRepository categoryRepository;
 
     private final LocalDate today = LocalDate.now();
     private final LocalDate purchase = today.plusMonths(1).withDayOfMonth(10);
@@ -270,6 +271,30 @@ class CreditPaymentsIT {
 
         assertThat(fundRepository.findById(copy.getId()).orElseThrow().isDeleted()).isTrue();
         assertThat(livePayments(copy.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Ревью Codex на #138: серия со ссылкой на копилку-накопление — не график кредита, её не снимают")
+    void savingsFundLinkedRule_isNotACreditSchedule() throws Exception {
+        // Через экран так не завести — копилку журнал ставит только переводу, а переводов правилом не
+        // бывает (V16). Через API — можно: журнал передаёт targetFundId в правило при любом типе.
+        TargetFund savings = fundRepository.save(TargetFund.builder()
+                .name("Отпуск").purchaseType(FundPurchaseType.SAVINGS).status(FundStatus.FUNDING)
+                .wishlistStatus(WishlistStatus.FIXED).targetAmount(new BigDecimal("100000"))
+                .targetDate(purchase.plusMonths(6)).build());
+        var cfg = new ru.selfin.backend.dto.RecurringConfigDto(ru.selfin.backend.model.enums.RecurringFrequency.MONTHLY,
+                10, null, purchase, purchase.plusMonths(5));
+        var sport = categoryRepository.save(ru.selfin.backend.model.Category.builder()
+                .name("Спорт " + UUID.randomUUID()).type(ru.selfin.backend.model.enums.CategoryType.EXPENSE).build());
+        UUID ruleId = recurringRuleService.createFromDto(sport, ru.selfin.backend.model.enums.EventType.EXPENSE,
+                new BigDecimal("5000"), Priority.MEDIUM, "Абонемент", savings.getId(), null, cfg).rule().getId();
+        int before = livePlannedOfRule(ruleId).size();
+
+        setStatus(savings.getId(), "{\"status\":\"OPEN\"}");
+        mockMvc.perform(delete("/api/v1/funds/" + savings.getId()).param("money", "RETURN"))
+                .andExpect(status().is2xxSuccessful());
+
+        assertThat(livePlannedOfRule(ruleId)).as("чужая серия цела").hasSize(before);
     }
 
     @Test

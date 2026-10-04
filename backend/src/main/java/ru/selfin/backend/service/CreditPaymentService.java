@@ -74,7 +74,7 @@ public class CreditPaymentService {
     @Transactional
     public void unschedule(UUID fundId) {
         LocalDate today = LocalDate.now(clock);
-        for (UUID ruleId : eventRepository.findRuleIdsLinkedToFund(fundId)) {
+        for (UUID ruleId : eventRepository.findCreditPaymentRuleIds(fundId)) {
             eventRepository
                     .findFirstByRecurringRuleIdAndDeletedFalseAndStatusAndDateGreaterThanEqualOrderByDateAsc(
                             ruleId, EventStatus.PLANNED, today)

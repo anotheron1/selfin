@@ -301,10 +301,16 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
      * Правила графика платежей копилки-кредита (Р2-Б, ANO-40): хоть одно событие правила — живое или
      * удалённое — ссылается на копилку. Ссылку несут события, а не правило, и правка правила
      * перегенерирует будущие события без неё (V27, ANO-188): удалённые старые её помнят.
+     *
+     * <p>Только у копилки-кредита, как в V27 (ревью Codex на #138). Журнал передаёт копилку в правило
+     * при любом типе: через API расход-правило со ссылкой на копилку-накопление завести можно, и снятие
+     * «графика» при её удалении уничтожило бы чужую серию.
      */
-    @Query("SELECT DISTINCT e.recurringRule.id FROM FinancialEvent e " +
-           "WHERE e.targetFundId = :fundId AND e.recurringRule IS NOT NULL")
-    List<UUID> findRuleIdsLinkedToFund(@Param("fundId") UUID fundId);
+    @Query("SELECT DISTINCT e.recurringRule.id FROM FinancialEvent e, TargetFund f " +
+           "WHERE e.targetFundId = :fundId AND f.id = e.targetFundId " +
+           "  AND f.purchaseType = ru.selfin.backend.model.enums.FundPurchaseType.CREDIT " +
+           "  AND e.recurringRule IS NOT NULL")
+    List<UUID> findCreditPaymentRuleIds(@Param("fundId") UUID fundId);
 
     /** Первое живое событие правила в статусе {@code status} не раньше {@code from} — откуда снимать серию. */
     Optional<FinancialEvent> findFirstByRecurringRuleIdAndDeletedFalseAndStatusAndDateGreaterThanEqualOrderByDateAsc(
@@ -319,7 +325,7 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     /**
      * Живые события графиков платежей зафиксированных копилок-кредитов (ANO-190): ядро держит их по
      * ссылке копилки, примерка и «Что с капиталом» считают платёж один раз. Правило опознаётся,
-     * как в {@link #findRuleIdsLinkedToFund}: по событию со ссылкой, живому или удалённому.
+     * как в {@link #findCreditPaymentRuleIds}: по событию со ссылкой, живому или удалённому.
      */
     @Query("SELECT DISTINCT e.id AS eventId, link.targetFundId AS fundId " +
            "FROM FinancialEvent e, FinancialEvent link, TargetFund f " +
