@@ -263,7 +263,10 @@ class FinancialEventControllerIT {
     // сказать, в чём дело. Теперь сервис отказывает 400 до записи, а ответ /events говорит журналу,
     // какая строка — хотелка с экрана «Хотелки».
 
-    /** Хотелка со сроком — та, что видна в журнале; ручкой экрана «Хотелки». */
+    /**
+     * Зафиксированная хотелка со сроком — ручками экрана «Хотелки». Из хотелок в журнале видна
+     * только она: обсуждаемая и отложенная живут на «Хотелках» (Р4, ANO-206).
+     */
     private JsonNode createDatedWishlistItem(String description, LocalDate date) throws Exception {
         String body = mockMvc.perform(post("/api/v1/events/wishlist")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -272,7 +275,12 @@ class FinancialEventControllerIT {
                                 "date", date.toString()))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return objectMapper.readTree(body);
+        JsonNode created = objectMapper.readTree(body);
+        mockMvc.perform(patch("/api/v1/events/" + created.get("id").asText() + "/wishlist-status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("status", "FIXED"))))
+                .andExpect(status().is2xxSuccessful());
+        return created;
     }
 
     /** Строка журнала за день — так, как её получает экран. */
@@ -309,7 +317,7 @@ class FinancialEventControllerIT {
         assertThat(journalRow(id, date).get("priority").asText()).isEqualTo("LOW");
         mockMvc.perform(get("/api/v1/wishlist/simulation"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[?(@.id == '" + id + "')].status").value("OPEN"));
+                .andExpect(jsonPath("$.items[?(@.id == '" + id + "')].status").value("FIXED"));
 
         // Граница: обычная строка характера «Хотелка» меняется точкой, как прежде.
         String plainId = createPlan(date, Priority.LOW, "Обычная хотелка журнала");
@@ -408,7 +416,7 @@ class FinancialEventControllerIT {
         String wishId = createDatedWishlistItem("Проба ANO-183 журнал", date).get("id").asText();
         String plainId = createPlan(date, Priority.LOW, "Обычная хотелка журнала");
 
-        assertThat(journalRow(wishId, date).path("wishlistStatus").asText()).isEqualTo("OPEN");
+        assertThat(journalRow(wishId, date).path("wishlistStatus").asText()).isEqualTo("FIXED");
         JsonNode plainStatus = journalRow(plainId, date).path("wishlistStatus");
         assertThat(plainStatus.isNull() || plainStatus.isMissingNode())
                 .as("у обычной строки характера «Хотелка» статуса хотелки нет: %s", plainStatus)
