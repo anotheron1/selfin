@@ -47,8 +47,17 @@ public class AnalyticsService {
     public AnalyticsReportDto getReport(LocalDate asOfDate) {
         LocalDate monthStart = asOfDate.withDayOfMonth(1);
         LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
-        List<FinancialEvent> monthEvents = eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
+        List<FinancialEvent> monthEvents = monthPlanEvents(monthStart, monthEnd);
         return new AnalyticsReportDto(buildPlanFact(monthEvents), buildPriorityBreakdown(monthEvents));
+    }
+
+    /**
+     * События периода без строк, которых нет в плане ядра (Р4, ANO-206): обсуждаемая и отложенная
+     * хотелки живут на «Хотелках», у сконвертированной деньги несёт созданное.
+     */
+    private List<FinancialEvent> monthPlanEvents(LocalDate start, LocalDate end) {
+        return eventRepository.findAllByDeletedFalseAndDateBetween(start, end).stream()
+                .filter(e -> !e.outsideMonthPlan()).toList();
     }
 
     /**
@@ -87,7 +96,9 @@ public class AnalyticsService {
             if (entry.getKey().type() == EventType.INCOME) {
                 totalPlannedIncome = totalPlannedIncome.add(planned);
                 totalFactIncome = totalFactIncome.add(fact);
-            } else {
+            } else if (entry.getKey().type() == EventType.EXPENSE) {
+                // Перевод в копилку — не расход (Р4): иначе «Итого» расходов не сходится ни со
+                // строками над ним, ни с «Расходами» журнала.
                 totalPlannedExpense = totalPlannedExpense.add(planned);
                 totalFactExpense = totalFactExpense.add(fact);
             }
@@ -142,7 +153,7 @@ public class AnalyticsService {
 
     /**
      * Строит многомесячный отчёт план-факт по категориям.
-     * Возвращает строки: итоговые (Доходы / Расходы / Переводы) + категории + Баланс.
+     * Возвращает строки: итоговые (Доходы / Расходы / Переводы) + категории + «Доходы минус расходы».
      *
      * @param startDate начало периода
      * @param endDate   конец периода
@@ -150,7 +161,7 @@ public class AnalyticsService {
      */
     @Transactional(readOnly = true)
     public MultiMonthReportDto getMultiMonthReport(LocalDate startDate, LocalDate endDate) {
-        List<FinancialEvent> events = eventRepository.findAllByDeletedFalseAndDateBetween(startDate, endDate);
+        List<FinancialEvent> events = monthPlanEvents(startDate, endDate);
 
         // Build sorted month list
         List<YearMonth> months = new ArrayList<>();
@@ -235,18 +246,17 @@ public class AnalyticsService {
         categoryRows.stream().filter(r -> r.categoryType() == CategoryType.EXPENSE).forEach(result::add);
         result.add(buildTotalRow(RowType.TOTAL_FUND_TRANSFER, "Переводы в копилки", null, monthLabels, totalFundTransferPlanned, totalFundTransferActual));
 
-        // Balance row: income - expense - fund_transfer
-        List<MonthValueDto> balanceValues = monthLabels.stream().map(m -> {
-            BigDecimal plannedBalance = totalIncomePlanned.getOrDefault(m, BigDecimal.ZERO)
-                    .subtract(totalExpensePlanned.getOrDefault(m, BigDecimal.ZERO))
-                    .subtract(totalFundTransferPlanned.getOrDefault(m, BigDecimal.ZERO));
-            BigDecimal actualBalance = totalIncomeActual.getOrDefault(m, BigDecimal.ZERO)
-                    .subtract(totalExpenseActual.getOrDefault(m, BigDecimal.ZERO))
-                    .subtract(totalFundTransferActual.getOrDefault(m, BigDecimal.ZERO));
+        // Р4 (ANO-206): строка считает ровно то, что написано. «Баланс» в банке — остаток на счёте,
+        // а перевод в свою копилку — не расход: переводы стоят своей строкой прямо над ней.
+        List<MonthValueDto> netValues = monthLabels.stream().map(m -> {
+            BigDecimal plannedNet = totalIncomePlanned.getOrDefault(m, BigDecimal.ZERO)
+                    .subtract(totalExpensePlanned.getOrDefault(m, BigDecimal.ZERO));
+            BigDecimal actualNet = totalIncomeActual.getOrDefault(m, BigDecimal.ZERO)
+                    .subtract(totalExpenseActual.getOrDefault(m, BigDecimal.ZERO));
             boolean hasActual = totalIncomeActual.containsKey(m) || totalExpenseActual.containsKey(m);
-            return new MonthValueDto(m, plannedBalance, hasActual ? actualBalance : null);
+            return new MonthValueDto(m, plannedNet, hasActual ? actualNet : null);
         }).toList();
-        result.add(new RowDto(RowType.BALANCE, "Баланс", null, balanceValues));
+        result.add(new RowDto(RowType.BALANCE, "Доходы минус расходы", null, netValues));
 
         return new MultiMonthReportDto(monthLabels, result);
     }
