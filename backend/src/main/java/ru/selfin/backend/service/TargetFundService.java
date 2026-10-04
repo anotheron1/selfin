@@ -39,7 +39,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -749,7 +748,11 @@ public class TargetFundService {
                         && t.getTransactionDate().isAfter(threeMonthsAgo))
                 .map(FundTransaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        long months = Math.min(3, Math.max(1, ChronoUnit.MONTHS.between(firstDay, today)));
+        // Полные месяцы — годовщины первого дня не позже сегодня, от одного до трёх. Не
+        // ChronoUnit.MONTHS.between: с 31.01 по 30.04 он даёт два, хотя 31.01 + 3 месяца = 30.04
+        // (ревью Codex на #135).
+        long months = 1;
+        while (months < 3 && !firstDay.plusMonths(months + 1).isAfter(today)) months++;
         BigDecimal avgMonthly = paid.divide(BigDecimal.valueOf(months), 2, RoundingMode.HALF_UP);
         if (avgMonthly.compareTo(BigDecimal.ZERO) <= 0)
             return null;

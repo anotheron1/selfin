@@ -211,6 +211,17 @@ class TargetFundAccountTest {
     }
 
     @Test
+    @DisplayName("Р9: годовщина в конце месяца — полный месяц: с 31.01 по 30.04 три месяца, а не два (ревью Codex на #135)")
+    void pace_endOfMonthAnniversary_countsFullMonth() {
+        TargetFund f = vacation("130000");
+        // 31.01 + 3 месяца = 30.04; ChronoUnit.MONTHS.between давал 2, и темп выходил 15 000, а не 10 000
+        assertThat(paceDate(LocalDate.of(2026, 4, 30), f,
+                tx(f, "2026-01-31", "100000"), tx(f, "2026-02-28", "10000"),
+                tx(f, "2026-03-31", "10000"), tx(f, "2026-04-30", "10000")))
+                .isEqualTo(LocalDate.of(2027, 9, 30));
+    }
+
+    @Test
     @DisplayName("Р9: второе пополнение в первый же месяц — делитель один месяц, а не ноль")
     void pace_youngFund_atLeastOneMonth() {
         TargetFund f = vacation("60000");
