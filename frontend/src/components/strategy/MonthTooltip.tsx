@@ -20,7 +20,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
     const monthLabel = fmtYearMonthFull(p.yearMonth);
     const subtitle = isFuture && currentMonth
         ? ` (через ${monthsBetween(currentMonth, p.yearMonth)} мес)`
-        : isCurrent ? ' (сейчас)' : '';
+        : isCurrent ? ' (этот месяц)' : '';
 
     const goToBudget = () => navigate(`/budget?month=${p.yearMonth}`);
 
@@ -38,7 +38,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
             </div>
 
             <div className="flex justify-between items-baseline mb-1">
-                <span style={{ color: 'var(--color-text-muted)' }}>Баланс</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>Остаток на конец месяца</span>
                 <span className="font-semibold text-[14px]">{fmtRub(p.balance)}</span>
             </div>
             {isFuture && p.balanceLow !== null && p.balanceHigh !== null && p.balanceLow !== p.balanceHigh && (

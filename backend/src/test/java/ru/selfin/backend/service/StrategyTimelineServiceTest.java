@@ -35,7 +35,7 @@ class StrategyTimelineServiceTest {
         List<StrategyTimelinePointDto> points = List.of();
 
         TimelineSnapshot snap = new TimelineSnapshot(first, current, horizon, 6, false, points);
-        when(baselineBuilder.build(3, true, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN)).thenReturn(snap);
+        when(baselineBuilder.build(3, true)).thenReturn(snap);
         // no FIXED deltas
         when(wishlistService.computeDeltaForFixedItems(any(), anyInt())).thenReturn(List.of());
 
@@ -74,7 +74,7 @@ class StrategyTimelineServiceTest {
 
         List<StrategyTimelinePointDto> points = List.of(pastPoint, futurePoint);
         TimelineSnapshot snap = new TimelineSnapshot(first, current, horizonEnd, 6, false, points);
-        when(baselineBuilder.build(3, true, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN)).thenReturn(snap);
+        when(baselineBuilder.build(3, true)).thenReturn(snap);
 
         // FIXED item outflow of 20000 at monthIndex=1 (current+2)
         when(wishlistService.computeDeltaForFixedItems(eq(current), eq(3)))

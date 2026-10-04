@@ -14,6 +14,16 @@ public record PocketScope(Type type, Integer months, LocalDate date) {
 
     public static final int MAX_MONTHS = 36;
 
+    /**
+     * Дальше этой даты ядро не считает (Р1): конец месяца через {@link #MAX_MONTHS} от сегодня.
+     * «Стратегия» берёт из траектории точку на последний день каждого месяца, и последний её
+     * месяц должен быть посчитан целиком. Границу берут и проверка скоупа {@code DATE}, и
+     * продление повторяющихся правил — иначе траты конца месяца в точку не попали бы.
+     */
+    public static LocalDate maxEnd(LocalDate asOf) {
+        return java.time.YearMonth.from(asOf).plusMonths(MAX_MONTHS).atEndOfMonth();
+    }
+
     public static PocketScope parse(String raw) {
         if (raw == null || raw.isBlank() || raw.equals("NEXT_INCOME")) {
             return new PocketScope(Type.NEXT_INCOME, null, null);

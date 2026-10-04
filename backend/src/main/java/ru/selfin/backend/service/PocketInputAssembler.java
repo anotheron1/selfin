@@ -69,9 +69,20 @@ public class PocketInputAssembler {
      *                    «основной доход» (ANO-35). Отдаются наружу, чтобы примерка
      *                    раскладывала взносы ТЕМИ ЖЕ днями, что и baseline — иначе
      *                    exclude+tryOn одной копилки давал расхождение на ровном месте.
+     * @param forecastByCategory прогноз сверх плана по месяцам и категориям — те же суммы,
+     *                    что во входе ядра (Р1): «Стратегия» показывает их строками разбивки
+     *                    месяца. Текущий месяц — по дневному темпу, будущие — медиана минус план
      */
     public record Assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> baselineRefs,
-                            List<LocalDate> incomeDates) {}
+                            List<LocalDate> incomeDates,
+                            Map<java.time.YearMonth, Map<String, BigDecimal>> forecastByCategory) {
+
+        /** Без раскладки прогноза — примерке и её тестам она не нужна. */
+        public Assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> baselineRefs,
+                         List<LocalDate> incomeDates) {
+            this(input, baselineRefs, incomeDates, Map.of());
+        }
+    }
 
     public Assembled build(PocketScope scope, LocalDate asOfDate) {
         // 0. Материализация recurring-правил ДО резолюции горизонта (ANO-14 §6):
@@ -79,7 +90,7 @@ public class PocketInputAssembler {
         //    а расходы за пределами сгенерированных строк — теряться из траектории.
         //    Сбой продления не роняет чтение (REQUIRES_NEW, зеркально FundPlannerService).
         try {
-            recurringRuleService.extendIndefiniteRules(asOfDate.plusMonths(36));
+            recurringRuleService.extendIndefiniteRules(PocketScope.maxEnd(asOfDate));
         } catch (Exception e) {
             log.warn("Lazy-extend of indefinite rules failed; pocket continues on existing events: {}",
                     e.getMessage());
@@ -119,10 +130,9 @@ public class PocketInputAssembler {
             case MONTHS -> horizonEnd = asOfDate.plusMonths(scope.months());
             case DATE -> {
                 horizonEnd = scope.date();
-                if (!horizonEnd.isAfter(asOfDate)
-                        || horizonEnd.isAfter(asOfDate.plusMonths(PocketScope.MAX_MONTHS))) {
+                if (!horizonEnd.isAfter(asOfDate) || horizonEnd.isAfter(PocketScope.maxEnd(asOfDate))) {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                            "DATE scope must be in the future and within 36 months");
+                            "DATE scope must be in the future and not past the end of the 36th month");
                 }
             }
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown scope");
@@ -237,8 +247,17 @@ public class PocketInputAssembler {
         // 4a. Прогноз будущих месяцев (ANO-36): план на них содержит примерно половину
         //     реальной жизни, поэтому за пределами текущего месяца ждём медиану по истории.
         //     План уже в events — добавляем только разницу, иначе трата считалась бы дважды.
+        //     Р1: те же суммы по категориям уезжают в Assembled — разбивке «Стратегии».
+        Map<java.time.YearMonth, Map<String, BigDecimal>> forecastByCategory = new LinkedHashMap<>();
+        Map<String, BigDecimal> currentByCategory = new LinkedHashMap<>();
+        forecast.categories().stream()
+                .filter(c -> c.beyondPlan().signum() > 0)
+                .forEach(c -> currentByCategory.merge(c.categoryName(), c.beyondPlan(), BigDecimal::add));
+        if (!currentByCategory.isEmpty()) {
+            forecastByCategory.put(java.time.YearMonth.from(asOfDate), currentByCategory);
+        }
         Map<java.time.YearMonth, BigDecimal> futureForecast =
-                buildFutureForecast(asOfDate, horizonEnd);
+                buildFutureForecast(asOfDate, horizonEnd, forecastByCategory);
 
         // 5. Буфер
         BigDecimal buffer = settingsService.getPocketSettings().bufferAmount();
@@ -261,7 +280,7 @@ public class PocketInputAssembler {
                 scope, horizonEnd, fallback, buffer, delta, contributors,
                 futureForecast,
                 accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance());
-        return new Assembled(input, baselineRefs, allIncomes);
+        return new Assembled(input, baselineRefs, allIncomes, forecastByCategory);
     }
 
     // ANO-80: порог и окно жили здесь своей копией, а в конусе fan chart — своей. Обе
@@ -277,9 +296,12 @@ public class PocketInputAssembler {
      *
      * <p>Текущий месяц сюда не входит — им занимается {@code PredictionService} по
      * дневному темпу (§3.5), у него уже есть факты этого месяца.
+     *
+     * @param byCategory сюда дописываются те же суммы по категориям (Р1) — по имени категории
      */
     private Map<java.time.YearMonth, BigDecimal> buildFutureForecast(
-            LocalDate asOfDate, LocalDate horizonEnd) {
+            LocalDate asOfDate, LocalDate horizonEnd,
+            Map<java.time.YearMonth, Map<String, BigDecimal>> byCategory) {
 
         java.time.YearMonth firstFuture = java.time.YearMonth.from(asOfDate).plusMonths(1);
         java.time.YearMonth lastFuture = java.time.YearMonth.from(horizonEnd);
@@ -291,10 +313,12 @@ public class PocketInputAssembler {
         }
 
         Map<java.util.UUID, BigDecimal> medians = new java.util.LinkedHashMap<>();
+        Map<java.util.UUID, String> names = new java.util.HashMap<>();
         for (var cat : categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()) {
             var stats = predictionService.getStatsForCategory(cat, PredictionService.HISTORY_WINDOW_MONTHS);
             if (stats.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS) {
                 medians.put(cat.getId(), stats.median());
+                names.put(cat.getId(), cat.getName());
             }
         }
         if (medians.isEmpty()) return Map.of();
@@ -314,6 +338,10 @@ public class PocketInputAssembler {
                                 e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO,
                                 BigDecimal::add));
 
+        FutureForecastCalculator.beyondPlanByCategory(medians, plannedByMonth, months)
+                .forEach((ym, amounts) -> amounts.forEach((categoryId, amount) -> byCategory
+                        .computeIfAbsent(ym, k -> new LinkedHashMap<>())
+                        .merge(names.get(categoryId), amount, BigDecimal::add)));
         return FutureForecastCalculator.forecastByMonth(medians, plannedByMonth, months);
     }
 

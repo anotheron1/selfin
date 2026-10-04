@@ -14,11 +14,14 @@ import java.time.YearMonth;
  *
  * @param yearMonth         месяц (формат YYYY-MM при сериализации)
  * @param phase             PAST | CURRENT | FUTURE
- * @param balance           кумулятивный баланс на конец месяца (для CURRENT — live liquidAt(today))
- * @param income            суммарный доход месяца
- * @param expense           суммарный расход месяца
+ * @param balance           остаток на конец месяца (Р1): прошлый — остаток счетов на последний день,
+ *                          как «на счёте»; текущий и будущие — точка траектории ядра, главная линия
+ *                          «с обычными тратами»
+ * @param income            доход месяца: факты; у текущего — ещё и плановые доходы до конца месяца
+ * @param expense           расход месяца: факты; у текущего и будущих — ещё строки, которые держит
+ *                          ядро (брони с прошедшей датой, планы остатком, взносы), и обычные траты
  * @param nettoFlow         income − expense
- * @param balanceConfirmed  баланс БЕЗ прогноза (только recurring + manual planned). Null для PAST.
+ * @param balanceConfirmed  остаток по планам, без прогноза обычных трат. Null для PAST.
  * @param balanceLow        P25-граница fan chart. Null для PAST.
  * @param balanceHigh       P75-граница fan chart. Null для PAST.
  * @param capital           капитал (активы − обязательства) на конец месяца

@@ -39,7 +39,7 @@ function ChartTooltip({ active, payload }: any) {
             className="rounded-lg px-3 py-2 text-xs"
             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
             <div className="font-medium mb-1">{fmtYearMonthFull(row.ym)}</div>
-            <div style={{ color: '#6c63ff' }}>Счёт: {fmtRub(row.account)}</div>
+            <div style={{ color: '#6c63ff' }}>Остаток: {fmtRub(row.account)}</div>
             <div style={{ color: '#22c55e' }}>Капитал: {fmtRub(row.capital)}</div>
         </div>
     );

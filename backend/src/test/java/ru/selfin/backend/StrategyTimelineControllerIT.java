@@ -131,8 +131,9 @@ class StrategyTimelineControllerIT {
 
     @Test
     void getTimeline_with_patched_fact_includes_in_current_breakdown() throws Exception {
-        // 1. Создать событие на сегодня
-        String catId = getFirstCategoryId();
+        // 1. Создать событие на сегодня — в своей категории: строка текущего месяца складывает факты
+        // и планы категории (Р1), а контейнер общий, и чужие планы той же категории её бы сдвинули.
+        String catId = createExpenseCategory("Проба факта " + java.util.UUID.randomUUID());
         String today = java.time.LocalDate.now().toString();
         String body = """
             {
@@ -173,15 +174,24 @@ class StrategyTimelineControllerIT {
                 .findFirst().orElseThrow();
         var breakdown = (java.util.Map<?, ?>) ((java.util.Map<?, ?>) currentPoint).get("breakdown");
         java.util.List<?> expenseItems = (java.util.List<?>) breakdown.get("expenseItems");
-        // Тест должен подтвердить, что именно созданный + патченный факт попал в breakdown —
-        // не просто "что-то есть". Пинимся к amount=4900 этого факта.
-        boolean foundPatchedFact = expenseItems.stream().anyMatch(item -> {
-            Object amount = ((java.util.Map<?, ?>) item).get("amount");
-            return amount != null && Double.parseDouble(amount.toString()) == 4900.0;
-        });
-        org.assertj.core.api.Assertions.assertThat(foundPatchedFact)
-                .as("expected expenseItems to contain the patched fact with amount=4900")
-                .isTrue();
+        // Р1: точка текущего месяца — остаток на его конец, и строка категории — месяц целиком:
+        // факт 4 900 и то, что от плана ещё держит ядро, — 100 (ANO-155), одной строкой.
+        var line = expenseItems.stream()
+                .map(item -> (java.util.Map<?, ?>) item)
+                .filter(item -> item.get("category").toString().startsWith("Проба факта "))
+                .findFirst().orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(Double.parseDouble(line.get("amount").toString()))
+                .as("факт и остаток плана одной строкой категории")
+                .isEqualTo(5000.0);
+    }
+
+    private String createExpenseCategory(String name) throws Exception {
+        String body = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/categories")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("name", name, "type", "EXPENSE"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("id").asText();
     }
 
     private String getFirstCategoryId() throws Exception {
