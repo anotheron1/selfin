@@ -88,6 +88,13 @@ describe('riskZones', () => {
             thresholds, 0);
         expect(zones).toEqual(['green', 'red']);
     });
+    it('«Что с капиталом» считает зоны от НЗ кармашка — график и метки (сторож по исходнику)', () => {
+        // Компонентных тестов нет: связку блока с НЗ держит исходник. Порог 0 вместо НЗ молча снял
+        // бы весь жёлтый, а тесты функции остались бы зелёными.
+        const block = readFileSync(new URL('../sandbox/CapitalWhatIf.tsx', import.meta.url), 'utf8');
+        expect(block).toContain('fetchPocketSettings()');
+        expect(block.match(/riskZones\([^)]*, nz\)/g) ?? []).toHaveLength(2);
+    });
     it('capital below threshold is red', () => {
         const zones = riskZones([{ account: 500000, capital: 900000 }], thresholds, nz);
         expect(zones[0]).toBe('red');
