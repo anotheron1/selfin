@@ -498,8 +498,9 @@ class WishlistControllerIT {
     // Task 4.5 — convert CREDIT → FUND_WITH_CREDIT + recurring rule
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** Р2-Б (решение владельца 05.10): график — на ту же копилку, копии нет (было: новая копилка + правило). */
     @Test
-    void convertCredit_createsFundAndRecurringRule() throws Exception {
+    void convertCredit_schedulesRecurringRuleOnSameFund() throws Exception {
         TargetFund src = fundRepository.save(TargetFund.builder()
                 .name("Машина в кредит")
                 .purchaseType(FundPurchaseType.CREDIT)
@@ -524,7 +525,6 @@ class WishlistControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.newStatus").value("FIXED"))
                 .andExpect(jsonPath("$.artifactKind").value("FUND_WITH_CREDIT"))
-                .andExpect(jsonPath("$.convertedTo.kind").value("FUND"))
                 .andExpect(jsonPath("$.recurringRuleId").exists())
                 .andReturn().getResponse().getContentAsString();
 
@@ -532,25 +532,26 @@ class WishlistControllerIT {
         assertThat(root.get("recurringRuleId").isNull())
                 .as("FUND_WITH_CREDIT + createRecurringPayments must return a non-null recurringRuleId")
                 .isFalse();
+        assertThat(root.path("convertedTo").isMissingNode() || root.get("convertedTo").isNull())
+                .as("копии нет — и ссылки на неё").isTrue();
         UUID recurringRuleId = UUID.fromString(root.get("recurringRuleId").asText());
-        UUID newFundId = UUID.fromString(root.get("convertedTo").get("id").asText());
 
-        // A brand-new TargetFund was created (distinct from the source).
-        assertThat(fundRepository.count()).isGreaterThan(fundsBefore);
-        TargetFund newFund = fundRepository.findById(newFundId).orElseThrow();
-        assertThat(newFund.getId()).isNotEqualTo(src.getId());
-        assertThat(newFund.getPurchaseType()).isEqualTo(FundPurchaseType.CREDIT);
+        assertThat(fundRepository.count()).as("новая копилка не заводится").isEqualTo(fundsBefore);
 
-        // A RecurringRule was created and is retrievable by the returned id.
+        // A RecurringRule was created and is retrievable by the returned id; its events point to the source.
         assertThat(ruleRepository.count()).isGreaterThan(rulesBefore);
         assertThat(ruleRepository.findById(recurringRuleId))
                 .as("the returned recurringRuleId must resolve to a persisted RecurringRule")
                 .isPresent();
+        assertThat(eventRepository.findAll().stream()
+                .filter(e -> e.getRecurringRule() != null && recurringRuleId.equals(e.getRecurringRule().getId())))
+                .isNotEmpty()
+                .allSatisfy(e -> assertThat(e.getTargetFundId()).isEqualTo(src.getId()));
 
-        // Source fund: FIXED + convertedToFundId set.
+        // Source fund: FIXED, без ссылки конверсии.
         TargetFund reloaded = fundRepository.findById(src.getId()).orElseThrow();
         assertThat(reloaded.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
-        assertThat(reloaded.getConvertedToFundId()).isEqualTo(newFundId);
+        assertThat(reloaded.getConvertedToFundId()).isNull();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

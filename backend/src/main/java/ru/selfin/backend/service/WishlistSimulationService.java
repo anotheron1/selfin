@@ -285,9 +285,12 @@ public class WishlistSimulationService {
             delta = List.of();
         }
         if (held != null) {
+            // У кредита с графиком (Р2-Б) удержанное — его платежи: по оси счёта дельта — ровно они,
+            // без «+сумма на счёт» формулы; капитал и долг — по формуле.
             delta = heldOnAccount(delta, held, current);
             // Взнос на карточке — тот, что держит ядро: остаток до цели поровну, а не вся цель.
-            if (!held.isEmpty()) monthlyContrib = held.values().iterator().next();
+            // У кредита взноса нет: удержанное — платёж, его карточка считает сама.
+            if (!held.isEmpty() && "SAVINGS".equals(kind)) monthlyContrib = held.values().iterator().next();
         }
 
         WishlistItemDto.ConvertedToDto convertedTo = buildConvertedTo(f.getConvertedToEventId(), f.getConvertedToFundId());

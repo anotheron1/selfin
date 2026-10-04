@@ -72,7 +72,7 @@ class TargetFundAccountTest {
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
         service = new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo,
                 accountRepo, balanceService, mock(WishlistArtifactService.class),
-                pocketService, Clock.systemDefaultZone());
+                mock(CreditPaymentService.class), pocketService, Clock.systemDefaultZone());
     }
 
     private static TargetFund fund(UUID accountId, String storedBalance) {

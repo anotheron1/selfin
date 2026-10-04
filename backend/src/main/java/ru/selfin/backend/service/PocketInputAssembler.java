@@ -176,11 +176,12 @@ public class PocketInputAssembler {
         // isPendingPlan + allowedInTrajectory: событие с фактом в траекторию не попадает,
         // значит и в baselineRefs ему нельзя (иначе exclude чанка 2 «вернёт» несуществующее).
         Map<SandboxRef, List<EventSnapshot>> baselineRefs = new LinkedHashMap<>();
+        java.util.function.Predicate<EventSnapshot> pendingFuturePlan = e -> e.date() != null
+                && e.date().isAfter(asOfDate) && e.factAmount() == null && e.eventKind() == EventKind.PLAN
+                && e.status() == ru.selfin.backend.model.enums.EventStatus.PLANNED;
         events.stream()
-                .filter(e -> e.wishlistStatus() == WishlistStatus.FIXED
-                        && !e.converted() && e.date() != null && e.date().isAfter(asOfDate)
-                        && e.factAmount() == null && e.eventKind() == EventKind.PLAN
-                        && e.status() == ru.selfin.backend.model.enums.EventStatus.PLANNED)
+                .filter(e -> e.wishlistStatus() == WishlistStatus.FIXED && !e.converted()
+                        && pendingFuturePlan.test(e))
                 .forEach(e -> baselineRefs.put(SandboxRef.event(e.id()), List.of(e)));
 
         // 2а. Резервирование датированных FIXED-копилок (спека sandbox §6): SAVINGS,
@@ -211,6 +212,21 @@ public class PocketInputAssembler {
                     f.getTargetDate(), n, asOfDate, allIncomes, SyntheticKind.SAVINGS_CONTRIBUTION);
             events.addAll(contribs);
             baselineRefs.put(SandboxRef.fund(f.getId()), contribs);
+        }
+
+        // 2б. Платежи по кредиту (Р2-Б, ANO-190): брони графика зафиксированной копилки-кредита.
+        //     Ядро держит их как обычные планы, а по ссылке копилки они нужны примерке и «Что с
+        //     капиталом»: выключить кредит — исключить его платежи; основа без зафиксированного их
+        //     возвращает; дельта кредита по оси счёта — ровно они. Без ссылки блок накладывал формулу
+        //     кредита поверх уже удержанных броней — платёж дважды и «+сумма на счёт».
+        Map<UUID, UUID> creditFundByEvent = new java.util.HashMap<>();
+        eventRepository.findCreditPaymentLinks(FundPurchaseType.CREDIT, WishlistStatus.FIXED)
+                .forEach(l -> creditFundByEvent.put(l.getEventId(), l.getFundId()));
+        for (EventSnapshot e : events) {
+            UUID fundId = creditFundByEvent.get(e.id());
+            if (fundId != null && pendingFuturePlan.test(e)) {
+                baselineRefs.computeIfAbsent(SandboxRef.fund(fundId), k -> new ArrayList<>()).add(e);
+            }
         }
 
         // 3. Просрочка (без границы месяца, но строго ПОСЛЕ якоря — ANO-28: план старше

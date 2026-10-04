@@ -67,6 +67,8 @@ public class TargetFundService {
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
     private final WishlistArtifactService wishlistArtifactService;
+    /** Р2-Б: отказ от кредита — возврат в обсуждение, отложение, удаление — снимает его будущие платежи. */
+    private final CreditPaymentService creditPayments;
     /** ANO-88: вопрос «отложить всё равно?» задаётся по кармашку после перевода. */
     private final PocketService pocketService;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
@@ -283,6 +285,8 @@ public class TargetFundService {
     public void delete(UUID id, FundMoneyDisposal disposal) {
         TargetFund fund = fundRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        // Р2-Б: удалённая копилка-кредит не держит будущих платежей; прошедшие — история.
+        creditPayments.unschedule(id);
 
         // У копилки СО СЧЁТОМ собственных денег нет: её баланс — это остаток счёта, и он
         // остаётся на месте. Удаляется только цель поверх чужих денег, спрашивать не о чем
@@ -383,6 +387,9 @@ public class TargetFundService {
             f.setConvertedToEventId(null);
             f.setConvertedToFundId(null);
         }
+        // Р2-Б (ANO-40): платежи кредита держатся, пока он зафиксирован. «Вернуть в обсуждение» и
+        // «Отложить» снимают будущие — иначе «Свободно» держало бы платежи кредита, от которого отказались.
+        if (status != WishlistStatus.FIXED) creditPayments.unschedule(id);
         f.setWishlistStatus(status);
         fundRepository.save(f);
     }

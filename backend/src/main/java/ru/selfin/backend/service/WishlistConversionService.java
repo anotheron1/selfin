@@ -6,7 +6,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import ru.selfin.backend.dto.RecurringConfigDto;
 import ru.selfin.backend.dto.wishlist.ConvertWishlistRequestDto;
 import ru.selfin.backend.dto.wishlist.ConvertWishlistResponseDto;
 import ru.selfin.backend.dto.wishlist.SandboxFixRequestDto;
@@ -16,22 +15,18 @@ import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.TargetFund;
-import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
 import ru.selfin.backend.model.enums.Priority;
-import ru.selfin.backend.model.enums.RecurringFrequency;
 import ru.selfin.backend.model.enums.WishlistStatus;
-import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.YearMonth;
 import java.util.UUID;
 
 /**
@@ -43,6 +38,10 @@ import java.util.UUID;
  * {@code convertedToEventId}/{@code convertedToFundId} на созданный артефакт. Повторная
  * конверсия уже сконвертированного item'а → 409. Не найден → 404.
  *
+ * <p>Кредит — исключение (Р2-Б, решение владельца 05.10): артефакта нет, график платежей ставится
+ * бронью на ту же копилку ({@link CreditPaymentService}), и в примерке, и в диалоге «Что с капиталом».
+ * Копия заводила вторую карточку с тем же именем на «Целях».
+ *
  * <p>Вся логика в одном {@link Transactional}-методе: при любой ошибке откатывается
  * целиком (all-or-nothing) — источник не остаётся помеченным FIXED без артефакта.
  */
@@ -53,14 +52,10 @@ public class WishlistConversionService {
 
     private final FinancialEventRepository eventRepository;
     private final TargetFundRepository fundRepository;
-    private final RecurringRuleService recurringRuleService;
-    private final CategoryRepository categoryRepository;
+    private final CreditPaymentService creditPayments;
     private final AccountBalanceService accountBalanceService;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
-
-    /** Имя системной категории для платежей по кредиту (recurring PMT). */
-    private static final String CREDIT_CATEGORY_NAME = "Кредит";
 
     /** Потолок растяжки при фиксации — как горизонт симуляции хотелок (60 мес). */
     private static final int MAX_STRETCH_MONTHS = 60;
@@ -192,9 +187,15 @@ public class WishlistConversionService {
         if (req.creditRate() != null) src.setCreditRate(req.creditRate());
         if (req.creditTermMonths() != null) src.setCreditTermMonths(req.creditTermMonths());
 
+        // Р2-Б (ANO-40): зафиксированный кредит — платежи бронью в плане, на этой же копилке, как
+        // пункт «Кредит» диалога «Что с капиталом». Раньше фиксация меняла только статус: в плане
+        // не появлялось ничего. Ставка и срок проверяются до записи — без них отказ, а не FIXED без графика.
+        boolean credit = src.getPurchaseType() == FundPurchaseType.CREDIT;
+        if (credit) CreditPaymentService.requireCreditParams(src);
         src.setWishlistStatus(WishlistStatus.FIXED);
         fundRepository.save(src);
-        return new ConvertWishlistResponseDto(itemId, "FIXED", null, "FUND_PARAMS", null);
+        UUID ruleId = credit ? creditPayments.schedule(src) : null;
+        return new ConvertWishlistResponseDto(itemId, "FIXED", null, "FUND_PARAMS", ruleId);
     }
 
     /**
@@ -274,7 +275,7 @@ public class WishlistConversionService {
         switch (req.target()) {
             case "PLAN_EVENT" -> {
                 FinancialEvent created = buildPlanEvent(
-                        creditCategory(), src.getTargetAmount(), src.getTargetDate(), src.getName());
+                        creditPayments.creditCategory(), src.getTargetAmount(), src.getTargetDate(), src.getName());
                 FinancialEvent saved = eventRepository.save(created);
                 src.setConvertedToEventId(saved.getId());
                 convertedTo = new WishlistItemDto.ConvertedToDto("EVENT", saved.getId());
@@ -295,13 +296,13 @@ public class WishlistConversionService {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                             "credit rate and positive term are required for FUND_WITH_CREDIT conversion");
                 }
-                TargetFund saved = fundRepository.save(buildCreditFund(src));
-                src.setConvertedToFundId(saved.getId());
-                convertedTo = new WishlistItemDto.ConvertedToDto("FUND", saved.getId());
+                // Р2-Б (решение владельца 05.10): график — на эту же копилку, копии нет. Копия
+                // заводила вторую карточку с тем же именем на «Целях», а «Вернуть в обсуждение»
+                // оставляло её платежи в плане.
+                convertedTo = null;
                 artifactKind = "FUND_WITH_CREDIT";
-
                 if (Boolean.TRUE.equals(req.createRecurringPayments())) {
-                    recurringRuleId = createCreditPmtRule(src, saved);
+                    recurringRuleId = creditPayments.schedule(src);
                 }
             }
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -347,75 +348,11 @@ public class WishlistConversionService {
                 .build();
     }
 
-    private TargetFund buildCreditFund(TargetFund src) {
-        return TargetFund.builder()
-                .name(src.getName())
-                .status(FundStatus.FUNDING)
-                .purchaseType(FundPurchaseType.CREDIT)
-                .wishlistStatus(WishlistStatus.FIXED)
-                .targetAmount(src.getTargetAmount())
-                .targetDate(src.getTargetDate())
-                .creditRate(src.getCreditRate())
-                .creditTermMonths(src.getCreditTermMonths())
-                .build();
-    }
-
-    /**
-     * Создаёт MONTHLY recurring-правило ежемесячного платежа по кредиту.
-     * Сумма платежа (PMT) выводится из {@link WishlistSimulationService#computeCreditDelta}.
-     * Первый платёж — в месяц после покупки; последний — через {@code termMonths}.
-     */
-    private UUID createCreditPmtRule(TargetFund src, TargetFund savedFund) {
-        int termMonths = src.getCreditTermMonths() != null ? src.getCreditTermMonths() : 0;
-        BigDecimal monthlyPMT = WishlistSimulationService.computeCreditDelta(
-                src.getTargetAmount(),
-                src.getTargetDate(),
-                YearMonth.now(clock),
-                Math.max(termMonths + 1, 1),
-                src.getCreditRate(),
-                termMonths).monthlyPMT();
-
-        var cfg = new RecurringConfigDto(
-                RecurringFrequency.MONTHLY,
-                src.getTargetDate().getDayOfMonth(),       // dayOfMonth
-                null,                                        // monthOfYear (MONTHLY → null)
-                src.getTargetDate().plusMonths(1),           // startDate: first payment month after purchase
-                src.getTargetDate().plusMonths(termMonths)); // endDate
-        var ruleResult = recurringRuleService.createFromDto(
-                creditCategory(),                            // PMT category (system "Кредит")
-                EventType.EXPENSE,
-                monthlyPMT,
-                // ANO-188: у платежа по кредиту сумма и дата известны заранее — это бронь, как
-                // ипотека (канон, «Характер плановой строки»). С «Ожиданием» пропущенный платёж
-                // выпадал из резерва кармашка (findOverdueMandatoryExpenses берёт только брони).
-                Priority.HIGH,
-                src.getName() + " — платёж по кредиту",
-                savedFund.getId(),
-                null,
-                cfg);
-        return ruleResult.rule().getId();
-    }
-
     // ====== Helpers ======
 
     private void ensureNotConverted(UUID convertedToEventId, UUID convertedToFundId) {
         if (convertedToEventId != null || convertedToFundId != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "already converted");
         }
-    }
-
-    /**
-     * Возвращает или создаёт системную категорию «Кредит» (EXPENSE).
-     * {@link RecurringRule#getCategory()} объявлен {@code nullable = false}, поэтому
-     * правилу платежей по кредиту нужна реальная категория, а не null.
-     */
-    private Category creditCategory() {
-        return categoryRepository.findByNameAndDeletedFalse(CREDIT_CATEGORY_NAME)
-                .orElseGet(() -> categoryRepository.save(
-                        Category.builder()
-                                .name(CREDIT_CATEGORY_NAME)
-                                .type(CategoryType.EXPENSE)
-                                .system(true)
-                                .build()));
     }
 }
