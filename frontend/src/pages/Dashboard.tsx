@@ -54,14 +54,6 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
         <div className="p-6 text-center" style={{ color: 'var(--color-danger)' }}>Ошибка: {error}</div>
     );
 
-    // Прогноз конца дня: остаток кармашка + плановые суммы ещё не исполненных событий сегодня
-    const unexecutedToday = todayEvents.filter(e => e.status === 'PLANNED');
-    const endOfDayForecast = unexecutedToday.reduce((bal, e) => {
-        const amt = e.plannedAmount ?? 0;
-        return e.type === 'INCOME' ? bal + amt : bal - amt;
-    }, pocket?.currentBalance ?? 0);
-    const hasUnexecutedToday = unexecutedToday.length > 0;
-
     const incomeToday = todayEvents.filter(e => e.type === 'INCOME');
     const expenseToday = todayEvents.filter(e => e.type === 'EXPENSE' || e.type === 'FUND_TRANSFER');
 
@@ -128,16 +120,8 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
                             </div>
                         ))}
 
-                        {/* Прогноз конца дня — только если есть неисполненные */}
-                        {hasUnexecutedToday && pocket && (
-                            <div className="flex justify-between items-center pt-2 border-t text-sm font-semibold"
-                                style={{ borderColor: 'var(--color-border)' }}>
-                                <span style={{ color: 'var(--color-text-muted)' }}>Прогноз конца дня</span>
-                                <span style={{ color: endOfDayForecast >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                                    {fmt(endOfDayForecast)}
-                                </span>
-                            </div>
-                        )}
+                        {/* Р6 (ANO-216): «Прогноза конца дня» нет — сегодняшние строки уже в главном
+                            числе и в календаре, а «к вечеру» без броней было третьим ответом. */}
                     </div>
                 </div>
             )}

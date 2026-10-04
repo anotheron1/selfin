@@ -16,6 +16,15 @@ const fmtD = (iso: string) => {
  * людей и справки (ANO-124), а не наше «самый узкий день».
  * Спека: docs/superpowers/specs/2026-09-26-pocket-phrase-design.md.
  */
+/**
+ * Чем назвать остаток под главным числом (Р6, ANO-216). Без сверки основной карты ядро складывает
+ * факты с нуля (ANO-28), и «на счёте» назвало бы число, которого человек не вводил; так же говорит
+ * лист «Обновить остаток» (`buildMirrorLabel`).
+ */
+export function balanceWord(hasAnchor: boolean): string {
+    return hasAnchor ? 'на счёте' : 'по записанным фактам';
+}
+
 export function buildPocketPhrase(p: PocketResponse): string {
     const { pocket, buffer, minPoint, horizon, trajectory } = p;
     // Точка на КОНЦЕ ГОРИЗОНТА, не последняя: траектория может нести информационный

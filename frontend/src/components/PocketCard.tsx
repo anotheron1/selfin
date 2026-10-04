@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { HelpCircle, Pencil, Wallet, FlaskConical } from 'lucide-react';
 import { fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
-import { buildPocketPhrase } from '../lib/pocketPhrase';
+import { balanceWord, buildPocketPhrase } from '../lib/pocketPhrase';
 import { noExpectationsNote } from '../lib/noExpectationsNote';
 import { buildGapMode, FREE_LABEL } from '../lib/gapMode';
 import { buildBreakdownView, type BreakdownRow } from '../lib/breakdownRows';
@@ -179,7 +179,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             <button onClick={() => setShowReanchor(true)}
                                 className="text-xs text-white/60 mt-0.5 flex items-center gap-1 hover:text-white/90 transition-colors"
                                 aria-label="Обновить остаток">
-                                на счёте {fmtC(data.currentBalance)}
+                                {balanceWord(data.checkpointDate != null)} {fmtC(data.currentBalance)}
                                 <Pencil size={11} />
                             </button>
                             {(() => {

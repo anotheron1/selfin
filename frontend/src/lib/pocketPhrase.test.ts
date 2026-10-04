@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { fmtRub as fmtC } from './format';
-import { buildPocketPhrase } from './pocketPhrase';
+import { balanceWord, buildPocketPhrase } from './pocketPhrase';
+
+describe('balanceWord (Р6, карточка без сверки)', () => {
+    it('сверка основной карты есть — «на счёте»', () => {
+        expect(balanceWord(true)).toBe('на счёте');
+    });
+    it('сверки нет — ядро сложило факты с нуля: «по записанным фактам», как лист «Обновить остаток»', () => {
+        expect(balanceWord(false)).toBe('по записанным фактам');
+    });
+    it('карточка берёт слово отсюда (сторож по исходнику)', () => {
+        const card = readFileSync(new URL('../components/PocketCard.tsx', import.meta.url), 'utf8');
+        expect(card).toContain('balanceWord(data.checkpointDate != null)');
+    });
+});
 import type { PocketResponse } from '../types/api';
 
 /** Минимальный PocketResponse: горизонт NEXT_INCOME до 15.07, буфер 0, breakdown не важен для фразы. */
