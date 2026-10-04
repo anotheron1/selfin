@@ -78,6 +78,8 @@ class WishlistConversionServiceTest {
         assertThat(cap.getAllValues()).anySatisfy(e -> {
             assertThat(e.getEventKind()).isEqualTo(EventKind.PLAN);
             assertThat(e.getWishlistStatus()).isNull();
+            // ANO-215: решённая покупка — бронь. «Хотелкой» её отпускали, как только прошла дата.
+            assertThat(e.getPriority()).isEqualTo(Priority.HIGH);
         });
     }
 
