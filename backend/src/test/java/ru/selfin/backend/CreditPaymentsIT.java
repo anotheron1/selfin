@@ -194,8 +194,13 @@ class CreditPaymentsIT {
         List<FinancialEvent> before = livePayments(c.getId());
         assertThat(before).hasSize(12).allSatisfy(e -> assertThat(e.getPlannedAmount())
                 .as("платёж не зависит от месяца покупки").isEqualByComparingTo(PMT));
-        // Время прошло: первый платёж — вчера, без факта. Прошедшая бронь — история, снятие её не трогает.
+        // Время прошло: правило началось месяц назад, первый платёж — вчера, без факта. Прошедшая бронь —
+        // история, снятие её не трогает. Старт правила — до этого платежа, как в жизни: иначе платёж
+        // лежал бы вне серии, и «эту и следующие» не тронула бы его при любой дате отсечки.
         FinancialEvent first = before.get(0);
+        RecurringRule rule = ruleRepository.findById(first.getRecurringRule().getId()).orElseThrow();
+        rule.setStartDate(today.minusMonths(1));
+        ruleRepository.save(rule);
         first.setDate(today.minusDays(1));
         eventRepository.save(first);
 
