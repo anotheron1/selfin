@@ -5,10 +5,8 @@ import {
     composeTimeline,
     defaultActiveMap,
     effectiveDelta,
-    riskZones,
     type ActiveItem,
     type BaselinePoint,
-    type RiskLevel,
 } from './wishlistUtils';
 
 /**
@@ -57,7 +55,6 @@ export interface UseWishlistSimulationResult {
     activeMap: Record<string, boolean>;
     overrideMap: Record<string, ItemOverride>;
     composed: BaselinePoint[];
-    zones: RiskLevel[];
     futureMonths: string[];
     actions: WishlistSimulationActions;
 }
@@ -159,11 +156,6 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
         [futureBaseline, activeItems],
     );
 
-    const zones = useMemo<RiskLevel[]>(() => {
-        if (!data) return [];
-        return riskZones(composed, data.thresholds, data.constraints.monthlyExpensesAvg);
-    }, [composed, data]);
-
     return {
         data,
         isLoading,
@@ -172,7 +164,6 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
         activeMap,
         overrideMap,
         composed,
-        zones,
         futureMonths,
         actions,
     };

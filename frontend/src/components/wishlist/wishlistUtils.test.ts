@@ -4,8 +4,9 @@ import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
     effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams, dismissQuestion,
-    recomputeBasis, effectiveContribution,
+    recomputeBasis, effectiveContribution, nzZoneText,
 } from './wishlistUtils';
+import { fmtRub } from '../strategy/strategyChartUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
 
 describe('calcPMT', () => {
@@ -65,33 +66,52 @@ describe('scaleDelta', () => {
 });
 
 describe('riskZones', () => {
-    const thresholds = { capitalThresholdRub: 1000000, cashBufferMonths: 1 };
-    const monthlyExpenses = 95000;
+    // Р5 (ANO-93): одна подушка — НЗ. Жёлтый по остатку — ниже НЗ, а не ниже месяцев трат.
+    const thresholds = { capitalThresholdRub: 1000000 };
+    const nz = 95000;
 
     it('account negative is red', () => {
-        const zones = riskZones([{ account: -1, capital: 2000000 }], thresholds, monthlyExpenses);
+        const zones = riskZones([{ account: -1, capital: 2000000 }], thresholds, nz);
         expect(zones[0]).toBe('red');
     });
-    it('account below buffer is yellow', () => {
-        const zones = riskZones([{ account: 50000, capital: 2000000 }], thresholds, monthlyExpenses);
+    it('account below НЗ is yellow', () => {
+        const zones = riskZones([{ account: 50000, capital: 2000000 }], thresholds, nz);
         expect(zones[0]).toBe('yellow');
     });
+    it('account exactly at НЗ is green — НЗ цел', () => {
+        const zones = riskZones([{ account: 95000, capital: 2000000 }], thresholds, nz);
+        expect(zones[0]).toBe('green');
+    });
+    it('без НЗ жёлтого по остатку нет: красный — только ниже нуля', () => {
+        // Раньше порог по умолчанию был месяц средних трат: 50 000 при тратах 95 000 — «Впритык».
+        const zones = riskZones([{ account: 50000, capital: 2000000 }, { account: -1, capital: 2000000 }],
+            thresholds, 0);
+        expect(zones).toEqual(['green', 'red']);
+    });
     it('capital below threshold is red', () => {
-        const zones = riskZones([{ account: 500000, capital: 900000 }], thresholds, monthlyExpenses);
+        const zones = riskZones([{ account: 500000, capital: 900000 }], thresholds, nz);
         expect(zones[0]).toBe('red');
     });
     it('capital near threshold is yellow', () => {
-        const zones = riskZones([{ account: 500000, capital: 1050000 }], thresholds, monthlyExpenses);
+        const zones = riskZones([{ account: 500000, capital: 1050000 }], thresholds, nz);
         expect(zones[0]).toBe('yellow');
     });
     it('null capital threshold disables capital criterion', () => {
-        const zones = riskZones([{ account: 500000, capital: 1 }],
-            { capitalThresholdRub: null, cashBufferMonths: 1 }, monthlyExpenses);
+        const zones = riskZones([{ account: 500000, capital: 1 }], { capitalThresholdRub: null }, nz);
         expect(zones[0]).toBe('green');
     });
     it('combined risk takes the worse of the two', () => {
-        const zones = riskZones([{ account: 50000, capital: 900000 }], thresholds, monthlyExpenses);
+        const zones = riskZones([{ account: 50000, capital: 900000 }], thresholds, nz);
         expect(zones[0]).toBe('red');   // account=yellow, capital=red → red
+    });
+});
+
+describe('nzZoneText (Р5)', () => {
+    it('НЗ задан — жёлтый объяснён его суммой', () => {
+        expect(nzZoneText(15000)).toBe(`Жёлтым — месяцы, где остаток ниже НЗ, ${fmtRub(15000)}`);
+    });
+    it('НЗ не задан — где его задать, без упрёка', () => {
+        expect(nzZoneText(0)).toBe('НЗ не задан, жёлтым ничего не отмечено. Задать — в «Настройках»');
     });
 });
 

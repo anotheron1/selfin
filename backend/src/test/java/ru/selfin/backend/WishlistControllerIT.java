@@ -99,7 +99,8 @@ class WishlistControllerIT {
         mockMvc.perform(get("/api/v1/wishlist/simulation"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items").isArray())
-                .andExpect(jsonPath("$.thresholds.cashBufferMonths").value(1.0));
+                .andExpect(jsonPath("$.thresholds").exists())
+                .andExpect(jsonPath("$.thresholds.cashBufferMonths").doesNotExist());   // Р5: подушка одна — НЗ
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -647,8 +648,9 @@ class WishlistControllerIT {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    void wishlistSettings_roundTrip_andRejectsNegativeBuffer() throws Exception {
-        // PUT new thresholds.
+    void wishlistSettings_roundTrip_oldCushionFieldIgnored_andRejectsNegativeCapital() throws Exception {
+        // Р5 (ANO-93): старый клиент — страница из кэша, сеятель CI из main — шлёт и подушку.
+        // Запись проходит, поле пропускается: подушка одна — НЗ.
         mockMvc.perform(put("/api/v1/settings/wishlist")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -656,19 +658,19 @@ class WishlistControllerIT {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.capitalThresholdRub").value(1000000))
-                .andExpect(jsonPath("$.cashBufferMonths").value(2.0));
+                .andExpect(jsonPath("$.cashBufferMonths").doesNotExist());
 
         // GET returns the same values.
         mockMvc.perform(get("/api/v1/settings/wishlist"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.capitalThresholdRub").value(1000000))
-                .andExpect(jsonPath("$.cashBufferMonths").value(2.0));
+                .andExpect(jsonPath("$.cashBufferMonths").doesNotExist());
 
-        // PUT with a negative buffer is rejected with 400.
+        // PUT with a negative capital threshold is rejected with 400.
         mockMvc.perform(put("/api/v1/settings/wishlist")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"capitalThresholdRub":1000000,"cashBufferMonths":-1}
+                                {"capitalThresholdRub":-1}
                                 """))
                 .andExpect(status().isBadRequest());
     }

@@ -191,7 +191,7 @@ export interface UpcomingItem {
 
 /**
  * НЗ кармашка (ANO-92) — сумма, которую кармашек не тратит. На экране «НЗ», в API `bufferAmount`;
- * 0 — НЗ нет. Порог «Подушка, мес.» на «Хотелках» — другая настройка ({@link WishlistThresholds}).
+ * 0 — НЗ нет. Подушка одна — он же: жёлтые месяцы «Что с капиталом» — остаток ниже НЗ (Р5, ANO-93).
  */
 export interface PocketSettings {
     bufferAmount: number;
@@ -634,9 +634,9 @@ export interface WishlistItem {
     monthlyPMT?: number | null;
 }
 
+/** Пороги «Хотелок»: «Мин. капитал». Порог остатка — НЗ ({@link PocketSettings}, Р5). */
 export interface WishlistThresholds {
     capitalThresholdRub: number | null;
-    cashBufferMonths: number;
 }
 
 export interface WishlistConstraints {

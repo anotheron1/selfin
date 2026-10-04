@@ -12,7 +12,7 @@ import {
     type ActiveItem, type BaselinePoint, type RiskLevel,
 } from '../wishlist/wishlistUtils';
 import {
-    recomputeWishlistItem, convertWishlistItem,
+    recomputeWishlistItem, convertWishlistItem, fetchPocketSettings,
     setEventWishlistStatus, setFundWishlistStatus,
     setEventWishlistParams, setFundWishlistParams, deleteEvent, deleteFund,
 } from '../../api';
@@ -44,6 +44,12 @@ export default function CapitalWhatIf() {
     useEffect(() => {
         if (data) setThresholds(data.thresholds);
     }, [data]);
+    // Р5 (ANO-93): подушка одна — НЗ кармашка; жёлтый месяц — остаток ниже него. Без ответа — 0:
+    // жёлтого по остатку нет, красный «ниже нуля» остаётся.
+    const [nz, setNz] = useState(0);
+    useEffect(() => {
+        fetchPocketSettings().then(s => setNz(s.bufferAmount)).catch(() => setNz(0));
+    }, [data]);
 
     const [fixItem, setFixItem] = useState<WishlistItem | null>(null);
     const [deleteItem, setDeleteItem] = useState<WishlistItem | null>(null);
@@ -61,8 +67,7 @@ export default function CapitalWhatIf() {
     const [dismissBusy, setDismissBusy] = useState(false);
     const [dismissError, setDismissError] = useState<string | null>(null);
 
-    const monthlyExpensesAvg = data?.constraints.monthlyExpensesAvg ?? 0;
-    const effThresholds = thresholds ?? data?.thresholds ?? { capitalThresholdRub: null, cashBufferMonths: 1 };
+    const effThresholds = thresholds ?? data?.thresholds ?? { capitalThresholdRub: null };
 
     // FUTURE-baseline (для solo-симуляции каждого item'а).
     const futureBaseline = useMemo<BaselinePoint[]>(() => {
@@ -72,8 +77,8 @@ export default function CapitalWhatIf() {
 
     // Зоны риска для графика — по эффективным порогам.
     const zones = useMemo<RiskLevel[]>(
-        () => riskZones(composed, effThresholds, monthlyExpensesAvg),
-        [composed, effThresholds, monthlyExpensesAvg],
+        () => riskZones(composed, effThresholds, nz),
+        [composed, effThresholds, nz],
     );
 
     // Solo-риск каждого item'а: симулируем ТОЛЬКО его поверх baseline.
@@ -84,10 +89,10 @@ export default function CapitalWhatIf() {
             const delta = effectiveDelta(item, overrideMap[item.id]);
             const solo: ActiveItem[] = [{ active: true, delta }];
             const composedSolo = composeTimeline(futureBaseline, solo);
-            map[item.id] = worstZone(riskZones(composedSolo, effThresholds, monthlyExpensesAvg));
+            map[item.id] = worstZone(riskZones(composedSolo, effThresholds, nz));
         }
         return map;
-    }, [data, overrideMap, futureBaseline, effThresholds, monthlyExpensesAvg]);
+    }, [data, overrideMap, futureBaseline, effThresholds, nz]);
 
     const account = useMemo(() => composed.map(p => p.account), [composed]);
     const capital = useMemo(() => composed.map(p => p.capital), [composed]);
@@ -343,7 +348,7 @@ export default function CapitalWhatIf() {
                     <WishlistThresholdsHeader
                         key={`thr-${data?.thresholds ? 'loaded' : 'pending'}`}
                         value={effThresholds}
-                        monthlyExpensesAvg={monthlyExpensesAvg}
+                        nz={nz}
                         onChange={setThresholds}
                     />
 

@@ -26,7 +26,7 @@ public class UserSettingsService {
     public WishlistThresholdsDto getWishlistSettings() {
         return repo.findBySettingsKey(KEY)
                 .map(this::parse)
-                .orElse(new WishlistThresholdsDto(null, new BigDecimal("1.0")));
+                .orElse(new WishlistThresholdsDto(null));
     }
 
     @Transactional
@@ -40,11 +40,6 @@ public class UserSettingsService {
     }
 
     private void validate(WishlistThresholdsDto dto) {
-        if (dto.cashBufferMonths() == null
-                || dto.cashBufferMonths().compareTo(BigDecimal.ZERO) < 0
-                || dto.cashBufferMonths().compareTo(new BigDecimal("36")) > 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cashBufferMonths must be in [0, 36]");
-        }
         if (dto.capitalThresholdRub() != null
                 && dto.capitalThresholdRub().compareTo(BigDecimal.ZERO) < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "capitalThresholdRub must be >= 0");
@@ -91,7 +86,7 @@ public class UserSettingsService {
         try {
             return objectMapper.readValue(s.getSettingsValue(), WishlistThresholdsDto.class);
         } catch (Exception e) {
-            return new WishlistThresholdsDto(null, new BigDecimal("1.0"));
+            return new WishlistThresholdsDto(null);
         }
     }
 
