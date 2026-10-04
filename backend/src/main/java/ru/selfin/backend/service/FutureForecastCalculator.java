@@ -55,17 +55,36 @@ public final class FutureForecastCalculator {
             Iterable<YearMonth> months) {
 
         Map<YearMonth, BigDecimal> result = new LinkedHashMap<>();
+        beyondPlanByCategory(medians, plannedByMonth, months).forEach((ym, byCategory) ->
+                result.put(ym, byCategory.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add)));
+        return result;
+    }
+
+    /**
+     * То же правило по категориям (Р1). «Стратегия» показывает прогноз месяца строками разбивки,
+     * и в сумме они обязаны давать ровно то, что держит ядро, — поэтому итог месяца
+     * ({@link #forecastByMonth}) считается отсюда же, а не своей копией цикла.
+     *
+     * @return месяц → (категория → сверх плана); категория без превышения не попадает,
+     *         месяц без прогноза присутствует с пустой картой
+     */
+    public static Map<YearMonth, Map<UUID, BigDecimal>> beyondPlanByCategory(
+            Map<UUID, BigDecimal> medians,
+            Map<YearMonth, Map<UUID, BigDecimal>> plannedByMonth,
+            Iterable<YearMonth> months) {
+
+        Map<YearMonth, Map<UUID, BigDecimal>> result = new LinkedHashMap<>();
         for (YearMonth ym : months) {
             Map<UUID, BigDecimal> plans = plannedByMonth.getOrDefault(ym, Map.of());
-            BigDecimal total = BigDecimal.ZERO;
+            Map<UUID, BigDecimal> byCategory = new LinkedHashMap<>();
             for (Map.Entry<UUID, BigDecimal> e : medians.entrySet()) {
                 BigDecimal median = e.getValue() != null ? e.getValue() : BigDecimal.ZERO;
                 if (median.signum() <= 0) continue;
                 BigDecimal planned = plans.getOrDefault(e.getKey(), BigDecimal.ZERO);
                 BigDecimal beyondPlan = median.subtract(planned);
-                if (beyondPlan.signum() > 0) total = total.add(beyondPlan);
+                if (beyondPlan.signum() > 0) byCategory.put(e.getKey(), beyondPlan);
             }
-            result.put(ym, total);
+            result.put(ym, byCategory);
         }
         return result;
     }

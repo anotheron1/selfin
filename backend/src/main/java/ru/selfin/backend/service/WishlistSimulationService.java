@@ -4,7 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.selfin.backend.dto.pocket.SandboxRef;
+import ru.selfin.backend.dto.strategy.StrategyPointPhase;
 import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
+import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
 import ru.selfin.backend.dto.wishlist.MonthDeltaDto;
 import ru.selfin.backend.dto.wishlist.RecomputeRequestDto;
 import ru.selfin.backend.dto.wishlist.RecomputeResponseDto;
@@ -28,6 +31,8 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Считает влияние (delta-вектор) каждого wishlist-item'а на горизонт месяцев.
@@ -63,14 +68,16 @@ public class WishlistSimulationService {
      * Собирает baseline, items, thresholds, constraints.
      */
     public WishlistSimulationDto getSimulation(int horizonMonths) {
-        // ANO-142: baseline без хотелок вовсе — дельты включённых фронт накладывает сам. С хотелками
-        // в baseline включённая по умолчанию хотелка считалась дважды.
-        TimelineSnapshot snap = baselineBuilder.build(horizonMonths, true, BaselineTimelineBuilder.Wishlist.NONE);
+        // Р1: основа — ядро без зафиксированного, дельты включённых фронт кладёт сверху
+        // (composeTimeline). При открытии блока включено всё зафиксированное, и основа плюс его
+        // дельты — ровно ядро, то есть линия «Стратегии». Взять ядро основой как есть значило бы
+        // посчитать зафиксированное дважды (ANO-142). Разбивка основы блоку не нужна.
+        TimelineSnapshot snap = baselineBuilder.build(horizonMonths, false);
         YearMonth current = snap.currentMonth();
 
         StrategyTimelineDto baselineDto = new StrategyTimelineDto(
                 snap.firstMonth(), current, snap.horizonEnd(),
-                snap.predictionWindowMonths(), snap.fanEnabled(), snap.points());
+                snap.predictionWindowMonths(), snap.fanEnabled(), withoutFixed(snap.points(), snap.heldByRef()));
 
         // ANO-107: отложенные тоже — с пустой дельтой (mapEventToItem, mapFundToItem). Раньше их
         // выбрасывали, и разделу «Отложено» неоткуда было их взять: «Отложить» было дорогой в один
@@ -80,10 +87,10 @@ public class WishlistSimulationService {
 
         List<WishlistItemDto> items = new ArrayList<>();
         for (FinancialEvent e : wishlistEvents) {
-            items.add(mapEventToItem(e, current, horizonMonths));
+            items.add(mapEventToItem(e, current, horizonMonths, snap.heldByRef().get(SandboxRef.event(e.getId()))));
         }
         for (TargetFund f : wishlistFunds) {
-            items.add(mapFundToItem(f, current, horizonMonths));
+            items.add(mapFundToItem(f, current, horizonMonths, snap.heldByRef().get(SandboxRef.fund(f.getId()))));
         }
 
         WishlistThresholdsDto thresholds = userSettingsService.getWishlistSettings();
@@ -129,13 +136,12 @@ public class WishlistSimulationService {
     /**
      * Суммарный delta-вектор FIXED WISHLIST-items БЕЗ конверсии, для наложения на капитал /strategy.
      *
-     * <p>Счёт такая хотелка уже двигает в baseline Стратегии — она там план (ANO-108). Капитал
-     * baseline за планами не следует, поэтому Стратегия берёт отсюда только капитал.
+     * <p>Счёт такая хотелка уже двигает в остатке Стратегии — его держит ядро (ANO-108, Р1). Капитал
+     * за планами не следует, поэтому Стратегия берёт отсюда только капитал.
      *
-     * <p>Funds are real pockets already represented in the baseline's liquidAt; overlaying their
-     * synthetic delta would double-count. The /wishlist simulation page still models funds fully —
-     * that's its sandbox purpose. Поэтому здесь собираются ТОЛЬКО WISHLIST-события (LOW-хотелки)
-     * и исключаются все TargetFund-производные items (SAVINGS/CREDIT).
+     * <p>Копилки здесь не собираются: их взносы остаток Стратегии держит через ядро, а покупку на
+     * дату цели график капитала Стратегии не показывает — это вопрос капитала, а не остатка (карта
+     * C1). Блок «Что с капиталом» накладывает и капитал копилок — там это примерка.
      */
     public List<MonthDeltaDto> computeDeltaForFixedItems(YearMonth current, int horizonMonths) {
         List<FinancialEvent> fixedEvents = eventRepository
@@ -153,9 +159,73 @@ public class WishlistSimulationService {
         return all;
     }
 
+    // ====== Основа и зафиксированное из ядра (Р1) ======
+
+    /**
+     * Основа «Что с капиталом» — ядро без зафиксированного: всё, что ядро держит по ссылкам
+     * примерки, возвращается в остаток с того месяца, где держалось, и дальше.
+     */
+    static List<StrategyTimelinePointDto> withoutFixed(List<StrategyTimelinePointDto> points,
+                                                      Map<SandboxRef, Map<YearMonth, BigDecimal>> heldByRef) {
+        Map<YearMonth, BigDecimal> heldPerMonth = new TreeMap<>();
+        heldByRef.values().forEach(byMonth -> byMonth.forEach((ym, amount) ->
+                heldPerMonth.merge(ym, amount, BigDecimal::add)));
+
+        List<StrategyTimelinePointDto> base = new ArrayList<>(points.size());
+        BigDecimal returned = BigDecimal.ZERO;
+        for (StrategyTimelinePointDto p : points) {
+            if (p.phase() == StrategyPointPhase.PAST) {
+                base.add(p);
+                continue;
+            }
+            BigDecimal month = heldPerMonth.getOrDefault(p.yearMonth(), BigDecimal.ZERO);
+            returned = returned.add(month);
+            base.add(new StrategyTimelinePointDto(
+                    p.yearMonth(), p.phase(),
+                    p.balance().add(returned), p.income(), p.expense().subtract(month), p.nettoFlow().add(month),
+                    p.balanceConfirmed().add(returned), p.balanceLow().add(returned), p.balanceHigh().add(returned),
+                    p.capital(), p.assets(), p.liabilities(),
+                    p.breakdown()));
+        }
+        return base;
+    }
+
+    /**
+     * Дельта зафиксированного, которое держит ядро: по оси счёта — ровно его строки в ядре, по оси
+     * капитала — прежняя формула. Месяцы раньше первой будущей точки (текущий) ложатся в неё: её
+     * остаток их уже содержит. Иначе основа без зафиксированного плюс дельта не дали бы ядро.
+     */
+    static List<MonthDeltaDto> heldOnAccount(List<MonthDeltaDto> formula, Map<YearMonth, BigDecimal> held,
+                                             YearMonth current) {
+        Map<Integer, MonthDeltaDto> byIndex = new TreeMap<>();
+        for (MonthDeltaDto d : formula) {
+            byIndex.merge(d.monthIndex(), new MonthDeltaDto(d.monthIndex(), BigDecimal.ZERO,
+                    d.capitalDelta(), d.fundDelta(), d.liabilityDelta()), WishlistSimulationService::plus);
+        }
+        held.forEach((ym, amount) -> {
+            int idx = Math.max(0, monthIndexOf(ym.atDay(1), current));
+            byIndex.merge(idx, new MonthDeltaDto(idx, amount.negate(), BigDecimal.ZERO, null, null),
+                    WishlistSimulationService::plus);
+        });
+        return List.copyOf(byIndex.values());
+    }
+
+    private static MonthDeltaDto plus(MonthDeltaDto a, MonthDeltaDto b) {
+        return new MonthDeltaDto(a.monthIndex(), a.accountDelta().add(b.accountDelta()),
+                a.capitalDelta().add(b.capitalDelta()),
+                sumOrNull(a.fundDelta(), b.fundDelta()), sumOrNull(a.liabilityDelta(), b.liabilityDelta()));
+    }
+
+    private static BigDecimal sumOrNull(BigDecimal a, BigDecimal b) {
+        if (a == null) return b;
+        return b == null ? a : a.add(b);
+    }
+
     // ====== Private mapping helpers ======
 
-    private WishlistItemDto mapEventToItem(FinancialEvent e, YearMonth current, int horizonMonths) {
+    /** @param held сколько держит ядро по месяцам; {@code null} — хотелки в ядре нет */
+    private WishlistItemDto mapEventToItem(FinancialEvent e, YearMonth current, int horizonMonths,
+                                           Map<YearMonth, BigDecimal> held) {
         BigDecimal amount = e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO;
         // ANO-142: у сконвертированной хотелки деньги несёт артефакт — план уже в baseline.
         // Дельта сверху посчитала бы её второй раз.
@@ -165,6 +235,7 @@ public class WishlistSimulationService {
         List<MonthDeltaDto> delta = (e.getDate() != null && !converted && !dismissed)
                 ? computeWishlistDelta(amount, e.getDate(), current, horizonMonths)
                 : List.of();
+        if (held != null) delta = heldOnAccount(delta, held, current);
         WishlistItemDto.ConvertedToDto convertedTo = buildConvertedTo(e.getConvertedToEventId(), e.getConvertedToFundId());
         String name = (e.getDescription() != null && !e.getDescription().isBlank())
                 ? e.getDescription()
@@ -183,7 +254,9 @@ public class WishlistSimulationService {
         );
     }
 
-    private WishlistItemDto mapFundToItem(TargetFund f, YearMonth current, int horizonMonths) {
+    /** @param held сколько держит ядро по месяцам; {@code null} — копилки в ядре нет */
+    private WishlistItemDto mapFundToItem(TargetFund f, YearMonth current, int horizonMonths,
+                                          Map<YearMonth, BigDecimal> held) {
         String kind = f.getPurchaseType() == FundPurchaseType.CREDIT ? "CREDIT" : "SAVINGS";
         BigDecimal amount = f.getTargetAmount() != null ? f.getTargetAmount() : BigDecimal.ZERO;
 
@@ -210,6 +283,11 @@ public class WishlistSimulationService {
             }
         } else {
             delta = List.of();
+        }
+        if (held != null) {
+            delta = heldOnAccount(delta, held, current);
+            // Взнос на карточке — тот, что держит ядро: остаток до цели поровну, а не вся цель.
+            if (!held.isEmpty()) monthlyContrib = held.values().iterator().next();
         }
 
         WishlistItemDto.ConvertedToDto convertedTo = buildConvertedTo(f.getConvertedToEventId(), f.getConvertedToFundId());

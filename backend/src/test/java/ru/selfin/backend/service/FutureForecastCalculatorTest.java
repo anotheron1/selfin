@@ -77,6 +77,27 @@ class FutureForecastCalculatorTest {
     }
 
     @Test
+    void byCategory_splitsTheSameForecast_andSumsToTheMonth() {
+        // Р1: «Стратегия» показывает прогноз месяца строками разбивки. В сумме они обязаны
+        // давать ровно то, что держит ядро, — иначе подсказка не объясняет линию.
+        Map<UUID, BigDecimal> medians = Map.of(PRODUCTS, new BigDecimal("35818"), CAFE, new BigDecimal("15134"));
+        Map<YearMonth, Map<UUID, BigDecimal>> plans = Map.of(SEP, Map.of(PRODUCTS, new BigDecimal("32000"),
+                CAFE, new BigDecimal("20000")));
+
+        var byCategory = FutureForecastCalculator.beyondPlanByCategory(medians, plans, List.of(SEP, OCT));
+
+        assertThat(byCategory.get(SEP)).as("кафе запланировано выше медианы — строки нет")
+                .containsOnlyKeys(PRODUCTS);
+        assertThat(byCategory.get(SEP).get(PRODUCTS)).isEqualByComparingTo("3818");
+        assertThat(byCategory.get(OCT).get(CAFE)).isEqualByComparingTo("15134");
+        var byMonth = FutureForecastCalculator.forecastByMonth(medians, plans, List.of(SEP, OCT));
+        for (YearMonth m : List.of(SEP, OCT)) {
+            assertThat(byCategory.get(m).values().stream().reduce(BigDecimal.ZERO, BigDecimal::add))
+                    .isEqualByComparingTo(byMonth.get(m));
+        }
+    }
+
+    @Test
     void monthWithoutForecast_isStillPresent() {
         // Явный ноль лучше отсутствующего ключа: движок не должен угадывать
         var result = FutureForecastCalculator.forecastByMonth(

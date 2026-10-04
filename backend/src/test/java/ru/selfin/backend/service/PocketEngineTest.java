@@ -1198,4 +1198,68 @@ class PocketEngineTest {
                 .allSatisfy(p -> assertThat(p.balanceWithForecast())
                         .isLessThan(p.balance()));
     }
+
+    // ── строки, которые держит траектория (Р1, ANO-23) ───────────────────────
+
+    /** Вход, в котором есть всё, что траектория держит, и всё, чего она не держит. */
+    private static final class HeldCase {
+        final EventSnapshot overdue = plan(EventType.EXPENSE, LocalDate.of(2026, 2, 20), 1_000, Priority.HIGH);
+        final UUID todayId = UUID.randomUUID();
+        final EventSnapshot todayPlan = planWithId(todayId, EventType.EXPENSE, TODAY, 500);
+        final EventSnapshot todayFact = factFor(todayId, EventType.EXPENSE, TODAY, 200);
+        final EventSnapshot income = plan(EventType.INCOME, LocalDate.of(2026, 3, 10), 5_000, Priority.HIGH);
+        final EventSnapshot contrib = contribution(LocalDate.of(2026, 3, 11), 1_500, "Отпуск");
+        final EventSnapshot expense = plan(EventType.EXPENSE, LocalDate.of(2026, 3, 12), 2_000, Priority.MEDIUM);
+        final EventSnapshot fixedWish = wishlist(WishlistStatus.FIXED, LocalDate.of(2026, 3, 14), 3_000, false);
+        // Не держатся: кандидат, сконвертированная, строка с фактом в самой строке, исполненный план,
+        // доход сегодня (§3.3.2) и хотелка сегодня.
+        final EventSnapshot openWish = wishlist(WishlistStatus.OPEN, LocalDate.of(2026, 3, 13), 9_000, false);
+        final EventSnapshot convertedWish = wishlist(WishlistStatus.FIXED, LocalDate.of(2026, 3, 13), 7_000, true);
+        final EventSnapshot legacyFact = new EventSnapshot(UUID.randomUUID(), LocalDate.of(2026, 3, 9),
+                EventType.EXPENSE, EventKind.PLAN, EventStatus.PLANNED, Priority.MEDIUM,
+                dec(4_000), dec(4_000), null, false, "факт в строке плана");
+        final EventSnapshot executed = executedPlan(EventType.EXPENSE, LocalDate.of(2026, 3, 8), 6_000);
+        final EventSnapshot todayIncome = plan(EventType.INCOME, TODAY, 8_000, Priority.HIGH);
+        final EventSnapshot todayWish = wishlist(WishlistStatus.FIXED, TODAY, 2_500, false);
+
+        PocketInput input() {
+            return base()
+                    .events(todayPlan, todayFact, income, contrib, expense, fixedWish, openWish,
+                            convertedWish, legacyFact, executed, todayIncome, todayWish)
+                    .overdue(overdue)
+                    .build();
+        }
+    }
+
+    @Test
+    @DisplayName("Р1: ядро отдаёт строки, которые держит: бронь с прошедшей датой и план сегодня — днём «сегодня», сумма — остаток плана")
+    void held_listsWhatTheTrajectoryHolds() {
+        HeldCase c = new HeldCase();
+
+        List<PocketEngine.Held> held = PocketEngine.held(c.input());
+
+        assertThat(held)
+                .extracting(PocketEngine.Held::event, PocketEngine.Held::day, h -> h.amount().longValue())
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(c.overdue, TODAY, 1_000L),
+                        org.assertj.core.groups.Tuple.tuple(c.todayPlan, TODAY, 300L),
+                        org.assertj.core.groups.Tuple.tuple(c.income, c.income.date(), 5_000L),
+                        org.assertj.core.groups.Tuple.tuple(c.contrib, c.contrib.date(), 1_500L),
+                        org.assertj.core.groups.Tuple.tuple(c.expense, c.expense.date(), 2_000L),
+                        org.assertj.core.groups.Tuple.tuple(c.fixedWish, c.fixedWish.date(), 3_000L));
+    }
+
+    @Test
+    @DisplayName("Р1: строки ядра сходятся с траекторией — на счёте минус расходы плюс доходы равно последней точке")
+    void held_agreesWithTrajectory() {
+        PocketInput in = new HeldCase().input();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        BigDecimal byLines = r.currentBalance();
+        for (PocketEngine.Held h : PocketEngine.held(in)) {
+            byLines = h.event().type() == EventType.INCOME ? byLines.add(h.amount()) : byLines.subtract(h.amount());
+        }
+
+        assertThat(byLines).isEqualByComparingTo(r.trajectory().get(r.trajectory().size() - 1).balance());
+    }
 }

@@ -130,7 +130,7 @@ class WishlistCountedOnceIT {
     }
 
     @Test
-    @DisplayName("ANO-142: «Что с капиталом» — baseline без хотелок в любом статусе, дельта включённой — один раз")
+    @DisplayName("ANO-142, Р1: «Что с капиталом» — основа без хотелок в любом статусе, дельта включённой — один раз")
     void simulation_baselineWithoutWishlist_deltaOnce() throws Exception {
         JsonNode before = simulationBaselinePoint();
 
@@ -143,7 +143,10 @@ class WishlistCountedOnceIT {
         setStatus(id, "FIXED");
         JsonNode fixed = simulationBaselinePoint();
         assertThat(balance(fixed)).as("зафиксированная тоже только дельтой").isEqualByComparingTo(balance(before));
-        assertThat(wishlistLine(fixed)).as("и в разбивке baseline её нет").isNull();
+        // Р1: дельта зафиксированной по счёту — то, что держит ядро, один раз.
+        BigDecimal fixedAccount = BigDecimal.ZERO;
+        for (JsonNode d : simulationItem(id).get("delta")) fixedAccount = fixedAccount.add(d.get("accountDelta").decimalValue());
+        assertThat(fixedAccount).isEqualByComparingTo(AMOUNT.negate());
 
         convert(id, "PLAN_EVENT");
         assertThat(balance(simulationBaselinePoint())).as("после конверсии деньги несёт план")

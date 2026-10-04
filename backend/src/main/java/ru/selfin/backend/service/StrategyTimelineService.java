@@ -15,9 +15,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Координатор стратегической шкалы. Базовый timeline собирает {@link BaselineTimelineBuilder}:
- * зафиксированная хотелка в нём — обычный план, в балансе, расходе и разбивке месяца один раз.
- * Поверх накладывается только её след на капитале.
+ * Координатор стратегической шкалы. Остаток по месяцам собирает {@link BaselineTimelineBuilder} из
+ * ядра (Р1): зафиксированная хотелка в нём — то, что ядро держит, в остатке, расходе и разбивке
+ * месяца один раз. Поверх накладывается только её след на капитале.
  *
  * <p>ANO-108: раньше наложение шло и на баланс, а baseline уже держал хотелку планом — зафиксированная
  * хотелка на 50 000 роняла баланс на 100 000.
@@ -37,8 +37,7 @@ public class StrategyTimelineService {
     private final WishlistSimulationService wishlistSimulationService;
 
     public StrategyTimelineDto getTimeline(int horizonMonths, boolean withBreakdown) {
-        TimelineSnapshot snap = baselineBuilder.build(horizonMonths, withBreakdown,
-                BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
+        TimelineSnapshot snap = baselineBuilder.build(horizonMonths, withBreakdown);
         List<MonthDeltaDto> fixedDeltas = wishlistSimulationService
                 .computeDeltaForFixedItems(snap.currentMonth(), horizonMonths);
         List<StrategyTimelinePointDto> overlaid = applyDeltas(snap.points(), snap.currentMonth(), fixedDeltas);

@@ -82,10 +82,7 @@ public final class PocketEngine {
         BigDecimal overdue = in.overdueEvents().stream()
                 .map(EventSnapshot::plannedAmount).filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal todayExpenses = in.events().stream()
-                .filter(e -> isPendingPlan(e, settled))
-                .filter(e -> e.wishlistStatus() == null)
-                .filter(e -> in.asOfDate().equals(e.date()) && e.type() != EventType.INCOME)
+        BigDecimal todayExpenses = todayPending(in, settled)
                 .map(e -> remainderOf(e, settled))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -105,18 +102,9 @@ public final class PocketEngine {
         // и «осталось потратить», и признак «есть ли в плане ожидание»: по тем строкам,
         // которыми кармашек держит деньги, и судим, полон ли план.
         List<EventSnapshot> ahead = new ArrayList<>();
-        in.events().stream()
-                .filter(e -> isPendingPlan(e, settled))
-                .filter(e -> e.wishlistStatus() == null)
-                .filter(e -> in.asOfDate().equals(e.date()) && e.type() != EventType.INCOME)
-                .forEach(ahead::add);
-        in.events().stream()
-                .filter(e -> isPendingPlan(e, settled))
-                .filter(PocketEngine::allowedInTrajectory)
+        todayPending(in, settled).forEach(ahead::add);
+        futurePending(in, settled, in.horizonEnd())
                 .filter(e -> e.type() != EventType.INCOME)
-                .filter(e -> e.date() != null
-                        && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(in.horizonEnd()))
-                .sorted(java.util.Comparator.comparing(EventSnapshot::date))
                 .forEach(ahead::add);
         ahead.forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
         // Ожидание — расход в плане человека с характером «Ожидание». Перевод в копилку и
@@ -134,11 +122,7 @@ public final class PocketEngine {
         // 4. Плановые события будущих дней (фильтр хотелок §3.2 применён).
         //    Диапазон — до конца траектории с хвостом (§3.9), не только до горизонта.
         LocalDate trajEnd = trajectoryEnd(in.asOfDate(), in.horizonEnd());
-        Map<LocalDate, List<EventSnapshot>> futureByDay = in.events().stream()
-                .filter(e -> isPendingPlan(e, settled))
-                .filter(PocketEngine::allowedInTrajectory)
-                .filter(e -> e.date() != null
-                        && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(trajEnd))
+        Map<LocalDate, List<EventSnapshot>> futureByDay = futurePending(in, settled, trajEnd)
                 .collect(Collectors.groupingBy(EventSnapshot::date));
 
         // 5. Траектория + минимум + суммы-до-минимума (для breakdown-инварианта §5).
@@ -286,6 +270,64 @@ public final class PocketEngine {
                 breakdown, trajectory, candidates,
                 pocketAfterCreditRestore, pocketWithDeposits,
                 pocketWithForecast, minPointWithForecast, upcoming, planHasExpectations);
+    }
+
+    // ── строки, которые держит траектория (Р1, ANO-23) ───────────────────────
+
+    /**
+     * Строка, которую держит траектория. «Стратегия» раскладывает по таким строкам доход, расход
+     * и разбивку месяца, «Что с капиталом» — зафиксированное по ссылкам примерки.
+     *
+     * @param event  снимок из входа — тот же экземпляр: по нему примерка узнаёт свои строки,
+     *               у синтетики id нет
+     * @param day    день, в который траектория держит строку. Бронь с прошедшей датой и план
+     *               сегодняшнего дня — сегодня (день 0), остальное — своим днём
+     * @param amount у брони с прошедшей датой — вся сумма (факта у неё нет по выборке), у плана —
+     *               непогашенный остаток (ANO-155)
+     */
+    public record Held(EventSnapshot event, LocalDate day, BigDecimal amount) {}
+
+    /**
+     * Строки, которые держит траектория {@link #calculate}, — до её конца, с хвостом §3.9.
+     *
+     * <p>Отбор — те же {@link #todayPending} и {@link #futurePending}, что у траектории: правило,
+     * живущее в двух копиях, однажды расходится (ANO-82, ANO-155). Отсюда инвариант: на счёте
+     * минус расходы плюс доходы этих строк — последняя точка траектории.
+     */
+    public static List<Held> held(PocketInput in) {
+        Map<UUID, BigDecimal> settled = PlanRemainder.settledBySnapshots(in.events());
+        List<Held> out = new ArrayList<>();
+        for (EventSnapshot e : in.overdueEvents()) {
+            if (e.plannedAmount() != null) out.add(new Held(e, in.asOfDate(), e.plannedAmount()));
+        }
+        todayPending(in, settled)
+                .forEach(e -> out.add(new Held(e, in.asOfDate(), remainderOf(e, settled))));
+        futurePending(in, settled, trajectoryEnd(in.asOfDate(), in.horizonEnd()))
+                .forEach(e -> out.add(new Held(e, e.date(), remainderOf(e, settled))));
+        return out;
+    }
+
+    /**
+     * План сегодняшнего дня, который держит день 0: расход, не хотелка. Доход с сегодняшней датой
+     * не считается (консервативная асимметрия §3.3.2), хотелку сегодня кармашек не держит.
+     */
+    private static java.util.stream.Stream<EventSnapshot> todayPending(PocketInput in,
+                                                                       Map<UUID, BigDecimal> settled) {
+        return in.events().stream()
+                .filter(e -> isPendingPlan(e, settled))
+                .filter(e -> e.wishlistStatus() == null)
+                .filter(e -> in.asOfDate().equals(e.date()) && e.type() != EventType.INCOME);
+    }
+
+    /** Планы после сегодня до {@code end} включительно, с фильтром хотелок (§3.2), по датам. */
+    private static java.util.stream.Stream<EventSnapshot> futurePending(PocketInput in,
+                                                                        Map<UUID, BigDecimal> settled,
+                                                                        LocalDate end) {
+        return in.events().stream()
+                .filter(e -> isPendingPlan(e, settled))
+                .filter(PocketEngine::allowedInTrajectory)
+                .filter(e -> e.date() != null && e.date().isAfter(in.asOfDate()) && !e.date().isAfter(end))
+                .sorted(java.util.Comparator.comparing(EventSnapshot::date));
     }
 
     // ── правила фильтрации (спека §3.2) ─────────────────────────────────────

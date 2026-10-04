@@ -1,10 +1,14 @@
 package ru.selfin.backend.service;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.capital.CapitalTrajectoryDto;
+import ru.selfin.backend.dto.pocket.EventSnapshot;
+import ru.selfin.backend.dto.pocket.PocketResultDto;
+import ru.selfin.backend.dto.pocket.PocketScope;
+import ru.selfin.backend.dto.pocket.SandboxRef;
+import ru.selfin.backend.dto.pocket.SyntheticKind;
 import ru.selfin.backend.dto.strategy.BreakdownDto;
 import ru.selfin.backend.dto.strategy.BreakdownItemDto;
 import ru.selfin.backend.dto.strategy.CategoryMonthStats;
@@ -25,98 +29,199 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Строит timeline будущего по планам, прогнозу и капиталу. Какие хотелки в нём — планы,
- * решает вызывающий ({@link Wishlist}): Стратегия считает зафиксированную хотелку обычным
- * планом, как кармашек, а примерка «Что с капиталом» берёт baseline без хотелок и сама
- * накладывает дельты включённых (ANO-108, ANO-142).
+ * Остаток по месяцам для «Стратегии» и «Что с капиталом» (Р1, ANO-23).
  *
- * <p>Выделен из {@link StrategyTimelineService} (PR wishlist-planning), чтобы разорвать
- * циклическую зависимость: {@code WishlistSimulationService} нуждается в baseline,
- * а {@code StrategyTimelineService} нуждается в delta хотелок. Теперь зависимости линейны:
- * {@code BaselineTimelineBuilder ← WishlistSimulationService ← StrategyTimelineService}.
+ * <p>Текущий и будущие месяцы — из ядра: точка траектории {@link PocketEngine} на последний день
+ * месяца, вход — тот же {@link PocketInputAssembler}, что у «Свободно». Доход, расход и разбивка
+ * месяца — строки, которые траектория держит ({@link PocketEngine#held}), поэтому подсказка
+ * объясняет ровно то число, что стоит на линии. Своей выборки планов здесь больше нет: до Р1 она
+ * расходилась с ядром в пяти местах (карта C1, Р1, пункты (а)–(д)).
+ *
+ * <p>Прошлые месяцы — остаток счетов на последний день, как «на счёте» у ядра
+ * ({@link AccountBalanceService#accountsBalanceAt}); доход, расход и разбивка — записи-факты.
  */
 @Component
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-@Slf4j
 public class BaselineTimelineBuilder {
+
+    static final int MIN_CATEGORIES_FOR_FAN = 3;
+    /** Строки разбивки без категории — теми же словами, что в расшифровке «Свободно». */
+    static final String OVERDUE_LINE = "Брони с прошедшей датой";
+    static final String CONTRIBUTIONS_LINE = "Взносы в копилки";
+    static final String NO_CATEGORY = "Без категории";
 
     private final FinancialEventRepository eventRepository;
     private final BalanceCheckpointRepository checkpointRepository;
     private final CategoryRepository categoryRepository;
     private final PredictionService predictionService;
     private final CapitalService capitalService;
+    private final AccountBalanceService accountBalanceService;
+    private final PocketInputAssembler assembler;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
 
-
-
-    static final int MIN_CATEGORIES_FOR_FAN = 3;
-
     /**
-     * Какие хотелки baseline считает планом. Выборка планов
-     * ({@code findPlannedEventsByDateRange}) уже отсекает кандидатов, отклонённые и
-     * сконвертированные — остаётся решить про зафиксированные.
+     * Полный timeline: прошлые, текущий и будущие месяцы, обогащённые капиталом и (по запросу)
+     * разбивкой по категориям.
      */
-    public enum Wishlist {
-        /** Зафиксированная хотелка — обычный план, один раз, как в кармашке: Стратегия. */
-        FIXED_AS_PLAN,
-        /** Без хотелок вовсе: примерка «Что с капиталом» сама накладывает дельты включённых. */
-        NONE;
-
-        boolean admits(FinancialEvent e) {
-            return this == FIXED_AS_PLAN || e.getWishlistStatus() == null;
-        }
-    }
-
-    /**
-     * Полный timeline: past + current + future, обогащённый капиталом
-     * и (опционально) breakdown по категориям.
-     */
-    public TimelineSnapshot build(int horizonMonths, boolean withBreakdown, Wishlist wishlist) {
-        YearMonth firstMonth = firstActivityMonth();
-        YearMonth currentMonth = YearMonth.now(clock);
+    public TimelineSnapshot build(int horizonMonths, boolean withBreakdown) {
+        LocalDate today = LocalDate.now(clock);
+        YearMonth currentMonth = YearMonth.from(today);
         YearMonth horizonEnd = currentMonth.plusMonths(horizonMonths);
+        YearMonth firstMonth = firstActivityMonth();
 
-        Map<Category, CategoryMonthStats> statsMap = computeStatsMap();
+        PocketInputAssembler.Assembled core = assembler.build(
+                new PocketScope(PocketScope.Type.DATE, null, horizonEnd.atEndOfMonth()), today);
+        List<PocketEngine.Held> held = PocketEngine.held(core.input());
+        Map<YearMonth, CoreMonth> months = coreMonths(PocketEngine.calculate(core.input()), held);
 
-        boolean fanEnabled = statsMap.values().stream()
-                .filter(s -> s.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS)
-                .count() >= MIN_CATEGORIES_FOR_FAN;
+        Fan fan = Fan.of(computeStatsMap());
+        // Записи-факты с первого месяца по сегодня — одним запросом: прошлым месяцам и текущему.
+        Map<YearMonth, List<FinancialEvent>> facts = eventRepository
+                .findFactsByDateRange(firstMonth.atDay(1), today).stream()
+                .filter(e -> !e.isDeleted())
+                .filter(e -> e.getEventKind() == EventKind.FACT)
+                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
 
-        List<StrategyTimelinePointDto> past = buildPastPoints(firstMonth, currentMonth);
-        StrategyTimelinePointDto current = buildCurrentPoint(currentMonth);
-        List<StrategyTimelinePointDto> future = buildFuturePoints(currentMonth, horizonMonths, statsMap, wishlist);
-
-        List<StrategyTimelinePointDto> all = new ArrayList<>();
-        all.addAll(past);
-        all.add(current);
-        all.addAll(future);
+        List<StrategyTimelinePointDto> all = new ArrayList<>(buildPastPoints(firstMonth, currentMonth, facts));
+        for (int k = 0; k <= horizonMonths; k++) {
+            YearMonth ym = currentMonth.plusMonths(k);
+            List<FinancialEvent> monthFacts = k == 0 ? facts.getOrDefault(ym, List.of()) : List.of();
+            all.add(corePoint(ym, k, months.get(ym), monthFacts, fan));
+        }
 
         all = enrichWithCapital(all);
         if (withBreakdown) {
-            all = enrichWithBreakdown(all, statsMap, wishlist);
+            all = enrichWithBreakdown(all, facts, months, core.forecastByCategory());
         }
-
         return new TimelineSnapshot(firstMonth, currentMonth, horizonEnd,
-                PredictionService.HISTORY_WINDOW_MONTHS, fanEnabled, all);
+                PredictionService.HISTORY_WINDOW_MONTHS, fan.enabled(), all, heldByRef(core, held));
     }
 
-    // === MOVED VERBATIM FROM StrategyTimelineService ===
+    // ── месяцы ядра ─────────────────────────────────────────────────────────
 
     /**
-     * Загружает все forecast-enabled категории и вычисляет статистику для каждой ОДИН РАЗ.
-     *
-     * <p>Ключ — {@link Category} (а не UUID), чтобы имя категории было доступно в breakdown-методах
-     * без дополнительных обращений к репозиторию. LinkedHashMap сохраняет порядок из репозитория.
+     * Месяц ядра: точка траектории на последний день, прогноз обычных трат за месяц и строки,
+     * которые траектория держит в этом месяце.
+     */
+    private record CoreMonth(PocketResultDto.TrajectoryPoint end, BigDecimal forecast,
+                             List<PocketEngine.Held> held) {
+        BigDecimal sum(boolean income) {
+            return held.stream()
+                    .filter(h -> (h.event().type() == EventType.INCOME) == income)
+                    .map(PocketEngine.Held::amount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+    }
+
+    private static Map<YearMonth, CoreMonth> coreMonths(PocketResultDto result, List<PocketEngine.Held> held) {
+        Map<YearMonth, PocketResultDto.TrajectoryPoint> ends = new LinkedHashMap<>();
+        for (PocketResultDto.TrajectoryPoint t : result.trajectory()) ends.put(YearMonth.from(t.date()), t);
+        Map<YearMonth, List<PocketEngine.Held>> byMonth = held.stream()
+                .collect(Collectors.groupingBy(h -> YearMonth.from(h.day())));
+
+        Map<YearMonth, CoreMonth> months = new LinkedHashMap<>();
+        BigDecimal forecastBefore = BigDecimal.ZERO;
+        for (Map.Entry<YearMonth, PocketResultDto.TrajectoryPoint> e : ends.entrySet()) {
+            // Прогноз за месяц — насколько две линии разошлись с прошлого конца месяца.
+            BigDecimal forecastSoFar = e.getValue().balance().subtract(mainLine(e.getValue()));
+            months.put(e.getKey(), new CoreMonth(e.getValue(), forecastSoFar.subtract(forecastBefore),
+                    byMonth.getOrDefault(e.getKey(), List.of())));
+            forecastBefore = forecastSoFar;
+        }
+        return months;
+    }
+
+    /** Главная линия — «с обычными тратами»; где прогноз ещё не накоплен, она совпадает с линией по планам. */
+    private static BigDecimal mainLine(PocketResultDto.TrajectoryPoint t) {
+        return t.balanceWithForecast() != null ? t.balanceWithForecast() : t.balance();
+    }
+
+    /**
+     * Точка текущего или будущего месяца. У текущего к строкам ядра добавлены записи-факты с
+     * начала месяца: остаток на конец месяца — это и уже случившееся, и ещё ожидаемое.
+     */
+    private static StrategyTimelinePointDto corePoint(YearMonth ym, int k, CoreMonth month,
+                                                      List<FinancialEvent> facts, Fan fan) {
+        BigDecimal main = mainLine(month.end());
+        BigDecimal income = month.sum(true).add(sumFacts(facts, EventType.INCOME));
+        BigDecimal expense = month.sum(false).add(sumFacts(facts, EventType.EXPENSE)).add(month.forecast());
+        BigDecimal[] band = fan.around(main, k);
+        return new StrategyTimelinePointDto(
+                ym, k == 0 ? StrategyPointPhase.CURRENT : StrategyPointPhase.FUTURE,
+                main, income, expense, income.subtract(expense),
+                month.end().balance(), band[0], band[1],
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,   // капитал — в enrichWithCapital
+                null);                                               // разбивка — в enrichWithBreakdown
+    }
+
+    /**
+     * Сколько ядро держит по каждой ссылке примерки, по месяцам. «Что с капиталом» строит из
+     * этого основу без зафиксированного и дельты зафиксированного по оси счёта.
+     */
+    private static Map<SandboxRef, Map<YearMonth, BigDecimal>> heldByRef(PocketInputAssembler.Assembled core,
+                                                                         List<PocketEngine.Held> held) {
+        Map<EventSnapshot, SandboxRef> refOf = new IdentityHashMap<>();
+        Map<SandboxRef, Map<YearMonth, BigDecimal>> byRef = new LinkedHashMap<>();
+        core.baselineRefs().forEach((ref, snapshots) -> {
+            byRef.put(ref, new TreeMap<>());
+            snapshots.forEach(s -> refOf.put(s, ref));
+        });
+        // Копилка в плане ядра, по которой держать нечего — накоплена до цели или срок в этом
+        // месяце, — тоже здесь, с пустой картой: иначе «Что с капиталом» взял бы для неё формулу
+        // и вычел взносы на всю цель, которых ядро не держит (ревью Codex на #129).
+        core.plannedFunds().forEach(id -> byRef.putIfAbsent(SandboxRef.fund(id), new TreeMap<>()));
+        for (PocketEngine.Held h : held) {
+            SandboxRef ref = refOf.get(h.event());
+            if (ref != null) byRef.get(ref).merge(YearMonth.from(h.day()), h.amount(), BigDecimal::add);
+        }
+        return byRef;
+    }
+
+    /** Веер «Диапазон»: полуразмах трат по истории категорий, растёт как √k — k месяцев от текущего. */
+    private record Fan(boolean enabled, double sumHalfIqr) {
+        static Fan of(Map<Category, CategoryMonthStats> statsMap) {
+            List<CategoryMonthStats> eligible = statsMap.values().stream()
+                    .filter(s -> s.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS)
+                    .toList();
+            double sumHalfIqr = Math.sqrt(eligible.stream()
+                    .mapToDouble(s -> {
+                        double halfIqr = s.p75().subtract(s.p25()).doubleValue() / 2.0;
+                        return halfIqr * halfIqr;
+                    })
+                    .sum());
+            return new Fan(eligible.size() >= MIN_CATEGORIES_FOR_FAN, sumHalfIqr);
+        }
+
+        /** {нижняя, верхняя} граница вокруг главной линии; без веера — сама линия. */
+        BigDecimal[] around(BigDecimal main, int k) {
+            if (!enabled) return new BigDecimal[]{main, main};
+            double half = Math.min(sumHalfIqr * Math.sqrt(k), 2.0 * Math.abs(main.doubleValue()));
+            BigDecimal halfBd = BigDecimal.valueOf(half).setScale(2, RoundingMode.HALF_UP);
+            return new BigDecimal[]{main.subtract(halfBd), main.add(halfBd)};
+        }
+    }
+
+    /**
+     * Загружает все forecast-enabled категории и вычисляет статистику для каждой ОДИН РАЗ —
+     * для веера.
      */
     private Map<Category, CategoryMonthStats> computeStatsMap() {
         List<Category> forecastCats = categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse();
@@ -127,204 +232,38 @@ public class BaselineTimelineBuilder {
         return result;
     }
 
-    StrategyTimelinePointDto buildCurrentPoint(YearMonth current) {
-        LocalDate today = LocalDate.now(clock);
-        LocalDate monthStart = current.atDay(1);
+    // ── прошлые месяцы ──────────────────────────────────────────────────────
 
-        // Факты с начала месяца до сегодня
-        List<FinancialEvent> factsToDate = eventRepository.findFactsByDateRange(monthStart, today).stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.FACT)
-                .toList();
-
-        BigDecimal incomeToDate = sumByType(factsToDate, EventType.INCOME);
-        BigDecimal expenseToDate = sumByType(factsToDate, EventType.EXPENSE);
-        BigDecimal nettoFlow = incomeToDate.subtract(expenseToDate);
-
-        // balance для CURRENT — live cashLiquidAt(today), не end-of-month проекция.
-        // cashLiquidAt, а не liquidAt: вклад в кассовый график не входит (ANO-46).
-        BigDecimal balance = capitalService.cashLiquidAt(today);
-
-        return new StrategyTimelinePointDto(
-                current,
-                StrategyPointPhase.CURRENT,
-                balance,
-                incomeToDate,
-                expenseToDate,
-                nettoFlow,
-                balance,   // balanceConfirmed = текущий live баланс
-                balance,   // balanceLow = balance (нет прогноза накопленного на текущий месяц)
-                balance,   // balanceHigh = balance
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                null
-        );
-    }
-
-    List<StrategyTimelinePointDto> buildPastPoints(YearMonth from, YearMonth currentMonth) {
+    List<StrategyTimelinePointDto> buildPastPoints(YearMonth from, YearMonth currentMonth,
+                                                   Map<YearMonth, List<FinancialEvent>> facts) {
         List<StrategyTimelinePointDto> points = new ArrayList<>();
-        if (from.isAfter(currentMonth.minusMonths(1))) {
-            return points; // нет прошлых месяцев
-        }
-
-        LocalDate windowStart = from.atDay(1);
-        LocalDate windowEnd = currentMonth.minusMonths(1).atEndOfMonth();
-
-        // Один запрос фактов на весь диапазон, потом группируем
-        Map<YearMonth, List<FinancialEvent>> factsByMonth = eventRepository
-                .findFactsByDateRange(windowStart, windowEnd).stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.FACT)
-                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
-
         for (YearMonth ym = from; ym.isBefore(currentMonth); ym = ym.plusMonths(1)) {
-            List<FinancialEvent> facts = factsByMonth.getOrDefault(ym, List.of());
-
-            BigDecimal income = sumByType(facts, EventType.INCOME);
-            BigDecimal expense = sumByType(facts, EventType.EXPENSE);
-            BigDecimal nettoFlow = income.subtract(expense);
-
-            BigDecimal balance = capitalService.cashLiquidAt(ym.atEndOfMonth());
-
+            List<FinancialEvent> monthFacts = facts.getOrDefault(ym, List.of());
+            BigDecimal income = sumFacts(monthFacts, EventType.INCOME);
+            BigDecimal expense = sumFacts(monthFacts, EventType.EXPENSE);
             points.add(new StrategyTimelinePointDto(
                     ym,
                     StrategyPointPhase.PAST,
-                    balance,
+                    accountBalanceService.accountsBalanceAt(ym.atEndOfMonth()),
                     income,
                     expense,
-                    nettoFlow,
+                    income.subtract(expense),
                     null, null, null,                       // balanceConfirmed/Low/High не для PAST
-                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,  // капитал — заполнится в enrichWithCapital
-                    null                                    // breakdown — заполнится в enrichWithBreakdown
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,  // капитал — в enrichWithCapital
+                    null                                    // разбивка — в enrichWithBreakdown
             ));
         }
         return points;
     }
 
-    private BigDecimal sumByType(List<FinancialEvent> facts, EventType type) {
+    private static BigDecimal sumFacts(List<FinancialEvent> facts, EventType type) {
         return facts.stream()
                 .filter(e -> e.getType() == type)
                 .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    /**
-     * @param current        текущий месяц
-     * @param horizonMonths  сколько будущих месяцев построить (включая current+1 … current+horizonMonths)
-     * @param statsMap       предвычисленная статистика forecast-категорий (category → stats)
-     * @param wishlist       какие хотелки — планы
-     */
-    List<StrategyTimelinePointDto> buildFuturePoints(YearMonth current, int horizonMonths,
-                                                     Map<Category, CategoryMonthStats> statsMap,
-                                                     Wishlist wishlist) {
-        List<StrategyTimelinePointDto> points = new ArrayList<>();
-        if (horizonMonths <= 0) return points;
-
-        // Шаг 1: вычисляем агрегаты из предвычисленного statsMap
-        List<CategoryMonthStats> eligibleStats = statsMap.values().stream()
-                .filter(s -> s.monthsOfHistory() >= PredictionService.MIN_HISTORY_MONTHS)
-                .toList();
-
-        BigDecimal sumMedian = eligibleStats.stream()
-                .map(CategoryMonthStats::median)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        double sumHalfIqr = Math.sqrt(eligibleStats.stream()
-                .mapToDouble(s -> {
-                    double halfIqr = s.p75().subtract(s.p25()).doubleValue() / 2.0;
-                    return halfIqr * halfIqr;
-                })
-                .sum());
-
-        boolean fanEnabled = eligibleStats.size() >= MIN_CATEGORIES_FOR_FAN;
-
-        // Шаг 2: планы (recurring + manual) на будущее — один запрос на весь горизонт
-        LocalDate futureStart = current.plusMonths(1).atDay(1);
-        LocalDate futureEnd = current.plusMonths(horizonMonths).atEndOfMonth();
-        Map<YearMonth, List<FinancialEvent>> plannedByMonth = eventRepository
-                .findPlannedEventsByDateRange(futureStart, futureEnd).stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.PLAN)
-                .filter(wishlist::admits)
-                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
-
-        // Шаг 3: построение точек
-        BigDecimal balanceConfirmed = capitalService.cashLiquidAt(LocalDate.now(clock));
-
-        // ANO-41: прогноз считается по тому же правилу, что и в кармашке — медиана это ВСЯ
-        // обычная трата категории, а план её часть. Раньше здесь вычиталось sumMedian × k
-        // поверх плана, и категория с планом и историей списывалась дважды: «Продукты»
-        // с планом 32 000 и медианой 35 818 давали ожидание в 67 818.
-        Map<java.util.UUID, BigDecimal> mediansByCategory = new LinkedHashMap<>();
-        for (CategoryMonthStats s : eligibleStats) {
-            mediansByCategory.put(s.categoryId(), s.median());
-        }
-        Map<YearMonth, Map<java.util.UUID, BigDecimal>> plannedExpenseByCategory = new LinkedHashMap<>();
-        plannedByMonth.forEach((ym, list) -> {
-            Map<java.util.UUID, BigDecimal> byCat = new java.util.HashMap<>();
-            for (FinancialEvent e : list) {
-                if (e.getType() != EventType.EXPENSE || e.getCategory() == null) continue;
-                byCat.merge(e.getCategory().getId(),
-                        e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO,
-                        BigDecimal::add);
-            }
-            plannedExpenseByCategory.put(ym, byCat);
-        });
-        List<YearMonth> futureMonths = new ArrayList<>();
-        for (int k = 1; k <= horizonMonths; k++) futureMonths.add(current.plusMonths(k));
-        Map<YearMonth, BigDecimal> forecastByMonth = FutureForecastCalculator.forecastByMonth(
-                mediansByCategory, plannedExpenseByCategory, futureMonths);
-
-        BigDecimal forecastCum = BigDecimal.ZERO;
-
-        for (int k = 1; k <= horizonMonths; k++) {
-            YearMonth ym = current.plusMonths(k);
-            List<FinancialEvent> planned = plannedByMonth.getOrDefault(ym, List.of());
-
-            BigDecimal confirmedIncome = sumPlannedByType(planned, EventType.INCOME);
-            BigDecimal confirmedExpense = sumPlannedByType(planned, EventType.EXPENSE);
-            balanceConfirmed = balanceConfirmed.add(confirmedIncome).subtract(confirmedExpense);
-
-            BigDecimal monthForecast = forecastByMonth.getOrDefault(ym, BigDecimal.ZERO);
-            forecastCum = forecastCum.add(monthForecast);
-            BigDecimal balanceMedian = balanceConfirmed.subtract(forecastCum);
-
-            BigDecimal balanceLow, balanceHigh;
-            if (fanEnabled) {
-                double rawHalfIqr = sumHalfIqr * Math.sqrt(k);
-                double capCeiling = 2.0 * Math.abs(balanceMedian.doubleValue());
-                double accumulatedHalfIqr = Math.min(rawHalfIqr, capCeiling);
-                BigDecimal halfIqrBd = BigDecimal.valueOf(accumulatedHalfIqr)
-                        .setScale(2, RoundingMode.HALF_UP);
-                balanceLow = balanceMedian.subtract(halfIqrBd);
-                balanceHigh = balanceMedian.add(halfIqrBd);
-            } else {
-                balanceLow = balanceMedian;
-                balanceHigh = balanceMedian;
-            }
-
-            points.add(new StrategyTimelinePointDto(
-                    ym,
-                    StrategyPointPhase.FUTURE,
-                    balanceMedian,
-                    confirmedIncome,
-                    confirmedExpense.add(monthForecast),    // expense = план + прогноз сверх плана
-                    confirmedIncome.subtract(confirmedExpense.add(monthForecast)),  // nettoFlow
-                    balanceConfirmed,
-                    balanceLow,
-                    balanceHigh,
-                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                    null
-            ));
-        }
-        return points;
-    }
-
-    private BigDecimal sumPlannedByType(List<FinancialEvent> events, EventType type) {
-        return events.stream()
-                .filter(e -> e.getType() == type)
-                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
+    // ── капитал ─────────────────────────────────────────────────────────────
 
     /**
      * Обогащает точки timeline данными капитала (capital, assets, liabilities).
@@ -374,168 +313,94 @@ public class BaselineTimelineBuilder {
         return enriched;
     }
 
+    // ── разбивка ────────────────────────────────────────────────────────────
+
     /**
-     * Обогащает точки timeline разбивкой по категориям.
-     *
-     * <p>Факты и планы загружаются ОДНИМ запросом на весь диапазон точек, затем группируются
-     * по YearMonth и раздаются в соответствующие breakdown-методы. Статистика forecast-категорий
-     * берётся из предвычисленного {@code statsMap} — ни репозитории, ни PredictionService
-     * не вызываются повторно.
-     *
-     * @param points   список точек timeline (может быть любым подмножеством)
-     * @param statsMap предвычисленная статистика forecast-категорий (category → stats)
-     * @param wishlist какие хотелки — планы; то же правило, что у баланса точек
+     * Разбивка месяца: прошлый — записи-факты по категориям; текущий — факты и строки ядра одной
+     * суммой на категорию; будущий — строки ядра. Брони с прошедшей датой и взносы в копилки —
+     * своими строками, прогноз обычных трат — по категориям, если ядро держит его в этом месяце.
      */
     List<StrategyTimelinePointDto> enrichWithBreakdown(List<StrategyTimelinePointDto> points,
-                                                       Map<Category, CategoryMonthStats> statsMap,
-                                                       Wishlist wishlist) {
-        if (points.isEmpty()) return points;
-
-        // Диапазон для запросов — от первой до последней точки
-        YearMonth minYm = points.stream().map(StrategyTimelinePointDto::yearMonth)
-                .min(YearMonth::compareTo).orElseThrow();
-        YearMonth maxYm = points.stream().map(StrategyTimelinePointDto::yearMonth)
-                .max(YearMonth::compareTo).orElseThrow();
-
-        // Один запрос фактов на весь диапазон
-        Map<YearMonth, List<FinancialEvent>> factsByMonth = eventRepository
-                .findFactsByDateRange(minYm.atDay(1), maxYm.atEndOfMonth()).stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.FACT)
-                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
-
-        // Один запрос планов на весь диапазон
-        Map<YearMonth, List<FinancialEvent>> plansByMonth = eventRepository
-                .findPlannedEventsByDateRange(minYm.atDay(1), maxYm.atEndOfMonth()).stream()
-                .filter(e -> !e.isDeleted())
-                .filter(e -> e.getEventKind() == EventKind.PLAN)
-                .filter(wishlist::admits)
-                .collect(Collectors.groupingBy(e -> YearMonth.from(e.getDate())));
+                                                       Map<YearMonth, List<FinancialEvent>> facts,
+                                                       Map<YearMonth, CoreMonth> months,
+                                                       Map<YearMonth, Map<String, BigDecimal>> forecastByCategory) {
+        // Категория и «повторяется» строк ядра — по id: движок работает на плоских снимках без JPA.
+        List<UUID> ids = months.values().stream()
+                .flatMap(m -> m.held().stream())
+                .map(h -> h.event().id())
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<UUID, FinancialEvent> planned = new HashMap<>();
+        if (!ids.isEmpty()) {
+            for (FinancialEvent e : eventRepository.findAllById(ids)) planned.put(e.getId(), e);
+        }
 
         List<StrategyTimelinePointDto> enriched = new ArrayList<>(points.size());
         for (StrategyTimelinePointDto p : points) {
-            BreakdownDto br = switch (p.phase()) {
-                case PAST -> breakdownForPast(p.yearMonth(), factsByMonth);
-                case CURRENT -> breakdownForCurrent(p.yearMonth(), factsByMonth, statsMap);
-                case FUTURE -> breakdownForFuture(p.yearMonth(), plansByMonth, statsMap);
-            };
-            enriched.add(withBreakdown(p, br));
+            Lines income = new Lines();
+            Lines expense = new Lines();
+            if (p.phase() != StrategyPointPhase.FUTURE) {
+                for (FinancialEvent f : facts.getOrDefault(p.yearMonth(), List.of())) {
+                    if (f.getCategory() == null) continue;
+                    Lines lines = f.getType() == EventType.INCOME ? income
+                            : f.getType() == EventType.EXPENSE ? expense : null;
+                    if (lines != null) {
+                        lines.add(f.getCategory().getName(), f.getFactAmount(), f.getRecurringRule() != null);
+                    }
+                }
+            }
+            CoreMonth month = p.phase() == StrategyPointPhase.PAST ? null : months.get(p.yearMonth());
+            if (month != null) {
+                for (PocketEngine.Held h : month.held()) {
+                    FinancialEvent e = h.event().id() != null ? planned.get(h.event().id()) : null;
+                    (h.event().type() == EventType.INCOME ? income : expense)
+                            .add(nameOf(h, e), h.amount(), e != null && e.getRecurringRule() != null);
+                }
+                if (month.forecast().signum() != 0) {
+                    forecastByCategory.getOrDefault(p.yearMonth(), Map.of()).forEach(expense::predicted);
+                }
+            }
+            enriched.add(withBreakdown(p, new BreakdownDto(income.items(), expense.items())));
         }
         return enriched;
     }
 
-    private BreakdownDto breakdownForPast(YearMonth ym, Map<YearMonth, List<FinancialEvent>> factsByMonth) {
-        List<FinancialEvent> facts = factsByMonth.getOrDefault(ym, List.of());
-        // Per-category isRecurring=anyMatch(recurringRule != null) — FACT-события наследуют
-        // recurring_rule_id от родительского PLAN, и для ↻ иконки в tooltip нужно их детектировать.
-        return new BreakdownDto(
-                aggregateFactsByCategory(facts, EventType.INCOME),
-                aggregateFactsByCategory(facts, EventType.EXPENSE)
-        );
+    /** Имя строки ядра в разбивке: бронь с прошедшей датой и взнос — по смыслу, план — категорией. */
+    private static String nameOf(PocketEngine.Held h, FinancialEvent planned) {
+        if (h.event().syntheticKind() == SyntheticKind.SAVINGS_CONTRIBUTION) return CONTRIBUTIONS_LINE;
+        if (h.event().date() != null && h.event().date().isBefore(h.day())) return OVERDUE_LINE;
+        if (planned != null && planned.getCategory() != null) return planned.getCategory().getName();
+        String description = h.event().description();
+        return description != null && !description.isBlank() ? description : NO_CATEGORY;
     }
 
-    private BreakdownDto breakdownForFuture(YearMonth ym, Map<YearMonth, List<FinancialEvent>> plansByMonth,
-                                            Map<Category, CategoryMonthStats> statsMap) {
-        List<FinancialEvent> planned = plansByMonth.getOrDefault(ym, List.of());
+    /** Строки разбивки по имени: суммы складываются; повторяется — если повторяется хоть одна. */
+    private static final class Lines {
+        private final Map<String, BigDecimal> amounts = new LinkedHashMap<>();
+        private final Set<String> recurring = new HashSet<>();
+        private final Map<String, BigDecimal> predicted = new LinkedHashMap<>();
 
-        List<BreakdownItemDto> incomeItems = aggregatePlannedByCategory(planned, EventType.INCOME);
-        List<BreakdownItemDto> expenseItems = aggregatePlannedByCategory(planned, EventType.EXPENSE);
-
-        // ANO-41: predicted-строка показывает трату СВЕРХ ПЛАНА, а не всю медиану —
-        // иначе рядом с планом «Продукты 32 000» стояло бы «Продукты 35 818», и разбивка
-        // читалась бы как ожидание 67 818.
-        Map<java.util.UUID, BigDecimal> plannedByCategory = new java.util.HashMap<>();
-        for (FinancialEvent e : planned) {
-            if (e.getType() != EventType.EXPENSE || e.getCategory() == null) continue;
-            plannedByCategory.merge(e.getCategory().getId(),
-                    e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO,
-                    BigDecimal::add);
+        void add(String name, BigDecimal amount, boolean isRecurring) {
+            amounts.merge(name, amount != null ? amount : BigDecimal.ZERO, BigDecimal::add);
+            if (isRecurring) recurring.add(name);
         }
-        for (Map.Entry<Category, CategoryMonthStats> entry : statsMap.entrySet()) {
-            BigDecimal median = entry.getValue().median();
-            if (median.compareTo(BigDecimal.ZERO) <= 0) continue;
-            BigDecimal beyondPlan = median.subtract(
-                    plannedByCategory.getOrDefault(entry.getKey().getId(), BigDecimal.ZERO));
-            if (beyondPlan.compareTo(BigDecimal.ZERO) > 0) {
-                expenseItems.add(new BreakdownItemDto(entry.getKey().getName(), beyondPlan, false, true));
-            }
+
+        void predicted(String name, BigDecimal amount) {
+            predicted.merge(name, amount, BigDecimal::add);
         }
-        return new BreakdownDto(incomeItems, expenseItems);
-    }
 
-    private BreakdownDto breakdownForCurrent(YearMonth ym, Map<YearMonth, List<FinancialEvent>> factsByMonth,
-                                             Map<Category, CategoryMonthStats> statsMap) {
-        // Текущий месяц: факты до сегодня + прогноз остатка
-        BreakdownDto past = breakdownForPast(ym, factsByMonth);
-
-        List<BreakdownItemDto> expense = new ArrayList<>(past.expenseItems());
-
-        // Pro-rated прогноз
-        LocalDate today = LocalDate.now(clock);
-        int daysInMonth = ym.lengthOfMonth();
-        int daysRemaining = Math.max(0, daysInMonth - today.getDayOfMonth());
-        double fraction = (double) daysRemaining / daysInMonth;
-
-        if (fraction > 0) {
-            for (Map.Entry<Category, CategoryMonthStats> entry : statsMap.entrySet()) {
-                BigDecimal proRated = entry.getValue().median().multiply(BigDecimal.valueOf(fraction))
-                        .setScale(2, RoundingMode.HALF_UP);
-                if (proRated.compareTo(BigDecimal.ZERO) > 0) {
-                    expense.add(new BreakdownItemDto(entry.getKey().getName(), proRated, false, true));
-                }
-            }
+        /** Сначала факты и планы по убыванию суммы, затем прогноз. */
+        List<BreakdownItemDto> items() {
+            Comparator<BreakdownItemDto> byAmount = Comparator.comparing(BreakdownItemDto::amount).reversed();
+            Stream<BreakdownItemDto> known = amounts.entrySet().stream()
+                    .map(e -> new BreakdownItemDto(e.getKey(), e.getValue(), recurring.contains(e.getKey()), false))
+                    .sorted(byAmount);
+            Stream<BreakdownItemDto> forecast = predicted.entrySet().stream()
+                    .map(e -> new BreakdownItemDto(e.getKey(), e.getValue(), false, true))
+                    .sorted(byAmount);
+            return Stream.concat(known, forecast).collect(Collectors.toCollection(ArrayList::new));
         }
-        return new BreakdownDto(past.incomeItems(), expense);
-    }
-
-    /**
-     * Агрегирует planned-события заданного типа по категории.
-     * Возвращает {@link ArrayList} (а не неизменяемый список), чтобы вызывающий код
-     * мог добавлять predicted-элементы после агрегации.
-     */
-    private List<BreakdownItemDto> aggregatePlannedByCategory(List<FinancialEvent> events, EventType type) {
-        return events.stream()
-                .filter(e -> e.getType() == type)
-                .filter(e -> e.getCategory() != null)
-                .collect(Collectors.groupingBy(
-                        e -> e.getCategory().getName(),
-                        Collectors.collectingAndThen(Collectors.toList(),
-                                list -> new BreakdownItemDto(
-                                        list.get(0).getCategory().getName(),
-                                        list.stream()
-                                                .map(e -> e.getPlannedAmount() != null ? e.getPlannedAmount() : BigDecimal.ZERO)
-                                                .reduce(BigDecimal.ZERO, BigDecimal::add),
-                                        list.stream().anyMatch(e -> e.getRecurringRule() != null),
-                                        false
-                                ))))
-                .values().stream()
-                .sorted((a, b) -> b.amount().compareTo(a.amount()))
-                .collect(Collectors.toCollection(ArrayList::new));
-    }
-
-    /**
-     * Агрегирует FACT-события заданного типа по категории. Per-group {@code isRecurring} —
-     * true если хотя бы один факт в группе наследует {@code recurringRule_id} от родительского PLAN.
-     * {@code isPredicted} всегда false (это факт, не прогноз).
-     */
-    private List<BreakdownItemDto> aggregateFactsByCategory(List<FinancialEvent> events, EventType type) {
-        return events.stream()
-                .filter(e -> e.getType() == type)
-                .filter(e -> e.getCategory() != null)
-                .collect(Collectors.groupingBy(
-                        e -> e.getCategory().getName(),
-                        Collectors.collectingAndThen(Collectors.toList(),
-                                list -> new BreakdownItemDto(
-                                        list.get(0).getCategory().getName(),
-                                        list.stream()
-                                                .map(e -> e.getFactAmount() != null ? e.getFactAmount() : BigDecimal.ZERO)
-                                                .reduce(BigDecimal.ZERO, BigDecimal::add),
-                                        list.stream().anyMatch(e -> e.getRecurringRule() != null),
-                                        false
-                                ))))
-                .values().stream()
-                .sorted((a, b) -> b.amount().compareTo(a.amount()))
-                .toList();
     }
 
     private StrategyTimelinePointDto withBreakdown(StrategyTimelinePointDto p, BreakdownDto br) {

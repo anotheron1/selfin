@@ -40,6 +40,7 @@ class PocketInputAssemblerTest {
     private TargetFundRepository fundRepository;
     private CategoryRepository categoryRepository;
     private AccountBalanceService accountBalanceService;
+    private PredictionService predictionService;
     private PocketInputAssembler assembler;
 
     @BeforeEach
@@ -49,7 +50,7 @@ class PocketInputAssemblerTest {
         categoryRepository = mock(CategoryRepository.class);
         accountBalanceService = mock(AccountBalanceService.class);
         UserSettingsService settingsService = mock(UserSettingsService.class);
-        PredictionService predictionService = mock(PredictionService.class);
+        predictionService = mock(PredictionService.class);
         RecurringRuleService recurringRuleService = mock(RecurringRuleService.class);
 
         // По умолчанию — «дефолтного счёта нет» (Mockito отдаёт Optional.empty() на
@@ -168,6 +169,9 @@ class PocketInputAssemblerTest {
         assertThat(contributions(a)).isEmpty();
         assertThat(a.baselineRefs().keySet())
                 .noneMatch(r -> r.type() == SandboxRef.RefType.FUND);
+        // Р1: накопленная и с протухшим сроком — в плане ядра, держать по ним нечего; без срока,
+        // кредит и сконвертированная — не в плане.
+        assertThat(a.plannedFunds()).containsExactlyInAnyOrder(saved.getId(), stale.getId(), past.getId());
     }
 
     @Test
@@ -365,4 +369,42 @@ class PocketInputAssemblerTest {
 
         assertThat(a.baselineRefs()).containsKey(SandboxRef.event(id));
     }
+
+    @Test
+    @DisplayName("Р1: прогноз по категориям — текущий месяц сверх плана по темпу, будущие — медиана минус план; та же сумма, что во входе ядра")
+    void forecastByCategory_currentAndFutureMonths() {
+        ru.selfin.backend.model.Category products = ru.selfin.backend.model.Category.builder()
+                .id(UUID.randomUUID()).name("Продукты").build();
+        when(categoryRepository.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of(products));
+        when(predictionService.getStatsForCategory(products, PredictionService.HISTORY_WINDOW_MONTHS))
+                .thenReturn(new ru.selfin.backend.dto.strategy.CategoryMonthStats(products.getId(), 6,
+                        BigDecimal.valueOf(30_000), BigDecimal.valueOf(25_000), BigDecimal.valueOf(35_000)));
+        when(eventRepository.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of(
+                ru.selfin.backend.model.FinancialEvent.builder().id(UUID.randomUUID())
+                        .date(LocalDate.of(2026, 4, 10)).category(products)
+                        .type(ru.selfin.backend.model.enums.EventType.EXPENSE)
+                        .eventKind(ru.selfin.backend.model.EventKind.PLAN)
+                        .plannedAmount(BigDecimal.valueOf(12_000)).deleted(false).build()));
+        when(predictionService.forecastFromEvents(any(), any(), any())).thenReturn(new MonthlyForecastDto(List.of(
+                new ru.selfin.backend.dto.CategoryForecastDto("Продукты", BigDecimal.ZERO, BigDecimal.ZERO,
+                        BigDecimal.valueOf(30_000), BigDecimal.valueOf(7_000), List.of()),
+                new ru.selfin.backend.dto.CategoryForecastDto("Кафе", BigDecimal.ZERO, BigDecimal.ZERO,
+                        BigDecimal.ZERO, BigDecimal.ZERO, List.of())),
+                BigDecimal.valueOf(7_000)));
+
+        PocketInputAssembler.Assembled a = assembler.build(MONTHS_6, TODAY);
+
+        java.time.YearMonth march = java.time.YearMonth.of(2026, 3);
+        java.time.YearMonth april = java.time.YearMonth.of(2026, 4);
+        java.time.YearMonth may = java.time.YearMonth.of(2026, 5);
+        assertThat(a.forecastByCategory().get(march)).as("текущий месяц — без категорий, где сверх плана ноль")
+                .containsOnlyKeys("Продукты");
+        assertThat(a.forecastByCategory().get(march).get("Продукты")).isEqualByComparingTo("7000");
+        assertThat(a.forecastByCategory().get(april).get("Продукты")).isEqualByComparingTo("18000");
+        assertThat(a.forecastByCategory().get(may).get("Продукты")).isEqualByComparingTo("30000");
+        assertThat(a.input().futureForecast().get(april)).as("ядро держит ту же сумму")
+                .isEqualByComparingTo("18000");
+        assertThat(a.input().unplannedForecast()).isEqualByComparingTo("7000");
+    }
+
 }

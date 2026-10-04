@@ -1,27 +1,37 @@
 package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.capital.CapitalTrajectoryDto;
+import ru.selfin.backend.dto.pocket.EventSnapshot;
+import ru.selfin.backend.dto.pocket.FallbackKind;
+import ru.selfin.backend.dto.pocket.PocketInput;
+import ru.selfin.backend.dto.pocket.PocketScope;
+import ru.selfin.backend.dto.pocket.SandboxRef;
+import ru.selfin.backend.dto.pocket.SyntheticKind;
 import ru.selfin.backend.dto.strategy.BreakdownDto;
 import ru.selfin.backend.dto.strategy.BreakdownItemDto;
-import ru.selfin.backend.dto.strategy.CategoryMonthStats;
 import ru.selfin.backend.dto.strategy.StrategyPointPhase;
-import ru.selfin.backend.dto.strategy.StrategyTimelineDto;
 import ru.selfin.backend.dto.strategy.StrategyTimelinePointDto;
+import ru.selfin.backend.dto.wishlist.TimelineSnapshot;
 import ru.selfin.backend.model.Category;
-import ru.selfin.backend.model.RecurringRule;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.RecurringRule;
+import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,18 +40,29 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.data.Offset.offset;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * Сборка остатка по месяцам (Р1). Поведение «точки = ядро» на базе — {@code StrategyFromCoreIT};
+ * здесь то, чего IT не видит: прогноз обычных трат (ему нужна история) и строки разбивки.
+ * Движок настоящий, подменён только сборщик его входа.
+ */
 class BaselineTimelineBuilderTest {
+
+    private static final LocalDate TODAY = LocalDate.of(2026, 3, 10);
+    private static final YearMonth MARCH = YearMonth.of(2026, 3);
+    private static final YearMonth APRIL = YearMonth.of(2026, 4);
+    private static final YearMonth MAY = YearMonth.of(2026, 5);
 
     private FinancialEventRepository eventRepo;
     private BalanceCheckpointRepository checkpointRepo;
     private CategoryRepository categoryRepo;
-    private PredictionService predictionService;
     private CapitalService capitalService;
+    private AccountBalanceService accountBalanceService;
+    private PocketInputAssembler assembler;
     private BaselineTimelineBuilder builder;
 
     @BeforeEach
@@ -49,34 +70,32 @@ class BaselineTimelineBuilderTest {
         eventRepo = mock(FinancialEventRepository.class);
         checkpointRepo = mock(BalanceCheckpointRepository.class);
         categoryRepo = mock(CategoryRepository.class);
-        predictionService = mock(PredictionService.class);
         capitalService = mock(CapitalService.class);
+        accountBalanceService = mock(AccountBalanceService.class);
+        assembler = mock(PocketInputAssembler.class);
+        PredictionService predictionService = mock(PredictionService.class);
 
-        builder = new BaselineTimelineBuilder(eventRepo, checkpointRepo, categoryRepo,
-                predictionService, capitalService, Clock.systemDefaultZone());
+        builder = new BaselineTimelineBuilder(eventRepo, checkpointRepo, categoryRepo, predictionService,
+                capitalService, accountBalanceService, assembler,
+                Clock.fixed(Instant.parse("2026-03-10T10:00:00Z"), ZoneOffset.UTC));
     }
+
+    // ── первый месяц активности ─────────────────────────────────────────────
 
     @Test
     void firstActivityMonth_returns_earliest_of_all_three_sources() {
-        // checkpoint самый ранний
-        when(eventRepo.findEarliestFactDate())
-                .thenReturn(Optional.of(LocalDate.of(2024, 6, 15)));
-        when(checkpointRepo.findEarliestCheckpointDate())
-                .thenReturn(Optional.of(LocalDate.of(2024, 3, 1)));
-        when(capitalService.findEarliestRevaluationDate())
-                .thenReturn(Optional.of(LocalDate.of(2024, 5, 1)));
+        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.of(LocalDate.of(2024, 6, 15)));
+        when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.of(LocalDate.of(2024, 3, 1)));
+        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.of(LocalDate.of(2024, 5, 1)));
 
         assertThat(builder.firstActivityMonth()).isEqualTo(YearMonth.of(2024, 3));
     }
 
     @Test
     void firstActivityMonth_uses_fact_when_earliest() {
-        when(eventRepo.findEarliestFactDate())
-                .thenReturn(Optional.of(LocalDate.of(2023, 1, 10)));
-        when(checkpointRepo.findEarliestCheckpointDate())
-                .thenReturn(Optional.of(LocalDate.of(2023, 4, 1)));
-        when(capitalService.findEarliestRevaluationDate())
-                .thenReturn(Optional.empty());
+        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.of(LocalDate.of(2023, 1, 10)));
+        when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.of(LocalDate.of(2023, 4, 1)));
+        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
 
         assertThat(builder.firstActivityMonth()).isEqualTo(YearMonth.of(2023, 1));
     }
@@ -85,8 +104,7 @@ class BaselineTimelineBuilderTest {
     void firstActivityMonth_uses_revaluation_when_earliest() {
         when(eventRepo.findEarliestFactDate()).thenReturn(Optional.empty());
         when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
-        when(capitalService.findEarliestRevaluationDate())
-                .thenReturn(Optional.of(LocalDate.of(2022, 11, 1)));
+        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.of(LocalDate.of(2022, 11, 1)));
 
         assertThat(builder.firstActivityMonth()).isEqualTo(YearMonth.of(2022, 11));
     }
@@ -97,15 +115,12 @@ class BaselineTimelineBuilderTest {
         when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
         when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
 
-        YearMonth expected = YearMonth.now().minusMonths(1);
-        assertThat(builder.firstActivityMonth()).isEqualTo(expected);
+        assertThat(builder.firstActivityMonth()).isEqualTo(MARCH.minusMonths(1));
     }
 
     @Test
     void firstActivityMonth_truncates_to_month_ignoring_day() {
-        // Дата 15-го числа должна давать тот же месяц, что и 1-е
-        when(eventRepo.findEarliestFactDate())
-                .thenReturn(Optional.of(LocalDate.of(2024, 8, 15)));
+        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.of(LocalDate.of(2024, 8, 15)));
         when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
         when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
 
@@ -121,177 +136,35 @@ class BaselineTimelineBuilderTest {
         assertThat(builder.firstActivityMonth()).isEqualTo(YearMonth.of(2024, 2));
     }
 
+    // ── прошлые месяцы ──────────────────────────────────────────────────────
+
     @Test
-    void buildPastPoints_uses_cashLiquidAt_per_month_and_aggregates_facts() {
-        // Готовим прошлое: с марта 2024 по апрель 2026 (currentMonth = май 2026)
-        // Для тест-сценария замокаем 3 месяца истории и проверим что точки построены корректно.
-        YearMonth current = YearMonth.of(2026, 5);
+    @DisplayName("Р1: прошлый месяц — остаток счетов на последний день, как «на счёте»; доход и расход — факты")
+    void buildPastPoints_useAccountsBalance_andFacts() {
+        when(accountBalanceService.accountsBalanceAt(LocalDate.of(2026, 1, 31))).thenReturn(new BigDecimal("100000"));
+        when(accountBalanceService.accountsBalanceAt(LocalDate.of(2026, 2, 28))).thenReturn(new BigDecimal("150000"));
+        Category salary = category("Зарплата");
+        Category food = category("Продукты");
 
-        // capitalService.cashLiquidAt вызывается для конца каждого прошлого месяца
-        when(capitalService.cashLiquidAt(LocalDate.of(2026, 2, 28))).thenReturn(new BigDecimal("100000"));
-        when(capitalService.cashLiquidAt(LocalDate.of(2026, 3, 31))).thenReturn(new BigDecimal("150000"));
-        when(capitalService.cashLiquidAt(LocalDate.of(2026, 4, 30))).thenReturn(new BigDecimal("180000"));
+        List<StrategyTimelinePointDto> past = builder.buildPastPoints(YearMonth.of(2026, 1), MARCH, Map.of(
+                YearMonth.of(2026, 2), List.of(
+                        fact(salary, EventType.INCOME, LocalDate.of(2026, 2, 5), 200_000),
+                        fact(food, EventType.EXPENSE, LocalDate.of(2026, 2, 10), 40_000))));
 
-        // Замокать findFactsByDateRange чтобы вернуть факты по месяцам
-        Category catFood = Category.builder().id(UUID.randomUUID()).name("Продукты").build();
-        Category catSalary = Category.builder().id(UUID.randomUUID()).name("Зарплата").build();
-        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of(
-                FinancialEvent.builder().date(LocalDate.of(2026, 3, 5)).category(catSalary)
-                        .type(EventType.INCOME).factAmount(new BigDecimal("200000"))
-                        .eventKind(EventKind.FACT).deleted(false).build(),
-                FinancialEvent.builder().date(LocalDate.of(2026, 3, 10)).category(catFood)
-                        .type(EventType.EXPENSE).factAmount(new BigDecimal("40000"))
-                        .eventKind(EventKind.FACT).deleted(false).build(),
-                FinancialEvent.builder().date(LocalDate.of(2026, 4, 5)).category(catSalary)
-                        .type(EventType.INCOME).factAmount(new BigDecimal("200000"))
-                        .eventKind(EventKind.FACT).deleted(false).build(),
-                FinancialEvent.builder().date(LocalDate.of(2026, 4, 10)).category(catFood)
-                        .type(EventType.EXPENSE).factAmount(new BigDecimal("35000"))
-                        .eventKind(EventKind.FACT).deleted(false).build()
-        ));
-
-        List<StrategyTimelinePointDto> past = builder.buildPastPoints(YearMonth.of(2026, 2), current);
-
-        assertThat(past).hasSize(3);
-        // Февраль — нет фактов в моке, баланс из cashLiquidAt
-        assertThat(past.get(0).yearMonth()).isEqualTo(YearMonth.of(2026, 2));
-        assertThat(past.get(0).phase()).isEqualTo(StrategyPointPhase.PAST);
+        assertThat(past).extracting(StrategyTimelinePointDto::yearMonth)
+                .containsExactly(YearMonth.of(2026, 1), YearMonth.of(2026, 2));
+        assertThat(past).allMatch(p -> p.phase() == StrategyPointPhase.PAST && p.balanceConfirmed() == null);
         assertThat(past.get(0).balance()).isEqualByComparingTo("100000");
-        assertThat(past.get(0).balanceConfirmed()).isNull();
-        assertThat(past.get(0).balanceLow()).isNull();
-
-        // Март
+        assertThat(past.get(1).balance()).isEqualByComparingTo("150000");
         assertThat(past.get(1).income()).isEqualByComparingTo("200000");
         assertThat(past.get(1).expense()).isEqualByComparingTo("40000");
         assertThat(past.get(1).nettoFlow()).isEqualByComparingTo("160000");
-        assertThat(past.get(1).balance()).isEqualByComparingTo("150000");
-
-        // Апрель
-        assertThat(past.get(2).income()).isEqualByComparingTo("200000");
-        assertThat(past.get(2).expense()).isEqualByComparingTo("35000");
-        assertThat(past.get(2).balance()).isEqualByComparingTo("180000");
     }
 
-    @Test
-    void buildFuturePoints_categoryWithPlanAndHistory_isNotCountedTwice() {
-        // ANO-41: регрессия. Прежняя формула вычитала sumMedian × k ПОВЕРХ плана,
-        // и категория с планом и историей списывалась дважды: «Продукты» с планом
-        // 32 000 и медианой 35 818 давали ожидание 67 818.
-        //
-        // Существующие тесты этого не ловили: у них плановых событий нет вовсе,
-        // а баг проявляется только на пересечении плана и истории.
-        YearMonth current = YearMonth.of(2026, 8);
-        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
-
-        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
-        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
-        statsMap.put(food, new CategoryMonthStats(food.getId(), 6,
-                new BigDecimal("35818"), new BigDecimal("30000"), new BigDecimal("40000")));
-
-        ru.selfin.backend.model.FinancialEvent plan = ru.selfin.backend.model.FinancialEvent.builder()
-                .id(UUID.randomUUID())
-                .date(LocalDate.of(2026, 9, 10))
-                .type(ru.selfin.backend.model.enums.EventType.EXPENSE)
-                .eventKind(ru.selfin.backend.model.EventKind.PLAN)
-                .plannedAmount(new BigDecimal("32000"))
-                .category(food)
-                .build();
-        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of(plan));
-
-        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN).get(0);
-
-        // Ключевое: ждём медиану целиком, а не план ПЛЮС медиану
-        assertThat(m1.expense())
-                .as("план 32 000 + прогноз сверх плана 3 818 = медиана 35 818, а не 67 818")
-                .isEqualByComparingTo("35818");
-        // Баланс проседает на план и на разницу, но не на медиану дважды
-        assertThat(m1.balanceConfirmed()).isEqualByComparingTo("68000");   // 100 000 − 32 000
-        assertThat(m1.balance()).isEqualByComparingTo("64182");            // 68 000 − 3 818
-    }
-
-    @Test
-    void buildFuturePoints_planAboveMedian_addsNoForecast() {
-        // «Подписки» из реальных данных: план 4 500 выше медианы 3 529 —
-        // прогноз обязан обнулиться, а не «вернуть» разницу отрицательным числом.
-        YearMonth current = YearMonth.of(2026, 8);
-        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("100000"));
-
-        Category subs = Category.builder().id(UUID.randomUUID()).name("Подписки").forecastEnabled(true).build();
-        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
-        statsMap.put(subs, new CategoryMonthStats(subs.getId(), 6,
-                new BigDecimal("3529"), new BigDecimal("3000"), new BigDecimal("4000")));
-
-        ru.selfin.backend.model.FinancialEvent plan = ru.selfin.backend.model.FinancialEvent.builder()
-                .id(UUID.randomUUID())
-                .date(LocalDate.of(2026, 9, 5))
-                .type(ru.selfin.backend.model.enums.EventType.EXPENSE)
-                .eventKind(ru.selfin.backend.model.EventKind.PLAN)
-                .plannedAmount(new BigDecimal("4500"))
-                .category(subs)
-                .build();
-        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of(plan));
-
-        StrategyTimelinePointDto m1 = builder.buildFuturePoints(current, 1, statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN).get(0);
-
-        assertThat(m1.expense()).isEqualByComparingTo("4500");
-        assertThat(m1.balance()).isEqualByComparingTo("95500");
-    }
-
-    @Test
-    void buildFuturePoints_uses_recurring_planned_and_predicts_with_fan_bounds() {
-        YearMonth current = YearMonth.of(2026, 5);
-
-        // Замокать cashLiquidAt(today) — seed для balanceConfirmed[0]
-        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("180000"));
-
-        // Строим statsMap напрямую — buildFuturePoints больше не вызывает categoryRepo/predictionService
-        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
-        Category transport = Category.builder().id(UUID.randomUUID()).name("Транспорт").forecastEnabled(true).build();
-        Category fun = Category.builder().id(UUID.randomUUID()).name("Развлечения").forecastEnabled(true).build();
-
-        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
-        statsMap.put(food, new CategoryMonthStats(food.getId(), 6,
-                new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000"))); // halfIqr=5000
-        statsMap.put(transport, new CategoryMonthStats(transport.getId(), 6,
-                new BigDecimal("10000"), new BigDecimal("8000"), new BigDecimal("12000"))); // halfIqr=2000
-        statsMap.put(fun, new CategoryMonthStats(fun.getId(), 6,
-                new BigDecimal("15000"), new BigDecimal("10000"), new BigDecimal("20000"))); // halfIqr=5000
-
-        // sumMedian = 60000, sumHalfIqr = sqrt(25M + 4M + 25M) = sqrt(54M) ≈ 7348
-
-        // Recurring + planned событий на будущие месяцы — пусто (тест на чистый прогноз)
-        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
-
-        List<StrategyTimelinePointDto> future = builder.buildFuturePoints(current, 3, statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
-
-        assertThat(future).hasSize(3);
-
-        // Месяц 1 — k=1
-        StrategyTimelinePointDto m1 = future.get(0);
-        assertThat(m1.yearMonth()).isEqualTo(YearMonth.of(2026, 6));
-        assertThat(m1.phase()).isEqualTo(StrategyPointPhase.FUTURE);
-        // balanceConfirmed[1] = 180000 + 0 - 0 = 180000 (нет recurring/planned)
-        assertThat(m1.balanceConfirmed()).isEqualByComparingTo("180000");
-        // balanceMedian[1] = 180000 - 60000 * 1 = 120000
-        assertThat(m1.balance()).isEqualByComparingTo("120000");
-        // accumulatedHalfIqr[1] = 7348 * sqrt(1) ≈ 7348
-        // balanceLow = 120000 - 7348 ≈ 112652, balanceHigh = 120000 + 7348 ≈ 127348
-        assertThat(m1.balanceLow().doubleValue()).isCloseTo(112652, offset(50.0));
-        assertThat(m1.balanceHigh().doubleValue()).isCloseTo(127348, offset(50.0));
-
-        // Месяц 3 — k=3
-        StrategyTimelinePointDto m3 = future.get(2);
-        // balanceMedian[3] = 180000 - 60000 * 3 = 0
-        assertThat(m3.balance()).isEqualByComparingTo("0");
-        // accumulatedHalfIqr[3] = 7348 * sqrt(3) ≈ 12727; cap=2×|0|=0
-        // НО т.к. balanceMedian=0, cap=0 → fan ширина 0
-        assertThat(m3.balanceLow()).isEqualByComparingTo("0");
-        assertThat(m3.balanceHigh()).isEqualByComparingTo("0");
-    }
+    // ── капитал ─────────────────────────────────────────────────────────────
 
     @Test
     void enrichWithCapital_fills_capital_assets_liabilities_for_past_and_future() {
-        // Подаём 3 точки (2 PAST + 1 FUTURE) с нулевыми капитал-полями
         YearMonth jan = YearMonth.of(2026, 1);
         YearMonth feb = YearMonth.of(2026, 2);
         YearMonth jun = YearMonth.of(2026, 6);
@@ -300,154 +173,186 @@ class BaselineTimelineBuilderTest {
                 pointWith(feb, StrategyPointPhase.PAST),
                 pointWith(jun, StrategyPointPhase.FUTURE)
         ));
-
-        // Замокать trajectory: 2 прошлые точки + 0 будущих в реальности
-        CapitalTrajectoryDto trajectory = new CapitalTrajectoryDto(List.of(
+        when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of(
                 new CapitalTrajectoryDto.Point(LocalDate.of(2026, 1, 31),
                         new BigDecimal("3500000"), new BigDecimal("4000000"),
                         new BigDecimal("4500000"), new BigDecimal("500000")),
                 new CapitalTrajectoryDto.Point(LocalDate.of(2026, 2, 28),
                         new BigDecimal("3600000"), new BigDecimal("4100000"),
                         new BigDecimal("4600000"), new BigDecimal("500000"))
-        ));
-        when(capitalService.trajectory(any(), any())).thenReturn(trajectory);
+        )));
 
         List<StrategyTimelinePointDto> result = builder.enrichWithCapital(points);
 
         assertThat(result.get(0).capital()).isEqualByComparingTo("3500000");
         assertThat(result.get(1).capital()).isEqualByComparingTo("3600000");
-        // Future месяц получает last-known: 3600000
+        // Будущий месяц получает последний известный капитал
         assertThat(result.get(2).capital()).isEqualByComparingTo("3600000");
         assertThat(result.get(2).assets()).isEqualByComparingTo("4600000");
         assertThat(result.get(2).liabilities()).isEqualByComparingTo("500000");
     }
 
-    @Test
-    void enrichWithBreakdown_for_past_aggregates_facts_by_category() {
-        YearMonth mar = YearMonth.of(2026, 3);
-        StrategyTimelinePointDto march = pointWith(mar, StrategyPointPhase.PAST);
+    // ── текущий и будущие месяцы из ядра ────────────────────────────────────
 
-        Category salary = Category.builder().id(UUID.randomUUID()).name("Зарплата").build();
-        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").build();
+    /**
+     * Вход ядра: сверка 100 000 на 01.03, факт «Кафе» 2 000 08.03, бронь 7 000 с прошедшей датой,
+     * доход 50 000 и план «Ипотека» 20 000 в апреле, взнос в копилку 10 000 в апреле; прогноз обычных
+     * трат — 3 000 до конца марта и 4 000 в апреле.
+     */
+    private final class CoreCase {
+        final Category cafe = category("Кафе");
+        final UUID mortgageId = UUID.randomUUID();
+        final UUID salaryId = UUID.randomUUID();
+        final EventSnapshot factSnap = new EventSnapshot(UUID.randomUUID(), LocalDate.of(2026, 3, 8),
+                EventType.EXPENSE, EventKind.FACT, EventStatus.EXECUTED, Priority.MEDIUM,
+                null, BigDecimal.valueOf(2_000), null, false, "Кафе");
+        final EventSnapshot overdue = plan(UUID.randomUUID(), EventType.EXPENSE, LocalDate.of(2026, 3, 5), 7_000, "Связь");
+        final EventSnapshot salary = plan(salaryId, EventType.INCOME, LocalDate.of(2026, 4, 5), 50_000, null);
+        final EventSnapshot mortgage = plan(mortgageId, EventType.EXPENSE, LocalDate.of(2026, 4, 15), 20_000, null);
+        final EventSnapshot contrib = new EventSnapshot(null, LocalDate.of(2026, 4, 5), EventType.EXPENSE,
+                EventKind.PLAN, EventStatus.PLANNED, Priority.MEDIUM, BigDecimal.valueOf(10_000), null, null,
+                false, "Отпуск", SyntheticKind.SAVINGS_CONTRIBUTION);
+        final SandboxRef fundRef = SandboxRef.fund(UUID.randomUUID());
 
-        when(eventRepo.findFactsByDateRange(mar.atDay(1), mar.atEndOfMonth())).thenReturn(List.of(
-                FinancialEvent.builder().date(LocalDate.of(2026, 3, 5)).category(salary)
-                        .type(EventType.INCOME).factAmount(new BigDecimal("200000"))
-                        .eventKind(EventKind.FACT).deleted(false).build(),
-                FinancialEvent.builder().date(LocalDate.of(2026, 3, 10)).category(food)
-                        .type(EventType.EXPENSE).factAmount(new BigDecimal("40000"))
-                        .eventKind(EventKind.FACT).deleted(false).build()
-        ));
-        // Нет планов в этом диапазоне
-        when(eventRepo.findPlannedEventsByDateRange(mar.atDay(1), mar.atEndOfMonth())).thenReturn(List.of());
+        void stub(LocalDate asOf, BigDecimal currentMonthForecast) {
+            PocketScope scope = new PocketScope(PocketScope.Type.DATE, null, LocalDate.of(2026, 6, 30));
+            PocketInput input = new PocketInput(asOf, BigDecimal.valueOf(100_000), LocalDate.of(2026, 3, 1), null,
+                    List.of(factSnap, salary, mortgage, contrib), List.of(), List.of(overdue), List.of(),
+                    scope, LocalDate.of(2026, 6, 30), FallbackKind.NONE, BigDecimal.ZERO,
+                    currentMonthForecast, List.of("Продукты"), Map.of(APRIL, BigDecimal.valueOf(4_000)),
+                    null, null, null);
+            Map<YearMonth, Map<String, BigDecimal>> forecastByCategory = new LinkedHashMap<>();
+            forecastByCategory.put(MARCH, Map.of("Продукты", currentMonthForecast));
+            forecastByCategory.put(APRIL, Map.of("Продукты", BigDecimal.valueOf(4_000)));
+            when(assembler.build(eq(scope), eq(asOf))).thenReturn(new PocketInputAssembler.Assembled(
+                    input, Map.of(fundRef, List.of(contrib)), List.of(), forecastByCategory));
 
-        // Пустой statsMap — PAST breakdown его не использует
-        Map<Category, CategoryMonthStats> statsMap = Map.of();
-
-        List<StrategyTimelinePointDto> result = builder.enrichWithBreakdown(List.of(march), statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
-
-        BreakdownDto br = result.get(0).breakdown();
-        assertThat(br).isNotNull();
-        assertThat(br.incomeItems()).hasSize(1);
-        assertThat(br.incomeItems().get(0).category()).isEqualTo("Зарплата");
-        assertThat(br.incomeItems().get(0).amount()).isEqualByComparingTo("200000");
-        assertThat(br.expenseItems()).hasSize(1);
-        assertThat(br.expenseItems().get(0).category()).isEqualTo("Продукты");
-        assertThat(br.expenseItems().get(0).amount()).isEqualByComparingTo("40000");
+            RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+            when(eventRepo.findAllById(any())).thenReturn(List.of(
+                    FinancialEvent.builder().id(mortgageId).category(category("Ипотека")).recurringRule(rule).build(),
+                    FinancialEvent.builder().id(salaryId).category(category("Зарплата")).build()));
+            when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of(
+                    fact(cafe, EventType.EXPENSE, LocalDate.of(2026, 3, 8), 2_000)));
+            when(eventRepo.findEarliestFactDate()).thenReturn(Optional.of(LocalDate.of(2026, 3, 8)));
+            when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.of(LocalDate.of(2026, 3, 1)));
+            when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
+            when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
+            when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of()));
+        }
     }
 
     @Test
-    void enrichWithBreakdown_for_future_includes_recurring_planned_and_predicted() {
-        YearMonth jun = YearMonth.of(2026, 6);
-        StrategyTimelinePointDto june = pointWith(jun, StrategyPointPhase.FUTURE);
+    @DisplayName("Р1: текущий и будущие месяцы — точки ядра на конец месяца; главная линия с прогнозом, вторая по планам")
+    void build_currentAndFutureMonths_fromCoreTrajectory() {
+        CoreCase c = new CoreCase();
+        c.stub(TODAY, BigDecimal.valueOf(3_000));
 
-        Category mortgage = Category.builder().id(UUID.randomUUID()).name("Ипотека").build();
-        Category food = Category.builder().id(UUID.randomUUID()).name("Продукты").forecastEnabled(true).build();
-        RecurringRule rule = RecurringRule.builder().id(UUID.randomUUID()).build();
+        TimelineSnapshot snap = builder.build(3, true);
 
-        // Recurring planned EXPENSE на ипотеку
-        when(eventRepo.findPlannedEventsByDateRange(jun.atDay(1), jun.atEndOfMonth())).thenReturn(List.of(
-                FinancialEvent.builder().date(LocalDate.of(2026, 6, 15)).category(mortgage)
-                        .type(EventType.EXPENSE).plannedAmount(new BigDecimal("80000"))
-                        .eventKind(EventKind.PLAN).recurringRule(rule).deleted(false).build()
-        ));
-        // Нет фактов в этом диапазоне
-        when(eventRepo.findFactsByDateRange(jun.atDay(1), jun.atEndOfMonth())).thenReturn(List.of());
+        assertThat(snap.points()).extracting(StrategyTimelinePointDto::yearMonth)
+                .containsExactly(MARCH, APRIL, MAY, YearMonth.of(2026, 6));
+        StrategyTimelinePointDto march = snap.points().get(0);
+        assertThat(march.phase()).isEqualTo(StrategyPointPhase.CURRENT);
+        assertThat(march.balanceConfirmed()).as("на счёте 98 000 минус бронь").isEqualByComparingTo("91000");
+        assertThat(march.balance()).as("и обычные траты до конца месяца").isEqualByComparingTo("88000");
+        assertThat(march.expense()).as("факт + бронь + обычные траты").isEqualByComparingTo("12000");
+        assertThat(march.income()).isEqualByComparingTo("0");
 
-        // statsMap с предвычисленной статистикой для food — передаётся напрямую
-        Map<Category, CategoryMonthStats> statsMap = new LinkedHashMap<>();
-        statsMap.put(food, new CategoryMonthStats(food.getId(), 6,
-                new BigDecimal("35000"), new BigDecimal("30000"), new BigDecimal("40000")));
+        StrategyTimelinePointDto april = snap.points().get(1);
+        assertThat(april.phase()).isEqualTo(StrategyPointPhase.FUTURE);
+        assertThat(april.balanceConfirmed()).isEqualByComparingTo("111000");
+        assertThat(april.balance()).isEqualByComparingTo("104000");
+        assertThat(april.income()).isEqualByComparingTo("50000");
+        assertThat(april.expense()).as("ипотека + взнос + обычные траты").isEqualByComparingTo("34000");
+        assertThat(april.nettoFlow()).isEqualByComparingTo("16000");
 
-        List<StrategyTimelinePointDto> result = builder.enrichWithBreakdown(List.of(june), statsMap, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
-
-        BreakdownDto br = result.get(0).breakdown();
-        assertThat(br.expenseItems()).hasSize(2);
-
-        // Recurring ипотека
-        BreakdownItemDto mortgageItem = br.expenseItems().stream()
-                .filter(i -> i.category().equals("Ипотека"))
-                .findFirst().orElseThrow();
-        assertThat(mortgageItem.amount()).isEqualByComparingTo("80000");
-        assertThat(mortgageItem.isRecurring()).isTrue();
-        assertThat(mortgageItem.isPredicted()).isFalse();
-
-        // Predicted продукты — без суффикса " (прогноз остатка)", isPredicted=true — контракт
-        BreakdownItemDto foodItem = br.expenseItems().stream()
-                .filter(i -> i.category().equals("Продукты"))
-                .findFirst().orElseThrow();
-        assertThat(foodItem.amount()).isEqualByComparingTo("35000");
-        assertThat(foodItem.isRecurring()).isFalse();
-        assertThat(foodItem.isPredicted()).isTrue();
+        StrategyTimelinePointDto may = snap.points().get(2);
+        assertThat(may.balance()).isEqualByComparingTo("104000");
+        assertThat(may.expense()).isEqualByComparingTo("0");
     }
 
     @Test
-    void build_assembles_past_current_future_with_capital_and_breakdown() {
-        // Замокать минимально, чтобы пройти всю цепочку
-        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.of(LocalDate.now().minusMonths(2)));
-        when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
-        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
+    @DisplayName("Р1: разбивка — факты и строки ядра; брони и взносы своими строками; прогноз по категориям")
+    void build_breakdown_fromFactsAndCoreLines() {
+        CoreCase c = new CoreCase();
+        c.stub(TODAY, BigDecimal.valueOf(3_000));
 
-        when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("100000"));
-        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
-        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
-        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
-        when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of()));
+        TimelineSnapshot snap = builder.build(3, true);
 
-        var snap = builder.build(3, true, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
+        BreakdownDto march = snap.points().get(0).breakdown();
+        assertThat(march.expenseItems())
+                .extracting(BreakdownItemDto::category, i -> i.amount().longValue(), BreakdownItemDto::isPredicted)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(BaselineTimelineBuilder.OVERDUE_LINE, 7_000L, false),
+                        org.assertj.core.groups.Tuple.tuple("Кафе", 2_000L, false),
+                        org.assertj.core.groups.Tuple.tuple("Продукты", 3_000L, true));
 
-        // 2 past + 1 current + 3 future = 6
-        assertThat(snap.points()).hasSize(6);
-        assertThat(snap.currentMonth()).isEqualTo(YearMonth.now());
-        assertThat(snap.horizonEnd()).isEqualTo(YearMonth.now().plusMonths(3));
-        assertThat(snap.predictionWindowMonths()).isEqualTo(6);
-        assertThat(snap.fanEnabled()).isFalse(); // нет forecast-категорий
+        BreakdownDto april = snap.points().get(1).breakdown();
+        assertThat(april.expenseItems())
+                .extracting(BreakdownItemDto::category, i -> i.amount().longValue(), BreakdownItemDto::isPredicted)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("Ипотека", 20_000L, false),
+                        org.assertj.core.groups.Tuple.tuple(BaselineTimelineBuilder.CONTRIBUTIONS_LINE, 10_000L, false),
+                        org.assertj.core.groups.Tuple.tuple("Продукты", 4_000L, true));
+        assertThat(april.expenseItems().get(0).isRecurring()).isTrue();
+        assertThat(april.incomeItems()).extracting(BreakdownItemDto::category).containsExactly("Зарплата");
     }
 
     @Test
-    void build_currentMonth_balance_uses_cashLiquidAt_today() {
-        when(eventRepo.findEarliestFactDate()).thenReturn(Optional.empty());
-        when(checkpointRepo.findEarliestCheckpointDate()).thenReturn(Optional.empty());
-        when(capitalService.findEarliestRevaluationDate()).thenReturn(Optional.empty());
-        // Fallback firstActivityMonth = today.minusMonths(1) — значит будут PAST + CURRENT + FUTURE
-        when(capitalService.cashLiquidAt(LocalDate.now())).thenReturn(new BigDecimal("550000"));
-        when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("550000"));
-        when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
-        when(eventRepo.findPlannedEventsByDateRange(any(), any())).thenReturn(List.of());
-        when(categoryRepo.findAllByForecastEnabledTrueAndDeletedFalse()).thenReturn(List.of());
-        when(capitalService.trajectory(any(), any())).thenReturn(new CapitalTrajectoryDto(List.of()));
+    @DisplayName("Р1: последний день месяца — ядро обычные траты месяца уже не держит, и разбивка их не показывает")
+    void build_predictedLines_onlyWhenCoreHoldsForecast() {
+        LocalDate lastDay = LocalDate.of(2026, 3, 31);
+        builder = new BaselineTimelineBuilder(eventRepo, checkpointRepo, categoryRepo, mock(PredictionService.class),
+                capitalService, accountBalanceService, assembler,
+                Clock.fixed(Instant.parse("2026-03-31T10:00:00Z"), ZoneOffset.UTC));
+        CoreCase c = new CoreCase();
+        c.stub(lastDay, BigDecimal.valueOf(3_000));
 
-        var snap = builder.build(2, false, BaselineTimelineBuilder.Wishlist.FIXED_AS_PLAN);
+        StrategyTimelinePointDto march = builder.build(3, true).points().get(0);
 
-        StrategyTimelinePointDto current = snap.points().stream()
-                .filter(p -> p.phase() == StrategyPointPhase.CURRENT)
-                .findFirst().orElseThrow();
-        assertThat(current.balance()).isEqualByComparingTo("550000");
-        assertThat(current.yearMonth()).isEqualTo(YearMonth.now());
+        assertThat(march.balance()).isEqualByComparingTo(march.balanceConfirmed());
+        assertThat(march.breakdown().expenseItems()).noneMatch(BreakdownItemDto::isPredicted);
     }
 
-    // helper-метод pointWith
-    private StrategyTimelinePointDto pointWith(YearMonth ym, StrategyPointPhase phase) {
+    @Test
+    @DisplayName("Р1: сколько ядро держит по ссылке примерки — по месяцам; ссылка без строк и копилка плана без строк — с пустой картой")
+    void build_heldByRef_perMonth() {
+        CoreCase c = new CoreCase();
+        c.stub(TODAY, BigDecimal.ZERO);
+        SandboxRef emptyRef = SandboxRef.event(UUID.randomUUID());
+        PocketInputAssembler.Assembled stubbed = assembler.build(
+                new PocketScope(PocketScope.Type.DATE, null, LocalDate.of(2026, 6, 30)), TODAY);
+        Map<SandboxRef, List<EventSnapshot>> refs = new LinkedHashMap<>(stubbed.baselineRefs());
+        refs.put(emptyRef, List.of(plan(UUID.randomUUID(), EventType.EXPENSE, LocalDate.of(2027, 1, 1), 1_000, null)));
+        UUID savedFund = UUID.randomUUID();   // накоплена до цели: в плане ядра, держать нечего
+        when(assembler.build(any(), eq(TODAY))).thenReturn(new PocketInputAssembler.Assembled(
+                stubbed.input(), refs, List.of(), stubbed.forecastByCategory(), java.util.Set.of(savedFund)));
+
+        TimelineSnapshot snap = builder.build(3, false);
+
+        assertThat(snap.heldByRef().get(c.fundRef)).containsExactlyEntriesOf(Map.of(APRIL, new BigDecimal("10000")));
+        assertThat(snap.heldByRef()).containsKey(emptyRef);
+        assertThat(snap.heldByRef().get(emptyRef)).isEmpty();
+        assertThat(snap.heldByRef().get(SandboxRef.fund(savedFund))).as("ревью Codex на #129").isEmpty();
+    }
+
+    // ── хелперы ─────────────────────────────────────────────────────────────
+
+    private static Category category(String name) {
+        return Category.builder().id(UUID.randomUUID()).name(name).build();
+    }
+
+    private static FinancialEvent fact(Category category, EventType type, LocalDate date, long amount) {
+        return FinancialEvent.builder().id(UUID.randomUUID()).date(date).category(category).type(type)
+                .factAmount(BigDecimal.valueOf(amount)).eventKind(EventKind.FACT).deleted(false).build();
+    }
+
+    private static EventSnapshot plan(UUID id, EventType type, LocalDate date, long amount, String description) {
+        return new EventSnapshot(id, date, type, EventKind.PLAN, EventStatus.PLANNED, Priority.HIGH,
+                BigDecimal.valueOf(amount), null, null, false, description);
+    }
+
+    private static StrategyTimelinePointDto pointWith(YearMonth ym, StrategyPointPhase phase) {
         return new StrategyTimelinePointDto(ym, phase,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 null, null, null,

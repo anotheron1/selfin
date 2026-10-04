@@ -316,10 +316,8 @@ public class CapitalService {
      * CRUD появляется в этом же чанке.
      */
     public BigDecimal cashLiquidAt(LocalDate t) {
-        BigDecimal accountsCash = accountBalanceService.freeMoneyAt(t)
-                .add(accountBalanceService.noAnchorFallbackAt(t));
         BigDecimal pocketBalance = fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(t);
-        return accountsCash.add(pocketBalance);
+        return accountBalanceService.accountsBalanceAt(t).add(pocketBalance);
     }
 
     private List<LocalDate> buildMonthEndPoints(LocalDate from, LocalDate to) {

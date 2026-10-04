@@ -20,7 +20,8 @@ public class WishlistController {
     @GetMapping("/simulation")
     public WishlistSimulationDto getSimulation(
             @RequestParam(defaultValue = "36") int horizonMonths) {
-        int safe = Math.min(Math.max(horizonMonths, 1), 60);
+        // Р1: основа — ядро, а оно дальше 36 месяцев не считает.
+        int safe = Math.min(Math.max(horizonMonths, 1), ru.selfin.backend.dto.pocket.PocketScope.MAX_MONTHS);
         return simulationService.getSimulation(safe);
     }
 
