@@ -53,9 +53,10 @@ public class FinancialEventService {
         // несёт созданное. Раньше журнал показывал её рядом с планом из неё — две одинаковые
         // строки, складывал обе в «Расходы … план», а факт, записанный в исходную, закрывал её
         // и оставлял план открытым — свободные считали покупку дважды.
+        // Р4 (ANO-206): обсуждаемая и отложенная — тоже не строки месяца, их место — «Хотелки».
         List<FinancialEvent> events =
                 eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(start, end)
-                        .stream().filter(e -> !convertedObligationOnly(e)).toList();
+                        .stream().filter(e -> !e.outsideMonthPlan()).toList();
 
         // Aggregate fact counts/amounts for PLAN enrichment
         List<UUID> planIds = events.stream()
@@ -93,17 +94,6 @@ public class FinancialEventService {
         return events.stream()
                 .map(e -> toDto(e, aggByPlan.get(e.getId()), parentById.get(e.getParentEventId()), fundNameById.get(e.getTargetFundId())))
                 .toList();
-    }
-
-    /**
-     * Строка — только обязательство сконвертированной хотелки, денег в ней нет (ANO-106).
-     *
-     * <p>Деньги остаются в выборке всегда: и отдельные строки факта, и факт, записанный прямо в
-     * строку хотелки старым путём {@code PATCH /events/{id}/fact}, — настоящая трата. Такую
-     * строку прятать нельзя: из журнала пропали бы деньги (ревью Codex, #109).
-     */
-    private static boolean convertedObligationOnly(FinancialEvent e) {
-        return e.convertedToArtifact() && e.getFactAmount() == null;
     }
 
     /**

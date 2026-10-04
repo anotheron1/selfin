@@ -45,8 +45,10 @@ public class DashboardService {
     public DashboardDto getDashboard(LocalDate asOfDate) {
         LocalDate monthStart = asOfDate.withDayOfMonth(1);
         LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
+        // Р4 (ANO-206): в плане месяца — только то, что в плане у ядра.
         List<FinancialEvent> monthEvents = eventRepository
-                .findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
+                .findAllByDeletedFalseAndDateBetween(monthStart, monthEnd)
+                .stream().filter(e -> !e.outsideMonthPlan()).toList();
         return new DashboardDto(buildProgressBars(monthEvents, asOfDate));
     }
 

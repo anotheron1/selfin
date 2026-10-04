@@ -12,7 +12,6 @@ import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.enums.EventStatus;
-import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
@@ -371,11 +370,9 @@ public class PredictionService {
         return reservedOverdueIds.contains(e.getId());
     }
 
-    /** Фильтр хотелок для траектории: копия {@code PocketEngine.allowedInTrajectory}. */
+    /** Фильтр хотелок для траектории: правило сущности, то же, что {@code PocketEngine.allowedInTrajectory}. */
     private static boolean allowedInTrajectory(FinancialEvent e) {
-        if (e.getWishlistStatus() == null) return true;
-        return e.getWishlistStatus() == WishlistStatus.FIXED
-                && e.getConvertedToEventId() == null && e.getConvertedToFundId() == null;
+        return !e.wishlistOutsidePlan();
     }
 
     /**

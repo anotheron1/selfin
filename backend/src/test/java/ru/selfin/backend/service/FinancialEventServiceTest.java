@@ -912,15 +912,22 @@ class FinancialEventServiceTest {
     }
 
     @Test
-    @DisplayName("findByPeriod: хотелка, превращённая в план или копилку, — не событие периода (ANO-106)")
-    void findByPeriod_skipsWishlistConvertedToArtifact() {
+    @DisplayName("findByPeriod: в периоде — только строки плана ядра; обсуждаемая, отложенная и сконвертированные — нет (ANO-106, Р4)")
+    void findByPeriod_skipsWishlistOutsidePlan() {
         // Замер 28.09: после конверсии в журнале две одинаковые строки, а факт в исходную
-        // считал покупку дважды. Её деньги несёт созданное — план или копилка.
+        // считал покупку дважды. Её деньги несёт созданное — план или копилка. Р4 (ANO-206):
+        // обсуждаемая и отложенная тоже не строки месяца — их место «Хотелки».
         Category cat = category();
         FinancialEvent plain = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
         FinancialEvent open = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
         open.setPriority(Priority.LOW);
         open.setWishlistStatus(WishlistStatus.OPEN);
+        FinancialEvent dismissed = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
+        dismissed.setPriority(Priority.LOW);
+        dismissed.setWishlistStatus(WishlistStatus.DISMISSED);
+        FinancialEvent fixed = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
+        fixed.setPriority(Priority.LOW);
+        fixed.setWishlistStatus(WishlistStatus.FIXED);
         FinancialEvent toPlan = aPlan(UUID.randomUUID(), cat, EventStatus.PLANNED);
         toPlan.setPriority(Priority.LOW);
         toPlan.setWishlistStatus(WishlistStatus.FIXED);
@@ -932,15 +939,15 @@ class FinancialEventServiceTest {
         FinancialEvent fact = aFact(UUID.randomUUID());
         fact.setDate(LocalDate.now());
         when(eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(any(), any()))
-                .thenReturn(List.of(plain, open, toPlan, toFund, fact));
+                .thenReturn(List.of(plain, open, dismissed, fixed, toPlan, toFund, fact));
         when(eventRepository.findFactAggregatesByPlanIds(anyList())).thenReturn(List.of());
 
         List<UUID> ids = service.findByPeriod(LocalDate.now(), LocalDate.now()).stream()
                 .map(FinancialEventDto::id).toList();
 
         assertThat(ids)
-                .as("обычный план, хотелка в обсуждении и факт остаются; сконвертированные — нет")
-                .containsExactly(plain.getId(), open.getId(), fact.getId());
+                .as("обычный план, зафиксированная хотелка и факт остаются; остальные хотелки — нет")
+                .containsExactly(plain.getId(), fixed.getId(), fact.getId());
     }
 
     @Test
