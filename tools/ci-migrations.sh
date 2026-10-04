@@ -168,6 +168,12 @@ done
 echo "── база на версии main, данные пишет код main: $BASE_IMAGE"
 start_app "$BASE_IMAGE"
 TZ=Europe/Moscow node "$SEEDER" --api "$API"
+# Ленивое продление бессрочных правил — запись на чтении, а не миграция. Первое чтение кармашка
+# на данных дописывает события до конца месяца горизонта (PocketScope.maxEnd, с #129), а правило
+# при создании генерирует до «сегодня + 36 месяцев». Бэкенд PR это чтение делает при старте —
+# start_app ждёт /pocket, — а здесь оно было до посева. Без него разница «после PR» ложная:
+# 05.10 — +3 события на 200 800 (Зарплата, Аванс, Интернет октября через три года) на PR без кода.
+curl -s -o /dev/null "$API/pocket"
 version_base=$(psql_q "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1")
 rank_base=$(psql_q "SELECT max(installed_rank) FROM flyway_schema_history")
 counts > "$WORK/before"
