@@ -49,10 +49,8 @@ class PlanRemainderSingleSourceTest {
         assertThat(read("ru/selfin/backend/service/PredictionService.java"))
                 .as("норма обязана вычитать ровно то, что удерживает движок")
                 .contains("PlanRemainder.of(");
-        assertThat(read("ru/selfin/backend/service/AnalyticsService.java"))
-                .as("мостик стартового баланса обязан вычитать остаток, иначе план и его "
-                        + "факт уходят из баланса дважды (ревью #45)")
-                .contains("PlanRemainder.of(");
+        // Третьим потребителем был «мостик» стартового баланса в AnalyticsService (ревью #45). Он
+        // ушёл с Р3 (ANO-47) вместе с кассовым календарём, которого не показывал ни один экран.
     }
 
     @Test

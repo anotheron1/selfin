@@ -163,8 +163,10 @@ paths:
 
   /events/{id}/fact:
     patch:
-      summary: Ввести фактическую сумму (частичное обновление)
-      description: Обновляет только factAmount и description. Статус меняется автоматически — EXECUTED если factAmount != null, иначе PLANNED.
+      summary: Поправить сумму записи-факта (частичное обновление)
+      description: >-
+        Только для записей-фактов (eventKind FACT): обновляет factAmount и description. Факт по
+        плановой строке — отдельная запись, POST /events/{planId}/facts (Р3, ANO-25).
       parameters:
         - name: id
           in: path
@@ -192,6 +194,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FinancialEvent'
+        '400':
+          description: Строка плановая (eventKind PLAN) — факт к ней пишется через POST /events/{planId}/facts
 
   /events/{id}/priority:
     patch:
@@ -289,7 +293,7 @@ paths:
   # ==========================================
   /analytics/dashboard:
     get:
-      summary: Аналитический отчёт за месяц (кассовый календарь, план-факт, структура бюджета)
+      summary: Аналитический отчёт за месяц (план-факт, структура бюджета)
       parameters:
         - name: date
           in: query
@@ -725,26 +729,6 @@ components:
       type: object
       description: Аналитический отчёт за месяц
       properties:
-        cashFlow:
-          type: array
-          description: Нарастающий баланс по дням месяца
-          items:
-            type: object
-            properties:
-              date:
-                type: string
-                format: date
-              dailyIncome:
-                type: number
-              dailyExpense:
-                type: number
-              runningBalance:
-                type: number
-              isFuture:
-                type: boolean
-              isGap:
-                type: boolean
-                description: true если нарастающий баланс отрицательный
         planFact:
           type: object
           description: Отчёт план-факт по категориям
@@ -773,41 +757,6 @@ components:
             totalPlannedExpense:
               type: number
             totalFactExpense:
-              type: number
-        mandatoryBurn:
-          type: object
-          description: Burn rate HIGH-приоритетных расходов по неделям месяца
-          properties:
-            totalPlanned:
-              type: number
-            totalFact:
-              type: number
-            byWeek:
-              type: array
-              items:
-                type: object
-                properties:
-                  weekNumber:
-                    type: integer
-                  weekStart:
-                    type: string
-                    format: date
-                  weekEnd:
-                    type: string
-                    format: date
-                  planned:
-                    type: number
-                  fact:
-                    type: number
-        incomeGap:
-          type: object
-          description: Анализ дефицита дохода
-          properties:
-            plannedIncome:
-              type: number
-            factIncome:
-              type: number
-            delta:
               type: number
         priorityBreakdown:
           type: object

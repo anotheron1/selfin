@@ -45,8 +45,8 @@ public class AnalyticsController {
     }
 
     @Operation(summary = "Расширенный аналитический отчёт",
-            description = "Возвращает четыре секции аналитики за месяц опорной даты: "
-                    + "кассовый календарь, план-факт по категориям, burn rate обязательных расходов, дефицит доходов.")
+            description = "Возвращает две секции аналитики за месяц опорной даты: "
+                    + "план-факт по категориям и разбивку расходов по приоритетам.")
     @GetMapping("/report")
     public AnalyticsReportDto getReport(
             @Parameter(description = "Опорная дата (по умолчанию — сегодня), формат YYYY-MM-DD") @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {

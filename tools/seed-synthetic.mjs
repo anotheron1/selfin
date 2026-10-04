@@ -223,8 +223,9 @@ await post('/events/facts', {
   date: day(-1), categoryId: health.id, type: 'EXPENSE', factAmount: 1550,
   description: 'Аптека', rawInput: '1200+350',
 });
-// Старый путь записи факта прямо в план (ANO-25).
-await patch(`/events/${cafePast.id}/fact`, { factAmount: 2100 });
+// Факт к плану прошлого месяца. Раньше здесь был старый путь — факт прямо в строку плана, —
+// но с Р3 (ANO-25) сервер такой факт не принимает: только отдельной записью.
+await post(`/events/${cafePast.id}/facts`, { date: cafePast.date, factAmount: 2100 });
 await post(`/events/${hobbyPlan.id}/facts`, { date: hobbyPlan.date, factAmount: 3800 });
 
 // ── Правки цепочек ──────────────────────────────────────────────────────────

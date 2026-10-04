@@ -7,7 +7,6 @@ import ru.selfin.backend.dto.AnalyticsReportDto;
 import ru.selfin.backend.dto.AnalyticsReportDto.*;
 import ru.selfin.backend.dto.MultiMonthReportDto;
 import ru.selfin.backend.dto.MultiMonthReportDto.*;
-import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.CategoryType;
@@ -21,7 +20,6 @@ import java.text.Collator;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.WeekFields;
 import java.util.*;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -29,31 +27,18 @@ import java.util.stream.Collectors;
 /**
  * Сервис аналитики: строит агрегированный отчёт по событиям текущего месяца.
  * <p>
- * Отчёт включает четыре раздела:
- * <ol>
- *   <li>Кассовый календарь — нарастающий баланс по дням месяца</li>
- *   <li>Отчёт план-факт — по категориям с группировкой INCOME / EXPENSE</li>
- *   <li>Burn rate обязательных трат — с разбивкой по неделям</li>
- *   <li>Дефицит цели дохода — план vs факт по всем доходным событиям</li>
- * </ol>
+ * Отчёт месяца — план-факт по категориям и разбивка по характеру строк. Кассовый календарь с
+ * «мостиком», burn rate и дефицит дохода ушли с Р3 (ANO-47): их не показывал ни один экран.
  */
 @Service
 @RequiredArgsConstructor
 public class AnalyticsService {
 
     private final FinancialEventRepository eventRepository;
-    private final AccountBalanceService accountBalanceService;
-
-    /** Горизонт кассового календаря: количество дней вперёд от текущей даты. */
-    private static final int CASH_FLOW_HORIZON_DAYS = 14;
 
     /**
-     * Формирует полный аналитический отчёт за месяц, в котором находится {@code asOfDate}.
-     * Прошлые дни используют фактические суммы (при наличии), будущие — плановые.
-     * <p>
-     * Кассовый календарь расширяется на {@value #CASH_FLOW_HORIZON_DAYS} дней вперёд
-     * от {@code asOfDate}, при необходимости захватывая события следующего месяца.
-     * Остальные разделы отчёта (план-факт, burn rate, income gap) остаются в рамках месяца.
+     * Формирует отчёт за месяц, в котором находится {@code asOfDate}: план-факт по категориям и
+     * разбивку по характеру строк.
      *
      * @param asOfDate опорная дата расчёта (обычно сегодня)
      * @return агрегированный {@link AnalyticsReportDto}
@@ -62,96 +47,8 @@ public class AnalyticsService {
     public AnalyticsReportDto getReport(LocalDate asOfDate) {
         LocalDate monthStart = asOfDate.withDayOfMonth(1);
         LocalDate monthEnd = asOfDate.withDayOfMonth(asOfDate.lengthOfMonth());
-        LocalDate calendarEnd = asOfDate.plusDays(CASH_FLOW_HORIZON_DAYS);
-        if (calendarEnd.isBefore(monthEnd)) {
-            calendarEnd = monthEnd;
-        }
-
         List<FinancialEvent> monthEvents = eventRepository.findAllByDeletedFalseAndDateBetween(monthStart, monthEnd);
-
-        // Для кассового календаря: если горизонт выходит за пределы месяца,
-        // подгружаем события следующего месяца и объединяем
-        List<FinancialEvent> cashFlowEvents;
-        if (calendarEnd.isAfter(monthEnd)) {
-            List<FinancialEvent> extraEvents = eventRepository
-                    .findAllByDeletedFalseAndDateBetween(monthEnd.plusDays(1), calendarEnd);
-            cashFlowEvents = new ArrayList<>(monthEvents);
-            cashFlowEvents.addAll(extraEvents);
-        } else {
-            cashFlowEvents = monthEvents;
-        }
-
-        BigDecimal initialBalance = calcStartBalance(monthStart, asOfDate);
-
-        return new AnalyticsReportDto(
-                buildCashFlow(cashFlowEvents, monthStart, calendarEnd, asOfDate, initialBalance),
-                buildPlanFact(monthEvents),
-                buildMandatoryBurnRate(monthEvents, monthStart, monthEnd),
-                buildIncomeGap(monthEvents),
-                buildPriorityBreakdown(monthEvents));
-    }
-
-    /**
-     * Строит кассовый календарь — список дней с нарастающим балансом.
-     * <p>
-     * Нарастающий баланс стартует от {@code initialBalance} — реального остатка на счёте
-     * на начало месяца, рассчитанного через {@link #calcStartBalance(LocalDate, LocalDate)}.
-     * <p>
-     * Для каждого дня вычисляется {@code dailyIncome} и {@code dailyExpense}:
-     * прошлые дни используют {@code factAmount} (при отсутствии — {@code plannedAmount}),
-     * будущие — только {@code plannedAmount}.
-     * Дни без событий скрываются, за исключением сегодняшнего дня.
-     * <p>
-     * Диапазон дат может выходить за пределы текущего месяца —
-     * параметр {@code endDate} задаётся горизонтом кассового календаря
-     * ({@value #CASH_FLOW_HORIZON_DAYS} дней вперёд от текущей даты).
-     *
-     * @param events         события за весь диапазон {@code [monthStart, endDate]} (без удалённых)
-     * @param monthStart     первый день месяца (начало нарастающего баланса)
-     * @param endDate        последний день календаря (может быть за пределами месяца)
-     * @param today          сегодняшняя дата (граница прошлое / будущее)
-     * @param initialBalance начальный баланс на начало месяца из чекпоинта
-     * @return упорядоченный список {@link CashFlowDay} от {@code monthStart} до {@code endDate}
-     */
-    private List<CashFlowDay> buildCashFlow(List<FinancialEvent> events,
-                                             LocalDate monthStart, LocalDate endDate,
-                                             LocalDate today, BigDecimal initialBalance) {
-        // Фильтр EventKind (PLAN vs FACT) здесь не нужен: расширенный диапазон содержит
-        // только будущие дни, у которых factAmount = null, поэтому двойного счёта нет.
-        // Группируем события по дате
-        Map<LocalDate, List<FinancialEvent>> byDate = events.stream()
-                .collect(Collectors.groupingBy(FinancialEvent::getDate));
-
-        List<CashFlowDay> days = new ArrayList<>();
-        BigDecimal running = initialBalance;
-
-        for (LocalDate d = monthStart; !d.isAfter(endDate); d = d.plusDays(1)) {
-            boolean isFuture = d.isAfter(today);
-            List<FinancialEvent> dayEvents = byDate.getOrDefault(d, List.of());
-
-            BigDecimal income = BigDecimal.ZERO;
-            BigDecimal expense = BigDecimal.ZERO;
-
-            for (FinancialEvent e : dayEvents) {
-                BigDecimal amount = effectiveAmount(e, isFuture);
-                if (amount == null) continue;
-                if (e.getType() == EventType.INCOME) {
-                    income = income.add(amount);
-                } else {
-                    expense = expense.add(amount);
-                }
-            }
-
-            running = running.add(income).subtract(expense);
-            // Показываем день только если были события или это сегодня
-            if (income.compareTo(BigDecimal.ZERO) != 0
-                    || expense.compareTo(BigDecimal.ZERO) != 0
-                    || d.equals(today)) {
-                days.add(new CashFlowDay(d, income, expense, running, isFuture, running.compareTo(BigDecimal.ZERO) < 0));
-            }
-        }
-
-        return days;
+        return new AnalyticsReportDto(buildPlanFact(monthEvents), buildPriorityBreakdown(monthEvents));
     }
 
     /**
@@ -199,187 +96,6 @@ public class AnalyticsService {
         Collator collator = Collator.getInstance(new Locale("ru", "RU"));
         categories.sort((a, b) -> collator.compare(a.categoryName(), b.categoryName()));
         return new PlanFactReport(categories, totalPlannedIncome, totalFactIncome, totalPlannedExpense, totalFactExpense);
-    }
-
-    /**
-     * Строит burn rate обязательных расходов с разбивкой по неделям текущего месяца.
-     * <p>
-     * Учитываются только события с {@code mandatory = true} и {@code type = EXPENSE}.
-     * Месяц делится на недели по ISO-правилу (понедельник — начало недели),
-     * но границы обрезаются по первому и последнему дню месяца.
-     *
-     * @param events     события месяца
-     * @param monthStart первый день месяца
-     * @param monthEnd   последний день месяца
-     * @return {@link MandatoryBurnRate} с общими итогами и разбивкой по неделям
-     */
-    private MandatoryBurnRate buildMandatoryBurnRate(List<FinancialEvent> events,
-                                                      LocalDate monthStart, LocalDate monthEnd) {
-        List<FinancialEvent> mandatory = events.stream()
-                .filter(e -> e.getPriority() == Priority.HIGH && e.getType() == EventType.EXPENSE)
-                .toList();
-
-        // Разбиваем месяц на недели (пн–вс), обрезая по границам месяца
-        List<WeekBurnRate> byWeek = new ArrayList<>();
-        WeekFields wf = WeekFields.ISO;
-        LocalDate weekStart = monthStart;
-        int weekNum = 1;
-
-        while (!weekStart.isAfter(monthEnd)) {
-            // Конец недели = воскресенье текущей недели, но не позже конца месяца
-            LocalDate weekEnd = weekStart.with(wf.dayOfWeek(), 7);
-            if (weekEnd.isAfter(monthEnd)) weekEnd = monthEnd;
-
-            final LocalDate ws = weekStart;
-            final LocalDate we = weekEnd;
-
-            BigDecimal planned = BigDecimal.ZERO;
-            BigDecimal fact = BigDecimal.ZERO;
-            for (FinancialEvent e : mandatory) {
-                if (!e.getDate().isBefore(ws) && !e.getDate().isAfter(we)) {
-                    planned = planned.add(orZero(e.getPlannedAmount()));
-                    fact = fact.add(orZero(e.getFactAmount()));
-                }
-            }
-
-            byWeek.add(new WeekBurnRate(weekNum, ws, we, planned, fact));
-            weekNum++;
-            weekStart = weekEnd.plusDays(1);
-        }
-
-        BigDecimal totalPlanned = mandatory.stream().map(e -> orZero(e.getPlannedAmount())).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalFact = mandatory.stream().map(e -> orZero(e.getFactAmount())).reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        return new MandatoryBurnRate(totalPlanned, totalFact, byWeek);
-    }
-
-    /**
-     * Строит анализ дефицита доходов.
-     * <p>
-     * Суммирует все плановые и фактические доходы за месяц.
-     * delta = factIncome - plannedIncome; отрицательная дельта = недобор.
-     *
-     * @param events события месяца
-     * @return {@link IncomeGap}
-     */
-    private IncomeGap buildIncomeGap(List<FinancialEvent> events) {
-        BigDecimal planned = BigDecimal.ZERO;
-        BigDecimal fact = BigDecimal.ZERO;
-
-        for (FinancialEvent e : events) {
-            if (e.getType() == EventType.INCOME) {
-                planned = planned.add(orZero(e.getPlannedAmount()));
-                fact = fact.add(orZero(e.getFactAmount()));
-            }
-        }
-
-        return new IncomeGap(planned, fact, fact.subtract(planned));
-    }
-
-    /**
-     * Вычисляет начальный баланс на начало месяца {@code monthStart}
-     * на основе последнего {@code BalanceCheckpoint} ДЕФОЛТНОГО счёта.
-     * <p>
-     * Якорь берётся через {@code accountBalanceService.anchorAt(defaultAccount, asOfDate)}, а
-     * не как раньше — {@code checkpointRepository.findTopByOrderByDateDesc()}, глобально
-     * последний чекпоинт по ВСЕЙ таблице без учёта счёта и без ограничения по дате (ANO-9,
-     * Task 2.2а). Победивший чекпоинт мог принадлежать вкладу или кредитке — их остаток/доступный
-     * лимит молча становился стартовым балансом месяца, как только счетов стало больше одного
-     * (тот же класс дефекта, что был найден в {@link PocketInputAssembler}, см. его комментарий
-     * у вызова {@code accountBalanceService.anchorAt}). Ограничение {@code date ≤ asOfDate} —
-     * тот же принцип: чекпоинт из будущего не должен побеждать.
-     * <p>
-     * Алгоритм:
-     * <ol>
-     *   <li>Если чекпоинта нет — возвращает ноль (обратная совместимость).</li>
-     *   <li>Если чекпоинт за текущий или более поздний месяц — возвращает сумму чекпоинта как есть.</li>
-     *   <li>Если чекпоинт из прошлого месяца — суммирует «мостик» событий
-     *       от даты чекпоинта до последнего дня предыдущего месяца включительно.</li>
-     * </ol>
-     *
-     * @param monthStart первый день целевого месяца
-     * @param asOfDate   опорная дата отчёта — верхняя граница поиска якоря
-     * @return накопленный баланс на начало месяца
-     */
-    private BigDecimal calcStartBalance(LocalDate monthStart, LocalDate asOfDate) {
-        Optional<BalanceCheckpoint> latestCheckpoint = accountBalanceService.defaultAccount()
-                .flatMap(a -> accountBalanceService.anchorAt(a, asOfDate));
-        if (latestCheckpoint.isEmpty()) return BigDecimal.ZERO;
-
-        BalanceCheckpoint cp = latestCheckpoint.get();
-        BigDecimal startBalance = cp.getAmount();
-
-        if (cp.getDate().isBefore(monthStart)) {
-            // Чекпоинт из прошлого месяца — суммируем «мостик» событий
-            // от даты чекпоинта до конца предыдущего месяца
-            List<FinancialEvent> bridgeEvents = eventRepository
-                    .findAllByDeletedFalseAndDateBetween(cp.getDate(), monthStart.minusDays(1));
-            startBalance = startBalance.add(effectiveNetSum(bridgeEvents));
-        }
-        return startBalance;
-    }
-
-    /**
-     * Знаковая сумма события: доход — положительная, расход — отрицательная.
-     * Приоритет суммы: фактическая, если задана; иначе — плановая.
-     *
-     * @param e финансовое событие
-     * @return знаковая сумма; {@code BigDecimal.ZERO} если обе суммы {@code null}
-     */
-    private BigDecimal signedAmount(FinancialEvent e) {
-        BigDecimal amount = e.getFactAmount() != null ? e.getFactAmount() : e.getPlannedAmount();
-        if (amount == null) return BigDecimal.ZERO;
-        return e.getType() == EventType.INCOME ? amount : amount.negate();
-    }
-
-    /**
-     * V12-совместимая суммарная знаковая сумма списка событий.
-     * Пропускает PLAN(EXECUTED) — их вклад уже учтён через FACT-записи.
-     *
-     * <p>Ревью #45: частично погашенный план остаётся PLANNED (ANO-155), и в мостик он
-     * обязан идти НЕПОГАШЕННЫМ ОСТАТКОМ. Иначе из стартового баланса вычитаются и план
-     * целиком, и его факт: чек на 300 по плану 20 000 уносил 20 300 вместо 20 000.
-     * До ANO-155 такой план закрывался первым же фактом, и двойного счёта не выходило.
-     *
-     * @param events список событий (может содержать и PLAN, и FACT записи)
-     * @return алгебраическая сумма знаковых сумм без двойного учёта
-     * @see #signedAmount(FinancialEvent)
-     */
-    private BigDecimal effectiveNetSum(List<FinancialEvent> events) {
-        Map<UUID, BigDecimal> settled = PlanRemainder.settledByPlan(events);
-        return events.stream()
-                .filter(e -> !(e.getEventKind() == EventKind.PLAN && e.getStatus() == EventStatus.EXECUTED))
-                .map(e -> netAmount(e, settled))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    /**
-     * Знаковая сумма с поправкой на погашение: у плана с фактами-детьми в окне — остаток.
-     *
-     * <p>Собственный {@code factAmount} в строке плана — легаси-путь PATCH, там детей нет
-     * и поправке взяться неоткуда. Факт-ребёнок вне окна мостика в {@code settled} не
-     * попадает, и это верно: на конец окна его ещё не случилось.
-     */
-    private BigDecimal netAmount(FinancialEvent e, Map<UUID, BigDecimal> settled) {
-        if (e.getEventKind() != EventKind.PLAN || e.getFactAmount() != null) return signedAmount(e);
-        // Без фактов-детей остаток равен плановой сумме — ровно то, что дал бы signedAmount.
-        BigDecimal remainder = PlanRemainder.of(e.getPlannedAmount(), settled.get(e.getId()));
-        return e.getType() == EventType.INCOME ? remainder : remainder.negate();
-    }
-
-    /**
-     * Возвращает эффективную сумму события: для прошлых дней — факт (или план при отсутствии),
-     * для будущих — только план.
-     *
-     * @param event    финансовое событие
-     * @param isFuture {@code true} если дата события в будущем
-     * @return сумма или {@code null} если ни один из вариантов недоступен
-     */
-    private BigDecimal effectiveAmount(FinancialEvent event, boolean isFuture) {
-        if (isFuture) return event.getPlannedAmount();
-        // Для прошлых дней берём только факт: неисполненные события не влияют на реальный баланс.
-        // Это согласует нарастающий баланс кассового календаря с currentBalance на дашборде.
-        return event.getFactAmount();
     }
 
     /**

@@ -304,15 +304,6 @@ export interface SandboxResponse {
 
 // --- Analytics ---
 
-export interface CashFlowDay {
-    date: string;
-    dailyIncome: number;
-    dailyExpense: number;
-    runningBalance: number;
-    isFuture: boolean;
-    isGap: boolean;
-}
-
 export interface CategoryPlanFact {
     categoryName: string;
     type: 'INCOME' | 'EXPENSE';
@@ -329,26 +320,6 @@ export interface PlanFactReport {
     totalFactExpense: number;
 }
 
-export interface WeekBurnRate {
-    weekNumber: number;
-    weekStart: string;
-    weekEnd: string;
-    planned: number;
-    fact: number;
-}
-
-export interface MandatoryBurnRate {
-    totalPlanned: number;
-    totalFact: number;
-    byWeek: WeekBurnRate[];
-}
-
-export interface IncomeGap {
-    plannedIncome: number;
-    factIncome: number;
-    delta: number;
-}
-
 export interface PriorityBreakdown {
     highPlanned: number;
     highFact: number;
@@ -359,11 +330,9 @@ export interface PriorityBreakdown {
     totalIncomeFact: number;
 }
 
+/** Р3 (ANO-47): кассовый календарь, burn rate и дефицит дохода из ответа ушли — экран их не рисовал. */
 export interface AnalyticsReport {
-    cashFlow: CashFlowDay[];
     planFact: PlanFactReport;
-    mandatoryBurn: MandatoryBurnRate;
-    incomeGap: IncomeGap;
     priorityBreakdown: PriorityBreakdown;
 }
 

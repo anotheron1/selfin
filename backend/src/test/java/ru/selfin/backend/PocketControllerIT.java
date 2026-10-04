@@ -710,11 +710,10 @@ class PocketControllerIT {
     /**
      * Сценарий ANO-6: ввод плана и факта немедленно меняет ответ кармашка.
      * План HIGH-расхода на СЕГОДНЯ −5000 → кармашек падает на 5000 (день 0 траектории);
-     * факт 4000 по этому плану → факт вытесняет план: кармашек = старт − 4000.
+     * факт 6000 по этому плану (переплата) → план погашен, держится факт: кармашек = старт − 6000.
      *
-     * Дата = сегодня НАМЕРЕННО: updateFact пишет factAmount в ту же PLAN-запись,
-     * а факт с БУДУЩЕЙ датой не попадает ни в баланс (date > asOf), ни в траекторию
-     * (factAmount != null) — известная дыра v1, залогирована в ANO-12.
+     * <p>Р3 (ANO-25): факт — отдельной записью, {@code POST /events/{planId}/facts}. Раньше здесь
+     * факт писался в саму строку плана через PATCH, а у того пути была дыра с будущей датой.
      */
     @Test
     void ano6_inputImmediatelyChangesPocket() throws Exception {
@@ -746,16 +745,17 @@ class PocketControllerIT {
         BigDecimal afterPlan = pocket();
         assertThat(before.subtract(afterPlan)).isEqualByComparingTo(new BigDecimal("5000"));
 
-        // Факт 4000 по плану: PATCH /events/{id}/fact (FinancialEventUpdateFactDto)
-        mockMvc.perform(patch("/api/v1/events/" + planId + "/fact")
+        // Факт 6000 по плану — запись-факт. Переплата гасит план целиком (ANO-155).
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"factAmount": 4000}
-                                """))
+                                {"date":"%s","factAmount": 6000}
+                                """.formatted(planDate)))
                 .andExpect(status().isOk());
 
         BigDecimal afterFact = pocket();
-        // План вытеснен фактом: итоговая дельта от старта = −4000, не −9000 и не −5000
-        assertThat(before.subtract(afterFact)).isEqualByComparingTo(new BigDecimal("4000"));
+        // План погашен, держится факт: дельта от старта −6000, не −11000 и не −5000
+        assertThat(before.subtract(afterFact)).isEqualByComparingTo(new BigDecimal("6000"));
     }
 }
