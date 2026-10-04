@@ -226,10 +226,12 @@ class CreditPaymentsIT {
         fixInSandbox(c.getId());
         List<FinancialEvent> payments = livePayments(c.getId());
         RecurringRule rule = payments.get(0).getRecurringRule();
-        recurringRuleService.regenerate(rule, payments.get(2).getDate());
+        // С первого платежа: ссылку на копилку помнят только удалённые события.
+        recurringRuleService.regenerate(rule, payments.get(0).getDate());
         assertThat(livePlannedOfRule(rule.getId()))
-                .as("предусловие: перегенерированные платежи без ссылки на копилку")
-                .anySatisfy(e -> assertThat(e.getTargetFundId()).isNull());
+                .as("предусловие: живые платежи — все без ссылки на копилку")
+                .isNotEmpty()
+                .allSatisfy(e -> assertThat(e.getTargetFundId()).isNull());
 
         setStatus(c.getId(), "{\"status\":\"OPEN\"}");
 
@@ -301,6 +303,7 @@ class CreditPaymentsIT {
         assertThat(checked).as("сверены месяцы покупки и платежей").isGreaterThanOrEqualTo(3);
         assertThat(item.get("delta")).as("по оси счёта — только платежи, без «+сумма на счёт»")
                 .allSatisfy(d -> assertThat(d.get("accountDelta").asDouble()).isLessThanOrEqualTo(0.0));
+        assertThat(item.get("monthlyContribution").isNull()).as("у кредита взноса нет — удержанное это платёж").isTrue();
     }
 
     @Test
