@@ -164,6 +164,8 @@ class StrategyFromCoreIT {
         // Копилка наполнена на четверть: ядро держит остаток до цели, 45 000, по 15 000 в месяц, а
         // формула примерки взяла бы всю цель, по 20 000, — так дельта из ядра и из формулы различимы.
         UUID fund = createFixedSavingsFund("Копилка IT", 60_000, 15_000, current.plusMonths(3).atEndOfMonth());
+        // Накоплена до цели: ядро по ней ничего не держит, и блок не вычитает взносов (ревью Codex на #129).
+        UUID saved = createFixedSavingsFund("Накоплено IT", 20_000, 20_000, current.plusMonths(2).atEndOfMonth());
 
         JsonNode simulation = simulation();
         JsonNode strategy = strategy(36);
@@ -177,6 +179,7 @@ class StrategyFromCoreIT {
         List<BigDecimal> composed = new ArrayList<>(base);
         BigDecimal wishTotal = BigDecimal.ZERO;
         BigDecimal fundTotal = BigDecimal.ZERO;
+        BigDecimal savedTotal = BigDecimal.ZERO;
         for (JsonNode item : simulation.get("items")) {
             if (!"FIXED".equals(item.get("status").asText())) continue;
             for (JsonNode d : item.get("delta")) {
@@ -186,6 +189,7 @@ class StrategyFromCoreIT {
                 }
                 if (wish.toString().equals(item.get("id").asText())) wishTotal = wishTotal.add(account);
                 if (fund.toString().equals(item.get("id").asText())) fundTotal = fundTotal.add(account);
+                if (saved.toString().equals(item.get("id").asText())) savedTotal = savedTotal.add(account);
             }
         }
         for (int i = 0; i < 36; i++) {
@@ -195,6 +199,7 @@ class StrategyFromCoreIT {
         }
         assertThat(wishTotal).as("хотелка — один вычет, остатком после задатка").isEqualByComparingTo("-20000");
         assertThat(fundTotal).as("копилка — остаток до цели, сколько держит ядро").isEqualByComparingTo("-45000");
+        assertThat(savedTotal).as("накопленная — по оси счёта ничего: ядро её взносов не держит").isEqualByComparingTo("0");
         assertThat(base.get(0).subtract(composed.get(0))).isEqualByComparingTo("15000");
         assertThat(base.get(1).subtract(composed.get(1))).as("месяц покупки: хотелка и два взноса")
                 .isEqualByComparingTo("50000");

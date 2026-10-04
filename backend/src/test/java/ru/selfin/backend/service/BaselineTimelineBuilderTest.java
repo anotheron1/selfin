@@ -315,7 +315,7 @@ class BaselineTimelineBuilderTest {
     }
 
     @Test
-    @DisplayName("Р1: сколько ядро держит по ссылке примерки — по месяцам; ссылка без строк — с пустой картой")
+    @DisplayName("Р1: сколько ядро держит по ссылке примерки — по месяцам; ссылка без строк и копилка плана без строк — с пустой картой")
     void build_heldByRef_perMonth() {
         CoreCase c = new CoreCase();
         c.stub(TODAY, BigDecimal.ZERO);
@@ -324,14 +324,16 @@ class BaselineTimelineBuilderTest {
                 new PocketScope(PocketScope.Type.DATE, null, LocalDate.of(2026, 6, 30)), TODAY);
         Map<SandboxRef, List<EventSnapshot>> refs = new LinkedHashMap<>(stubbed.baselineRefs());
         refs.put(emptyRef, List.of(plan(UUID.randomUUID(), EventType.EXPENSE, LocalDate.of(2027, 1, 1), 1_000, null)));
+        UUID savedFund = UUID.randomUUID();   // накоплена до цели: в плане ядра, держать нечего
         when(assembler.build(any(), eq(TODAY))).thenReturn(new PocketInputAssembler.Assembled(
-                stubbed.input(), refs, List.of(), stubbed.forecastByCategory()));
+                stubbed.input(), refs, List.of(), stubbed.forecastByCategory(), java.util.Set.of(savedFund)));
 
         TimelineSnapshot snap = builder.build(3, false);
 
         assertThat(snap.heldByRef().get(c.fundRef)).containsExactlyEntriesOf(Map.of(APRIL, new BigDecimal("10000")));
         assertThat(snap.heldByRef()).containsKey(emptyRef);
         assertThat(snap.heldByRef().get(emptyRef)).isEmpty();
+        assertThat(snap.heldByRef().get(SandboxRef.fund(savedFund))).as("ревью Codex на #129").isEmpty();
     }
 
     // ── хелперы ─────────────────────────────────────────────────────────────

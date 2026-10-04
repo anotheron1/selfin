@@ -72,15 +72,28 @@ public class PocketInputAssembler {
      * @param forecastByCategory прогноз сверх плана по месяцам и категориям — те же суммы,
      *                    что во входе ядра (Р1): «Стратегия» показывает их строками разбивки
      *                    месяца. Текущий месяц — по дневному темпу, будущие — медиана минус план
+     * @param plannedFunds зафиксированные копилки-накопления с датой — в плане ядра, даже когда
+     *                    держать по ним нечего: накоплено до цели или срок в этом месяце. В
+     *                    {@code baselineRefs} такие не попадают — для примерки они не сидят в
+     *                    траектории (§9 sandbox). «Что с капиталом» берёт отсюда, что ядро копилку
+     *                    знает и её взносы по оси счёта — его строки, пусть и пустые (Р1)
      */
     public record Assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> baselineRefs,
                             List<LocalDate> incomeDates,
-                            Map<java.time.YearMonth, Map<String, BigDecimal>> forecastByCategory) {
+                            Map<java.time.YearMonth, Map<String, BigDecimal>> forecastByCategory,
+                            java.util.Set<UUID> plannedFunds) {
 
-        /** Без раскладки прогноза — примерке и её тестам она не нужна. */
+        /** Без раскладки прогноза и копилок плана — примерке и её тестам они не нужны. */
         public Assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> baselineRefs,
                          List<LocalDate> incomeDates) {
-            this(input, baselineRefs, incomeDates, Map.of());
+            this(input, baselineRefs, incomeDates, Map.of(), java.util.Set.of());
+        }
+
+        /** Без копилок плана — тестам сборки «Стратегии», которым они не нужны. */
+        public Assembled(PocketInput input, Map<SandboxRef, List<EventSnapshot>> baselineRefs,
+                         List<LocalDate> incomeDates,
+                         Map<java.time.YearMonth, Map<String, BigDecimal>> forecastByCategory) {
+            this(input, baselineRefs, incomeDates, forecastByCategory, java.util.Set.of());
         }
     }
 
@@ -280,7 +293,8 @@ public class PocketInputAssembler {
                 scope, horizonEnd, fallback, buffer, delta, contributors,
                 futureForecast,
                 accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance());
-        return new Assembled(input, baselineRefs, allIncomes, forecastByCategory);
+        return new Assembled(input, baselineRefs, allIncomes, forecastByCategory,
+                reservable.stream().map(TargetFund::getId).collect(java.util.stream.Collectors.toSet()));
     }
 
     // ANO-80: порог и окно жили здесь своей копией, а в конусе fan chart — своей. Обе

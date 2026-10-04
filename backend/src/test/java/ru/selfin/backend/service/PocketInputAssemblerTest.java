@@ -169,6 +169,9 @@ class PocketInputAssemblerTest {
         assertThat(contributions(a)).isEmpty();
         assertThat(a.baselineRefs().keySet())
                 .noneMatch(r -> r.type() == SandboxRef.RefType.FUND);
+        // Р1: накопленная и с протухшим сроком — в плане ядра, держать по ним нечего; без срока,
+        // кредит и сконвертированная — не в плане.
+        assertThat(a.plannedFunds()).containsExactlyInAnyOrder(saved.getId(), stale.getId(), past.getId());
     }
 
     @Test

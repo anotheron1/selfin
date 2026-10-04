@@ -184,6 +184,10 @@ public class BaselineTimelineBuilder {
             byRef.put(ref, new TreeMap<>());
             snapshots.forEach(s -> refOf.put(s, ref));
         });
+        // Копилка в плане ядра, по которой держать нечего — накоплена до цели или срок в этом
+        // месяце, — тоже здесь, с пустой картой: иначе «Что с капиталом» взял бы для неё формулу
+        // и вычел взносы на всю цель, которых ядро не держит (ревью Codex на #129).
+        core.plannedFunds().forEach(id -> byRef.putIfAbsent(SandboxRef.fund(id), new TreeMap<>()));
         for (PocketEngine.Held h : held) {
             SandboxRef ref = refOf.get(h.event());
             if (ref != null) byRef.get(ref).merge(YearMonth.from(h.day()), h.amount(), BigDecimal::add);
