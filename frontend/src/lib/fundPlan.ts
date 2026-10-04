@@ -13,6 +13,18 @@ export function outOfPlanNote(fund: WithStatus): string | null {
     return null;
 }
 
+const MONTH_DATIVE = ['январю', 'февралю', 'марту', 'апрелю', 'маю', 'июню',
+    'июлю', 'августу', 'сентябрю', 'октябрю', 'ноябрю', 'декабрю'];
+
+/**
+ * Р9 (ANO-219): не второй «Срок», а ответ на «успеваю ли» — когда наберётся при нынешнем темпе.
+ * Дата приходит строкой «ГГГГ-ММ-ДД»; читаем её как есть — `new Date` сдвинул бы месяц поясом.
+ */
+export function paceLine(isoDate: string): string {
+    const [year, month] = isoDate.split('-').map(Number);
+    return `В нынешнем темпе — к ${MONTH_DATIVE[month - 1]} ${year}`;
+}
+
 /** Порядок «Целей»: вне плана — в конце; внутри обеих групп — как прислал сервер (сортировка устойчивая). */
 export function inPlanFirst<T extends WithStatus>(funds: T[]): T[] {
     const outside = (x: T) => (outOfPlanNote(x) ? 1 : 0);

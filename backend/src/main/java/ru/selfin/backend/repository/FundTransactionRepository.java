@@ -16,7 +16,8 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
 
     boolean existsByIdempotencyKey(UUID idempotencyKey);
 
-    List<FundTransaction> findByFundIdAndDeletedFalseAndTransactionDateAfter(UUID fundId, LocalDate since);
+    /** Живые движения одной копилки — темп на «Целях» (Р9) ищет в них первый день пополнений. */
+    List<FundTransaction> findByFundIdAndDeletedFalse(UUID fundId);
 
     /**
      * Суммарный баланс копилок-конвертов на дату {@code date} — используется в расчёте

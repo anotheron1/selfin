@@ -9,7 +9,7 @@ import type { Account, FundMoney, FundsOverview, TargetFund, PocketResponse } fr
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
 import { fundTarget } from '../lib/fundTarget';
-import { inPlanFirst, outOfPlanNote } from '../lib/fundPlan';
+import { inPlanFirst, outOfPlanNote, paceLine } from '../lib/fundPlan';
 import { AttemptKeys } from '../lib/attemptKey';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { AmountInput, amountValue } from "../components/ui/amount-input";
@@ -510,7 +510,7 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
             )}
             {fund.estimatedCompletionDate && (
                 <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    Прогноз: {new Date(fund.estimatedCompletionDate).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+                    {paceLine(fund.estimatedCompletionDate)}
                 </p>
             )}
         </div>

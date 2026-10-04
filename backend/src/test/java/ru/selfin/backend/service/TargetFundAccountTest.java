@@ -12,6 +12,7 @@ import ru.selfin.backend.dto.TargetFundCreateDto;
 import ru.selfin.backend.dto.TargetFundDto;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.FundTransaction;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.dto.wishlist.FundWishlistParamsDto;
@@ -30,6 +31,7 @@ import ru.selfin.backend.testsupport.AccountFixtures;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -147,6 +149,74 @@ class TargetFundAccountTest {
 
         assertThat(out.get(0).wishlistStatus()).isEqualTo(WishlistStatus.DISMISSED);
         assertThat(out.get(1).wishlistStatus()).isNull();
+    }
+
+    /** Р9: сервис с часами на заданный день — темп считается от «сегодня». */
+    private TargetFundService serviceOn(LocalDate today) {
+        ZoneId zone = ZoneId.systemDefault();
+        return new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo, accountRepo,
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo),
+                mock(WishlistArtifactService.class), pocketService,
+                Clock.fixed(today.atStartOfDay(zone).toInstant(), zone));
+    }
+
+    private static FundTransaction tx(TargetFund f, String date, String amount) {
+        return FundTransaction.builder().fund(f)
+                .transactionDate(LocalDate.parse(date)).amount(new BigDecimal(amount)).build();
+    }
+
+    /** Копилка-конверт «Отпуск» на 300 000, в ней {@code saved}. */
+    private static TargetFund vacation(String saved) {
+        TargetFund f = fund(null, saved);
+        f.setName("Отпуск");
+        f.setTargetAmount(new BigDecimal("300000"));
+        return f;
+    }
+
+    /** Дата «в нынешнем темпе» на карточке копилки. */
+    private LocalDate paceDate(LocalDate today, TargetFund f, FundTransaction... moves) {
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(f));
+        when(txRepo.findByFundIdAndDeletedFalse(f.getId())).thenReturn(List.of(moves));
+        return serviceOn(today).getOverview().funds().get(0).estimatedCompletionDate();
+    }
+
+    @Test
+    @DisplayName("Р9-Б (ANO-219): первый день пополнений — стартовые деньги, темп — по следующим")
+    void pace_firstDayIsStartingMoney() {
+        TargetFund f = vacation("110000");
+        // 100 000 сразу из уже отложенного, через месяц 10 000: темп 10 000, осталось 190 000.
+        // Со стартовыми деньгами темп был бы 110 000 и срок — «к январю 2027».
+        assertThat(paceDate(LocalDate.of(2026, 11, 5), f,
+                tx(f, "2026-10-04", "100000"), tx(f, "2026-11-04", "10000")))
+                .isEqualTo(LocalDate.of(2028, 6, 5));
+    }
+
+    @Test
+    @DisplayName("Р9-Б: пополнения одного дня — ещё не темп, строки нет")
+    void pace_singleDayOfDeposits_none() {
+        TargetFund f = vacation("100000");
+        assertThat(paceDate(LocalDate.of(2026, 10, 4), f,
+                tx(f, "2026-10-04", "60000"), tx(f, "2026-10-04", "40000"))).isNull();
+    }
+
+    @Test
+    @DisplayName("Р9: темп — за три последних месяца, месяцы без пополнений входят")
+    void pace_matureFund_overThreeMonths() {
+        TargetFund f = vacation("200000");
+        // копилка с прошлого года; за три месяца одно пополнение 30 000 — темп 10 000, осталось 100 000
+        assertThat(paceDate(LocalDate.of(2026, 10, 5), f,
+                tx(f, "2025-01-10", "170000"), tx(f, "2026-09-01", "30000")))
+                .isEqualTo(LocalDate.of(2027, 8, 5));
+    }
+
+    @Test
+    @DisplayName("Р9: второе пополнение в первый же месяц — делитель один месяц, а не ноль")
+    void pace_youngFund_atLeastOneMonth() {
+        TargetFund f = vacation("60000");
+        // темп 10 000, осталось 240 000
+        assertThat(paceDate(LocalDate.of(2026, 10, 20), f,
+                tx(f, "2026-10-01", "50000"), tx(f, "2026-10-15", "10000")))
+                .isEqualTo(LocalDate.of(2028, 10, 20));
     }
 
     @Test

@@ -23,7 +23,10 @@ public record TargetFundDto(
         Integer priority,
         /** Желаемая дата достижения цели, заданная пользователем */
         LocalDate targetDate,
-        /** Умный прогноз: вычисляется сервисом на основе среднемесячного пополнения */
+        /**
+         * Когда цель наберётся в нынешнем темпе — «В нынешнем темпе — к &lt;месяцу&gt;» (Р9-Б, ANO-219);
+         * {@code null} — темпа ещё нет. Не второй срок: срок — {@code targetDate}.
+         */
         LocalDate estimatedCompletionDate,
         FundPurchaseType purchaseType,
         BigDecimal creditRate,
