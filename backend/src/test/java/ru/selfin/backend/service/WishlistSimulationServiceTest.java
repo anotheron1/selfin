@@ -221,7 +221,7 @@ class WishlistSimulationServiceTest {
 
         // stub thresholds and capital
         when(userSettingsService.getWishlistSettings())
-                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null, new BigDecimal("1.0")));
+                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null));
         when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("500000"));
         when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
 
@@ -254,7 +254,7 @@ class WishlistSimulationServiceTest {
         when(eventRepo.findAllWishlistEvents()).thenReturn(List.of());
         when(fundRepo.findAllWishlistFunds()).thenReturn(List.of(dismissedFund));
         when(userSettingsService.getWishlistSettings())
-                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null, new BigDecimal("1.0")));
+                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null));
         when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("500000"));
         when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
 

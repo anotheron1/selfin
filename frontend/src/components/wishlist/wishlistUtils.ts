@@ -1,4 +1,5 @@
 import type { EventWishlistParams, FundWishlistParams, MonthDelta, WishlistItem, WishlistKind } from '../../types/api';
+import { fmtRub } from '../strategy/strategyChartUtils';
 
 export interface BaselinePoint { account: number; capital: number; }
 export interface ActiveItem { active: boolean; delta: MonthDelta[]; }
@@ -120,15 +121,18 @@ export function recomputeBasis(amount: number, itemAmount: number): number {
 
 export type RiskLevel = 'green' | 'yellow' | 'red';
 
+/**
+ * Зона месяца: остаток ниже нуля — красный, ниже НЗ — жёлтый (Р5, ANO-93: подушка одна — НЗ);
+ * капитал — по порогу «Мин. капитал». Без НЗ жёлтого по остатку нет.
+ */
 export function riskZones(
     points: BaselinePoint[],
-    thresholds: { capitalThresholdRub: number | null; cashBufferMonths: number },
-    monthlyExpensesAvg: number,
+    thresholds: { capitalThresholdRub: number | null },
+    nz: number,
 ): RiskLevel[] {
-    const buffer = monthlyExpensesAvg * thresholds.cashBufferMonths;
     return points.map(p => {
         const accountRisk: RiskLevel =
-            p.account < 0 ? 'red' : p.account < buffer ? 'yellow' : 'green';
+            p.account < 0 ? 'red' : p.account < nz ? 'yellow' : 'green';
         let capitalRisk: RiskLevel = 'green';
         if (thresholds.capitalThresholdRub != null) {
             const t = thresholds.capitalThresholdRub;
@@ -136,6 +140,13 @@ export function riskZones(
         }
         return worse(accountRisk, capitalRisk);
     });
+}
+
+/** Что значит жёлтый — строка под порогами «Что с капиталом» (Р5). Без НЗ — где его задать. */
+export function nzZoneText(nz: number): string {
+    return nz > 0
+        ? `Жёлтым — месяцы, где остаток ниже НЗ, ${fmtRub(nz)}`
+        : 'НЗ не задан, жёлтым ничего не отмечено. Задать — в «Настройках»';
 }
 
 function worse(a: RiskLevel, b: RiskLevel): RiskLevel {

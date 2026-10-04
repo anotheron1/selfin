@@ -53,14 +53,16 @@ const put = (body) => ({ method: 'PUT', headers: { 'Content-Type': 'application/
 const pocketOf = () => must('/pocket');
 const byType = (p) => Object.fromEntries((p.breakdown ?? []).map((l) => [l.type, num(l.amount)]));
 
-/** Зоны риска считаются на фронте (wishlistUtils.riskZones). Повторяю формулу дословно. */
+/**
+ * Зоны риска считаются на фронте (wishlistUtils.riskZones). Повторяю формулу дословно.
+ * Р5 (ANO-93): порог остатка — НЗ кармашка, «Подушки, мес.» больше нет.
+ */
 const worse = (a, b) => ({ green: 0, yellow: 1, red: 2 }[a] >= { green: 0, yellow: 1, red: 2 }[b] ? a : b);
-function riskZones(points, thresholds, monthlyExpensesAvg) {
-  const buffer = monthlyExpensesAvg * thresholds.cashBufferMonths;
+function riskZones(points, thresholds, nz) {
   return points.map((p) => {
     const account = num(p.balance);
     const capital = num(p.capital);
-    const accountRisk = account < 0 ? 'red' : account < buffer ? 'yellow' : 'green';
+    const accountRisk = account < 0 ? 'red' : account < nz ? 'yellow' : 'green';
     let capitalRisk = 'green';
     if (thresholds.capitalThresholdRub != null) {
       const t = num(thresholds.capitalThresholdRub);
@@ -79,8 +81,7 @@ async function main() {
   const pocketSettings0 = await must('/settings/pocket');
   const wishSettings0 = await must('/settings/wishlist');
   console.log(`старт: кармашек ${money(pocket0.pocket)}, буфер ${money(pocketSettings0.bufferAmount)}, `
-    + `порог капитала ${wishSettings0.capitalThresholdRub ?? 'выключен'}, `
-    + `буфер хотелок ${wishSettings0.cashBufferMonths} мес\n`);
+    + `порог капитала ${wishSettings0.capitalThresholdRub ?? 'выключен'}\n`);
 
   console.log('12.1–12.2  снимка бюджета больше нет — функция убрана 29.09 (ANO-121)\n');
 
@@ -125,18 +126,16 @@ async function main() {
   {
     const sim0 = await must('/wishlist/simulation?horizonMonths=12');
     const pts = (sim0.baseline?.points ?? []).filter((p) => p.phase === 'FUTURE');
-    const avg = num(sim0.constraints?.monthlyExpensesAvg) ?? 0;
-    const zonesBefore = riskZones(pts, sim0.thresholds, avg);
+    const nz = num((await must('/settings/pocket')).bufferAmount) ?? 0;
+    const zonesBefore = riskZones(pts, sim0.thresholds, nz);
 
     // Порог выше текущего капитала — обязан покрасить будущее в красный.
     const cap = num((await must('/capital/summary')).total);
     const highThreshold = Math.max(cap * 2, cap + 1000000);
-    const putRes = await api('/settings/wishlist', put({
-      capitalThresholdRub: highThreshold, cashBufferMonths: wishSettings0.cashBufferMonths,
-    }));
+    const putRes = await api('/settings/wishlist', put({ capitalThresholdRub: highThreshold }));
     const sim1 = await must('/wishlist/simulation?horizonMonths=12');
     const zonesAfter = riskZones((sim1.baseline?.points ?? []).filter((p) => p.phase === 'FUTURE'),
-      sim1.thresholds, num(sim1.constraints?.monthlyExpensesAvg) ?? 0);
+      sim1.thresholds, nz);
 
     putRes.ok && eq(num(sim1.thresholds?.capitalThresholdRub), highThreshold)
       ? record('12.4', 'СОШЛОСЬ', `порог капитала ${money(highThreshold)} сохранился и вернулся в примерке`)
@@ -165,20 +164,15 @@ async function main() {
     JSON.stringify(cBefore) === JSON.stringify(cAfter) && Object.keys(cAfter).length === 1
       ? record('12.4', 'СМОТРЕТЬ',
         `итоговые зоны не меняются: весь горизонт уже «${Object.keys(cAfter)[0]}» из-за счётного риска, и порог капитала на картинку не влияет`,
-        { итоговые: cAfter, счётныйБуфер: `${avg} × ${sim0.thresholds?.cashBufferMonths} мес` })
+        { итоговые: cAfter, НЗ: nz })
       : record('12.4', 'СОШЛОСЬ', `итоговые зоны: было ${JSON.stringify(cBefore)}, стало ${JSON.stringify(cAfter)}`);
 
-    const badThreshold = await api('/settings/wishlist', put({
-      capitalThresholdRub: -1, cashBufferMonths: wishSettings0.cashBufferMonths,
-    }));
+    const badThreshold = await api('/settings/wishlist', put({ capitalThresholdRub: -1 }));
     badThreshold.status === 400
       ? record('12.4', 'СОШЛОСЬ', 'отрицательный порог капитала отвергнут с 400')
       : record('12.4', 'СМОТРЕТЬ', `отрицательный порог принят со статусом ${badThreshold.status}`, { статус: badThreshold.status });
 
-    await must('/settings/wishlist', put({
-      capitalThresholdRub: wishSettings0.capitalThresholdRub,
-      cashBufferMonths: wishSettings0.cashBufferMonths,
-    }));
+    await must('/settings/wishlist', put({ capitalThresholdRub: wishSettings0.capitalThresholdRub }));
     const restored = await must('/settings/wishlist');
     JSON.stringify(restored) === JSON.stringify(wishSettings0)
       ? record('12.4', 'СОШЛОСЬ', 'настройки хотелок возвращены к исходным')
