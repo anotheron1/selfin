@@ -95,6 +95,15 @@ describe('riskZones', () => {
         expect(block).toContain('fetchPocketSettings()');
         expect(block.match(/riskZones\([^)]*, nz\)/g) ?? []).toHaveLength(2);
     });
+    it('НЗ не пришёл — не ноль: блок грузится или говорит об ошибке (сторож, ревью Codex на #134)', () => {
+        // С нулём остаток ниже настоящего НЗ был бы зелёным, а шапка сказала бы «НЗ не задан».
+        const block = readFileSync(new URL('../sandbox/CapitalWhatIf.tsx', import.meta.url), 'utf8');
+        expect(block).toMatch(/const \[nzLoaded, setNzLoaded\] = useState<number \| null>\(null\);/);
+        expect(block).toMatch(/\.catch\(\(e: Error\) => setNzError\(e\.message\)\)/);
+        expect(block).toContain('{(isLoading || (waitsNz && !nzError)) && (');
+        expect(block).toContain('{waitsNz && nzError && (');
+        expect(block).toContain('hasBaseline && nzLoaded != null && (');
+    });
     it('capital below threshold is red', () => {
         const zones = riskZones([{ account: 500000, capital: 900000 }], thresholds, nz);
         expect(zones[0]).toBe('red');

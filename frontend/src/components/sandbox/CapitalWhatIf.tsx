@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWishlistSimulation } from '../wishlist/useWishlistSimulation';
 import WishlistThresholdsHeader from '../wishlist/WishlistThresholdsHeader';
 import WishlistImpactChart from '../wishlist/WishlistImpactChart';
@@ -44,12 +44,22 @@ export default function CapitalWhatIf() {
     useEffect(() => {
         if (data) setThresholds(data.thresholds);
     }, [data]);
-    // Р5 (ANO-93): подушка одна — НЗ кармашка; жёлтый месяц — остаток ниже него. Без ответа — 0:
-    // жёлтого по остатку нет, красный «ниже нуля» остаётся.
-    const [nz, setNz] = useState(0);
-    useEffect(() => {
-        fetchPocketSettings().then(s => setNz(s.bufferAmount)).catch(() => setNz(0));
-    }, [data]);
+    // Р5 (ANO-93): подушка одна — НЗ кармашка; жёлтый месяц — остаток ниже него.
+    // Ревью Codex на #134: не пришедший НЗ — не ноль. С нулём остаток ниже настоящего НЗ стал бы
+    // зелёным, а шапка сказала бы «НЗ не задан» — предупреждение пропало бы молча. Пока НЗ нет,
+    // блок грузится; отказ ручки — ошибка с «Повторить». Пришедший раньше НЗ при сбое
+    // перечитывания остаётся: это настоящее число, а не догадка.
+    const [nzLoaded, setNzLoaded] = useState<number | null>(null);
+    const [nzError, setNzError] = useState<string | null>(null);
+    const loadNz = useCallback(() => {
+        setNzError(null);
+        fetchPocketSettings()
+            .then(s => setNzLoaded(s.bufferAmount))
+            .catch((e: Error) => setNzError(e.message));
+    }, []);
+    useEffect(loadNz, [data, loadNz]);
+    /** НЗ для расчёта зон; на экран зоны попадают только с пришедшим НЗ. */
+    const nz = nzLoaded ?? 0;
 
     const [fixItem, setFixItem] = useState<WishlistItem | null>(null);
     const [deleteItem, setDeleteItem] = useState<WishlistItem | null>(null);
@@ -304,6 +314,8 @@ export default function CapitalWhatIf() {
 
     const currentMonth = data?.baseline.currentMonth ?? '';
     const hasBaseline = !!data && data.baseline.points.length > 0;
+    /** Данные есть, а НЗ ещё не пришёл: зоны без него не рисуем (ревью Codex на #134). */
+    const waitsNz = !!data && !isLoading && !error && hasBaseline && nzLoaded == null;
     /** Что уйдёт в запись при фиксации — подкрученное поверх записанного (ANO-139). */
     const fixView = fixItem && fixPatch(fixItem, overrideMap[fixItem.id]);
 
@@ -313,7 +325,7 @@ export default function CapitalWhatIf() {
                 Приблизительно, по месяцам: влияние включённого набора на счёт, капитал и долги.
             </p>
 
-            {isLoading && (
+            {(isLoading || (waitsNz && !nzError)) && (
                 <>
                     <div className="rounded-lg h-[88px] animate-pulse" style={{ background: 'var(--color-surface)' }} />
                     <div className="rounded-lg h-[280px] animate-pulse" style={{ background: 'var(--color-surface)' }} />
@@ -330,6 +342,15 @@ export default function CapitalWhatIf() {
                 </div>
             )}
 
+            {waitsNz && nzError && (
+                <div className="rounded-lg p-4 text-center"
+                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                    <p className="text-sm mb-3">Не удалось загрузить НЗ — без него жёлтые месяцы не посчитать</p>
+                    <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>{nzError}</p>
+                    <Button onClick={loadNz} size="sm">Повторить</Button>
+                </div>
+            )}
+
             {data && !isLoading && !error && !hasBaseline && (
                 <div className="rounded-lg p-6 text-center"
                      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
@@ -339,7 +360,7 @@ export default function CapitalWhatIf() {
                 </div>
             )}
 
-            {data && !isLoading && !error && hasBaseline && (
+            {data && !isLoading && !error && hasBaseline && nzLoaded != null && (
                 <>
                     {/* key меняется один раз на переходе pending→loaded порогов сервера: форсирует
                         корректный одноразовый (ре)монтаж шапки с серверными значениями, даже если
