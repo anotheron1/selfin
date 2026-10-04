@@ -315,13 +315,19 @@ public class WishlistConversionService {
 
     // ====== Builders ======
 
+    /**
+     * План покупки из зафиксированной хотелки — бронь (ANO-215, карта C1, Р11-А). Сумма и дата
+     * известны, решение принято: держится, пока нет факта или переноса, как платёж по кредиту из
+     * той же конверсии (ANO-188). «Хотелкой» его отпускали, как только прошла дата, — правило
+     * писалось против копящихся еженедельных трат и решённую покупку накрывало случайно.
+     */
     private FinancialEvent buildPlanEvent(Category category, BigDecimal amount,
                                           java.time.LocalDate date, String description) {
         return FinancialEvent.builder()
                 .eventKind(EventKind.PLAN)
                 .status(EventStatus.PLANNED)
                 .type(EventType.EXPENSE)
-                .priority(Priority.LOW)
+                .priority(Priority.HIGH)
                 .wishlistStatus(null)
                 .category(category)
                 .plannedAmount(amount)
