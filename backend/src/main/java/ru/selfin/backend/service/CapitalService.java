@@ -166,7 +166,10 @@ public class CapitalService {
         BigDecimal liquid = liquidAt(today);
         Map<CapitalItemKind, BigDecimal> sums = sumByKindAt(today);
         BigDecimal assetsTotal = sums.getOrDefault(CapitalItemKind.ASSET, BigDecimal.ZERO);
-        BigDecimal liabilitiesTotal = liabilitiesAt(today, sums);
+        // Р7: долг по картам — один снимок на сводку (ревью Codex на #135). Строка «Долги по картам»
+        // обязана сойтись с обязательствами, а второй расчёт мог увидеть другую сверку кредитки.
+        BigDecimal cardDebts = accountBalanceService.creditDebtAt(today);
+        BigDecimal liabilitiesTotal = liabilities(sums, cardDebts);
         BigDecimal total = liquid.add(assetsTotal).subtract(liabilitiesTotal);
 
         List<CapitalItemDto> items = list(null, true); // все, включая архивные — UI решит
@@ -176,7 +179,7 @@ public class CapitalService {
         BigDecimal capitalYearAgo    = capitalAt(today.minusYears(1));
 
         return new CapitalSummaryDto(
-                total, liquid, assetsTotal, liabilitiesTotal, accountBalanceService.creditDebtAt(today), items,
+                total, liquid, assetsTotal, liabilitiesTotal, cardDebts, items,
                 new CapitalSummaryDto.Deltas(
                         total.subtract(capitalMonthAgo),
                         total.subtract(capitalQuarterAgo),
@@ -246,8 +249,12 @@ public class CapitalService {
      * согласованно во всех трёх местах, а не разъезжаться.
      */
     private BigDecimal liabilitiesAt(LocalDate t, Map<CapitalItemKind, BigDecimal> sums) {
-        return sums.getOrDefault(CapitalItemKind.LIABILITY, BigDecimal.ZERO)
-                .add(accountBalanceService.creditDebtAt(t));
+        return liabilities(sums, accountBalanceService.creditDebtAt(t));
+    }
+
+    /** Обязательства: статьи-долги плюс долг по кредитным картам. */
+    private static BigDecimal liabilities(Map<CapitalItemKind, BigDecimal> sums, BigDecimal cardDebts) {
+        return sums.getOrDefault(CapitalItemKind.LIABILITY, BigDecimal.ZERO).add(cardDebts);
     }
 
     /**
