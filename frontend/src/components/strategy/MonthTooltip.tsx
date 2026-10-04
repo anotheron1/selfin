@@ -55,7 +55,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
                                 Доход +{fmtRub(p.income)}
                             </div>
                             {p.breakdown.incomeItems.map(it => (
-                                <div key={it.category} className="flex justify-between items-center">
+                                <div key={it.category} className="flex justify-between items-center gap-3">
                                     <span>{it.isRecurring && <Repeat size={10} className="inline mr-1" />}{it.category}</span>
                                     <span>+{fmtRub(it.amount)}</span>
                                 </div>
@@ -68,7 +68,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
                                 Расход −{fmtRub(p.expense)}
                             </div>
                             {p.breakdown.expenseItems.map(it => (
-                                <div key={it.category} className="flex justify-between items-center">
+                                <div key={it.category} className="flex justify-between items-center gap-3">
                                     <span>
                                         {it.isRecurring && <Repeat size={10} className="inline mr-1" />}
                                         {it.category}
