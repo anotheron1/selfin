@@ -152,6 +152,8 @@ export interface TargetFund {
     purchaseType: PurchaseType;
     creditRate: number | null;
     creditTermMonths: number | null;
+    /** Статус хотелки; null — копилка не из «Хотелок». OPEN и DISMISSED — вне плана (Р8, ANO-218). */
+    wishlistStatus: WishlistStatus | null;
 }
 
 export interface FundsOverview {

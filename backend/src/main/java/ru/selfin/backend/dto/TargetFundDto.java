@@ -2,6 +2,7 @@ package ru.selfin.backend.dto;
 
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
+import ru.selfin.backend.model.enums.WishlistStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,5 +27,10 @@ public record TargetFundDto(
         LocalDate estimatedCompletionDate,
         FundPurchaseType purchaseType,
         BigDecimal creditRate,
-        Integer creditTermMonths) {
+        Integer creditTermMonths,
+        /**
+         * Статус хотелки; {@code null} — копилка не из «Хотелок». OPEN и DISMISSED — вне плана:
+         * ядро их взносы не держит, «Цели» ставят такую копилку в конец с пометкой (Р8, ANO-218).
+         */
+        WishlistStatus wishlistStatus) {
 }

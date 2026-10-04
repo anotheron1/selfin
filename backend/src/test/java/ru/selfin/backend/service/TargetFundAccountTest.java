@@ -136,6 +136,20 @@ class TargetFundAccountTest {
     }
 
     @Test
+    @DisplayName("Р8 (ANO-218): карточка копилки знает статус хотелки — по нему «Цели» ставят вне плана в конец")
+    void overview_carriesWishlistStatus() {
+        TargetFund deferred = fund(null, "0");
+        deferred.setWishlistStatus(WishlistStatus.DISMISSED);
+        TargetFund plain = fund(null, "0");
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(deferred, plain));
+
+        List<TargetFundDto> out = service.getOverview().funds();
+
+        assertThat(out.get(0).wishlistStatus()).isEqualTo(WishlistStatus.DISMISSED);
+        assertThat(out.get(1).wishlistStatus()).isNull();
+    }
+
+    @Test
     @DisplayName("§3.3: перевод в копилку на счёте — 400: деньги двигаются на самом счёте")
     void transferToAccountBackedFund_rejected() {
         TargetFund f = fund(UUID.randomUUID(), "0");

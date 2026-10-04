@@ -695,7 +695,8 @@ public class TargetFundService {
                 f.getId(), f.getName(), f.getTargetAmount(),
                 balance, f.getAccountId(), f.getStatus(), f.getPriority(),
                 f.getTargetDate(), calcEstimatedCompletion(f, balance),
-                f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths());
+                f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths(),
+                f.getWishlistStatus());
     }
 
     /**
