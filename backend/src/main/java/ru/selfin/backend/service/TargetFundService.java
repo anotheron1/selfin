@@ -129,6 +129,12 @@ public class TargetFundService {
         TargetFund fund = fundRepository.findById(id)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        // Р2-Б (ревью Codex на #138): кредит, ставший накоплением, — уже не кредит; его график
+        // снимается до смены вида. Потом правило не опознать: график ищется у копилок-кредитов.
+        if (fund.getPurchaseType() == FundPurchaseType.CREDIT
+                && dto.purchaseType() != null && dto.purchaseType() != FundPurchaseType.CREDIT) {
+            creditPayments.unschedule(id);
+        }
         fund.setName(dto.name());
         fund.setTargetAmount(dto.targetAmount());
         fund.setTargetDate(dto.targetDate());

@@ -176,12 +176,12 @@ public class PocketInputAssembler {
         // isPendingPlan + allowedInTrajectory: событие с фактом в траекторию не попадает,
         // значит и в baselineRefs ему нельзя (иначе exclude чанка 2 «вернёт» несуществующее).
         Map<SandboxRef, List<EventSnapshot>> baselineRefs = new LinkedHashMap<>();
-        java.util.function.Predicate<EventSnapshot> pendingFuturePlan = e -> e.date() != null
-                && e.date().isAfter(asOfDate) && e.factAmount() == null && e.eventKind() == EventKind.PLAN
+        java.util.function.Predicate<EventSnapshot> pendingPlan = e -> e.date() != null
+                && e.factAmount() == null && e.eventKind() == EventKind.PLAN
                 && e.status() == ru.selfin.backend.model.enums.EventStatus.PLANNED;
         events.stream()
                 .filter(e -> e.wishlistStatus() == WishlistStatus.FIXED && !e.converted()
-                        && pendingFuturePlan.test(e))
+                        && pendingPlan.test(e) && e.date().isAfter(asOfDate))
                 .forEach(e -> baselineRefs.put(SandboxRef.event(e.id()), List.of(e)));
 
         // 2а. Резервирование датированных FIXED-копилок (спека sandbox §6): SAVINGS,
@@ -222,9 +222,11 @@ public class PocketInputAssembler {
         Map<UUID, UUID> creditFundByEvent = new java.util.HashMap<>();
         eventRepository.findCreditPaymentLinks(FundPurchaseType.CREDIT, WishlistStatus.FIXED)
                 .forEach(l -> creditFundByEvent.put(l.getEventId(), l.getFundId()));
+        //     Платёж с датой сегодня ядро тоже держит (todayPending) — он по ссылке кредита наравне с
+        //     будущими (ревью Codex на #138): иначе исключение кредита оставляло бы сегодняшний платёж.
         for (EventSnapshot e : events) {
             UUID fundId = creditFundByEvent.get(e.id());
-            if (fundId != null && pendingFuturePlan.test(e)) {
+            if (fundId != null && pendingPlan.test(e) && !e.date().isBefore(asOfDate)) {
                 baselineRefs.computeIfAbsent(SandboxRef.fund(fundId), k -> new ArrayList<>()).add(e);
             }
         }

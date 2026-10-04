@@ -298,6 +298,45 @@ class CreditPaymentsIT {
     }
 
     @Test
+    @DisplayName("Ревью Codex на #138: кредит, ставший накоплением в редакторе копилок, — график снят до смены вида")
+    void creditToSavings_unschedulesBeforeTypeChange() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+        assertThat(livePayments(c.getId())).hasSize(12);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/funds/" + c.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Проверка кредита","targetAmount":120000,"targetDate":"%s","purchaseType":"SAVINGS"}"""
+                                .formatted(purchase)))
+                .andExpect(status().isOk());
+
+        assertThat(livePayments(c.getId())).as("потом график уже не опознать — он ищется у кредитов").isEmpty();
+    }
+
+    @Test
+    @DisplayName("Ревью Codex на #138: платёж с датой сегодня — по ссылке кредита: исключить кредит в примерке — снять и его")
+    void sandbox_excludeCredit_removesTodaysPayment() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(today.minusMonths(1).plusMonths(1).equals(today),
+                "в конце месяца «месяц назад + месяц» не сегодня — первый платёж не встанет на сегодня");
+        TargetFund c = credit(WishlistStatus.FIXED, today.minusMonths(1));
+        creditPayments.schedule(c);
+        assertThat(livePayments(c.getId()).get(0).getDate()).as("предусловие: первый платёж — сегодня").isEqualTo(today);
+
+        JsonNode resp = om.readTree(mockMvc.perform(post("/api/v1/pocket/sandbox")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scope":"MONTHS:6","tryOn":[],"exclude":[{"type":"FUND","id":"%s"}]}"""
+                                .formatted(c.getId())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+
+        assertThat(resp.get("baseline").get("trajectory").get(0).get("expense").asDouble())
+                .as("предусловие: ядро держит сегодняшний платёж").isCloseTo(PMT.doubleValue(), within(0.01));
+        assertThat(resp.get("fitted").get("trajectory").get(0).get("expense").asDouble())
+                .as("без кредита сегодня ничего не держится").isZero();
+    }
+
+    @Test
     @DisplayName("ANO-190: «Что с капиталом» при открытии равен «Стратегии» — платёж кредита один раз, без «+сумма на счёт»")
     void capitalBlock_equalsStrategy_forScheduledCredit() throws Exception {
         TargetFund c = credit(WishlistStatus.OPEN, purchase);
