@@ -5,40 +5,18 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Агрегированный ответ для страницы Аналитики.
- * Содержит четыре раздела: кассовый календарь, отчёт план-факт,
- * burn rate обязательных трат и анализ дефицита доходов.
+ * Агрегированный ответ для страницы Аналитики: отчёт план-факт и разбивка по характеру.
  *
- * @param cashFlow      нарастающий баланс по дням (от начала месяца до горизонта кассового календаря)
- * @param planFact      отчёт план-факт по категориям
- * @param mandatoryBurn burn rate обязательных расходов
- * @param incomeGap     план vs факт по доходам
+ * <p>Р3 (ANO-47): кассовый календарь с «мостиком» и два соседних раздела — burn rate обязательных
+ * трат и дефицит дохода — ушли: их не показывал ни один экран, а «мостик» считал стартовый
+ * остаток месяца по своему правилу.
+ *
+ * @param planFact          отчёт план-факт по категориям
+ * @param priorityBreakdown разбивка месяца по характеру строк
  */
 public record AnalyticsReportDto(
-        List<CashFlowDay> cashFlow,
         PlanFactReport planFact,
-        MandatoryBurnRate mandatoryBurn,
-        IncomeGap incomeGap,
         PriorityBreakdown priorityBreakdown) {
-
-    /**
-     * Один день кассового календаря.
-     *
-     * @param date           дата
-     * @param dailyIncome    сумма доходов за день (факт или план для будущих)
-     * @param dailyExpense   сумма расходов за день (факт или план для будущих)
-     * @param runningBalance нарастающий баланс на конец дня
-     * @param isFuture       {@code true} если день ещё не наступил (используется план)
-     * @param isGap          {@code true} если нарастающий баланс отрицательный (кассовый разрыв)
-     */
-    public record CashFlowDay(
-            LocalDate date,
-            BigDecimal dailyIncome,
-            BigDecimal dailyExpense,
-            BigDecimal runningBalance,
-            boolean isFuture,
-            boolean isGap) {
-    }
 
     /**
      * Строка отчёта план-факт по одной категории.
@@ -72,49 +50,6 @@ public record AnalyticsReportDto(
             BigDecimal totalFactIncome,
             BigDecimal totalPlannedExpense,
             BigDecimal totalFactExpense) {
-    }
-
-    /**
-     * Burn rate обязательных расходов за одну неделю месяца.
-     *
-     * @param weekNumber номер недели в месяце (1–5)
-     * @param weekStart  начало недели (не раньше первого дня месяца)
-     * @param weekEnd    конец недели (не позже последнего дня месяца)
-     * @param planned    суммарный план обязательных расходов за неделю
-     * @param fact       суммарный факт обязательных расходов за неделю
-     */
-    public record WeekBurnRate(
-            int weekNumber,
-            LocalDate weekStart,
-            LocalDate weekEnd,
-            BigDecimal planned,
-            BigDecimal fact) {
-    }
-
-    /**
-     * Сводный burn rate обязательных расходов за месяц.
-     *
-     * @param totalPlanned суммарный план обязательных расходов
-     * @param totalFact    суммарный факт обязательных расходов
-     * @param byWeek       разбивка по неделям месяца
-     */
-    public record MandatoryBurnRate(
-            BigDecimal totalPlanned,
-            BigDecimal totalFact,
-            List<WeekBurnRate> byWeek) {
-    }
-
-    /**
-     * Анализ дефицита цели дохода за месяц.
-     *
-     * @param plannedIncome  суммарный плановый доход
-     * @param factIncome     суммарный фактический доход
-     * @param delta          разница {@code factIncome - plannedIncome}; отрицательная = недобор
-     */
-    public record IncomeGap(
-            BigDecimal plannedIncome,
-            BigDecimal factIncome,
-            BigDecimal delta) {
     }
 
     /**

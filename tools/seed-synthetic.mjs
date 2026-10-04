@@ -223,8 +223,9 @@ await post('/events/facts', {
   date: day(-1), categoryId: health.id, type: 'EXPENSE', factAmount: 1550,
   description: 'Аптека', rawInput: '1200+350',
 });
-// Старый путь записи факта прямо в план (ANO-25).
-await patch(`/events/${cafePast.id}/fact`, { factAmount: 2100 });
+// Факт к плану прошлого месяца. Раньше здесь был старый путь — факт прямо в строку плана, —
+// но с Р3 (ANO-25) сервер такой факт не принимает: только отдельной записью.
+await post(`/events/${cafePast.id}/facts`, { date: cafePast.date, factAmount: 2100 });
 await post(`/events/${hobbyPlan.id}/facts`, { date: hobbyPlan.date, factAmount: 3800 });
 
 // ── Правки цепочек ──────────────────────────────────────────────────────────
@@ -281,7 +282,7 @@ await post(`/wishlist/items/${tent.id}/convert`, {
 
 // ── Настройки, капитал ──────────────────────────────────────────────────────
 await put('/settings/pocket', { bufferAmount: 10000 });
-await put('/settings/wishlist', { capitalThresholdRub: 500000, cashBufferMonths: 2 });
+await put('/settings/wishlist', { capitalThresholdRub: 500000 });   // Р5: подушка одна — НЗ
 const flat = await post('/capital/items', { kind: 'ASSET', name: 'Квартира', initialValue: 8000000, initialValuedAt: day(-365) });
 await post(`/capital/items/${flat.id}/revaluations`, { value: 8400000, valuedAt: day(-30), note: 'оценка' });
 await post('/capital/items', { kind: 'LIABILITY', name: 'Остаток ипотеки', initialValue: 5200000, initialValuedAt: day(-365) });

@@ -193,7 +193,7 @@ export interface UpcomingItem {
 
 /**
  * НЗ кармашка (ANO-92) — сумма, которую кармашек не тратит. На экране «НЗ», в API `bufferAmount`;
- * 0 — НЗ нет. Порог «Подушка, мес.» на «Хотелках» — другая настройка ({@link WishlistThresholds}).
+ * 0 — НЗ нет. Подушка одна — он же: жёлтые месяцы «Что с капиталом» — остаток ниже НЗ (Р5, ANO-93).
  */
 export interface PocketSettings {
     bufferAmount: number;
@@ -306,15 +306,6 @@ export interface SandboxResponse {
 
 // --- Analytics ---
 
-export interface CashFlowDay {
-    date: string;
-    dailyIncome: number;
-    dailyExpense: number;
-    runningBalance: number;
-    isFuture: boolean;
-    isGap: boolean;
-}
-
 export interface CategoryPlanFact {
     categoryName: string;
     type: 'INCOME' | 'EXPENSE';
@@ -331,26 +322,6 @@ export interface PlanFactReport {
     totalFactExpense: number;
 }
 
-export interface WeekBurnRate {
-    weekNumber: number;
-    weekStart: string;
-    weekEnd: string;
-    planned: number;
-    fact: number;
-}
-
-export interface MandatoryBurnRate {
-    totalPlanned: number;
-    totalFact: number;
-    byWeek: WeekBurnRate[];
-}
-
-export interface IncomeGap {
-    plannedIncome: number;
-    factIncome: number;
-    delta: number;
-}
-
 export interface PriorityBreakdown {
     highPlanned: number;
     highFact: number;
@@ -361,11 +332,9 @@ export interface PriorityBreakdown {
     totalIncomeFact: number;
 }
 
+/** Р3 (ANO-47): кассовый календарь, burn rate и дефицит дохода из ответа ушли — экран их не рисовал. */
 export interface AnalyticsReport {
-    cashFlow: CashFlowDay[];
     planFact: PlanFactReport;
-    mandatoryBurn: MandatoryBurnRate;
-    incomeGap: IncomeGap;
     priorityBreakdown: PriorityBreakdown;
 }
 
@@ -638,9 +607,9 @@ export interface WishlistItem {
     monthlyPMT?: number | null;
 }
 
+/** Пороги «Хотелок»: «Мин. капитал». Порог остатка — НЗ ({@link PocketSettings}, Р5). */
 export interface WishlistThresholds {
     capitalThresholdRub: number | null;
-    cashBufferMonths: number;
 }
 
 export interface WishlistConstraints {

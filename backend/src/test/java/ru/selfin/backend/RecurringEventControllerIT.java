@@ -257,15 +257,18 @@ class RecurringEventControllerIT {
         String headEventDate = objectMapper.readTree(createResp).get("date").asText();
         String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
 
-        // PATCH-fact the head event to turn it EXECUTED
-        String patchBody = """
-            { "factAmount": 4900, "description": "Оплачено" }
-            """;
-        mockMvc.perform(patch("/api/v1/events/" + headEventId + "/fact")
+        // Факт к первому событию — запись (Р3, ANO-25): полная сумма погашает план, он EXECUTED.
+        // Дата факта — сегодня: план завтра, а факт будущей датой сервер не принимает.
+        String factBody = """
+            { "date": "%s", "factAmount": 5000, "description": "Оплачено" }
+            """.formatted(LocalDate.now());
+        String factResp = mockMvc.perform(post("/api/v1/events/" + headEventId + "/facts")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(patchBody))
+                        .content(factBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("EXECUTED"));
+                .andReturn().getResponse().getContentAsString();
+        String factId = objectMapper.readTree(factResp).get("id").asText();
 
         // PUT scope=ALL with new plannedAmount=9999
         String updateBody = """
@@ -307,7 +310,19 @@ class RecurringEventControllerIT {
                 .orElseThrow(() -> new AssertionError("EXECUTED event not found in list"));
 
         assertThat(executedEvent.get("status")).isEqualTo("EXECUTED");
-        assertThat(((Number) executedEvent.get("factAmount")).doubleValue()).isEqualTo(4900.0);
+        // Запись-факт правка правила не трогает: она по-прежнему гасит план.
+        String factsJson = mockMvc.perform(get("/api/v1/events")
+                        .param("startDate", LocalDate.now().toString())
+                        .param("endDate", LocalDate.now().toString()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<Map<String, Object>> factsToday = objectMapper.readValue(factsJson, List.class);
+        Map<String, Object> fact = factsToday.stream()
+                .filter(e -> factId.equals(e.get("id")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("FACT record not found"));
+        assertThat(((Number) fact.get("factAmount")).doubleValue()).isEqualTo(5000.0);
+        assertThat(fact.get("parentEventId")).isEqualTo(headEventId);
         // I4: EXECUTED rows must never be modified by the rule — plannedAmount stays at original value
         assertThat(((Number) executedEvent.get("plannedAmount")).doubleValue())
                 .as("EXECUTED event plannedAmount must remain at original value (5000), not updated to 9999")
@@ -781,18 +796,18 @@ class RecurringEventControllerIT {
         String planId = objectMapper.readTree(createResp).get("id").asText();
         String ruleId = objectMapper.readTree(createResp).get("recurringRuleId").asText();
 
-        // PATCH /events/{planId}/fact to attach a factAmount — turns plan EXECUTED
-        String factPatchBody = """
-            { "factAmount": 6800, "description": "Оплачено фактически" }
-            """;
-        mockMvc.perform(patch("/api/v1/events/" + planId + "/fact")
+        // Факт к плану — запись (Р3, ANO-25); полная сумма переводит план в EXECUTED.
+        // Дата факта — сегодня: план завтра, а факт будущей датой сервер не принимает.
+        String factBody = """
+            { "date": "%s", "factAmount": 7000, "description": "Оплачено фактически" }
+            """.formatted(LocalDate.now());
+        mockMvc.perform(post("/api/v1/events/" + planId + "/facts")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(factPatchBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("EXECUTED"))
-                .andExpect(jsonPath("$.factAmount").value(6800));
+                        .content(factBody))
+                .andExpect(status().isOk());
 
-        // Verify the event has recurringRuleId set (PATCH returns the updated PLAN event)
+        // План сохраняет правило — факт к нему его не отнимает
         String planAfterPatch = mockMvc.perform(get("/api/v1/events")
                         .param("startDate", startDate.toString())
                         .param("endDate", startDate.toString()))
@@ -806,8 +821,9 @@ class RecurringEventControllerIT {
                 .orElseThrow(() -> new AssertionError("Plan event not found"));
 
         assertThat(planEvent.get("recurringRuleId"))
-                .as("PLAN event must retain recurringRuleId after PATCH-fact")
+                .as("PLAN event must retain recurringRuleId after its fact is recorded")
                 .isEqualTo(ruleId);
+        assertThat(planEvent.get("status")).isEqualTo("EXECUTED");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

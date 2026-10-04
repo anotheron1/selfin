@@ -20,7 +20,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
     const monthLabel = fmtYearMonthFull(p.yearMonth);
     const subtitle = isFuture && currentMonth
         ? ` (через ${monthsBetween(currentMonth, p.yearMonth)} мес)`
-        : isCurrent ? ' (сейчас)' : '';
+        : isCurrent ? ' (этот месяц)' : '';
 
     const goToBudget = () => navigate(`/budget?month=${p.yearMonth}`);
 
@@ -38,7 +38,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
             </div>
 
             <div className="flex justify-between items-baseline mb-1">
-                <span style={{ color: 'var(--color-text-muted)' }}>Баланс</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>Остаток на конец месяца</span>
                 <span className="font-semibold text-[14px]">{fmtRub(p.balance)}</span>
             </div>
             {isFuture && p.balanceLow !== null && p.balanceHigh !== null && p.balanceLow !== p.balanceHigh && (
@@ -55,7 +55,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
                                 Доход +{fmtRub(p.income)}
                             </div>
                             {p.breakdown.incomeItems.map(it => (
-                                <div key={it.category} className="flex justify-between items-center">
+                                <div key={it.category} className="flex justify-between items-center gap-3">
                                     <span>{it.isRecurring && <Repeat size={10} className="inline mr-1" />}{it.category}</span>
                                     <span>+{fmtRub(it.amount)}</span>
                                 </div>
@@ -68,7 +68,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
                                 Расход −{fmtRub(p.expense)}
                             </div>
                             {p.breakdown.expenseItems.map(it => (
-                                <div key={it.category} className="flex justify-between items-center">
+                                <div key={it.category} className="flex justify-between items-center gap-3">
                                     <span>
                                         {it.isRecurring && <Repeat size={10} className="inline mr-1" />}
                                         {it.category}

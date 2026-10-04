@@ -260,7 +260,8 @@ class PocketServiceTest {
     void recurringExtension_beforeHorizonResolution() {
         pocketService.getPocket(null, TODAY);
         InOrder inOrder = inOrder(recurringRuleService, eventRepository);
-        inOrder.verify(recurringRuleService).extendIndefiniteRules(TODAY.plusMonths(36));
+        // Р1: до конца месяца через 36 мес — «Стратегия» просит точку на конец последнего месяца.
+        inOrder.verify(recurringRuleService).extendIndefiniteRules(LocalDate.of(2029, 3, 31));
         inOrder.verify(eventRepository).findPlannedIncomeDates(any(), any(), anyBoolean(), any());
     }
 
@@ -293,6 +294,15 @@ class PocketServiceTest {
         assertThatThrownBy(() -> pocketService.getPocket("DATE:2026-02-01", TODAY))
                 .isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> pocketService.getPocket("DATE:2030-01-01", TODAY))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    @DisplayName("Р1: DATE до конца месяца через 36 мес принят, днём позже — 400")
+    void dateScope_untilEndOfThirtySixthMonth() {
+        assertThat(pocketService.getPocket("DATE:2029-03-31", TODAY).horizon().endDate())
+                .isEqualTo(LocalDate.of(2029, 3, 31));
+        assertThatThrownBy(() -> pocketService.getPocket("DATE:2029-04-01", TODAY))
                 .isInstanceOf(ResponseStatusException.class);
     }
 

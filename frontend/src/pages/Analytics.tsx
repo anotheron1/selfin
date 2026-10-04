@@ -3,6 +3,7 @@ import { fetchMultiMonthReport, fetchAnalyticsReport } from '../api';
 import CategoryProgressSection from '../components/analytics/CategoryProgressSection';
 import type { AnalyticsReport, MultiMonthReport, MultiMonthRow } from '../types/api';
 import { differenceSign } from '../lib/planFact';
+import { periodRange } from '../lib/periodRange';
 import BudgetStructureSection from '../components/BudgetStructureSection';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Button } from '../components/ui/button';
@@ -18,19 +19,6 @@ const fmtTable = (n: number | null) =>
     n != null
         ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(n) + ' ₽'
         : '—';
-
-function getDateRange(preset: '3m' | '6m' | '12m'): { startDate: string; endDate: string } {
-    const today = new Date();
-    const endMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const months = preset === '3m' ? 3 : preset === '6m' ? 6 : 12;
-    const startMonth = new Date(endMonth);
-    startMonth.setMonth(startMonth.getMonth() - months + 1);
-    const startDate = startMonth.toISOString().slice(0, 7) + '-01';
-    const endDate = new Date(endMonth.getFullYear(), endMonth.getMonth() + 1, 0)
-        .toISOString()
-        .slice(0, 10);
-    return { startDate, endDate };
-}
 
 export default function Analytics() {
     const [preset, setPreset] = useState<Preset>('1m');
@@ -49,7 +37,7 @@ export default function Analytics() {
                 .finally(() => setLoading(false));
         } else {
             setAnalytics(null);
-            const { startDate, endDate } = getDateRange(preset);
+            const { startDate, endDate } = periodRange(preset === '3m' ? 3 : preset === '6m' ? 6 : 12, new Date());
             fetchMultiMonthReport(startDate, endDate)
                 .then(setReport)
                 .finally(() => setLoading(false));
@@ -166,13 +154,12 @@ function AnalyticsRow({ row, months }: { row: MultiMonthRow; months: string[] })
                 const v = valueMap.get(m);
                 if (!v) return <td key={m} className="text-right px-4 py-2 text-muted-foreground">—</td>;
 
-                const isNegativeBalance = isBalance && v.actual != null && v.actual < 0;
-                const actualColor = isBalance
-                    ? (v.actual != null && v.actual >= 0 ? 'text-green-500' : 'text-destructive')
-                    : isIncome ? 'text-green-500' : 'text-foreground';
+                // Р4: «Доходы минус расходы» — обычным цветом. Зелёный — цвет дохода, а не оценка;
+                // красный минус и зелёный плюс у разницы оценивали бы месяц (правило 12).
+                const actualColor = isIncome ? 'text-green-500' : 'text-foreground';
 
                 return (
-                    <td key={m} className={`text-right px-4 py-2 ${isNegativeBalance ? 'bg-destructive/10' : ''}`}>
+                    <td key={m} className="text-right px-4 py-2">
                         {v.actual != null ? (
                             <div>
                                 <div className={`font-medium ${actualColor}`}>{fmtTable(v.actual)}</div>

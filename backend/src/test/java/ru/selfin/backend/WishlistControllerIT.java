@@ -99,7 +99,8 @@ class WishlistControllerIT {
         mockMvc.perform(get("/api/v1/wishlist/simulation"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items").isArray())
-                .andExpect(jsonPath("$.thresholds.cashBufferMonths").value(1.0));
+                .andExpect(jsonPath("$.thresholds").exists())
+                .andExpect(jsonPath("$.thresholds.cashBufferMonths").doesNotExist());   // Р5: подушка одна — НЗ
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -378,19 +379,18 @@ class WishlistControllerIT {
 
     @Test
     void factPatchedIntoConvertedWishlistRow_keepsTheRow() throws Exception {
-        // Ревью #109: старый путь PATCH /events/{id}/fact пишет факт в саму строку. Строка с
-        // деньгами остаётся в журнале — прячется только обязательство без факта.
+        // Ревью #109: старый путь PATCH /events/{id}/fact писал факт в саму строку. Строка с
+        // деньгами остаётся в журнале — прячется только обязательство без факта. С Р3 (ANO-25)
+        // путь закрыт, но такие строки могли остаться — заводим её данными.
         LocalDate day = LocalDate.now();
         FinancialEvent src = eventRepository.save(datedWishlist("Факт в строку", day.plusDays(1)));
         convert(src, """
                 {"sourceKind":"WISHLIST","target":"PLAN_EVENT","planDate":"%s"}
                 """.formatted(day.plusDays(1)));
-        mockMvc.perform(patch("/api/v1/events/" + src.getId() + "/fact")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"factAmount":1063}
-                                """))
-                .andExpect(status().isOk());
+        FinancialEvent legacy = eventRepository.findById(src.getId()).orElseThrow();
+        legacy.setFactAmount(new BigDecimal("1063"));
+        legacy.setStatus(EventStatus.EXECUTED);
+        eventRepository.save(legacy);
 
         assertThat(idsOnDay(day.plusDays(1))).contains(src.getId().toString());
     }
@@ -647,8 +647,9 @@ class WishlistControllerIT {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    void wishlistSettings_roundTrip_andRejectsNegativeBuffer() throws Exception {
-        // PUT new thresholds.
+    void wishlistSettings_roundTrip_oldCushionFieldIgnored_andRejectsNegativeCapital() throws Exception {
+        // Р5 (ANO-93): старый клиент — страница из кэша, сеятель CI из main — шлёт и подушку.
+        // Запись проходит, поле пропускается: подушка одна — НЗ.
         mockMvc.perform(put("/api/v1/settings/wishlist")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -656,19 +657,19 @@ class WishlistControllerIT {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.capitalThresholdRub").value(1000000))
-                .andExpect(jsonPath("$.cashBufferMonths").value(2.0));
+                .andExpect(jsonPath("$.cashBufferMonths").doesNotExist());
 
         // GET returns the same values.
         mockMvc.perform(get("/api/v1/settings/wishlist"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.capitalThresholdRub").value(1000000))
-                .andExpect(jsonPath("$.cashBufferMonths").value(2.0));
+                .andExpect(jsonPath("$.cashBufferMonths").doesNotExist());
 
-        // PUT with a negative buffer is rejected with 400.
+        // PUT with a negative capital threshold is rejected with 400.
         mockMvc.perform(put("/api/v1/settings/wishlist")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"capitalThresholdRub":1000000,"cashBufferMonths":-1}
+                                {"capitalThresholdRub":-1}
                                 """))
                 .andExpect(status().isBadRequest());
     }

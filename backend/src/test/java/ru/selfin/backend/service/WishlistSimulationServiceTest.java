@@ -193,7 +193,7 @@ class WishlistSimulationServiceTest {
         StrategyTimelineDto baselineDto = new StrategyTimelineDto(
                 first, current, horizonEnd, 6, false, List.of());
         TimelineSnapshot snap = new TimelineSnapshot(first, current, horizonEnd, 6, false, List.of());
-        when(baselineBuilder.build(36, true, BaselineTimelineBuilder.Wishlist.NONE)).thenReturn(snap);
+        when(baselineBuilder.build(36, false)).thenReturn(snap);
 
         // OPEN wishlist event (should be included)
         Category cat = Category.builder().id(UUID.randomUUID()).name("Техника").build();
@@ -221,7 +221,7 @@ class WishlistSimulationServiceTest {
 
         // stub thresholds and capital
         when(userSettingsService.getWishlistSettings())
-                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null, new BigDecimal("1.0")));
+                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null));
         when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("500000"));
         when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
 
@@ -243,7 +243,7 @@ class WishlistSimulationServiceTest {
         YearMonth current = YearMonth.now();
         TimelineSnapshot snap = new TimelineSnapshot(current.minusMonths(3), current, current.plusMonths(36),
                 6, false, List.of());
-        when(baselineBuilder.build(36, true, BaselineTimelineBuilder.Wishlist.NONE)).thenReturn(snap);
+        when(baselineBuilder.build(36, false)).thenReturn(snap);
         TargetFund dismissedFund = TargetFund.builder()
                 .id(UUID.randomUUID()).name("Отпуск")
                 .purchaseType(FundPurchaseType.SAVINGS)
@@ -254,7 +254,7 @@ class WishlistSimulationServiceTest {
         when(eventRepo.findAllWishlistEvents()).thenReturn(List.of());
         when(fundRepo.findAllWishlistFunds()).thenReturn(List.of(dismissedFund));
         when(userSettingsService.getWishlistSettings())
-                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null, new BigDecimal("1.0")));
+                .thenReturn(new ru.selfin.backend.dto.wishlist.WishlistThresholdsDto(null));
         when(capitalService.cashLiquidAt(any())).thenReturn(new BigDecimal("500000"));
         when(eventRepo.findFactsByDateRange(any(), any())).thenReturn(List.of());
 
@@ -368,4 +368,55 @@ class WishlistSimulationServiceTest {
         assertThat(result.delta()).isEmpty();
         assertThat(result.monthlyPMT()).isEqualByComparingTo("0");
     }
+
+    // ── основа и зафиксированное из ядра (Р1) ──────────────────────────────
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("Р1: дельта зафиксированного — счёт из ядра, капитал по формуле; текущий месяц — в первую будущую точку")
+    void heldOnAccount_accountFromCore_capitalFromFormula() {
+        YearMonth current = YearMonth.of(2026, 3);
+        List<MonthDeltaDto> formula = WishlistSimulationService.computeWishlistDelta(
+                new BigDecimal("30000"), LocalDate.of(2026, 5, 15), current, 36);
+        java.util.Map<YearMonth, BigDecimal> held = new java.util.TreeMap<>(java.util.Map.of(
+                current, new BigDecimal("1000"), YearMonth.of(2026, 5), new BigDecimal("30000")));
+
+        List<MonthDeltaDto> delta = WishlistSimulationService.heldOnAccount(formula, held, current);
+
+        assertThat(delta)
+                .extracting(MonthDeltaDto::monthIndex, d -> d.accountDelta().longValue(), d -> d.capitalDelta().longValue())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(0, -1000L, 0L),
+                        org.assertj.core.groups.Tuple.tuple(1, -30000L, -30000L));
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("Р1: основа без зафиксированного — что ядро держит по ссылкам, возвращается в остаток с того месяца и дальше")
+    void withoutFixed_returnsHeldMoneyCumulatively() {
+        YearMonth feb = YearMonth.of(2026, 2), mar = YearMonth.of(2026, 3);
+        YearMonth apr = YearMonth.of(2026, 4), may = YearMonth.of(2026, 5);
+        List<StrategyTimelinePointDto> points = List.of(
+                point(feb, ru.selfin.backend.dto.strategy.StrategyPointPhase.PAST, 10),
+                point(mar, ru.selfin.backend.dto.strategy.StrategyPointPhase.CURRENT, 100),
+                point(apr, ru.selfin.backend.dto.strategy.StrategyPointPhase.FUTURE, 90),
+                point(may, ru.selfin.backend.dto.strategy.StrategyPointPhase.FUTURE, 80));
+        java.util.Map<ru.selfin.backend.dto.pocket.SandboxRef, java.util.Map<YearMonth, BigDecimal>> held = java.util.Map.of(
+                ru.selfin.backend.dto.pocket.SandboxRef.event(UUID.randomUUID()),
+                java.util.Map.of(mar, new BigDecimal("5"), may, new BigDecimal("7")),
+                ru.selfin.backend.dto.pocket.SandboxRef.fund(UUID.randomUUID()), java.util.Map.of(apr, new BigDecimal("3")));
+
+        List<StrategyTimelinePointDto> base = WishlistSimulationService.withoutFixed(points, held);
+
+        assertThat(base).extracting(p -> p.balance().longValue()).containsExactly(10L, 105L, 98L, 95L);
+        assertThat(base).extracting(p -> p.balanceConfirmed() == null ? null : p.balanceConfirmed().longValue())
+                .containsExactly(null, 105L, 98L, 95L);
+        assertThat(base.get(1).expense()).as("расход месяца — без строк зафиксированного").isEqualByComparingTo("-5");
+    }
+
+    private static StrategyTimelinePointDto point(YearMonth ym, ru.selfin.backend.dto.strategy.StrategyPointPhase phase, long balance) {
+        BigDecimal b = BigDecimal.valueOf(balance);
+        boolean past = phase == ru.selfin.backend.dto.strategy.StrategyPointPhase.PAST;
+        return new StrategyTimelinePointDto(ym, phase, b, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                past ? null : b, past ? null : b, past ? null : b, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null);
+    }
+
 }

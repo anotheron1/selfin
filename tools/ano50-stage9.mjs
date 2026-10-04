@@ -7,7 +7,7 @@
  *
  * Три открытые задачи проверяются на регресс:
  *   ANO-47 — мостик в аналитике считает факты по своему правилу
- *   ANO-25 — факты через PATCH не попадали в разбор стратегии
+ *   ANO-25 — факты через PATCH не попадали в разбор стратегии; с Р3 путь закрыт — факт к плану только записью
  *   ANO-32 — цвета план-факта по доходу красили наоборот
  *
  *   node tools/ano50-stage9.mjs        # прогон, МЕНЯЕТ ДАННЫЕ и убирает за собой
@@ -268,21 +268,27 @@ async function main() {
       date: d, categoryId: expCat.id, type: 'EXPENSE', factAmount: 4400, description: `Факт напрямую ${MARK}`,
     }));
     made.push(standalone.id);
-    // путь 2: план, затем факт к нему через PATCH
+    // путь 2: план, затем факт к нему — записью. Старый путь, факт прямо в строку плана через
+    // PATCH, с Р3 (ANO-25) закрыт: сервер отвечает 400.
     const plan = await must('/events', send('POST', {
       date: d, categoryId: expCat.id, type: 'EXPENSE', plannedAmount: 4400, description: `План под факт ${MARK}`,
     }));
     made.push(plan.id);
-    await must(`/events/${plan.id}/fact`, {
+    const patched = await api(`/events/${plan.id}/fact`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ factAmount: 4400 }),
     });
+    patched.status === 400
+      ? record('9.9', 'СОШЛОСЬ', 'факт прямо в строку плана сервер не принимает (Р3)')
+      : record('9.9', 'РАСХОЖДЕНИЕ', 'старый путь факта в строку плана снова открыт', { статус: patched.status });
+    const linked = await must(`/events/${plan.id}/facts`, send('POST', { date: d, factAmount: 4400 }));
+    made.push(linked.id);
 
     const seen = {};
     const evs = await events(d, d);
     seen.журнал = {
       напрямую: evs.some((e) => e.id === standalone.id && num(e.factAmount) === 4400),
-      черезPATCH: evs.some((e) => e.id === plan.id && num(e.factAmount) === 4400),
+      кПлану: evs.some((e) => e.id === linked.id && num(e.factAmount) === 4400),
     };
 
     const rep = await must(`/analytics/multi-month?startDate=${monthStart}&endDate=${monthEnd}`);
@@ -294,7 +300,7 @@ async function main() {
     const pt = (s.points ?? []).find((p) => String(p.yearMonth) === thisMonth);
     seen.стратегия = { расходМесяца: num(pt?.expense) };
 
-    const bothInJournal = seen.журнал.напрямую && seen.журнал.черезPATCH;
+    const bothInJournal = seen.журнал.напрямую && seen.журнал.кПлану;
     bothInJournal
       ? record('9.9', 'СОШЛОСЬ', 'оба факта видны в журнале')
       : record('9.9', 'РАСХОЖДЕНИЕ', 'в журнале виден не каждый факт', seen.журнал);
@@ -317,7 +323,7 @@ async function main() {
       ? record('9.9', 'СОШЛОСЬ', 'факт напрямую виден в стратегии')
       : record('9.9', 'РАСХОЖДЕНИЕ', 'снятие факта напрямую сдвинуло стратегию не на 4 400', { сдвиг: dStrategy1 });
 
-    await del(plan.id);
+    await del(linked.id);
     const repEmpty = await must(`/analytics/multi-month?startDate=${monthStart}&endDate=${monthEnd}`);
     const cellEmpty = ((repEmpty.rows ?? []).find((r) => r.label === expCat.name)?.values ?? [])
       .find((v) => v.month === thisMonth);
@@ -326,13 +332,14 @@ async function main() {
     const dAnalytics2 = num(cellNoStandalone?.actual) - num(cellEmpty?.actual);
     const dStrategy2 = num(ptNoStandalone?.expense) - num(ptEmpty?.expense);
     eq(dAnalytics2, 4400)
-      ? record('9.9', 'СОШЛОСЬ', 'факт через PATCH виден в аналитике так же, как факт напрямую')
-      : record('9.9', 'РАСХОЖДЕНИЕ', 'факт через PATCH в аналитике учтён иначе — материал ANO-47',
-        { сдвигНапрямую: dAnalytics1, сдвигЧерезPATCH: dAnalytics2 });
+      ? record('9.9', 'СОШЛОСЬ', 'факт к плану виден в аналитике так же, как факт напрямую')
+      : record('9.9', 'РАСХОЖДЕНИЕ', 'факт к плану в аналитике учтён иначе',
+        { сдвигНапрямую: dAnalytics1, сдвигКПлану: dAnalytics2 });
     eq(dStrategy2, 4400)
-      ? record('9.9', 'СОШЛОСЬ', 'факт через PATCH виден в стратегии — ANO-25 не воспроизводится')
-      : record('9.9', 'РАСХОЖДЕНИЕ', 'факт через PATCH в стратегию не попал — регресс ANO-25',
-        { сдвигНапрямую: dStrategy1, сдвигЧерезPATCH: dStrategy2 });
+      ? record('9.9', 'СОШЛОСЬ', 'факт к плану виден в стратегии')
+      : record('9.9', 'РАСХОЖДЕНИЕ', 'факт к плану в стратегию не попал — регресс ANO-25',
+        { сдвигНапрямую: dStrategy1, сдвигКПлану: dStrategy2 });
+    await del(plan.id);
     made.length = 0;
   }
 

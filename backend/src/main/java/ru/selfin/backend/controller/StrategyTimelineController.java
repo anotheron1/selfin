@@ -20,8 +20,8 @@ public class StrategyTimelineController {
             @RequestParam(defaultValue = "36") int horizonMonths,
             @RequestParam(defaultValue = "true") boolean withBreakdown
     ) {
-        // Гарантируем безопасный максимум
-        int safeHorizon = Math.min(Math.max(horizonMonths, 1), 60);
+        // Р1: остаток по месяцам берётся из ядра, а оно дальше 36 месяцев не считает.
+        int safeHorizon = Math.min(Math.max(horizonMonths, 1), ru.selfin.backend.dto.pocket.PocketScope.MAX_MONTHS);
         return service.getTimeline(safeHorizon, withBreakdown);
     }
 }

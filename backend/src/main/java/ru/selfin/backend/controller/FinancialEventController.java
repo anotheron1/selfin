@@ -79,9 +79,10 @@ public class FinancialEventController {
         return eventService.update(id, scope, dto);
     }
 
-    @Operation(summary = "Ввести фактическую сумму (частичное обновление)",
-            description = "Обновляет только factAmount и description, не затрагивая дату, категорию и прочие поля. "
-                    + "Статус автоматически меняется: factAmount != null → EXECUTED, null → PLANNED.")
+    @Operation(summary = "Поправить сумму записи-факта (частичное обновление)",
+            description = "Только для записей-фактов (eventKind FACT): обновляет factAmount и description, "
+                    + "не затрагивая дату, категорию и прочие поля. Плановая строка — 400: факт к ней "
+                    + "пишется отдельной записью, POST /events/{planId}/facts (Р3, ANO-25).")
     @PatchMapping("/{id}/fact")
     public FinancialEventDto updateFact(
             @Parameter(description = "ID события") @PathVariable UUID id,

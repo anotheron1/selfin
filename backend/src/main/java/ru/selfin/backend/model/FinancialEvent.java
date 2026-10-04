@@ -137,6 +137,25 @@ public class FinancialEvent implements FinancialRecord {
         return convertedToEventId != null || convertedToFundId != null;
     }
 
+    /**
+     * Хотелка вне плана ядра: обсуждается, отложена или сконвертирована. Тратой хотелка становится,
+     * только когда зафиксирована и не сконвертирована (ANO-108) — то же правило, что
+     * {@code PocketEngine.allowedInTrajectory} на снимках и запрос {@code findPlannedEventsByDateRange}.
+     */
+    public boolean wishlistOutsidePlan() {
+        return wishlistStatus != null
+                && (wishlistStatus != ru.selfin.backend.model.enums.WishlistStatus.FIXED || convertedToArtifact());
+    }
+
+    /**
+     * Строки нет в плане месяца ни на одном экране (Р4, ANO-206): хотелка вне плана ядра и без денег
+     * в самой строке. Факт, записанный прямо в строку старым путём, — настоящая трата: такую строку
+     * не прячем, иначе из журнала пропали бы деньги (ANO-106, ревью Codex на #109).
+     */
+    public boolean outsideMonthPlan() {
+        return wishlistOutsidePlan() && factAmount == null;
+    }
+
     @PreUpdate
     public void onUpdate() {
         this.updatedAt = LocalDateTime.now();

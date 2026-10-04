@@ -28,6 +28,7 @@ public record MultiMonthReportDto(
         TOTAL_EXPENSE,
         TOTAL_FUND_TRANSFER,
         CATEGORY,
+        /** «Доходы минус расходы», не остаток: имя — от прежней подписи «Баланс», контракт не ломаем (Р4). */
         BALANCE
     }
 }
