@@ -176,7 +176,7 @@ public class CapitalService {
         BigDecimal capitalYearAgo    = capitalAt(today.minusYears(1));
 
         return new CapitalSummaryDto(
-                total, liquid, assetsTotal, liabilitiesTotal, items,
+                total, liquid, assetsTotal, liabilitiesTotal, accountBalanceService.creditDebtAt(today), items,
                 new CapitalSummaryDto.Deltas(
                         total.subtract(capitalMonthAgo),
                         total.subtract(capitalQuarterAgo),

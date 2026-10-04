@@ -202,6 +202,8 @@ class CapitalServiceLiquidTest {
         assertThat(s.liquid()).isEqualByComparingTo("50000");
         // долг = 200 000 (лимит) − 62 000 (доступно) = 138 000
         assertThat(s.liabilitiesTotal()).isEqualByComparingTo("138000");
+        // Р7 (ANO-217): долг по картам — отдельно, строкой «Обязательств» на экране
+        assertThat(s.cardDebts()).isEqualByComparingTo("138000");
         // total = 50 000 − 138 000 = −88 000
         assertThat(s.total()).isEqualByComparingTo("-88000");
     }

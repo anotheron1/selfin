@@ -3,6 +3,7 @@ import { HelpCircle } from 'lucide-react';
 import { fetchCapitalSummary } from '../api';
 import type { CapitalSummary, CapitalItem, CapitalItemKind } from '../types/api';
 import CapitalSummaryCard from '../components/CapitalSummaryCard';
+import { computedRow } from '../lib/capitalRows';
 import CapitalItemList from '../components/CapitalItemList';
 import CapitalSheet, { type CapitalSheetMode } from '../components/CapitalSheet';
 import CapitalTrajectoryChart from '../components/CapitalTrajectoryChart';
@@ -54,11 +55,13 @@ export default function Capital({ refreshSignal }: Props) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <CapitalItemList
                             kind="ASSET"
+                            computed={computedRow('ASSET', summary)}
                             items={summary.items.filter(i => i.kind === 'ASSET')}
                             onItemClick={openView}
                             onCreate={() => openCreate('ASSET')} />
                         <CapitalItemList
                             kind="LIABILITY"
+                            computed={computedRow('LIABILITY', summary)}
                             items={summary.items.filter(i => i.kind === 'LIABILITY')}
                             onItemClick={openView}
                             onCreate={() => openCreate('LIABILITY')} />

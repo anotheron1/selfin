@@ -529,6 +529,8 @@ export interface CapitalSummary {
     liquid: number;
     assetsTotal: number;
     liabilitiesTotal: number;
+    /** Долг по кредитным картам — часть liabilitiesTotal; строкой «Обязательств» (Р7). */
+    cardDebts: number;
     items: CapitalItem[];
     deltas: {
         month: number;
