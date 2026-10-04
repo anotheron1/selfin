@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fmtRub as fmtC } from './format';
 import { balanceWord, buildPocketPhrase } from './pocketPhrase';
+import type { PocketResponse } from '../types/api';
 
 describe('balanceWord (Р6, карточка без сверки)', () => {
     it('сверка основной карты есть — «на счёте»', () => {
@@ -15,7 +16,6 @@ describe('balanceWord (Р6, карточка без сверки)', () => {
         expect(card).toContain('balanceWord(data.checkpointDate != null)');
     });
 });
-import type { PocketResponse } from '../types/api';
 
 /** Минимальный PocketResponse: горизонт NEXT_INCOME до 15.07, буфер 0, breakdown не важен для фразы. */
 function make(overrides: Partial<PocketResponse> = {}): PocketResponse {
