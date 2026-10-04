@@ -742,6 +742,22 @@ class FinancialEventServiceTest {
     // ещё должен, исчезали с экрана ровно тем же способом, что чинит ANO-155.
 
     @Test
+    @DisplayName("Р3 (ANO-25): факт в строку плана не принимается — только отдельной записью")
+    void updateFact_onPlanRow_isRejected() {
+        UUID planId = UUID.randomUUID();
+        FinancialEvent plan = aPlan(planId, category(), EventStatus.PLANNED);
+        when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
+
+        assertThatThrownBy(() -> service.updateFact(planId,
+                new FinancialEventUpdateFactDto(new BigDecimal("4000"), null, null)))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("/facts");
+        assertThat(plan.getFactAmount()).isNull();
+        assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("ревью #45: уменьшенный факт снова открывает план")
     void factEditedDown_reopensPlan() {
         UUID planId = UUID.randomUUID();

@@ -495,10 +495,14 @@ public class FinancialEventService {
      * записи есть родительский план, его статус пересчитывается по новому погашению
      * ({@link #resettlePlan}): уменьшенный или снятый факт снова открывает обязательство.
      *
+     * <p>Строке плана — 400 (Р3, ANO-25): факт к плану — отдельная запись,
+     * {@code POST /events/{planId}/facts}.
+     *
      * @param id  идентификатор события
      * @param dto новая фактическая сумма (может быть {@code null} для отмены)
      * @return обновлённый DTO
      * @throws ResourceNotFoundException если событие не найдено
+     * @throws ResponseStatusException   400, если это строка плана
      */
     @Transactional
     public FinancialEventDto updateFact(UUID id, FinancialEventUpdateFactDto dto) {
@@ -506,10 +510,18 @@ public class FinancialEventService {
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
 
-        // Ревью #96: старый путь пишет факт в строку плана, и дата факта — дата плана. Перевод
-        // будущей датой поднял бы копилку уже сегодня, а счёт — только в день плана: ещё не
-        // ушедшие деньги можно было бы снять. Правило то же, что у факта к плану и у ручки
-        // перевода. Снять факт можно всегда — иначе такие записи, сделанные раньше, не исправить.
+        // Р3 (карта C1, Р3-Б): факт — только отдельной записью. Сумма факта в самой строке плана —
+        // наследие: экран её не пишет, а у пути была дыра — факт в будущую строку снимал её из
+        // резерва сразу, а сам считался только в свой день. Снять такой факт тоже нельзя:
+        // легаси-строки разносит миграция после подсчёта на боевой базе, а не правка.
+        if (event.getEventKind() == EventKind.PLAN) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A fact for a plan is a separate record: POST /events/" + id + "/facts");
+        }
+
+        // Ревью #96: перевод будущей датой поднял бы копилку уже сегодня, а счёт — только в день
+        // перевода: ещё не ушедшие деньги можно было бы снять. Записи-факта будущей датой экран не
+        // заводит, но старые могли остаться.
         if (event.getType() == EventType.FUND_TRANSFER && dto.factAmount() != null) {
             requireNotFuture(event.getDate());
         }
