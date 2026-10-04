@@ -1,4 +1,5 @@
 import { fmtRub } from './format';
+import type { Account } from '../types/api';
 
 /**
  * Хелперы жеста ре-якоря (ANO-15 §3): возраст якоря и зеркало дрейфа.
@@ -29,6 +30,31 @@ export function buildAgeHint(checkpointDate: string | null, todayIso: string): s
     if (age == null) return 'остаток ещё не якорился — тапни, чтобы задать';
     if (age <= STALE_AFTER_DAYS) return null;
     return `остаток обновлялся ${age} дн. назад`;
+}
+
+/**
+ * Число зеркала — остаток того счёта, который сверяют (ANO-214). Сверка пишется на один счёт, а
+ * «на счёте» карточки — сумма всех свободных: с ней лист показывал дрейф ровно на остатки прочих
+ * счетов, хотя расхождения не было.
+ *
+ * Основная карта со сверкой — её остаток по правилу «Счетов»: с ним же сервер потом считает дрейф
+ * в истории сверок. Без сверки остаток счёта молчит, и подпись — расчёт по записанным фактам,
+ * число карточки. Прочий счёт факты не двигают, сервер дрейф для него не считает — зеркала нет.
+ *
+ * @param accounts   счета из «Счетов»; null — список ещё не пришёл, и зеркала пока нет
+ * @param selectedId выбранный в листе счёт; пусто — счёт по умолчанию
+ * @param cardBalance «на счёте» карточки
+ * @param hasAnchor  у основной карты есть сверка
+ * @returns null — зеркала нет
+ */
+export function mirrorBalance(
+    accounts: Pick<Account, 'id' | 'isDefault' | 'balance'>[] | null, selectedId: string,
+    cardBalance: number, hasAnchor: boolean,
+): number | null {
+    if (accounts == null) return null;
+    const selected = selectedId ? accounts.find(a => a.id === selectedId) : accounts.find(a => a.isDefault);
+    if (!selected?.isDefault) return null;
+    return hasAnchor ? selected.balance : cardBalance;
 }
 
 /** Подпись зеркала в шторке: у первого якоря «считает» вводило бы в заблуждение. */

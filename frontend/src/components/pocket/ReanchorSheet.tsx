@@ -3,7 +3,7 @@ import { AmountInput, amountValue } from '../ui/amount-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { createCheckpoint, fetchAccounts } from '../../api';
 import type { Account } from '../../types/api';
-import { buildDriftPreview, buildMirrorLabel, checkpointAgeDays } from '../../lib/reanchor';
+import { buildDriftPreview, buildMirrorLabel, checkpointAgeDays, mirrorBalance } from '../../lib/reanchor';
 
 /**
  * Жест ре-якоря (ANO-15 §3): одно поле суммы, дата всегда «сегодня»
@@ -23,7 +23,8 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
     const [amount, setAmount] = useState('');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [accounts, setAccounts] = useState<Account[]>([]);
+    // null — список счетов ещё не пришёл: зеркала до него нет (ANO-214).
+    const [accounts, setAccounts] = useState<Account[] | null>(null);
     const [accountId, setAccountId] = useState('');
 
     useEffect(() => {
@@ -31,21 +32,21 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
         setAmount('');
         setError(null);
         setAccountId('');
+        setAccounts(null);
         fetchAccounts().then(setAccounts).catch(() => setAccounts([]));
     }, [open]);
 
-    const selected = accounts.find(a => a.id === accountId) ?? null;
-    // Зеркало дрейфа сравнивает введённое с числом КАРМАШКА, то есть с суммой свободных
-    // денег. Для другого счёта такое сравнение бессмысленно, поэтому его не показываем —
-    // лучше промолчать, чем показать разницу двух разных величин и назвать её дрейфом.
-    const mirrorApplies = selected == null || selected.isDefault;
+    // ANO-214: зеркало — остаток того счёта, который сверяют, а не «на счёте» карточки (сумма
+    // свободных счетов). Для прочего счёта зеркала нет: лучше промолчать, чем показать разницу
+    // двух разных величин и назвать её дрейфом.
+    const mirror = mirrorBalance(accounts, accountId, currentBalance, checkpointDate != null);
 
     const t = new Date();
     const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
     // ANO-33: остаток можно ввести выражением («50000+12000» с двух счетов)
     const entered = amount.trim() === '' ? null : amountValue(amount);
     const ageDays = checkpointAgeDays(checkpointDate, todayIso);
-    const driftLine = buildDriftPreview(entered, currentBalance, ageDays);
+    const driftLine = mirror == null ? null : buildDriftPreview(entered, mirror, ageDays);
     // ANO-123: дрейф — мера учёта, а не приговор. Красный на минусе говорил бы «ты не записал»
     // (правила 5, 12): тревога в корпусе прикреплена к процессу учёта, а не к нехватке денег.
     const driftColor = 'var(--color-text-muted)';
@@ -73,12 +74,12 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
                     <DialogTitle>Обновить остаток</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={submit} className="space-y-3">
-                    {mirrorApplies && (
+                    {mirror != null && (
                         <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                            {buildMirrorLabel(checkpointDate != null, currentBalance)}
+                            {buildMirrorLabel(checkpointDate != null, mirror)}
                         </p>
                     )}
-                    {accounts.length > 1 && (
+                    {accounts != null && accounts.length > 1 && (
                         <select
                             value={accountId}
                             onChange={e => setAccountId(e.target.value)}
@@ -100,7 +101,7 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
                         className="w-full rounded-lg px-3 py-2 text-sm h-auto border-0"
                         style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
                     />
-                    {mirrorApplies && driftLine && (
+                    {driftLine && (
                         <p className="text-sm" style={{ color: driftColor }}>{driftLine}</p>
                     )}
                     {error && (
