@@ -689,14 +689,20 @@ public class TargetFundService {
     /**
      * Системная категория трат «потрачено на цель» (Р10-А, ANO-212): «Цели», как экран копилок.
      * Та же категория заводится миграцией V29 для старых «потрачено» — имя меняется только вместе.
+     *
+     * <p>Имя уникально во всей таблице, вместе с удалёнными, а удаляет категории сам человек. Удалённая
+     * «Цели» возвращается системной категорией расходов: вторую с тем же именем не завести, и вставка
+     * сорвала бы удаление копилки (ревью Codex на #139). Живая «Цели» человека берётся как есть.
      */
     Category getOrCreateGoalSpendingCategory() {
-        return categoryRepository.findByNameAndDeletedFalse(GOAL_SPENDING_CATEGORY)
-                .orElseGet(() -> categoryRepository.save(Category.builder()
-                        .name(GOAL_SPENDING_CATEGORY)
-                        .type(CategoryType.EXPENSE)
-                        .system(true)
-                        .build()));
+        Category goals = categoryRepository.findByName(GOAL_SPENDING_CATEGORY)
+                .orElseGet(() -> Category.builder().name(GOAL_SPENDING_CATEGORY).build());
+        if (goals.getId() != null && !goals.isDeleted()) return goals;
+        goals.setDeleted(false);
+        goals.setSystem(true);
+        goals.setType(CategoryType.EXPENSE);
+        goals.setPrimaryIncome(false);
+        return categoryRepository.save(goals);
     }
 
     /**

@@ -464,6 +464,36 @@ class FundMoneyFlowIT {
     }
 
     @Test
+    @DisplayName("Р10-А, ревью Codex на #139: удалённая «Цели» — «потрачено» возвращает её, а не падает на уникальности имени")
+    void delete_spent_revivesDeletedGoalsCategory() throws Exception {
+        // Имя категории уникально во всей таблице, вместе с удалёнными; удаляет категории сам человек.
+        jdbc.update("DELETE FROM categories WHERE name = 'Цели'");
+        String deletedId = jdbc.queryForObject("""
+                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income)
+                VALUES (gen_random_uuid(), 'Цели', 'INCOME', TRUE, FALSE, TRUE) RETURNING id::text
+                """, String.class);
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/funds/{id}?money=SPENT", fundId))
+                .andExpect(status().isNoContent());
+
+        Map<String, Object> goals = jdbc.queryForMap("""
+                SELECT id::text AS id, type, is_deleted, is_system, primary_income
+                FROM categories WHERE name = 'Цели'
+                """);
+        assertThat(goals.get("id")).as("та же строка: вторую с этим именем не завести").isEqualTo(deletedId);
+        assertThat(goals.get("is_deleted")).isEqualTo(false);
+        assertThat(goals.get("is_system")).isEqualTo(true);
+        assertThat(goals.get("type")).isEqualTo("EXPENSE");
+        assertThat(goals.get("primary_income")).isEqualTo(false);
+        assertThat(jdbc.queryForObject(
+                "SELECT category_id::text FROM financial_events WHERE type = 'EXPENSE' AND is_deleted = false",
+                String.class)).isEqualTo(deletedId);
+    }
+
+    @Test
     @DisplayName("Р10-А: сверка числом банка после перевода в копилку — дрейфа нет, капитал и свободно не растут")
     void reanchor_afterTransfer_noDrift_noDoubleCount() throws Exception {
         anchorDefaultAccount("54900");

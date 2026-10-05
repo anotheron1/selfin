@@ -32,7 +32,17 @@ UPDATE financial_events e
                   AND NOT EXISTS (SELECT 1 FROM financial_events x WHERE x.idempotency_key = t.idempotency_key));
 
 -- Категория — только если тратить есть что: системная категория видна в «Настройках», и без старых
--- «потрачено» её заведёт сам продукт при первой такой трате.
+-- «потрачено» её заведёт сам продукт при первой такой трате. Имя уникально во всей таблице, вместе
+-- с удалёнными, а удаляет категории сам человек: удалённая «Цели» возвращается системной категорией
+-- расходов, а не остаётся под тратами удалённой (ревью Codex на #139) — так же поступает продукт.
+UPDATE categories
+   SET is_deleted = FALSE, is_system = TRUE, type = 'EXPENSE', primary_income = FALSE
+ WHERE name = 'Цели' AND is_deleted = TRUE
+   AND EXISTS (SELECT 1 FROM fund_transactions t JOIN target_funds f ON f.id = t.fund_id
+                WHERE t.is_deleted = FALSE AND t.amount < 0
+                  AND f.is_deleted = TRUE AND f.account_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM financial_events x WHERE x.idempotency_key = t.idempotency_key));
+
 INSERT INTO categories (id, name, type, is_deleted, is_system)
 SELECT gen_random_uuid(), 'Цели', 'EXPENSE', FALSE, TRUE
  WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = 'Цели')
@@ -45,7 +55,7 @@ INSERT INTO financial_events
     (id, idempotency_key, date, category_id, type, fact_amount, status, priority, description,
      created_at, event_kind, is_deleted)
 SELECT gen_random_uuid(), t.idempotency_key, t.transaction_date,
-       (SELECT c.id FROM categories c WHERE c.name = 'Цели' ORDER BY c.is_deleted LIMIT 1),
+       (SELECT c.id FROM categories c WHERE c.name = 'Цели'),
        'EXPENSE', -t.amount, 'EXECUTED', 'MEDIUM', f.name, t.created_at, 'FACT', FALSE
   FROM fund_transactions t
   JOIN target_funds f ON f.id = t.fund_id

@@ -130,6 +130,30 @@ class EnvelopeSpentMigrationIT {
                 .as("системная категория видна в «Настройках» — без нужды её не заводим").isZero();
     }
 
+    @Test
+    @DisplayName("Р10-А, ревью Codex на #139: удалённая «Цели» возвращается, а не остаётся под тратами удалённой")
+    void deletedGoalsCategory_isRevived() {
+        String goals = uuid();
+        jdbc.update("""
+                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income)
+                VALUES (?::uuid, 'Цели', 'INCOME', TRUE, FALSE, TRUE)
+                """, goals);
+        String fund = insertFund("Отпуск", true, null);
+        insertMovement(fund, uuid(), "-20000", "2026-09-10", LocalDateTime.of(2026, 9, 10, 18, 30));
+
+        applyMigration();
+
+        Map<String, Object> row = jdbc.queryForMap("""
+                SELECT is_deleted, is_system, type, primary_income FROM categories WHERE id = ?::uuid
+                """, goals);
+        assertThat(row.get("is_deleted")).as("имя уникально и среди удалённых — вторую «Цели» не завести").isEqualTo(false);
+        assertThat(row.get("is_system")).isEqualTo(true);
+        assertThat(row.get("type")).isEqualTo("EXPENSE");
+        assertThat(row.get("primary_income")).isEqualTo(false);
+        assertThat(jdbc.queryForObject("SELECT category_id::text FROM financial_events WHERE type = 'EXPENSE'", String.class))
+                .isEqualTo(goals);
+    }
+
     private void applyMigration() {
         try {
             String sql = new String(new ClassPathResource("db/migration/V29__spent_fund_expenses.sql")

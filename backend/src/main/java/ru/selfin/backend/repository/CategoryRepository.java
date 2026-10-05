@@ -15,6 +15,9 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
 
     Optional<Category> findByNameAndDeletedFalse(String name);
 
+    /** Категория по имени, удалённая тоже: имя уникально во всей таблице (categories_name_unique). */
+    Optional<Category> findByName(String name);
+
     /**
      * Категории, для которых разрешён прогноз PredictionService (поле {@code forecast_enabled = true}).
      * Используется StrategyTimelineService для построения fan chart.
