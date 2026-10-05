@@ -55,7 +55,7 @@ export default function CapitalSummaryCard({ summary }: Props) {
             </div>
 
             <div className="mt-2 flex items-center gap-1 text-sm"
-                 style={{ color: delta >= 0 ? 'var(--color-success, #7ec699)' : 'var(--color-danger, #e88a8a)' }}>
+                 style={{ color: 'var(--color-text-muted)' }}>
                 {delta >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
                 {fmtDelta(delta)} {fmtPercent(delta, baseForPercent)}
             </div>

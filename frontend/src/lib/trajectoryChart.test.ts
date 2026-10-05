@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { fmtRub } from './format';
 import {
     buildDayDetails,
     buildLinePoints,
     buildMinAnnotation,
     computeDomain,
+    overdueReserve,
     forecastSeries,
     pickTicks,
     showBufferZone,
@@ -152,5 +154,38 @@ describe('buildDayDetails', () => {
     it('день 0 подписан «сегодня», нулевые потоки опущены', () => {
         expect(buildDayDetails(pt('2026-07-10', 50000), true))
             .toBe(`сегодня · остаток ${fmtRub(50000)}`);
+    });
+    // Р6 (ANO-216): «остаток −158 212 · −218 112» спорил с «на счёте 59 900» — брони стояли суммой без слов.
+    it('сегодня с бронями прошедшей даты — словами', () => {
+        expect(buildDayDetails(pt('2026-10-04', -158212, 0, 218112), true, 218112))
+            .toBe(`сегодня · после броней ${fmtRub(-158212)} · брони с прошедшей датой −${fmtRub(218112)}`);
+    });
+    it('брони и сегодняшние строки плана — отдельно', () => {
+        expect(buildDayDetails(pt('2026-10-04', -10700, 0, 70600), true, 69600))
+            .toBe(`сегодня · после броней ${fmtRub(-10700)} · брони с прошедшей датой −${fmtRub(69600)}`
+                + ` · по плану на сегодня −${fmtRub(1000)}`);
+    });
+    it('без броней сегодня и в другие дни — как было', () => {
+        expect(buildDayDetails(pt('2026-10-04', 58900, 0, 1000), true, 0))
+            .toBe(`сегодня · остаток ${fmtRub(58900)} · −${fmtRub(1000)}`);
+        expect(buildDayDetails(pt('2026-10-05', 50900, 0, 8000), false, 218112))
+            .toBe(`05.10 · остаток ${fmtRub(50900)} · −${fmtRub(8000)}`);
+    });
+});
+
+describe('overdueReserve (Р6)', () => {
+    const line = (type: string, amount: number) => ({ type, label: '', amount, details: [] });
+    it('сумма броней — строка расшифровки «Брони с прошедшей датой», со знаком плюс', () => {
+        expect(overdueReserve([line('STARTING_BALANCE', 59900), line('OVERDUE_RESERVE', -218112)] as never))
+            .toBe(218112);
+    });
+    it('броней нет — ноль', () => {
+        expect(overdueReserve([line('STARTING_BALANCE', 59900)] as never)).toBe(0);
+    });
+    it('календарь берёт брони из расшифровки, «Прогноза конца дня» нет (сторож по исходнику)', () => {
+        const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
+        expect(read('../components/pocket/PocketTrajectoryChart.tsx'))
+            .toMatch(/buildDayDetails\([^)]*overdueReserve\(/);
+        expect(read('../pages/Dashboard.tsx')).not.toContain('Прогноз конца дня');
     });
 });

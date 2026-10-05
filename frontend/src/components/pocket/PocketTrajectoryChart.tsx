@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { PocketResponse } from '../../types/api';
 import {
     buildDayDetails,
+    overdueReserve,
     buildLinePoints,
     buildMinAnnotation,
     computeDomain,
@@ -187,7 +188,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
             {selected != null && trajectory[selected] && (
                 <div className="rounded-lg px-3 py-2 mt-2 text-sm"
                     style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
-                    {buildDayDetails(trajectory[selected], selected === 0)}
+                    {buildDayDetails(trajectory[selected], selected === 0, overdueReserve(data.breakdown))}
                 </div>
             )}
 

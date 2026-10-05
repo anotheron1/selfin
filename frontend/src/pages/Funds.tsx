@@ -9,6 +9,7 @@ import type { Account, FundMoney, FundsOverview, TargetFund, PocketResponse } fr
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
 import { fundTarget } from '../lib/fundTarget';
+import { inPlanFirst, outOfPlanNote, paceLine } from '../lib/fundPlan';
 import { AttemptKeys } from '../lib/attemptKey';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { AmountInput, amountValue } from "../components/ui/amount-input";
@@ -441,12 +442,16 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
     // ANO-199: цель необязательна — без цели процента и полосы нет, «Накоплено» — одна сумма.
     const { pct, amountLine } = fundTarget(fund);
     const reached = fund.status === 'REACHED';
+    const note = outOfPlanNote(fund);
     return (
         <div className="rounded-2xl p-5 space-y-3"
             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
             <div className="flex justify-between items-start">
                 <div>
                     <h3 className="font-semibold">{fund.name}</h3>
+                    {note && (
+                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{note}</p>
+                    )}
                     {reached && (
                         <Badge variant="outline" className="text-xs border-green-500/60 text-green-500">Цель достигнута</Badge>
                     )}
@@ -505,7 +510,7 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
             )}
             {fund.estimatedCompletionDate && (
                 <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    Прогноз: {new Date(fund.estimatedCompletionDate).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+                    {paceLine(fund.estimatedCompletionDate)}
                 </p>
             )}
         </div>
@@ -577,7 +582,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                         Нет целевых фондов.<br />Нажми «Создать», чтобы открыть первую копилку!
                     </div>
                 ) : (
-                    data.funds.map(fund => (
+                    inPlanFirst(data.funds).map(fund => (
                         <FundCard
                             key={fund.id}
                             fund={fund}

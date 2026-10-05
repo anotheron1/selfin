@@ -39,6 +39,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -683,11 +684,11 @@ public class TargetFundService {
     }
 
     /**
-     * Конвертирует entity фонда в DTO, попутно вычисляя прогноз даты достижения цели.
+     * Конвертирует entity фонда в DTO, попутно вычисляя дату «в нынешнем темпе».
      *
      * @param f entity фонда
      * @return DTO с рассчитанным {@code estimatedCompletionDate}
-     * @see #calcEstimatedCompletion(TargetFund)
+     * @see #calcEstimatedCompletion(TargetFund, BigDecimal)
      */
     public TargetFundDto toDto(TargetFund f) {
         BigDecimal balance = accountBalanceService.fundBalanceAt(f, LocalDate.now(clock));
@@ -695,7 +696,8 @@ public class TargetFundService {
                 f.getId(), f.getName(), f.getTargetAmount(),
                 balance, f.getAccountId(), f.getStatus(), f.getPriority(),
                 f.getTargetDate(), calcEstimatedCompletion(f, balance),
-                f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths());
+                f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths(),
+                f.getWishlistStatus());
     }
 
     /**
@@ -712,20 +714,18 @@ public class TargetFundService {
     }
 
     /**
-     * Прогноз даты достижения цели фонда на основе среднемесячного пополнения
-     * за последние 3 месяца.
+     * Когда цель наберётся в нынешнем темпе — «В нынешнем темпе — к &lt;месяцу&gt;» на «Целях»
+     * (Р9-Б, ANO-219). Не второй срок: срок — {@code targetDate}, к нему ядро держит взносы.
      *
-     * <p>Возвращает {@code null} если:
-     * <ul>
-     *   <li>у фонда нет целевой суммы (кармашек или открытый фонд)</li>
-     *   <li>статус фонда не {@link FundStatus#FUNDING}</li>
-     *   <li>остаток до цели уже достигнут (≤ 0)</li>
-     *   <li>за последние 3 месяца не было пополнений</li>
-     *   <li>среднее пополнение равно нулю</li>
-     * </ul>
+     * <p><b>Первый день пополнений — стартовые деньги, а не темп.</b> В новую копилку часто сразу
+     * кладут уже отложенное: 100 000 разом и дальше по 10 000 дали бы темп 100 000 в месяц и срок
+     * в разы ближе настоящего. Темп — пополнения после первого дня за три последних месяца,
+     * делённые на месяцы от первого дня: не больше трёх (окно) и не меньше одного (второе
+     * пополнение в первый же месяц); месяцы без пополнений входят — иначе одно пополнение за
+     * три месяца выглядело бы ежемесячным (ревью Codex на #128).
      *
-     * @param fund entity фонда
-     * @return ориентировочная дата достижения цели или {@code null}
+     * <p>{@code null} — строки нет: нет цели; копилка не копится ({@link FundStatus#FUNDING});
+     * цель набрана; после первого дня пополнений нет или в сумме они не положительны.
      */
     private LocalDate calcEstimatedCompletion(TargetFund fund, BigDecimal balance) {
         if (fund.getTargetAmount() == null || fund.getStatus() != FundStatus.FUNDING) {
@@ -735,23 +735,29 @@ public class TargetFundService {
         if (remaining.compareTo(BigDecimal.ZERO) <= 0)
             return null;
 
-        LocalDate threeMonthsAgo = LocalDate.now(clock).minusMonths(3);
-        List<FundTransaction> recent = transactionRepository
-                .findByFundIdAndDeletedFalseAndTransactionDateAfter(fund.getId(), threeMonthsAgo);
-
-        if (recent.isEmpty())
+        List<FundTransaction> moves = transactionRepository.findByFundIdAndDeletedFalse(fund.getId());
+        LocalDate firstDay = moves.stream().map(FundTransaction::getTransactionDate)
+                .min(Comparator.naturalOrder()).orElse(null);
+        if (firstDay == null)
             return null;
 
-        BigDecimal totalIn = recent.stream()
+        LocalDate today = LocalDate.now(clock);
+        LocalDate threeMonthsAgo = today.minusMonths(3);
+        BigDecimal paid = moves.stream()
+                .filter(t -> t.getTransactionDate().isAfter(firstDay)
+                        && t.getTransactionDate().isAfter(threeMonthsAgo))
                 .map(FundTransaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // Среднее в месяц (за 3 месяца)
-        BigDecimal avgMonthly = totalIn.divide(BigDecimal.valueOf(3), 2, RoundingMode.HALF_UP);
+        // Полные месяцы — годовщины первого дня не позже сегодня, от одного до трёх. Не
+        // ChronoUnit.MONTHS.between: с 31.01 по 30.04 он даёт два, хотя 31.01 + 3 месяца = 30.04
+        // (ревью Codex на #135).
+        long months = 1;
+        while (months < 3 && !firstDay.plusMonths(months + 1).isAfter(today)) months++;
+        BigDecimal avgMonthly = paid.divide(BigDecimal.valueOf(months), 2, RoundingMode.HALF_UP);
         if (avgMonthly.compareTo(BigDecimal.ZERO) <= 0)
             return null;
 
         long monthsLeft = remaining.divide(avgMonthly, 0, RoundingMode.CEILING).longValue();
-        return LocalDate.now(clock).plusMonths(monthsLeft);
+        return today.plusMonths(monthsLeft);
     }
 }

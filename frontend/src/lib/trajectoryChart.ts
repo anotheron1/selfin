@@ -101,8 +101,24 @@ export function buildMinAnnotation(minPoint: PocketResponse['minPoint']): string
     return minPoint.drivenBy ? `${base} · ${truncate(minPoint.drivenBy)}` : base;
 }
 
-/** Строка деталей выбранного дня: только ненулевые потоки, день 0 — «сегодня». */
-export function buildDayDetails(point: TrajPoint, isToday: boolean): string {
+/** Брони с прошедшей датой, которые ядро вычло в точке «сегодня»: строка расшифровки, со знаком плюс. */
+export function overdueReserve(breakdown: PocketResponse['breakdown']): number {
+    const line = breakdown.find(l => l.type === 'OVERDUE_RESERVE');
+    return line ? -line.amount : 0;
+}
+
+/**
+ * Строка деталей выбранного дня: только ненулевые потоки, день 0 — «сегодня». Точка «сегодня» с
+ * бронями прошедшей даты называет их словами (Р6, ANO-216): «остаток» рядом с суммой без подписи
+ * спорил с «на счёте» карточки.
+ */
+export function buildDayDetails(point: TrajPoint, isToday: boolean, overdue = 0): string {
+    if (isToday && overdue > 0) {
+        let s = `сегодня · после броней ${fmtRub(point.balance)} · брони с прошедшей датой −${fmtRub(overdue)}`;
+        const todayPlan = point.expense - overdue;
+        if (todayPlan > 0) s += ` · по плану на сегодня −${fmtRub(todayPlan)}`;
+        return s;
+    }
     let s = `${isToday ? 'сегодня' : fmtD(point.date)} · остаток ${fmtRub(point.balance)}`;
     if (point.income > 0) s += ` · +${fmtRub(point.income)}`;
     if (point.expense > 0) s += ` · −${fmtRub(point.expense)}`;
