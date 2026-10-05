@@ -156,7 +156,7 @@ class TargetFundAccountTest {
         ZoneId zone = ZoneId.systemDefault();
         return new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo, accountRepo,
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo),
-                mock(WishlistArtifactService.class), pocketService,
+                mock(WishlistArtifactService.class), mock(CreditPaymentService.class), pocketService,
                 Clock.fixed(today.atStartOfDay(zone).toInstant(), zone));
     }
 
