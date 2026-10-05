@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HELP, NZ_MEANING } from './help';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from './priority';
+import { CARD_DEBT_ROW, MONEY_ROW } from './capitalRows';
 
 /** Весь текст справки одной строкой: заголовок, подзаголовки, абзацы. */
 const text = (topic: keyof typeof HELP) => {
@@ -21,5 +22,14 @@ describe('справка (ANO-186)', () => {
 
     it('смысл НЗ один: справка кармашка говорит ровно то, что форма НЗ', () => {
         expect(text('pocket')).toContain(NZ_MEANING);
+    });
+
+    it('справка «Капитала» называет строки, которые считаются сами, именами с экрана (Р7)', () => {
+        // Старая формула «… + деньги в наличии» ставила деньги вне активов, а долг по кредитке из
+        // «Счетов» предлагала ввести вручную — второй раз к строке «Долги по картам».
+        const capital = text('capital');
+        expect(capital.toLowerCase()).toContain(MONEY_ROW.toLowerCase());
+        expect(capital).toContain(`«${CARD_DEBT_ROW}»`);
+        expect(capital).not.toContain('деньги в наличии');
     });
 });
