@@ -25,7 +25,8 @@ interface Props {
 const TARGET_LABEL: Record<ConvertTarget, string> = {
     PLAN_EVENT: 'Плановое событие',
     FUND: 'Копилка',
-    FUND_WITH_CREDIT: 'Кредит (копилка + график платежей)',
+    // Р2-Б (ANO-40): график ставится на эту же копилку — новой не заводится.
+    FUND_WITH_CREDIT: 'Кредит (график платежей)',
 };
 
 /**
