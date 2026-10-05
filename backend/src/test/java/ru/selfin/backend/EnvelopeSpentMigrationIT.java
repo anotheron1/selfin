@@ -135,8 +135,8 @@ class EnvelopeSpentMigrationIT {
     void deletedGoalsCategory_isRevived() {
         String goals = uuid();
         jdbc.update("""
-                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income)
-                VALUES (?::uuid, 'Цели', 'INCOME', TRUE, FALSE, TRUE)
+                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income, forecast_enabled)
+                VALUES (?::uuid, 'Цели', 'INCOME', TRUE, FALSE, TRUE, TRUE)
                 """, goals);
         String fund = insertFund("Отпуск", true, null);
         insertMovement(fund, uuid(), "-20000", "2026-09-10", LocalDateTime.of(2026, 9, 10, 18, 30));
@@ -144,12 +144,13 @@ class EnvelopeSpentMigrationIT {
         applyMigration();
 
         Map<String, Object> row = jdbc.queryForMap("""
-                SELECT is_deleted, is_system, type, primary_income FROM categories WHERE id = ?::uuid
+                SELECT is_deleted, is_system, type, primary_income, forecast_enabled FROM categories WHERE id = ?::uuid
                 """, goals);
         assertThat(row.get("is_deleted")).as("имя уникально и среди удалённых — вторую «Цели» не завести").isEqualTo(false);
         assertThat(row.get("is_system")).isEqualTo(true);
         assertThat(row.get("type")).isEqualTo("EXPENSE");
         assertThat(row.get("primary_income")).isEqualTo(false);
+        assertThat(row.get("forecast_enabled")).as("траты на цели в прогноз обычных трат не идут").isEqualTo(false);
         assertThat(jdbc.queryForObject("SELECT category_id::text FROM financial_events WHERE type = 'EXPENSE'", String.class))
                 .isEqualTo(goals);
     }

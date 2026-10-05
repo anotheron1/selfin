@@ -469,8 +469,8 @@ class FundMoneyFlowIT {
         // Имя категории уникально во всей таблице, вместе с удалёнными; удаляет категории сам человек.
         jdbc.update("DELETE FROM categories WHERE name = 'Цели'");
         String deletedId = jdbc.queryForObject("""
-                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income)
-                VALUES (gen_random_uuid(), 'Цели', 'INCOME', TRUE, FALSE, TRUE) RETURNING id::text
+                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income, forecast_enabled)
+                VALUES (gen_random_uuid(), 'Цели', 'INCOME', TRUE, FALSE, TRUE, TRUE) RETURNING id::text
                 """, String.class);
         anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
@@ -480,7 +480,7 @@ class FundMoneyFlowIT {
                 .andExpect(status().isNoContent());
 
         Map<String, Object> goals = jdbc.queryForMap("""
-                SELECT id::text AS id, type, is_deleted, is_system, primary_income
+                SELECT id::text AS id, type, is_deleted, is_system, primary_income, forecast_enabled
                 FROM categories WHERE name = 'Цели'
                 """);
         assertThat(goals.get("id")).as("та же строка: вторую с этим именем не завести").isEqualTo(deletedId);
@@ -488,6 +488,9 @@ class FundMoneyFlowIT {
         assertThat(goals.get("is_system")).isEqualTo(true);
         assertThat(goals.get("type")).isEqualTo("EXPENSE");
         assertThat(goals.get("primary_income")).isEqualTo(false);
+        assertThat(goals.get("forecast_enabled"))
+                .as("траты на цели — не обычные траты; у системной категории выключателя на экране нет")
+                .isEqualTo(false);
         assertThat(jdbc.queryForObject(
                 "SELECT category_id::text FROM financial_events WHERE type = 'EXPENSE' AND is_deleted = false",
                 String.class)).isEqualTo(deletedId);

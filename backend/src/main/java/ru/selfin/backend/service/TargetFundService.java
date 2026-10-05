@@ -702,6 +702,9 @@ public class TargetFundService {
         goals.setSystem(true);
         goals.setType(CategoryType.EXPENSE);
         goals.setPrimaryIncome(false);
+        // Траты на цели — не обычные траты: в прогнозе их медиана занижала бы свободные, а выключателя
+        // у системной категории на экране нет (ревью Codex на #139).
+        goals.setForecastEnabled(false);
         return categoryRepository.save(goals);
     }
 

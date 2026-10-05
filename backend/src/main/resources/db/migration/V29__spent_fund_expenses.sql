@@ -35,8 +35,10 @@ UPDATE financial_events e
 -- «потрачено» её заведёт сам продукт при первой такой трате. Имя уникально во всей таблице, вместе
 -- с удалёнными, а удаляет категории сам человек: удалённая «Цели» возвращается системной категорией
 -- расходов, а не остаётся под тратами удалённой (ревью Codex на #139) — так же поступает продукт.
+-- Прогноз у неё выключается: траты на цели — не обычные траты, а выключателя у системной категории
+-- на экране нет.
 UPDATE categories
-   SET is_deleted = FALSE, is_system = TRUE, type = 'EXPENSE', primary_income = FALSE
+   SET is_deleted = FALSE, is_system = TRUE, type = 'EXPENSE', primary_income = FALSE, forecast_enabled = FALSE
  WHERE name = 'Цели' AND is_deleted = TRUE
    AND EXISTS (SELECT 1 FROM fund_transactions t JOIN target_funds f ON f.id = t.fund_id
                 WHERE t.is_deleted = FALSE AND t.amount < 0
