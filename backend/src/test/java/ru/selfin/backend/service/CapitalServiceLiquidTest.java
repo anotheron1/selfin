@@ -202,8 +202,38 @@ class CapitalServiceLiquidTest {
         assertThat(s.liquid()).isEqualByComparingTo("50000");
         // долг = 200 000 (лимит) − 62 000 (доступно) = 138 000
         assertThat(s.liabilitiesTotal()).isEqualByComparingTo("138000");
+        // Р7 (ANO-217): долг по картам — отдельно, строкой «Обязательств» на экране
+        assertThat(s.cardDebts()).isEqualByComparingTo("138000");
         // total = 50 000 − 138 000 = −88 000
         assertThat(s.total()).isEqualByComparingTo("-88000");
+    }
+
+    @Test
+    @DisplayName("Ревью Codex на #135: долг по картам — один снимок на сводку, строка сходится с обязательствами")
+    void cardDebts_oneSnapshot_reconcilesWithLiabilities() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        Account credit = AccountFixtures.account(AccountKind.CREDIT, true)
+                .creditLimit(new BigDecimal("200000")).build();
+        LocalDate today = LocalDate.now();
+
+        when(accountRepo.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
+                .thenReturn(List.of(defaultAccount, credit));
+        when(checkpointRepo.findLatestForAccountAt(defaultAccount.getId(), today))
+                .thenReturn(Optional.of(checkpoint(defaultAccount, today.minusDays(1), "50000")));
+        // Сверку кредитки поменяли, пока сводка собиралась: второе чтение видит другой долг.
+        when(checkpointRepo.findLatestForAccountAt(credit.getId(), today))
+                .thenReturn(Optional.of(checkpoint(credit, today.minusDays(1), "62000")),
+                        Optional.of(checkpoint(credit, today, "100000")));
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
+        when(revRepo.snapshotAt(any())).thenReturn(List.of());
+        when(itemRepo.findAllActive(null)).thenReturn(List.of());
+
+        CapitalSummaryDto s = service.summary();
+
+        // Статей нет — все обязательства это долг по картам; иначе строки экрана не сходятся с итогом.
+        assertThat(s.cardDebts()).isEqualByComparingTo(s.liabilitiesTotal());
+        assertThat(s.total()).isEqualByComparingTo(s.liquid().subtract(s.cardDebts()));
     }
 
     @Test

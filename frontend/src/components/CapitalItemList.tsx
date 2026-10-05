@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, ChevronDown } from 'lucide-react';
 import type { CapitalItem, CapitalItemKind } from '../types/api';
 import { Button } from './ui/button';
+import { sectionTotal, type ComputedRow } from '../lib/capitalRows';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
@@ -17,12 +18,14 @@ interface Props {
     items: CapitalItem[];
     onItemClick: (item: CapitalItem) => void;
     onCreate: () => void;
+    /** Строка, которая считается сама (Р7): деньги или долги по картам; правке не поддаётся. */
+    computed?: ComputedRow | null;
 }
 
-export default function CapitalItemList({ kind, items, onItemClick, onCreate }: Props) {
+export default function CapitalItemList({ kind, items, onItemClick, onCreate, computed = null }: Props) {
     const active = items.filter(i => !i.isArchived);
     const archived = items.filter(i => i.isArchived);
-    const total = active.reduce((s, i) => s + i.currentValue, 0);
+    const total = sectionTotal(active, computed);
     const isAsset = kind === 'ASSET';
     const accent = isAsset ? 'var(--color-success, #7ec699)' : 'var(--color-danger, #e88a8a)';
     const heading = isAsset ? 'АКТИВЫ' : 'ОБЯЗАТЕЛЬСТВА';
@@ -38,7 +41,13 @@ export default function CapitalItemList({ kind, items, onItemClick, onCreate }: 
             </div>
 
             <ul className="space-y-1">
-                {active.length === 0 && (
+                {computed && (
+                    <li className="flex justify-between items-center py-2 px-2" title="Считается сама — правке не поддаётся">
+                        <span className="truncate" style={{ color: 'var(--color-text-muted)' }}>{computed.name}</span>
+                        <span className="font-medium ml-2">{fmt(computed.value)}</span>
+                    </li>
+                )}
+                {active.length === 0 && !computed && (
                     <li className="text-sm py-2" style={{ color: 'var(--color-text-muted)' }}>
                         Пока пусто
                     </li>

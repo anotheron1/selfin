@@ -8,6 +8,8 @@ public record CapitalSummaryDto(
         BigDecimal liquid,
         BigDecimal assetsTotal,
         BigDecimal liabilitiesTotal,
+        /** Долг по кредитным картам — часть {@code liabilitiesTotal}; на экране своей строкой (Р7, ANO-217). */
+        BigDecimal cardDebts,
         List<CapitalItemDto> items,
         Deltas deltas
 ) {

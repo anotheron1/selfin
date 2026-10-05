@@ -2,6 +2,7 @@ package ru.selfin.backend.dto;
 
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
+import ru.selfin.backend.model.enums.WishlistStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -22,9 +23,17 @@ public record TargetFundDto(
         Integer priority,
         /** Желаемая дата достижения цели, заданная пользователем */
         LocalDate targetDate,
-        /** Умный прогноз: вычисляется сервисом на основе среднемесячного пополнения */
+        /**
+         * Когда цель наберётся в нынешнем темпе — «В нынешнем темпе — к &lt;месяцу&gt;» (Р9-Б, ANO-219);
+         * {@code null} — темпа ещё нет. Не второй срок: срок — {@code targetDate}.
+         */
         LocalDate estimatedCompletionDate,
         FundPurchaseType purchaseType,
         BigDecimal creditRate,
-        Integer creditTermMonths) {
+        Integer creditTermMonths,
+        /**
+         * Статус хотелки; {@code null} — копилка не из «Хотелок». OPEN и DISMISSED — вне плана:
+         * ядро их взносы не держит, «Цели» ставят такую копилку в конец с пометкой (Р8, ANO-218).
+         */
+        WishlistStatus wishlistStatus) {
 }
