@@ -104,22 +104,79 @@ PR 3 спринта 4 (`2026-10-03-sprint-4-plan.md`, раздел 3). Реше�
 
 ## Как мерил
 
-* **Стенд** — `GET /api/v1/version`.
-* **Через API**, скрипт ниже: `POST /funds/{id}/transfer` — «Пополнить»; `POST /balance-checkpoints` — сверка; уборка — `DELETE /balance-checkpoints/{id}` и `DELETE /events/{id}` перевода.
-* **Числа:** «на счёте» и свободно — `GET /pocket`; основная карта — `GET /accounts`; капитал — `GET /capital/summary`; копилка — `GET /funds`; сверка — `GET /balance-checkpoints`. Через SQL — ничего.
+* **Стенд** — `GET /api/v1/version`; «до» и «после» — с одного дампа базы (`pg_dump` до первого прогона, `tools/ano50-reset-stand.sh <дамп>` перед вторым и после него).
+* **Через API**, скрипт ниже: `POST /funds` — временная копилка; `POST /funds/{id}/transfer` — «Пополнить»; `POST /balance-checkpoints` — сверка; `DELETE /funds/{id}?money=SPENT` — «удалить → потрачено на цель». Перевод удалённой копилки уборка снять не может — копилка закрыта, — поэтому стенд после прогона восстанавливается из дампа.
+* **Числа:** «на счёте», свободно и строка «Уже в копилках» — `GET /pocket`; основная карта — `GET /accounts`; капитал — `GET /capital/summary`; «Стратегия» — `GET /strategy/timeline?horizonMonths=12`; сверка — `GET /balance-checkpoints`; журнал — `GET /events`. Что записала `V29` — `GET /categories` и `GET /events`. Через SQL — ничего.
+* **Экран** — панель браузера, стенд `6ab121d` с временным переводом 10 000: текст «почему столько» и точки «сегодня» календаря — скриптом страницы, бандл сверен с отдаваемым `index.html`.
+
+## Выполнено
+
+Ветка `fix/ano-212-envelope-share`; стенд «до» — `090d539`, «после» — `6ab121d`, 05.10, одно состояние базы: дамп снят до первого прогона и восстановлен перед вторым. Сценарий — скрипт ниже: временная копилка «Проверка Р10», «Пополнить» на 10 000, сверка карты числом банка, «удалить → потрачено на цель».
+
+| шаг | | «на счёте» | уже в копилках | свободно | капитал | «Стратегия», октябрь | сверка |
+|---|---|---|---|---|---|---|---|
+| исходно | до | 59 900 | — | −190 312 | 2 668 177 | −89 512 | — |
+| | после | 59 900 | — | −190 312 | 2 668 177 | −89 512 | — |
+| «Пополнить» на 10 000 | до | **49 900** | — | −200 312 | 2 668 177 | −99 512 | — |
+| | после | **59 900** | **−10 000** | −200 312 | 2 668 177 | −99 512 | — |
+| сверка числом банка, 54 900 | до | 59 900 | — | 27 800 | **2 678 177** | 128 600 | «насчитал 44 900», **дрейф +10 000** |
+| | после | 59 900 | −10 000 | **17 800** | **2 668 177** | **118 600** | «насчитал 54 900», **дрейф 0** |
+| «потрачено на цель» | до | 59 900 | — | 27 800 | 2 668 177 | 128 600 | — |
+| | после | **49 900** | — | 17 800 | **2 658 177** | 118 600 | — |
+
+* Свободные после сверки растут на 218 112 и до, и после — это брони с прошедшей датой, которые снимает сверка той же датой (ANO-79). До правки к ним добавлялись ещё 10 000 задвоенной копилки.
+* «Потрачено» до правки карту не трогало: деньги «ушли» ещё переводом, а сверка их вернула, и после траты карта осталась 54 900, капитал — исходным. После правки уходят тратой: карта −10 000, капитал −10 000, свободные не меняются — эти деньги и так были отложены.
+* Журнал после «потрачено»: до — перевод переименован в «Проверка Р10»; после — перевод «В копилку: Проверка Р10» и трата «Проверка Р10», категория «Цели».
+* «Стратегия», сентябрь — 59 900 во всех строках и до, и после: прошлое не сдвинулось.
+* **`V29` на данных стенда** записала одну трату — 29.09, 100 ₽, «Проба B6 хотелка» (копилка этапа B6, удалённая через «потрачено»), и завела категорию «Цели». Числа «исходно» после миграции совпали с прежними до рубля.
+* **Экран**, стенд `6ab121d` с переводом 10 000: «почему столько» — «Уже в копилках −10 000 ₽ · на карте, но отложены на цели» сразу под «На счёте 59 900 ₽»; точка «сегодня» календаря — «сегодня · после броней и копилок −179 512 ₽ · брони с прошедшей датой −218 112 ₽ · уже в копилках −10 000 ₽ · по плану на сегодня −11 300 ₽». Бандл страницы сверен с отдаваемым (`index-fa3b3460.js`). После проверки стенд восстановлен из дампа: свободно −190 312, капитал 2 668 177.
+
+**Тесты.** Новые: `EnvelopeSpentMigrationIT` — 2 сценария `V29`, исполняет сам файл; в `FundMoneyFlowIT` — сверка числом банка после перевода и новое «потрачено»; юниты правила, остатка, ядра, «Стратегии» и капитала. Переписаны под Р10-А: `link_*` и `unlink_*` (ANO-163) — теперь про отложенное, а не про капитал; `FundSignedAmountIT` — знак движений в отложенном; регрессии капитала. Прогон на ветке с `main` после #138 (`947b9f1`, слияние `ccfe04d`): бэк — 497 юнитов и 286 IT, фронт — 525, типы чистые.
+
+**Мутации — 26 из 26 красные, каждая своим тестом;** контроль четырёх прогонов зелёный, после прогона дерево чистое. Гонялись на `6ab121d`, до слияния с #138; строк мутантов слияние не тронуло. M10 утверждением ловят `liquidAt_doesNotAddEnvelopeFundsOnTop` и `summary_withCheckpointAndEventsAndPockets_computesLiquidCorrectly`, остальные тесты капитала падают на пустой заглушке суммы копилок. M18 («категория без нужды») ловят оба теста миграции: второй — утверждением «категорий 0, а не 1», первый — падением на уникальности имени: без условия «категории ещё нет» вставка повторяется.
+
+* M1 правило: перевод снова минус — noAnchorFallback_ignoresTransferToEnvelope; transferToEnvelope_leavesDefaultAccountBalance; balanceEffect_transferToEnvelopeLeavesBalance; summary_withCheckpointAndEventsAndPockets_computesLiquidCorrectly; legacyPlanWithFactAmount_countedAsFact; transferFact_leavesBalance_envelopeLineSubtracts
+* M2 остаток счёта по-старому — noAnchorFallback_ignoresTransferToEnvelope; transferToEnvelope_leavesDefaultAccountBalance; summary_withCheckpointAndEventsAndPockets_computesLiquidCorrectly
+* M3 шаг 1 ядра по-старому — legacyPlanWithFactAmount_countedAsFact; transferFact_leavesBalance_envelopeLineSubtracts
+* M4 дрейф по-старому — reanchor_afterTransfer_noDrift_noDoubleCount
+* M5 строка без вычета из траектории — envelopeFunds_lineAfterBalance_trajectoryWithout; transferFact_leavesBalance_envelopeLineSubtracts
+* M6 вычет без строки — envelopeFunds_lineAfterBalance_trajectoryWithout
+* M7 строка с плюсом — envelopeFunds_lineAfterBalance_trajectoryWithout
+* M8 сборщик без копилок — delete_spent_recordsSpendingToday_keepsTransfers; reanchor_afterTransfer_noDrift_noDoubleCount; transfer_overBalance_needsConfirmation
+* M9 примерка без поля — reanchor_afterTransfer_noDrift_noDoubleCount
+* M10 капитал с копилками сверху — cashLiquidAt_keepsNoAnchorFallback; cashLiquidAt_ignoresUntrackedEnvelopeAccount; cashLiquidAt_excludesDeposits_whileLiquidAtIncludesThem; liquidAt_doesNotAddEnvelopeFundsOnTop; summary_emptyDb_liquidIsZero; liabilities_includeCreditAccountDebt; cardDebts_oneSnapshot_reconcilesWithLiabilities; liquidAt_wishlistFact_isExcludedFromLiquid; liquidAt_noCheckpointAtAll_sumsFactsFromEpoch_matchesPocketAno28Behaviour; liquidAt_includesDeposits; summary_withCheckpointAndEventsAndPockets_computesLiquidCorrectly; liabilities_creditAccountWithoutCheckpoint_addsNoDebt
+* M11 «Стратегия» без вычета — buildPastPoints_useAccountsBalance_andFacts
+* M12 копилки на сегодня вместо конца месяца — buildPastPoints_useAccountsBalance_andFacts
+* M13 «потрачено» без траты — delete_spent_compensatesRecordedMovements_notStoredField; delete_spent_recordsSpendingToday_keepsTransfers; delete_spent_dropsCapital
+* M14 трата на поле баланса — delete_spent_compensatesRecordedMovements_notStoredField
+* M15 переименование вернуть — delete_spent_recordsSpendingToday_keepsTransfers
+* M16 V29 без условия «нет события» — legacySpentFund_getsSpendingOfItsOutflow; unrelatedFunds_areLeftAlone
+* M17 V29 дата не движения — legacySpentFund_getsSpendingOfItsOutflow
+* M18 V29 категория без нужды — legacySpentFund_getsSpendingOfItsOutflow; unrelatedFunds_areLeftAlone
+* M19 V29 без восстановления описаний — legacySpentFund_getsSpendingOfItsOutflow
+* F1 расшифровка без строки — копилки без счёта — своей строкой сразу после «На счёте»
+* F2 точка «сегодня» без копилок — сегодня с бронями и копилками — словами и то и другое; сегодня с копилками без броней
+* F3 «после броней» при копилках — сегодня с бронями и копилками — словами и то и другое; сегодня с копилками без броней
+* F4 календарь без envelopeFunds — календарь берёт брони и копилки из расшифровки, «Прогноза конца дня» нет (сторож по исходнику)
+* F5 копилки со знаком строки — отложенное в копилки — строка расшифровки «Уже в копилках», со знаком плюс
+* F6 справка по-старому — справка кармашка говорит, где деньги копилок без счёта и как сверять остаток (Р10-А)
+* F7 подсказка копилки по-старому — общие строки — прежние слова выбора счёта
 
 ## Скрипт сценария
 
-`node scenario.mjs` — стенд на `localhost:8081`; печатает шаги и убирает за собой.
+`node scenario.mjs` — стенд на `localhost:8081`; печатает шаги.
 
 ```js
-// PR 3 (Р10, ANO-212): копилка без счёта и сверка карты числом банка — замер через API продукта.
-// node scenario.mjs — шаги и уборка; после неё числа обязаны вернуться к исходным.
+// PR 3 (Р10, ANO-212): копилка без счёта, сверка карты числом банка и «потрачено» — замер через API продукта.
+// node scenario.mjs — стенд на localhost:8081; печатает шаги. Перевод удалённой копилки уборка снять не
+// может (копилка закрыта), поэтому после прогона стенд восстанавливается из дампа.
 import { randomUUID } from 'node:crypto';
 
 const API = 'http://localhost:8081/api/v1';
-const FUND = 'кеке';
+const FUND = 'Проверка Р10';
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' });
+const month = today.slice(0, 7);
+const prevMonth = (() => { const [y, m] = month.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; })();
 
 async function call(method, path, body) {
   const r = await fetch(API + path, {
@@ -135,25 +192,38 @@ async function measure(step) {
   const pocket = await call('GET', '/pocket');
   const card = (await call('GET', '/accounts')).find(a => a.isDefault);
   const cap = await call('GET', '/capital/summary');
-  const oct = (await call('GET', '/strategy/timeline?horizonMonths=12')).points.find(p => p.yearMonth === today.slice(0, 7));
+  const points = (await call('GET', '/strategy/timeline?horizonMonths=12')).points;
+  const cur = points.find(p => p.yearMonth === month);
+  const prev = points.find(p => p.yearMonth === prevMonth);
   const fund = (await call('GET', '/funds')).funds.find(f => f.name === FUND);
-  const cps = await call('GET', '/balance-checkpoints');
-  const last = cps.filter(c => c.accountId === card.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
-  console.log(`${step.padEnd(30)} | «на счёте» ${pocket.currentBalance} | основная карта ${card.balance} | свободно ${pocket.pocket} | в «${FUND}» ${fund.currentBalance} | капитал ${cap.total} (ликвид ${cap.liquid}) | «Стратегия» ${oct.yearMonth} ${oct.balance} | сверка ${last.date}: ввод ${last.amount}, selfin насчитал ${last.computedBalance}, дрейф ${last.drift}`);
-  return { card, fund, last };
+  const env = pocket.breakdown.find(l => l.type === 'ENVELOPE_FUNDS');
+  const cps = (await call('GET', '/balance-checkpoints')).filter(c => c.accountId === card.id);
+  const last = cps.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+  console.log([
+    step.padEnd(34),
+    `«на счёте» ${pocket.currentBalance}`,
+    `карта ${card.balance}`,
+    `уже в копилках ${env ? env.amount : '—'}`,
+    `свободно ${pocket.pocket}`,
+    `в «${FUND}» ${fund ? fund.currentBalance : '—'}`,
+    `капитал ${cap.total} (ликвид ${cap.liquid})`,
+    `«Стратегия» ${prevMonth} ${prev?.balance} / ${month} ${cur?.balance}`,
+    `сверка ${last.date}: ввод ${last.amount}, насчитал ${last.computedBalance}, дрейф ${last.drift}`,
+  ].join(' | '));
+  return { card };
 }
 
-const { card, fund } = await measure('0. исходно');
+const { card } = await measure('0. исходно');
+const fund = await call('POST', '/funds', { name: FUND, targetAmount: 100000 });
 await call('POST', `/funds/${fund.id}/transfer`, { amount: 10000, confirm: true });
-await measure('1. перевод 10 000 в копилку');
-const cp = await call('POST', '/balance-checkpoints', { date: today, amount: Number(card.balance), accountId: card.id });
+await measure('1. «Пополнить» на 10 000');
+await call('POST', '/balance-checkpoints', { date: today, amount: Number(card.balance), accountId: card.id });
 await measure(`2. сверка карты: ${card.balance} из банка`);
-
-// Уборка: сверку — удалить; перевод — удалить записью журнала, вместе с движением копилки.
-await call('DELETE', `/balance-checkpoints/${cp.id}`);
+const r = await fetch(`${API}/funds/${fund.id}?money=SPENT`, { method: 'DELETE' });
+if (r.status !== 204) throw new Error(`DELETE fund → ${r.status} ${await r.text()}`);
+await measure('3. удалить → «потрачено на цель»');
 const events = await call('GET', `/events?startDate=${today}&endDate=${today}`);
-for (const e of events.filter(e => e.type === 'FUND_TRANSFER' && e.targetFundId === fund.id)) {
-  await call('DELETE', `/events/${e.id}`);
+for (const e of events.filter(e => e.description === FUND || e.description === `В копилку: ${FUND}`)) {
+  console.log(`   журнал: ${e.type} ${e.factAmount ?? e.plannedAmount} «${e.description}» · ${e.categoryName ?? ''}`);
 }
-await measure('3. убрано');
 ```
