@@ -297,6 +297,56 @@ class CreditPaymentsIT {
         assertThat(livePlannedOfRule(ruleId)).as("чужая серия цела").hasSize(before);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"разовая строка", "серия"})
+    @DisplayName("Ревью Codex на #138: журнал не принимает копилку у расхода и дохода — чужая серия к копилке не привяжется")
+    void journal_rejectsFundLinkOnNonTransfer(String kind) throws Exception {
+        TargetFund savings = fundRepository.save(TargetFund.builder()
+                .name("Отпуск").purchaseType(FundPurchaseType.SAVINGS).status(FundStatus.FUNDING)
+                .targetAmount(new BigDecimal("100000")).build());
+        var sport = categoryRepository.save(ru.selfin.backend.model.Category.builder()
+                .name("Спорт " + UUID.randomUUID()).type(ru.selfin.backend.model.enums.CategoryType.EXPENSE).build());
+        String recurring = "серия".equals(kind)
+                ? ",\"recurring\":{\"frequency\":\"MONTHLY\",\"dayOfMonth\":10,\"startDate\":\"%s\"}".formatted(purchase)
+                : "";
+        long before = eventRepository.count();
+
+        mockMvc.perform(post("/api/v1/events").header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","categoryId":"%s","type":"EXPENSE","plannedAmount":5000,"targetFundId":"%s"%s}"""
+                                .formatted(purchase, sport.getId(), savings.getId(), recurring)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(eventRepository.count()).as("ничего не записано").isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("Ревью Codex на #138: правка строки журнала тоже не привязывает копилку к расходу")
+    void journalUpdate_rejectsFundLinkOnNonTransfer() throws Exception {
+        TargetFund savings = fundRepository.save(TargetFund.builder()
+                .name("Отпуск").purchaseType(FundPurchaseType.SAVINGS).status(FundStatus.FUNDING)
+                .targetAmount(new BigDecimal("100000")).build());
+        var sport = categoryRepository.save(ru.selfin.backend.model.Category.builder()
+                .name("Спорт " + UUID.randomUUID()).type(ru.selfin.backend.model.enums.CategoryType.EXPENSE).build());
+        String created = mockMvc.perform(post("/api/v1/events").header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","categoryId":"%s","type":"EXPENSE","plannedAmount":5000}"""
+                                .formatted(purchase, sport.getId())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        UUID id = UUID.fromString(om.readTree(created).get("id").asText());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/events/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","categoryId":"%s","type":"EXPENSE","plannedAmount":5000,"targetFundId":"%s"}"""
+                                .formatted(purchase, sport.getId(), savings.getId())))
+                .andExpect(status().isBadRequest());
+
+        assertThat(eventRepository.findById(id).orElseThrow().getTargetFundId()).isNull();
+    }
+
     @Test
     @DisplayName("Ревью Codex на #138: кредит, ставший накоплением в редакторе копилок, — график снят до смены вида")
     void creditToSavings_unschedulesBeforeTypeChange() throws Exception {

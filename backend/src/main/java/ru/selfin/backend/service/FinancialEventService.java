@@ -108,6 +108,7 @@ public class FinancialEventService {
      */
     @Transactional
     public FinancialEventDto createIdempotent(UUID idempotencyKey, FinancialEventCreateDto dto) {
+        requireFundOnlyForTransfer(dto);
         return eventRepository.findByIdempotencyKey(idempotencyKey)
                 .map(e -> toDto(e, null, null))
                 .orElseGet(() -> {
@@ -233,6 +234,7 @@ public class FinancialEventService {
      */
     @Transactional
     public FinancialEventDto update(UUID id, ScopeEnum scope, FinancialEventCreateDto dto) {
+        requireFundOnlyForTransfer(dto);
         FinancialEvent event = eventRepository.findById(id)
                 .filter(e -> !e.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("FinancialEvent", id));
@@ -313,6 +315,19 @@ public class FinancialEventService {
      * снимало копилку с плана, и факт к нему навсегда падал 400 «has no fund to transfer into».
      * Строка перестала быть переводом — копилки у неё нет.
      */
+    /**
+     * Копилка — только у перевода (ревью Codex на #138). Экран так и шлёт: выбор копилки есть только
+     * у перевода, а при смене типа быстрый ввод её сбрасывает. Вход через API её принимал у любого типа —
+     * и расход-серия со ссылкой на копилку выглядела бы графиком платежей по кредиту
+     * ({@code CreditPaymentService}). Переводов серией не бывает: у правила тип только доход или расход (V16).
+     */
+    private static void requireFundOnlyForTransfer(FinancialEventCreateDto dto) {
+        if (dto.targetFundId() != null && dto.type() != EventType.FUND_TRANSFER) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "targetFundId is allowed only for FUND_TRANSFER, not " + dto.type());
+        }
+    }
+
     private static UUID targetFundFor(FinancialEvent event, FinancialEventCreateDto dto) {
         if (dto.targetFundId() != null) return dto.targetFundId();
         return dto.type() == EventType.FUND_TRANSFER ? event.getTargetFundId() : null;
