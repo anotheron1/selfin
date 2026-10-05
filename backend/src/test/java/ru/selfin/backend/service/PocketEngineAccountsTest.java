@@ -46,7 +46,7 @@ class PocketEngineAccountsTest {
                 events, List.of(), List.of(), List.of(),
                 MONTHS_1, HORIZON_END, FallbackKind.NONE,
                 BigDecimal.ZERO, BigDecimal.ZERO, List.of(), java.util.Map.of(),
-                otherAccountsBalance, null, null);
+                otherAccountsBalance, null, null, null);
     }
 
     @Test
@@ -85,7 +85,7 @@ class PocketEngineAccountsTest {
                 List.of(), List.of(), List.of(), List.of(),
                 MONTHS_1, HORIZON_END, FallbackKind.NONE,
                 BigDecimal.ZERO, BigDecimal.ZERO, List.of(), java.util.Map.of(),
-                null, null, null);
+                null, null, null, null);
 
         PocketResultDto r = PocketEngine.calculate(withNulls);
 

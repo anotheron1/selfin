@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fmtRub as fmtC } from './format';
-import { buildBreakdownView } from './breakdownRows';
+import { ENVELOPE_ROW, buildBreakdownView } from './breakdownRows';
 import type { PocketResponse, UpcomingItem } from '../types/api';
 
 type Line = PocketResponse['breakdown'][number];
@@ -169,6 +169,17 @@ describe('buildBreakdownView (ANO-77): число и пояснение', () => 
         const p = stand();
         p.breakdown[4] = line('OVERDUE_RELEASED', 13000, ['', '']);
         expect(buildBreakdownView(p).caveats[0].note).toBe('29 августа: 2 платежа');
+    });
+
+    // Р10-А (ANO-212): деньги копилок без счёта лежат на карте — «на счёте» их держит, свободные — нет.
+    it('копилки без счёта — своей строкой сразу после «На счёте»', () => {
+        const p = stand();
+        p.breakdown.splice(1, 0, line('ENVELOPE_FUNDS', -10000));
+        expect(buildBreakdownView(p).calc.slice(0, 2)).toEqual([
+            { kind: 'item', label: 'На счёте', amount: fmtC(60000), note: 'по сверке 29 августа и тому, что записано после' },
+            { kind: 'item', label: ENVELOPE_ROW, amount: fmtC(-10000), note: 'на карте, но отложены на цели' },
+        ]);
+        expect(ENVELOPE_ROW).toBe('Уже в копилках');
     });
 
     it('без сверки — остаток по записанным операциям', () => {

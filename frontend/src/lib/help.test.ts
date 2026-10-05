@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { HELP, NZ_MEANING } from './help';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from './priority';
 import { CARD_DEBT_ROW, MONEY_ROW } from './capitalRows';
+import { ENVELOPE_ROW } from './breakdownRows';
 
 /** Весь текст справки одной строкой: заголовок, подзаголовки, абзацы. */
 const text = (topic: keyof typeof HELP) => {
@@ -22,6 +23,14 @@ describe('справка (ANO-186)', () => {
 
     it('смысл НЗ один: справка кармашка говорит ровно то, что форма НЗ', () => {
         expect(text('pocket')).toContain(NZ_MEANING);
+    });
+
+    it('справка кармашка говорит, где деньги копилок без счёта и как сверять остаток (Р10-А)', () => {
+        // Иначе человек, зная прежнее задвоение, вводил бы число банка минус копилки — и занижал свободные.
+        const pocket = text('pocket');
+        expect(pocket).toContain(`«${ENVELOPE_ROW}»`);
+        expect(pocket).toContain('лежат на основной карте');
+        expect(pocket).toContain('как есть');
     });
 
     it('справка «Капитала» называет строки, которые считаются сами, именами с экрана (Р7)', () => {

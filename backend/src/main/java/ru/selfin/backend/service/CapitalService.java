@@ -36,8 +36,7 @@ import java.util.UUID;
  * 2026-08-12-accounts-skeleton-design.md §4.3–§4.4, ANO-9 Task 2.3, ANO-46):
  * <pre>
  *   ликвид(t)        = кассовыйЛиквид(t) + semiLiquidAt(t)   ← экран Капитала
- *   кассовыйЛиквид(t)= freeMoneyAt(t) + noAnchorFallbackAt(t)
- *                    + Σ копилок-конвертов на дату t          ← прогнозы: /strategy, /wishlist
+ *   кассовыйЛиквид(t)= freeMoneyAt(t) + noAnchorFallbackAt(t)  ← прогнозы: /strategy, /wishlist
  *   обязательства(t) = creditDebtAt(t) + Σ CapitalItem(LIABILITY)
  * </pre>
  * Кто на каком числе сидит и почему — в Javadoc {@link #cashLiquidAt}.
@@ -46,12 +45,9 @@ import java.util.UUID;
  * это правило инлайн (раньше дублировал — через {@code sumFactByTypeBetween}, у которого не
  * было фильтра {@code wishlistStatus}, см. историю в Javadoc {@link #liquidAt}).
  *
- * <p>Копилка, которая в день {@code t} жила на счёте, в ликвид отдельно не добавляется: её деньги
- * уже внутри баланса счёта (учтены через {@code freeMoneyAt}/{@code semiLiquidAt}) — прибавить
- * их ещё раз значило бы задвоить (спека §3.3, §4.4). Условие читает историю привязок, а не
- * сегодняшний {@code account_id}: иначе привязка сегодня переписывала бы капитал за прошлые
- * месяцы (ANO-163). Живёт в запросе
- * {@link FundTransactionRepository#sumEnvelopeFundsByTransactionDateLessThanEqual}.
+ * <p>Копилки в ликвид отдельно не добавляются. Копилка на счёте — её деньги внутри баланса счёта
+ * (спека §3.3, §4.4); копилка без счёта — доля основной карты, её деньги внутри остатка карты
+ * (Р10-А, ANO-212). Прибавить их ещё раз значило бы задвоить.
  */
 @Service
 @RequiredArgsConstructor
@@ -62,7 +58,6 @@ public class CapitalService {
     private final CapitalItemRepository itemRepo;
     private final CapitalRevaluationRepository revRepo;
     private final BalanceCheckpointRepository checkpointRepo;
-    private final FundTransactionRepository fundTxRepo;
     private final AccountBalanceService accountBalanceService;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
@@ -300,8 +295,11 @@ public class CapitalService {
      * (ANO-46, решение пользователя 2026-08-15):
      * <pre>
      *   кассовыйЛиквид(t) = freeMoneyAt(t) + noAnchorFallbackAt(t)
-     *                     + Σ копилок-конвертов на дату t
      * </pre>
+     *
+     * <p><b>Копилки без счёта отдельно не прибавляются</b> (Р10-А, ANO-212): их деньги лежат на
+     * основной карте и уже сидят в её остатке — перевод в копилку остаток не двигает. Прибавка
+     * копилок сверху задваивала их, как только карту сверяли числом банка.
      *
      * <p><b>Зачем два числа.</b> Спека §4.3 сознательно держит вклад вне основного числа
      * кармашка: он показывается отдельной сноской мелким шрифтом, потому что вкладом не
@@ -323,8 +321,7 @@ public class CapitalService {
      * CRUD появляется в этом же чанке.
      */
     public BigDecimal cashLiquidAt(LocalDate t) {
-        BigDecimal pocketBalance = fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(t);
-        return accountBalanceService.accountsBalanceAt(t).add(pocketBalance);
+        return accountBalanceService.accountsBalanceAt(t);
     }
 
     private List<LocalDate> buildMonthEndPoints(LocalDate from, LocalDate to) {

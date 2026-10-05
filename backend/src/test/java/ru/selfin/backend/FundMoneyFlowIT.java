@@ -1,5 +1,6 @@
 package ru.selfin.backend;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,15 +16,18 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.service.AccountBalanceService;
 import ru.selfin.backend.service.CapitalService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -31,10 +35,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * ANO-86 и ANO-87: деньги в копилке ходят в обе стороны, удаление их не уничтожает.
  *
- * <p>Проверяется ЗАКОН СОХРАНЕНИЯ, а не отдельные методы: спека капитала
- * ({@code 2026-05-10-capital-net-worth-design.md:66}) обещает, что FUND_TRANSFER и
- * FundTransaction взаимно компенсируются. Утверждение о системе ловит дефект независимо
- * от того, в скольких местах записано правило — а оно записано не в одном.
+ * <p>Проверяется ЗАКОН СОХРАНЕНИЯ, а не отдельные методы: перевод между своими деньгами капитал
+ * не меняет. С Р10-А (ANO-212) копилка без счёта — доля основной карты: перевод остаток карты не
+ * двигает, а свободные уменьшает строка «Уже в копилках». Утверждение о системе ловит дефект
+ * независимо от того, в скольких местах записано правило — а оно записано не в одном.
  *
  * <p>План: {@code docs/superpowers/plans/2026-09-12-fund-money-flow.md}.
  */
@@ -50,6 +54,7 @@ class FundMoneyFlowIT {
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
     @Autowired CapitalService capitalService;
+    @Autowired AccountBalanceService accountBalanceService;
 
     /**
      * Возвращает денежное состояние к нулю перед каждым тестом.
@@ -62,7 +67,8 @@ class FundMoneyFlowIT {
     @BeforeEach
     void resetMoneyState() {
         jdbc.update("DELETE FROM fund_transactions");
-        jdbc.update("DELETE FROM financial_events WHERE type = 'FUND_TRANSFER'");
+        // Все события, не только переводы: «потрачено» пишет трату (Р10-А).
+        jdbc.update("DELETE FROM financial_events");
         jdbc.update("DELETE FROM fund_account_links");
         jdbc.update("DELETE FROM target_funds");
         jdbc.update("DELETE FROM balance_checkpoints");
@@ -220,6 +226,11 @@ class FundMoneyFlowIT {
                 .as("после выбытия сумма движений обязана быть нулём — иначе остаток "
                         + "навсегда сидит в капитале за каждую дату")
                 .isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject(
+                "SELECT fact_amount FROM financial_events WHERE type = 'EXPENSE' AND is_deleted = false",
+                BigDecimal.class))
+                .as("тратится записанное движениями, а не раздутое поле (Р10-А)")
+                .isEqualByComparingTo("20000");
     }
 
     @Test
@@ -245,24 +256,32 @@ class FundMoneyFlowIT {
                 .isEqualByComparingTo(fundBalance(fundId));
     }
 
+    // ANO-163 + Р10-А: история привязок решает, сколько денег карты отложено в копилки на дату — это
+    // число вычитают свободные и прошлые месяцы «Стратегии». Капитал от привязки не зависит вовсе:
+    // деньги копилки без счёта лежат на карте, и привязка — ярлык, а не перемещение.
+
     @Test
-    @DisplayName("ANO-163: привязка к счёту не переписывает прошлый капитал")
-    void link_doesNotRewritePastCapital() throws Exception {
+    @DisplayName("ANO-163: привязка к счёту не переписывает прошлое отложенное; капитал не меняется (Р10-А)")
+    void link_doesNotRewritePastEnvelopes() throws Exception {
         anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
         LocalDate past = LocalDate.now().minusMonths(1);
         contributeOn(fundId, new BigDecimal("20000"), past);
-        BigDecimal pastBefore = capitalService.cashLiquidAt(past);
-        BigDecimal todayBefore = capitalService.cashLiquidAt(LocalDate.now());
+        BigDecimal pastBefore = accountBalanceService.envelopesAt(past);
+        BigDecimal todayBefore = accountBalanceService.envelopesAt(LocalDate.now());
+        BigDecimal liquidBefore = capitalService.cashLiquidAt(LocalDate.now());
 
         updateFund(fundId, firstTrackedAccountId());
 
-        assertThat(capitalService.cashLiquidAt(past))
+        assertThat(accountBalanceService.envelopesAt(past))
                 .as("месяц назад копилка была конвертом — сегодняшняя привязка этого не отменяет")
-                .isEqualByComparingTo(pastBefore);
-        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
-                .as("сегодня копилка на счёте, и её 20 000 отдельно не складываются — как и до правки")
+                .isEqualByComparingTo(pastBefore).isEqualByComparingTo("20000");
+        assertThat(accountBalanceService.envelopesAt(LocalDate.now()))
+                .as("сегодня копилка на счёте: её деньги — остаток счёта, отложенными на карте не считаются")
                 .isEqualByComparingTo(todayBefore.subtract(new BigDecimal("20000")));
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("привязка — ярлык: деньги не пропадают из капитала")
+                .isEqualByComparingTo(liquidBefore);
     }
 
     @Test
@@ -274,16 +293,16 @@ class FundMoneyFlowIT {
         contributeOn(fundId, new BigDecimal("20000"), LocalDate.now().minusMonths(2));
         updateFund(fundId, firstTrackedAccountId());
         backdateOpenLink(fundId, monthAgo);
-        BigDecimal onAccountBefore = capitalService.cashLiquidAt(monthAgo);
-        BigDecimal todayOnAccount = capitalService.cashLiquidAt(LocalDate.now());
+        BigDecimal onAccountBefore = accountBalanceService.envelopesAt(monthAgo);
+        BigDecimal todayOnAccount = accountBalanceService.envelopesAt(LocalDate.now());
 
         updateFund(fundId, null);
 
-        assertThat(capitalService.cashLiquidAt(monthAgo))
+        assertThat(accountBalanceService.envelopesAt(monthAgo))
                 .as("месяц назад копилка жила на счёте — сегодняшняя отвязка этого не отменяет")
-                .isEqualByComparingTo(onAccountBefore);
-        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
-                .as("с отвязки её 20 000 снова в конверте — как и до правки (ANO-158)")
+                .isEqualByComparingTo(onAccountBefore).isEqualByComparingTo("0");
+        assertThat(accountBalanceService.envelopesAt(LocalDate.now()))
+                .as("с отвязки её 20 000 снова отложены на карте (ANO-158)")
                 .isEqualByComparingTo(todayOnAccount.add(new BigDecimal("20000")));
     }
 
@@ -404,23 +423,81 @@ class FundMoneyFlowIT {
     }
 
     @Test
-    @DisplayName("ANO-86: при «потрачено» журнал перестаёт звать трату переводом")
-    void delete_spent_renamesJournalEntry() throws Exception {
+    @DisplayName("Р10-А: «потрачено» — трата сегодня на накопленное, с именем копилки, в «Цели»; переводы остаются переводами")
+    void delete_spent_recordsSpendingToday_keepsTransfers() throws Exception {
         anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
         transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+        JsonNode before = pocket();
 
         mockMvc.perform(delete("/api/v1/funds/{id}?money=SPENT", fundId))
                 .andExpect(status().isNoContent());
 
-        String description = jdbc.queryForObject(
-                "SELECT description FROM financial_events"
-                        + " WHERE target_fund_id = ?::uuid AND is_deleted = false LIMIT 1",
-                String.class, fundId);
+        Map<String, Object> spending = jdbc.queryForMap("""
+                SELECT e.event_kind, e.status, e.fact_amount, e.date, e.description, e.target_fund_id,
+                       c.name AS category, c.is_system
+                FROM financial_events e JOIN categories c ON c.id = e.category_id
+                WHERE e.type = 'EXPENSE' AND e.is_deleted = false
+                """);
+        assertThat(spending.get("event_kind")).isEqualTo("FACT");
+        assertThat(spending.get("status")).isEqualTo("EXECUTED");
+        assertThat((BigDecimal) spending.get("fact_amount")).isEqualByComparingTo("20000");
+        assertThat(spending.get("date").toString()).isEqualTo(LocalDate.now().toString());
+        assertThat(spending.get("description")).isEqualTo("Отпуск");
+        assertThat(spending.get("target_fund_id")).isNull();
+        assertThat(spending.get("category")).isEqualTo("Цели");
+        assertThat(spending.get("is_system")).isEqualTo(true);
 
-        assertThat(description)
-                .as("место, куда переводили, больше не существует — это была трата")
-                .isEqualTo("Отпуск");
+        assertThat(jdbc.queryForObject(
+                "SELECT description FROM financial_events WHERE target_fund_id = ?::uuid",
+                String.class, fundId))
+                .as("перевод откладывал деньги — тратит запись выше, «Отпуск» дважды журнал не покажет")
+                .isEqualTo("В копилку: Отпуск");
+
+        JsonNode after = pocket();
+        assertThat(after.get("currentBalance").decimalValue())
+                .as("деньги ушли с карты сейчас")
+                .isEqualByComparingTo(before.get("currentBalance").decimalValue().subtract(new BigDecimal("20000")));
+        assertThat(after.get("pocket").decimalValue())
+                .as("свободные не меняются: эти деньги и так были отложены")
+                .isEqualByComparingTo(before.get("pocket").decimalValue());
+    }
+
+    @Test
+    @DisplayName("Р10-А: сверка числом банка после перевода в копилку — дрейфа нет, капитал и свободно не растут")
+    void reanchor_afterTransfer_noDrift_noDoubleCount() throws Exception {
+        anchorDefaultAccount("54900");
+        String fundId = createFund("кеке");
+        transfer(fundId, new BigDecimal("10000"), true).andExpect(status().isOk());
+        BigDecimal liquidBefore = capitalService.cashLiquidAt(LocalDate.now());
+
+        JsonNode before = pocket();
+        assertThat(before.get("currentBalance").decimalValue())
+                .as("с карты ничего не уходило — «на счёте» прежнее").isEqualByComparingTo("54900");
+        assertThat(before.get("pocket").decimalValue())
+                .as("свободно — без отложенного в копилку").isEqualByComparingTo("44900");
+        assertThat(before.get("breakdown").get(1).get("type").asText()).isEqualTo("ENVELOPE_FUNDS");
+        assertThat(before.get("breakdown").get(1).get("amount").decimalValue()).isEqualByComparingTo("-10000");
+
+        mockMvc.perform(post("/api/v1/balance-checkpoints")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"date\": \"" + LocalDate.now() + "\", \"amount\": 54900}"))
+                .andExpect(status().isCreated());
+
+        JsonNode latest = objectMapper.readTree(mockMvc.perform(get("/api/v1/balance-checkpoints"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get(0);
+        assertThat(latest.get("drift").decimalValue())
+                .as("банк видит деньги копилки на карте — расхождения нет").isEqualByComparingTo("0");
+        assertThat(capitalService.cashLiquidAt(LocalDate.now()))
+                .as("копилка не задваивается в капитале").isEqualByComparingTo(liquidBefore);
+        assertThat(pocket().get("pocket").decimalValue())
+                .as("и в свободных").isEqualByComparingTo("44900");
+
+        JsonNode sandbox = objectMapper.readTree(mockMvc.perform(post("/api/v1/pocket/sandbox")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(sandbox.get("fitted").get("pocket").decimalValue())
+                .as("примерка вычитает копилки так же, как карточка").isEqualByComparingTo("44900");
     }
 
     @Test
@@ -481,6 +558,11 @@ class FundMoneyFlowIT {
     }
 
     // ── оснастка ─────────────────────────────────────────────────────────────
+
+    private JsonNode pocket() throws Exception {
+        return objectMapper.readTree(mockMvc.perform(get("/api/v1/pocket"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    }
 
     /** Копилка без счёта — базовый случай: у неё собственный баланс. */
     private String createFund(String name) {

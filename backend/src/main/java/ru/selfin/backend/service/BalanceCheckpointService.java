@@ -9,7 +9,6 @@ import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
-import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -107,7 +106,7 @@ public class BalanceCheckpointService {
                                 e.getDate(), e.getCreatedAt(),
                                 prev.getDate(), prev.getCreatedAt(),
                                 cur.getDate(), cur.getCreatedAt()))
-                        .map(e -> signed(e.getType(), e.getFactAmount()))
+                        .map(e -> AnchorWindow.balanceEffect(e.getType(), e.getFactAmount()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal computed = prev.getAmount().add(delta);
                 byId.put(cur.getId(), toDto(cur, computed, cur.getAmount().subtract(computed)));
@@ -166,10 +165,6 @@ public class BalanceCheckpointService {
         return accountRepository.findById(accountId)
                 .filter(a -> !a.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Account", accountId));
-    }
-
-    private static BigDecimal signed(EventType type, BigDecimal amount) {
-        return type == EventType.INCOME ? amount : amount.negate();
     }
 
     private BalanceCheckpointDto toDto(BalanceCheckpoint cp, BigDecimal computed, BigDecimal drift) {

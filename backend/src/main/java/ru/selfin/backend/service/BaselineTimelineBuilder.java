@@ -241,10 +241,12 @@ public class BaselineTimelineBuilder {
             List<FinancialEvent> monthFacts = facts.getOrDefault(ym, List.of());
             BigDecimal income = sumFacts(monthFacts, EventType.INCOME);
             BigDecimal expense = sumFacts(monthFacts, EventType.EXPENSE);
+            LocalDate end = ym.atEndOfMonth();
             points.add(new StrategyTimelinePointDto(
                     ym,
                     StrategyPointPhase.PAST,
-                    accountBalanceService.accountsBalanceAt(ym.atEndOfMonth()),
+                    // Р10-А: остаток без копилок — так же траектория ядра идёт у текущего месяца.
+                    accountBalanceService.accountsBalanceAt(end).subtract(accountBalanceService.envelopesAt(end)),
                     income,
                     expense,
                     income.subtract(expense),

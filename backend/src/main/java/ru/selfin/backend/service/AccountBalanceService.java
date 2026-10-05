@@ -7,10 +7,10 @@ import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
-import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.FundTransactionRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -45,6 +45,7 @@ public class AccountBalanceService {
     private final AccountRepository accountRepository;
     private final BalanceCheckpointRepository checkpointRepository;
     private final FinancialEventRepository eventRepository;
+    private final FundTransactionRepository fundTransactionRepository;
 
     public Optional<Account> defaultAccount() {
         return accountRepository.findByDefaultAccountTrueAndDeletedFalse();
@@ -116,15 +117,24 @@ public class AccountBalanceService {
 
     /**
      * «На счёте» на дату — то же число, что у ядра (Р1): остатки счетов, дающих свободные деньги,
-     * а у дефолтного счёта без якоря — все факты с нуля (ANO-28). Копилки без счёта сюда не
-     * входят: перевод в такую копилку уменьшает «на счёте».
+     * а у дефолтного счёта без якоря — все факты с нуля (ANO-28). Деньги копилок без счёта
+     * внутри: перевод в копилку остаток карты не двигает (Р10-А, ANO-212).
      *
-     * <p>Прошлые месяцы «Стратегии» берут это число, а текущий и будущие — траекторию ядра, и
-     * линия остаётся одним остатком. Кассовый ликвид капитала — это число плюс копилки
-     * ({@link CapitalService#cashLiquidAt}).
+     * <p>Это и есть кассовый ликвид капитала ({@link CapitalService#cashLiquidAt}). Прошлые
+     * месяцы «Стратегии» берут его за вычетом {@link #envelopesAt} — так же, как ядро вычитает
+     * копилки из траектории текущего и будущих, и линия остаётся одним остатком.
      */
     public BigDecimal accountsBalanceAt(LocalDate t) {
         return freeMoneyAt(t).add(noAnchorFallbackAt(t));
+    }
+
+    /**
+     * Сколько денег основной карты лежит в копилках без счёта на дату (Р10-А, ANO-212): сумма их
+     * движений, как её складывал капитал. Копилка на счёте не в счёт за те дни, что была на нём:
+     * её деньги — остаток своего счёта (§3.3).
+     */
+    public BigDecimal envelopesAt(LocalDate t) {
+        return fundTransactionRepository.sumEnvelopeFundsByTransactionDateLessThanEqual(t);
     }
 
     /**
@@ -324,8 +334,7 @@ public class AccountBalanceService {
                 .filter(e -> e.getWishlistStatus() == null)
                 .filter(e -> AnchorWindow.countsTowardBalance(
                         e.getDate(), e.getCreatedAt(), from, fromCreatedAt, to))
-                .map(e -> e.getType() == EventType.INCOME
-                        ? e.getFactAmount() : e.getFactAmount().negate())
+                .map(e -> AnchorWindow.balanceEffect(e.getType(), e.getFactAmount()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

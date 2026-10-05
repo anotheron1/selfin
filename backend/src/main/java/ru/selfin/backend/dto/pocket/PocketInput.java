@@ -37,6 +37,9 @@ import java.util.List;
  *                       в Task 4.1, здесь только проносится через вход.
  * @param semiLiquidBalance полу-ликвид: вклады, для третьего числа кармашка (§4.3).
  *                       Используется в Task 4.1.
+ * @param envelopeFunds  накопленное в копилках без счёта на {@code asOfDate} (Р10-А, ANO-212):
+ *                       эти деньги лежат на основной карте и сидят в остатке, свободными они не
+ *                       считаются — движок вычитает их строкой «Уже в копилках»
  */
 public record PocketInput(
         LocalDate asOfDate,
@@ -56,7 +59,8 @@ public record PocketInput(
         java.util.Map<java.time.YearMonth, BigDecimal> futureForecast,
         BigDecimal otherAccountsBalance,
         BigDecimal creditRestoreReserve,
-        BigDecimal semiLiquidBalance
+        BigDecimal semiLiquidBalance,
+        BigDecimal envelopeFunds
 ) {
     /** Прогноз будущих месяцев, безопасный к null (старые вызовы/тесты). */
     public java.util.Map<java.time.YearMonth, BigDecimal> futureForecastOrEmpty() {
@@ -71,6 +75,7 @@ public record PocketInput(
     public BigDecimal otherAccountsBalanceOrZero() { return orZero(otherAccountsBalance); }
     public BigDecimal creditRestoreReserveOrZero() { return orZero(creditRestoreReserve); }
     public BigDecimal semiLiquidBalanceOrZero() { return orZero(semiLiquidBalance); }
+    public BigDecimal envelopeFundsOrZero() { return orZero(envelopeFunds); }
 
     private static BigDecimal orZero(BigDecimal v) { return v != null ? v : BigDecimal.ZERO; }
 }

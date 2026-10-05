@@ -9,7 +9,13 @@ package ru.selfin.backend.dto.pocket;
  * сложился, всё после — оговорки к нему.
  */
 public enum BreakdownType {
-    STARTING_BALANCE, OVERDUE_RESERVE, PLANNED_EXPENSES, SAVINGS_CONTRIBUTIONS, PLANNED_INCOME,
+    STARTING_BALANCE,
+    /**
+     * Накопленное в копилках без счёта (Р10-А, ANO-212): деньги на основной карте, уже отложенные
+     * на цели. Входит в «на счёте» и вычитается этой строкой; сразу после STARTING_BALANCE.
+     */
+    ENVELOPE_FUNDS,
+    OVERDUE_RESERVE, PLANNED_EXPENSES, SAVINGS_CONTRIBUTIONS, PLANNED_INCOME,
     UNPLANNED_FORECAST, TRAJECTORY_MIN, BUFFER, POCKET,
     /**
      * Сколько просроченных обязательств перестало бронироваться из-за последнего ре-якоря

@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import ru.selfin.backend.service.CapitalService;
+import ru.selfin.backend.service.AccountBalanceService;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -27,8 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Разбор чтений сделан заранее: {@code AccountService.allocatedThisMonth} фильтрует по
  * {@code type == EXPENSE} и перевода не видит; {@code BaselineTimelineBuilder.sumByType}
- * партиционирует по типу; {@code FundTransaction.amount} читается ровно в одном месте —
- * запросе ликвида. Именно его здесь и проверяем.
+ * партиционирует по типу; {@code FundTransaction.amount} читается ровно в одном месте — запросе
+ * отложенного в копилки ({@code AccountBalanceService.envelopesAt}; до Р10-А он шёл в ликвид
+ * капитала, теперь его вычитают свободные и прошлые месяцы «Стратегии»). Именно его здесь и проверяем.
  */
 @SpringBootTest
 @Testcontainers
@@ -38,7 +39,7 @@ class FundSignedAmountIT {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
 
     @Autowired JdbcTemplate jdbc;
-    @Autowired CapitalService capitalService;
+    @Autowired AccountBalanceService accountBalanceService;
 
     @Test
     @DisplayName("SUM(t.amount) по движениям копилки даёт нетто при отрицательном движении")
@@ -58,21 +59,21 @@ class FundSignedAmountIT {
     }
 
     @Test
-    @DisplayName("ликвид капитала принимает отрицательное движение и даёт нетто")
-    void capitalLiquid_acceptsNegativeTransaction() {
-        BigDecimal before = capitalService.cashLiquidAt(LocalDate.now());
+    @DisplayName("отложенное в копилки принимает отрицательное движение и даёт нетто")
+    void envelopes_acceptNegativeTransaction() {
+        BigDecimal before = accountBalanceService.envelopesAt(LocalDate.now());
 
         String fundId = insertFund("Копилка для ликвида");
         insertFundTransaction(fundId, new BigDecimal("20000"));
-        BigDecimal afterIn = capitalService.cashLiquidAt(LocalDate.now());
+        BigDecimal afterIn = accountBalanceService.envelopesAt(LocalDate.now());
 
         insertFundTransaction(fundId, new BigDecimal("-20000"));
-        BigDecimal afterOut = capitalService.cashLiquidAt(LocalDate.now());
+        BigDecimal afterOut = accountBalanceService.envelopesAt(LocalDate.now());
 
         assertThat(afterIn.subtract(before))
-                .as("движение в копилку поднимает ликвид").isEqualByComparingTo("20000");
+                .as("движение в копилку откладывает деньги").isEqualByComparingTo("20000");
         assertThat(afterOut)
-                .as("обратное движение возвращает ликвид ровно назад")
+                .as("обратное движение возвращает отложенное ровно назад")
                 .isEqualByComparingTo(before);
     }
 

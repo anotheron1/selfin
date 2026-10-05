@@ -2,7 +2,9 @@ package ru.selfin.backend.service;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import ru.selfin.backend.model.enums.EventType;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -145,5 +147,19 @@ class AnchorWindowTest {
                 ANCHOR_DAY, LocalDateTime.of(2026, 9, 5, 18, 0), ANCHOR_DAY, null, TODAY))
                 .as("якорь без времени ввода — та же ветка")
                 .isFalse();
+    }
+
+    @Test
+    @DisplayName("Р10-А: доход двигает остаток вверх, расход вниз, перевод в копилку — никак")
+    void balanceEffect_transferToEnvelopeLeavesBalance() {
+        BigDecimal amount = new BigDecimal("10000");
+        assertThat(AnchorWindow.balanceEffect(EventType.INCOME, amount)).isEqualByComparingTo("10000");
+        assertThat(AnchorWindow.balanceEffect(EventType.EXPENSE, amount)).isEqualByComparingTo("-10000");
+        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, amount))
+                .as("копилка без счёта — доля основной карты: деньги с карты не уходят (ANO-212)")
+                .isEqualByComparingTo("0");
+        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, amount.negate()))
+                .as("снятие из копилки — тоже: деньги и не уходили")
+                .isEqualByComparingTo("0");
     }
 }

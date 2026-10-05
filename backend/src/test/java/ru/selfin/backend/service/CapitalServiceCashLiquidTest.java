@@ -70,8 +70,8 @@ class CapitalServiceCashLiquidTest {
     @BeforeEach
     void setUp() {
         AccountBalanceService accountBalanceService =
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
-        service = new CapitalService(itemRepo, revRepo, checkpointRepo, fundTxRepo,
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo);
+        service = new CapitalService(itemRepo, revRepo, checkpointRepo,
                 accountBalanceService, Clock.systemDefaultZone());
     }
 
@@ -106,16 +106,14 @@ class CapitalServiceCashLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(deposit.getId(), today))
                 .thenReturn(Optional.of(checkpoint(deposit, today.minusDays(1), "80000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(today))
-                .thenReturn(new BigDecimal("12000"));
 
         BigDecimal cash = service.cashLiquidAt(today);
         BigDecimal liquid = service.liquidAt(today);
 
-        // 100 000 (карта) + 12 000 (копилка-конверт), БЕЗ 80 000 вклада
-        assertThat(cash).isEqualByComparingTo("112000");
-        // 112 000 + 80 000 (вклад) — экран Капитала вклад по-прежнему видит
-        assertThat(liquid).isEqualByComparingTo("192000");
+        // 100 000 (карта, копилки без счёта внутри неё — Р10-А), БЕЗ 80 000 вклада
+        assertThat(cash).isEqualByComparingTo("100000");
+        // 100 000 + 80 000 (вклад) — экран Капитала вклад по-прежнему видит
+        assertThat(liquid).isEqualByComparingTo("180000");
         assertThat(liquid.subtract(cash)).isEqualByComparingTo("80000");
     }
 
@@ -131,7 +129,6 @@ class CapitalServiceCashLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(defaultAccount.getId(), today))
                 .thenReturn(Optional.of(checkpoint(defaultAccount, today.minusDays(1), "40000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(today)).thenReturn(BigDecimal.ZERO);
 
         // Якорь конверта намеренно НЕ стабится: countsAsFreeMoney() отсекает его до balanceAt,
         // поэтому лишнего обращения к репозиторию быть не должно (strict stubs это подтвердят).
@@ -152,7 +149,6 @@ class CapitalServiceCashLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(defaultAccount.getId(), today)).thenReturn(Optional.empty());
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any()))
                 .thenReturn(List.of(fact(today.minusDays(5), EventType.INCOME, "90000")));
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(today)).thenReturn(BigDecimal.ZERO);
 
         assertThat(service.cashLiquidAt(today)).isEqualByComparingTo("90000");
     }

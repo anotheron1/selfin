@@ -10,6 +10,7 @@ import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.*;
 import ru.selfin.backend.model.enums.*;
 import ru.selfin.backend.repository.CategoryRepository;
+import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 
@@ -37,7 +38,7 @@ class WishlistConversionServiceTest {
             mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class);
     private final WishlistConversionService service =
             new WishlistConversionService(eventRepo, fundRepo, recurringRuleService, categoryRepo,
-                    new AccountBalanceService(accountRepo, checkpointRepo, eventRepo),
+                    new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, mock(FundTransactionRepository.class)),
                     Clock.systemDefaultZone());
 
     private FinancialEvent openWishlist(UUID id) {

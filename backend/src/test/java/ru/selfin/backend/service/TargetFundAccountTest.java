@@ -71,7 +71,7 @@ class TargetFundAccountTest {
     @BeforeEach
     void setUp() {
         AccountBalanceService balanceService =
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo);
         service = new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo,
                 accountRepo, balanceService, mock(WishlistArtifactService.class),
                 pocketService, Clock.systemDefaultZone());
@@ -155,7 +155,7 @@ class TargetFundAccountTest {
     private TargetFundService serviceOn(LocalDate today) {
         ZoneId zone = ZoneId.systemDefault();
         return new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo, accountRepo,
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo),
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo),
                 mock(WishlistArtifactService.class), pocketService,
                 Clock.fixed(today.atStartOfDay(zone).toInstant(), zone));
     }

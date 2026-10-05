@@ -163,7 +163,8 @@ export interface FundsOverview {
 // ── Pocket (ANO-12) ─────────────────────────────────────────────────────────
 export type PocketScopeType = 'NEXT_INCOME' | 'SECOND_INCOME' | 'MONTHS' | 'DATE';
 export type BreakdownType =
-    | 'STARTING_BALANCE' | 'OVERDUE_RESERVE' | 'PLANNED_EXPENSES' | 'SAVINGS_CONTRIBUTIONS'
+    // ENVELOPE_FUNDS — накопленное в копилках без счёта: на карте, но отложено (Р10-А, ANO-212).
+    | 'STARTING_BALANCE' | 'ENVELOPE_FUNDS' | 'OVERDUE_RESERVE' | 'PLANNED_EXPENSES' | 'SAVINGS_CONTRIBUTIONS'
     | 'PLANNED_INCOME'
     | 'UNPLANNED_FORECAST' | 'TRAJECTORY_MIN' | 'BUFFER' | 'POCKET'
     // После POCKET — информационные строки: в инвариант кармашка не входят.
