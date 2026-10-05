@@ -29,8 +29,9 @@ import java.util.stream.Collectors;
  * Ни одного обращения к БД и Spring-зависимостей — только вход → выход.
  *
  * <p>Формула: кармашек(скоуп) = min прогнозной траектории баланса − буфер.
- * Breakdown-инвариант: STARTING − OVERDUE − EXPENSES(≤min) − CONTRIB(≤min) + INCOME(≤min)
- * − FORECAST(≤min) = MIN; MIN − BUFFER = POCKET (CONTRIB — взносы в копилки, ANO-16 §6).
+ * Breakdown-инвариант: STARTING − ENVELOPES − OVERDUE − EXPENSES(≤min) − CONTRIB(≤min) + INCOME(≤min)
+ * − FORECAST(≤min) = MIN; MIN − BUFFER = POCKET (CONTRIB — взносы в копилки, ANO-16 §6; ENVELOPES —
+ * уже накопленное в копилках без счёта, Р10-А).
  */
 public final class PocketEngine {
 
@@ -65,7 +66,7 @@ public final class PocketEngine {
             if (e.wishlistStatus() != null || e.factAmount() == null || e.date() == null) continue;
             if (!AnchorWindow.countsTowardBalance(e.date(), e.createdAt(),
                     in.checkpointDate(), in.checkpointCreatedAt(), in.asOfDate())) continue;
-            currentBalance = currentBalance.add(signed(e.type(), e.factAmount()));
+            currentBalance = currentBalance.add(AnchorWindow.balanceEffect(e.type(), e.factAmount()));
         }
         // Прочие счета (спека §4.1): их остатки уже посчитаны сборщиком входа,
         // безадресные факты к ним не применяются — они относятся к дефолтному счёту.
@@ -126,8 +127,11 @@ public final class PocketEngine {
                 .collect(Collectors.groupingBy(EventSnapshot::date));
 
         // 5. Траектория + минимум + суммы-до-минимума (для breakdown-инварианта §5).
+        //    Р10-А (ANO-212): траектория идёт от остатка без копилок — их деньги на карте, но
+        //    уже отложены. «На счёте» остаётся числом банка.
         List<PocketResultDto.TrajectoryPoint> trajectory = new ArrayList<>();
-        BigDecimal running = currentBalance.subtract(overdue).subtract(todayExpenses);
+        BigDecimal envelopes = in.envelopeFundsOrZero();
+        BigDecimal running = currentBalance.subtract(envelopes).subtract(overdue).subtract(todayExpenses);
         trajectory.add(new PocketResultDto.TrajectoryPoint(
                 in.asOfDate(), running, BigDecimal.ZERO, overdue.add(todayExpenses), null));
 
@@ -257,7 +261,7 @@ public final class PocketEngine {
                         e.plannedAmount(), e.date(), e.wishlistStatus() == WishlistStatus.FIXED))
                 .toList();
 
-        List<PocketResultDto.BreakdownLine> breakdown = buildBreakdown(in, currentBalance, overdue,
+        List<PocketResultDto.BreakdownLine> breakdown = buildBreakdown(in, currentBalance, envelopes, overdue,
                 expensesAtMin, incomeAtMin, contribAtMin, contribNamesAtMin,
                 minBalance, minDate, buffer, pocket, candidates, creditReserve,
                 pocketWithForecast != null ? pocketWithForecast.subtract(pocket) : null,
@@ -292,7 +296,7 @@ public final class PocketEngine {
      *
      * <p>Отбор — те же {@link #todayPending} и {@link #futurePending}, что у траектории: правило,
      * живущее в двух копиях, однажды расходится (ANO-82, ANO-155). Отсюда инвариант: на счёте
-     * минус расходы плюс доходы этих строк — последняя точка траектории.
+     * минус копилки (Р10-А) минус расходы плюс доходы этих строк — последняя точка траектории.
      */
     public static List<Held> held(PocketInput in) {
         Map<UUID, BigDecimal> settled = PlanRemainder.settledBySnapshots(in.events());
@@ -369,10 +373,6 @@ public final class PocketEngine {
         return e.wishlistStatus() == WishlistStatus.FIXED && !e.converted() && e.date() != null;
     }
 
-    private static BigDecimal signed(EventType type, BigDecimal amount) {
-        return type == EventType.INCOME ? amount : amount.negate();
-    }
-
     // ── breakdown (спека §5) ────────────────────────────────────────────────
 
     /**
@@ -386,7 +386,7 @@ public final class PocketEngine {
     }
 
     private static List<PocketResultDto.BreakdownLine> buildBreakdown(
-            PocketInput in, BigDecimal currentBalance, BigDecimal overdue,
+            PocketInput in, BigDecimal currentBalance, BigDecimal envelopes, BigDecimal overdue,
             BigDecimal expensesAtMin, BigDecimal incomeAtMin,
             BigDecimal contribAtMin, List<String> contribNames,
             BigDecimal minBalance, LocalDate minDate, BigDecimal buffer, BigDecimal pocket,
@@ -402,6 +402,10 @@ public final class PocketEngine {
                         : "Остаток на счёте (по событиям, чекпоинта нет)",
                 currentBalance, List.of()));
 
+        if (envelopes.signum() != 0) {
+            lines.add(new PocketResultDto.BreakdownLine(BreakdownType.ENVELOPE_FUNDS,
+                    "Уже в копилках", envelopes.negate(), List.of()));
+        }
         if (overdue.signum() != 0) {
             List<String> details = in.overdueEvents().stream().map(PocketEngine::ownName).toList();
             lines.add(new PocketResultDto.BreakdownLine(BreakdownType.OVERDUE_RESERVE,

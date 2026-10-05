@@ -107,14 +107,24 @@ export function overdueReserve(breakdown: PocketResponse['breakdown']): number {
     return line ? -line.amount : 0;
 }
 
+/** Накопленное в копилках без счёта, которое ядро вычло в точке «сегодня»: строка расшифровки, со знаком плюс. */
+export function envelopeFunds(breakdown: PocketResponse['breakdown']): number {
+    const line = breakdown.find(l => l.type === 'ENVELOPE_FUNDS');
+    return line ? -line.amount : 0;
+}
+
 /**
  * Строка деталей выбранного дня: только ненулевые потоки, день 0 — «сегодня». Точка «сегодня» с
  * бронями прошедшей даты называет их словами (Р6, ANO-216): «остаток» рядом с суммой без подписи
- * спорил с «на счёте» карточки.
+ * спорил с «на счёте» карточки. Копилки без счёта — тоже (Р10-А, ANO-212): «на счёте» их держит,
+ * а точка «сегодня» уже без них.
  */
-export function buildDayDetails(point: TrajPoint, isToday: boolean, overdue = 0): string {
-    if (isToday && overdue > 0) {
-        let s = `сегодня · после броней ${fmtRub(point.balance)} · брони с прошедшей датой −${fmtRub(overdue)}`;
+export function buildDayDetails(point: TrajPoint, isToday: boolean, overdue = 0, envelopes = 0): string {
+    if (isToday && (overdue > 0 || envelopes > 0)) {
+        const after = [overdue > 0 && 'броней', envelopes > 0 && 'копилок'].filter(Boolean).join(' и ');
+        let s = `сегодня · после ${after} ${fmtRub(point.balance)}`;
+        if (overdue > 0) s += ` · брони с прошедшей датой −${fmtRub(overdue)}`;
+        if (envelopes > 0) s += ` · уже в копилках −${fmtRub(envelopes)}`;
         const todayPlan = point.expense - overdue;
         if (todayPlan > 0) s += ` · по плану на сегодня −${fmtRub(todayPlan)}`;
         return s;

@@ -33,6 +33,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -60,8 +61,8 @@ class CapitalServiceLiquidTest {
     @BeforeEach
     void setUp() {
         AccountBalanceService accountBalanceService =
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
-        service = new CapitalService(itemRepo, revRepo, checkpointRepo, fundTxRepo,
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo);
+        service = new CapitalService(itemRepo, revRepo, checkpointRepo,
                 accountBalanceService, Clock.systemDefaultZone());
     }
 
@@ -83,7 +84,6 @@ class CapitalServiceLiquidTest {
     void summary_emptyDb_liquidIsZero() {
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
         when(accountRepo.findAllByDeletedFalseOrderBySortOrderAscNameAsc()).thenReturn(List.of());
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
 
         CapitalSummaryDto s = service.summary();
@@ -98,10 +98,10 @@ class CapitalServiceLiquidTest {
     void summary_withCheckpointAndEventsAndPockets_computesLiquidCorrectly() {
         // checkpoint=200к на дефолтном счёте, после него INCOME=50к, EXPENSE=10к,
         // FUND_TRANSFER=30к (все они — обычные, не-wishlist факты). Копилки без accountId: 30к.
-        // freeMoneyAt   = 200 + 50 − 10 − 30 = 210
+        // Р10-А: перевод остаток не двигает, копилки — внутри остатка карты и не прибавляются.
+        // freeMoneyAt   = 200 + 50 − 10 = 240
         // semiLiquidAt  = 0 (вкладов нет)
-        // pocketBalance = 30
-        // liquid        = 240
+        // liquid        = 240 — то же, что до Р10-А (200 + 50 − 10 − 30 + 30 копилок)
         Account defaultAccount = AccountFixtures.defaultAccount();
         LocalDate anchorDate = LocalDate.now().minusDays(30);
         LocalDate today = LocalDate.now();
@@ -115,7 +115,8 @@ class CapitalServiceLiquidTest {
                 fact(anchorDate.plusDays(6), EventType.EXPENSE, "10000"),
                 fact(anchorDate.plusDays(7), EventType.FUND_TRANSFER, "30000")
         ));
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("30000"));
+        // lenient: правильный код сумму копилок не спрашивает, а вернувшийся вычет даст 270 000.
+        lenient().when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("30000"));
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -139,7 +140,6 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(deposit.getId(), today))
                 .thenReturn(Optional.of(checkpoint(deposit, today.minusDays(1), "80000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -150,9 +150,8 @@ class CapitalServiceLiquidTest {
     }
 
     @Test
-    @DisplayName("Ликвид не задваивает копилку с accountId — её деньги уже в балансе счёта; "
-            + "копилка без accountId по-прежнему прибавляется отдельно")
-    void liquidAt_doesNotDoubleCountFundWithAccountId() {
+    @DisplayName("Р10-А: ликвид — остаток карты; копилки без счёта внутри него и отдельно не прибавляются")
+    void liquidAt_doesNotAddEnvelopeFundsOnTop() {
         Account defaultAccount = AccountFixtures.defaultAccount();
         LocalDate today = LocalDate.now();
 
@@ -161,20 +160,16 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(defaultAccount.getId(), today))
                 .thenReturn(Optional.of(checkpoint(defaultAccount, today.minusDays(1), "100000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        // Репозиторий сам отбрасывает копилки, жившие в этот день на счёте (история привязок,
-        // ANO-163) — здесь мокаем УЖЕ отфильтрованный результат: только сумма конверта (12 000).
-        // Копилка С accountId (условно 20 000) в этой сумме отсутствует — её деньги внутри
-        // остатка счёта, на который она ссылается, и туда они уже вошли бы через freeMoneyAt/
-        // semiLiquidAt, если бы такой счёт был среди active(). JPQL-фильтр самого запроса
-        // отдельно проверен FundTransactionRepositoryIT.
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("12000"));
+        // 12 000 в копилке без счёта лежат на карте: перевод их не вычел, сверка видит их в банке.
+        // lenient: правильный код сумму копилок не спрашивает, а вернувшееся прибавление даст 112 000.
+        lenient().when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(new BigDecimal("12000"));
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
         CapitalSummaryDto s = service.summary();
 
-        // 100 000 (карта) + 12 000 (копилка без accountId) = 112 000, НЕ 132 000
-        assertThat(s.liquid()).isEqualByComparingTo("112000");
+        // 100 000 (карта, 12 000 копилки внутри), НЕ 112 000 — иначе сверка снова задвоила бы копилку
+        assertThat(s.liquid()).isEqualByComparingTo("100000");
     }
 
     @Test
@@ -192,7 +187,6 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(credit.getId(), today))
                 .thenReturn(Optional.of(checkpoint(credit, today.minusDays(1), "62000"))); // доступно
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -225,7 +219,6 @@ class CapitalServiceLiquidTest {
                 .thenReturn(Optional.of(checkpoint(credit, today.minusDays(1), "62000")),
                         Optional.of(checkpoint(credit, today, "100000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -251,7 +244,6 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(creditNoCheckpoint.getId(), today))
                 .thenReturn(Optional.empty());
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -280,7 +272,6 @@ class CapitalServiceLiquidTest {
         when(checkpointRepo.findLatestForAccountAt(defaultAccount.getId(), today)).thenReturn(Optional.empty());
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any()))
                 .thenReturn(List.of(fact(incomeDate, EventType.INCOME, "90000")));
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 
@@ -309,7 +300,6 @@ class CapitalServiceLiquidTest {
                 .thenReturn(Optional.of(checkpoint(defaultAccount, anchorDate, "100000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(anchorDate, today))
                 .thenReturn(List.of(wishlistExpenseFact));
-        when(fundTxRepo.sumEnvelopeFundsByTransactionDateLessThanEqual(any())).thenReturn(BigDecimal.ZERO);
         when(revRepo.snapshotAt(any())).thenReturn(List.of());
         when(itemRepo.findAllActive(null)).thenReturn(List.of());
 

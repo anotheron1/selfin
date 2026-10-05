@@ -17,6 +17,7 @@ import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.AccountRepository;
+import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -64,7 +65,7 @@ class PocketInputAssemblerOwnerScenarioTest {
         checkpointRepository = mock(BalanceCheckpointRepository.class);
         eventRepository = mock(FinancialEventRepository.class);
         AccountBalanceService accountBalanceService =
-                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository);
+                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class));
 
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
         CategoryRepository categoryRepository = mock(CategoryRepository.class);

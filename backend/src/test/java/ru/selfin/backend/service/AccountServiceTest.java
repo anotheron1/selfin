@@ -24,6 +24,7 @@ import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.AccountRepository;
+import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -63,6 +64,7 @@ class AccountServiceTest {
     @Mock CategoryRepository categoryRepo;
     @Mock BalanceCheckpointRepository checkpointRepo;
     @Mock FinancialEventRepository eventRepo;
+    @Mock FundTransactionRepository fundTxRepo;
     @Mock TargetFundRepository fundRepo;
 
     private AccountService service;
@@ -70,7 +72,7 @@ class AccountServiceTest {
     @BeforeEach
     void setUp() {
         AccountBalanceService balanceService =
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo);
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo);
         service = new AccountService(accountRepo, categoryRepo, eventRepo, checkpointRepo,
                 fundRepo, balanceService, Clock.systemDefaultZone());
     }

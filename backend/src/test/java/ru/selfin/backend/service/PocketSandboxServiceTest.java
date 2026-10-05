@@ -28,6 +28,7 @@ import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
 
@@ -73,7 +74,7 @@ class PocketSandboxServiceTest {
         accountRepository = mock(ru.selfin.backend.repository.AccountRepository.class);
         checkpointRepository = mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class);
         service = new PocketSandboxService(assembler, eventRepository, fundRepository,
-                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository));
+                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class)));
     }
 
     // ── фикстуры ────────────────────────────────────────────────────────────

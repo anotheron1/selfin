@@ -114,6 +114,7 @@ class PocketEngineTest {
         BigDecimal otherAccountsBalance = null;
         BigDecimal creditRestoreReserve = null;
         BigDecimal semiLiquidBalance = null;
+        BigDecimal envelopeFunds = null;
 
         static PocketInputBuilder create() { return new PocketInputBuilder(); }
         PocketInputBuilder events(EventSnapshot... e) { this.events = List.of(e); return this; }
@@ -152,12 +153,14 @@ class PocketEngineTest {
         PocketInputBuilder creditRestoreReserve(long v) { this.creditRestoreReserve = dec(v); return this; }
         /** Полу-ликвид: вклады (ANO-9 §4.3) — по умолчанию null (вкладов нет). */
         PocketInputBuilder semiLiquidBalance(long v) { this.semiLiquidBalance = dec(v); return this; }
+        /** Накопленное в копилках без счёта (Р10-А) — по умолчанию null (копилок нет). */
+        PocketInputBuilder envelopeFunds(long v) { this.envelopeFunds = dec(v); return this; }
 
         PocketInput build() {
             return new PocketInput(asOf, checkpoint, checkpointDate, checkpointCreatedAt,
                     events, wishlistEvents, overdue, releasedOverdue,
                     scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast,
-                    otherAccountsBalance, creditRestoreReserve, semiLiquidBalance);
+                    otherAccountsBalance, creditRestoreReserve, semiLiquidBalance, envelopeFunds);
         }
     }
 
@@ -464,12 +467,20 @@ class PocketEngineTest {
     }
 
     @Test
-    @DisplayName("Легаси FUND_TRANSFER (PLAN + factAmount) учтён как факт")
-    void legacyFundTransferCountedAsFact() {
-        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+    @DisplayName("PLAN с factAmount — факт: расход двигает остаток; легаси FUND_TRANSFER — как любой перевод, нет (Р10-А)")
+    void legacyPlanWithFactAmount_countedAsFact() {
+        EventSnapshot expenseAsPlan = new EventSnapshot(UUID.randomUUID(), LocalDate.of(2026, 3, 1),
+                EventType.EXPENSE, EventKind.PLAN, EventStatus.EXECUTED, Priority.MEDIUM, null, dec(3_000),
+                null, false, "expense");
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1)).events(expenseAsPlan).build();
+        assertThat(PocketEngine.calculate(in).currentBalance()).isEqualByComparingTo(dec(7_000));
+
+        PocketInput transfer = base().checkpointDate(TODAY.minusDays(1))
                 .events(legacyTransfer(LocalDate.of(2026, 3, 1), 3_000))
                 .build();
-        assertThat(PocketEngine.calculate(in).currentBalance()).isEqualByComparingTo(dec(7_000));
+        assertThat(PocketEngine.calculate(transfer).currentBalance())
+                .as("деньги копилки без счёта остаются на карте")
+                .isEqualByComparingTo(dec(10_000));
     }
 
     @Test
@@ -839,7 +850,8 @@ class PocketEngineTest {
                 in.overdueEvents(), in.releasedOverdueEvents(),
                 in.scope(), LocalDate.of(2026, 4, 5), FallbackKind.NONE,
                 in.bufferAmount(), in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
-                in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance());
+                in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance(),
+                in.envelopeFunds());
         PocketResultDto r = PocketEngine.calculate(in);
         assertThat(r.pocket()).isEqualByComparingTo(dec(10_000));
         assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.UNPLANNED_FORECAST);
@@ -1255,11 +1267,60 @@ class PocketEngineTest {
         PocketInput in = new HeldCase().input();
         PocketResultDto r = PocketEngine.calculate(in);
 
-        BigDecimal byLines = r.currentBalance();
+        BigDecimal byLines = r.currentBalance().subtract(in.envelopeFundsOrZero());
         for (PocketEngine.Held h : PocketEngine.held(in)) {
             byLines = h.event().type() == EventType.INCOME ? byLines.add(h.amount()) : byLines.subtract(h.amount());
         }
 
         assertThat(byLines).isEqualByComparingTo(r.trajectory().get(r.trajectory().size() - 1).balance());
+    }
+
+    // ── Р10-А: копилка без счёта — доля основной карты (ANO-212) ─────────────
+
+    @Test
+    @DisplayName("Р10-А: «на счёте» — число банка, копилки — строкой сразу после него, траектория и свободно — без них")
+    void envelopeFunds_lineAfterBalance_trajectoryWithout() {
+        PocketInput in = base()
+                .envelopeFunds(3_000)
+                .events(plan(EventType.EXPENSE, TODAY.plusDays(2), 2_000, Priority.HIGH))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.currentBalance()).as("на счёте — сколько на карте").isEqualByComparingTo(dec(10_000));
+        assertThat(indexOf(r, BreakdownType.ENVELOPE_FUNDS)).isEqualTo(indexOf(r, BreakdownType.STARTING_BALANCE) + 1);
+        assertThat(line(r, BreakdownType.ENVELOPE_FUNDS).label()).isEqualTo("Уже в копилках");
+        assertThat(line(r, BreakdownType.ENVELOPE_FUNDS).amount()).isEqualByComparingTo(dec(-3_000));
+        assertThat(r.trajectory().get(0).balance()).as("день 0 — уже без копилок").isEqualByComparingTo(dec(7_000));
+        assertThat(r.minPoint().balance()).isEqualByComparingTo(dec(5_000));
+        assertThat(r.pocket()).isEqualByComparingTo(dec(5_000));
+
+        // Инвариант расшифровки: строки до минимума складываются в минимум.
+        BigDecimal sum = BigDecimal.ZERO;
+        for (PocketResultDto.BreakdownLine l : r.breakdown()) {
+            if (l.type() == BreakdownType.TRAJECTORY_MIN) break;
+            sum = sum.add(l.amount());
+        }
+        assertThat(sum).isEqualByComparingTo(line(r, BreakdownType.TRAJECTORY_MIN).amount());
+    }
+
+    @Test
+    @DisplayName("Р10-А: перевод в копилку после сверки — остаток прежний, свободно меньше на перевод, как раньше")
+    void transferFact_leavesBalance_envelopeLineSubtracts() {
+        PocketInput in = base()
+                .checkpointDate(TODAY.minusDays(1))
+                .envelopeFunds(4_000)
+                .events(fact(EventType.FUND_TRANSFER, TODAY, 4_000))
+                .build();
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.currentBalance()).isEqualByComparingTo(dec(10_000));
+        assertThat(r.pocket()).isEqualByComparingTo(dec(6_000));
+    }
+
+    @Test
+    @DisplayName("Р10-А: копилок нет — строки нет")
+    void noEnvelopeFunds_noLine() {
+        PocketResultDto r = PocketEngine.calculate(base().build());
+        assertThat(r.breakdown()).noneMatch(l -> l.type() == BreakdownType.ENVELOPE_FUNDS);
     }
 }

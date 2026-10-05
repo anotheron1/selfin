@@ -143,8 +143,8 @@ class PocketMigrationRegressionTest {
                 java.util.Map.of(),
                 // Один счёт — сценарий этого эталона (ANO-9): прочих счетов, резерва
                 // возврата и вкладов нет, механическое null не меняет ни одно из
-                // зафиксированных ниже чисел.
-                null, null, null);
+                // зафиксированных ниже чисел. Копилок без счёта нет тоже (Р10-А).
+                null, null, null, null);
     }
 
     private static PocketResultDto.BreakdownLine line(PocketResultDto r, BreakdownType t) {

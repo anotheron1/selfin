@@ -36,6 +36,9 @@ export interface BreakdownView {
 
 const NAMES_LIMIT = 4;
 
+/** Строка расшифровки с копилками без счёта (Р10-А, ANO-212); тем же именем её зовёт справка. */
+export const ENVELOPE_ROW = 'Уже в копилках';
+
 /** Своё имя строки, если оно не пустое, иначе категория (ANO-101: пустое описание — не имя). */
 const nameOf = (u: UpcomingItem): string | null => u.description?.trim() || u.categoryName?.trim() || null;
 
@@ -77,6 +80,9 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
                 calc.push(row('item', 'На счёте', fmtC(l.amount), checkpointDate
                     ? `по сверке ${fmtDayMonth(checkpointDate)} и тому, что записано после`
                     : 'по записанным операциям — сверки ещё не было'));
+                break;
+            case 'ENVELOPE_FUNDS':
+                calc.push(row('item', ENVELOPE_ROW, signed(l.amount), 'на карте, но отложены на цели'));
                 break;
             case 'OVERDUE_RESERVE': {
                 // Движок строит список «осталось потратить» из того же набора, что и эту сумму,

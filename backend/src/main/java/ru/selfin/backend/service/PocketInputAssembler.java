@@ -310,7 +310,9 @@ public class PocketInputAssembler {
                 events, wishlist, overdue, releasedOverdue,
                 scope, horizonEnd, fallback, buffer, delta, contributors,
                 futureForecast,
-                accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance());
+                accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance(),
+                // Р10-А (ANO-212): деньги копилок без счёта сидят в остатке карты — движок их вычтет.
+                accountBalanceService.envelopesAt(asOfDate));
         return new Assembled(input, baselineRefs, allIncomes, forecastByCategory,
                 reservable.stream().map(TargetFund::getId).collect(java.util.stream.Collectors.toSet()));
     }

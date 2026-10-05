@@ -72,6 +72,9 @@ class BaselineTimelineBuilderTest {
         categoryRepo = mock(CategoryRepository.class);
         capitalService = mock(CapitalService.class);
         accountBalanceService = mock(AccountBalanceService.class);
+        // Прошлые месяцы вычитают из остатка копилки (Р10-А): без заглушек мок отдал бы null.
+        when(accountBalanceService.accountsBalanceAt(any())).thenReturn(BigDecimal.ZERO);
+        when(accountBalanceService.envelopesAt(any())).thenReturn(BigDecimal.ZERO);
         assembler = mock(PocketInputAssembler.class);
         PredictionService predictionService = mock(PredictionService.class);
 
@@ -139,10 +142,13 @@ class BaselineTimelineBuilderTest {
     // ── прошлые месяцы ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Р1: прошлый месяц — остаток счетов на последний день, как «на счёте»; доход и расход — факты")
+    @DisplayName("Р1, Р10-А: прошлый месяц — остаток счетов на последний день минус копилки на тот же день; доход и расход — факты")
     void buildPastPoints_useAccountsBalance_andFacts() {
-        when(accountBalanceService.accountsBalanceAt(LocalDate.of(2026, 1, 31))).thenReturn(new BigDecimal("100000"));
-        when(accountBalanceService.accountsBalanceAt(LocalDate.of(2026, 2, 28))).thenReturn(new BigDecimal("150000"));
+        when(accountBalanceService.accountsBalanceAt(LocalDate.of(2026, 1, 31))).thenReturn(new BigDecimal("110000"));
+        when(accountBalanceService.accountsBalanceAt(LocalDate.of(2026, 2, 28))).thenReturn(new BigDecimal("180000"));
+        // Деньги копилок без счёта лежат на карте: остаток их держит, линия «Стратегии» — нет, как и ядро.
+        when(accountBalanceService.envelopesAt(LocalDate.of(2026, 1, 31))).thenReturn(new BigDecimal("10000"));
+        when(accountBalanceService.envelopesAt(LocalDate.of(2026, 2, 28))).thenReturn(new BigDecimal("30000"));
         Category salary = category("Зарплата");
         Category food = category("Продукты");
 
@@ -220,7 +226,7 @@ class BaselineTimelineBuilderTest {
                     List.of(factSnap, salary, mortgage, contrib), List.of(), List.of(overdue), List.of(),
                     scope, LocalDate.of(2026, 6, 30), FallbackKind.NONE, BigDecimal.ZERO,
                     currentMonthForecast, List.of("Продукты"), Map.of(APRIL, BigDecimal.valueOf(4_000)),
-                    null, null, null);
+                    null, null, null, null);
             Map<YearMonth, Map<String, BigDecimal>> forecastByCategory = new LinkedHashMap<>();
             forecastByCategory.put(MARCH, Map.of("Продукты", currentMonthForecast));
             forecastByCategory.put(APRIL, Map.of("Продукты", BigDecimal.valueOf(4_000)));

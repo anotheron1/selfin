@@ -1,5 +1,8 @@
 package ru.selfin.backend.service;
 
+import ru.selfin.backend.model.enums.EventType;
+
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -24,6 +27,9 @@ import java.time.LocalDateTime;
  * (у {@code financial_events} вовсе нет привязки к счёту, §5.1). Случай узкий — трата картой
  * ПОСЛЕ сверки в прочитанное число не попала и считается верно. Ошибка уходит в сторону
  * уменьшения остатка, то есть в безопасную.
+ *
+ * <p>Здесь же — насколько факт двигает остаток ({@link #balanceEffect}): перевод в копилку без
+ * счёта не двигает его вовсе (Р10-А, ANO-212).
  *
  * <p>Три места, которые раньше держали по копии этого правила и обязаны были меняться
  * синхронно (ANO-23), теперь зовут его отсюда: {@link AccountBalanceService#balanceAt},
@@ -78,5 +84,22 @@ public final class AnchorWindow {
                                               LocalDate to, LocalDateTime toCreatedAt) {
         return countsTowardBalance(factDate, factCreatedAt, from, fromCreatedAt, to)
                 && !countsTowardBalance(factDate, factCreatedAt, to, toCreatedAt, to);
+    }
+
+    /**
+     * Насколько факт двигает остаток счёта: доход — вверх, расход — вниз, перевод в копилку — никак.
+     *
+     * <p>Р10-А (ANO-212, решение владельца 03.10): копилка без счёта — доля остатка основной карты.
+     * Деньги с карты не уходят, и число из банка их содержит. Пока перевод вычитался из остатка,
+     * сверка числом банка возвращала эти деньги на карту, а копилка держала их же: капитал рос на
+     * сумму копилки, дрейф показывал расхождение, которого нет. Свободные копилки теперь вычитает
+     * строка ядра «Уже в копилках», а не остаток.
+     */
+    public static BigDecimal balanceEffect(EventType type, BigDecimal amount) {
+        return switch (type) {
+            case INCOME -> amount;
+            case EXPENSE -> amount.negate();
+            case FUND_TRANSFER -> BigDecimal.ZERO;
+        };
     }
 }

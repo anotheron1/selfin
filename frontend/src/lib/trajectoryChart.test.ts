@@ -6,6 +6,7 @@ import {
     buildLinePoints,
     buildMinAnnotation,
     computeDomain,
+    envelopeFunds,
     overdueReserve,
     forecastSeries,
     pickTicks,
@@ -165,6 +166,17 @@ describe('buildDayDetails', () => {
             .toBe(`сегодня · после броней ${fmtRub(-10700)} · брони с прошедшей датой −${fmtRub(69600)}`
                 + ` · по плану на сегодня −${fmtRub(1000)}`);
     });
+    // Р10-А (ANO-212): «на счёте» держит деньги копилок, а точка «сегодня» — уже без них: называет и их.
+    it('сегодня с бронями и копилками — словами и то и другое', () => {
+        expect(buildDayDetails(pt('2026-10-05', -168212, 0, 218112), true, 218112, 10000))
+            .toBe(`сегодня · после броней и копилок ${fmtRub(-168212)} · брони с прошедшей датой −${fmtRub(218112)}`
+                + ` · уже в копилках −${fmtRub(10000)}`);
+    });
+    it('сегодня с копилками без броней', () => {
+        expect(buildDayDetails(pt('2026-10-05', 48900, 0, 1000), true, 0, 10000))
+            .toBe(`сегодня · после копилок ${fmtRub(48900)} · уже в копилках −${fmtRub(10000)}`
+                + ` · по плану на сегодня −${fmtRub(1000)}`);
+    });
     it('без броней сегодня и в другие дни — как было', () => {
         expect(buildDayDetails(pt('2026-10-04', 58900, 0, 1000), true, 0))
             .toBe(`сегодня · остаток ${fmtRub(58900)} · −${fmtRub(1000)}`);
@@ -182,10 +194,21 @@ describe('overdueReserve (Р6)', () => {
     it('броней нет — ноль', () => {
         expect(overdueReserve([line('STARTING_BALANCE', 59900)] as never)).toBe(0);
     });
-    it('календарь берёт брони из расшифровки, «Прогноза конца дня» нет (сторож по исходнику)', () => {
+    it('календарь берёт брони и копилки из расшифровки, «Прогноза конца дня» нет (сторож по исходнику)', () => {
         const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
         expect(read('../components/pocket/PocketTrajectoryChart.tsx'))
-            .toMatch(/buildDayDetails\([^)]*overdueReserve\(/);
+            .toMatch(/buildDayDetails\([^)]*overdueReserve\([^)]*\),\s*envelopeFunds\(/);
         expect(read('../pages/Dashboard.tsx')).not.toContain('Прогноз конца дня');
+    });
+});
+
+describe('envelopeFunds (Р10-А)', () => {
+    const line = (type: string, amount: number) => ({ type, label: '', amount, details: [] });
+    it('отложенное в копилки — строка расшифровки «Уже в копилках», со знаком плюс', () => {
+        expect(envelopeFunds([line('STARTING_BALANCE', 59900), line('ENVELOPE_FUNDS', -10000)] as never))
+            .toBe(10000);
+    });
+    it('копилок нет — ноль', () => {
+        expect(envelopeFunds([line('STARTING_BALANCE', 59900)] as never)).toBe(0);
     });
 });

@@ -13,6 +13,7 @@ import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import ru.selfin.backend.repository.AccountRepository;
+import ru.selfin.backend.repository.FundTransactionRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.testsupport.AccountFixtures;
@@ -47,7 +48,7 @@ class AccountBalanceServiceTest {
         accountRepository = mock(AccountRepository.class);
         checkpointRepository = mock(BalanceCheckpointRepository.class);
         eventRepository = mock(FinancialEventRepository.class);
-        service = new AccountBalanceService(accountRepository, checkpointRepository, eventRepository);
+        service = new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class));
     }
 
     // ── хелперы ──────────────────────────────────────────────────────────────
@@ -554,5 +555,42 @@ class AccountBalanceServiceTest {
                 .as("вклад не даёт свободных денег — по нему о них судить нельзя")
                 .isFalse();
         verifyNoInteractions(checkpointRepository);
+    }
+
+    // ── Р10-А: копилка без счёта — доля основной карты (ANO-212) ─────────────
+
+    @Test
+    @DisplayName("Р10-А: перевод в копилку без счёта остаток основной карты не двигает")
+    void transferToEnvelope_leavesDefaultAccountBalance() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        LocalDate anchorDate = LocalDate.of(2026, 10, 1);
+        LocalDate t = LocalDate.of(2026, 10, 5);
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), t))
+                .thenReturn(Optional.of(anchor(defaultAccount, anchorDate, 54_900)));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(anchorDate, t))
+                .thenReturn(List.of(
+                        fact(LocalDate.of(2026, 10, 2), EventType.FUND_TRANSFER, 10_000),
+                        fact(LocalDate.of(2026, 10, 3), EventType.EXPENSE, 3_000)));
+
+        assertThat(service.balanceAt(defaultAccount, t))
+                .as("деньги копилки остаются на карте — банк их видит, и сверка не задваивает")
+                .isEqualByComparingTo(BigDecimal.valueOf(51_900));
+    }
+
+    @Test
+    @DisplayName("Р10-А: без сверки перевод в копилку тоже не двигает остаток (фолбэк ANO-28)")
+    void noAnchorFallback_ignoresTransferToEnvelope() {
+        Account defaultAccount = AccountFixtures.defaultAccount();
+        LocalDate t = LocalDate.of(2026, 10, 5);
+        when(accountRepository.findByDefaultAccountTrueAndDeletedFalse())
+                .thenReturn(Optional.of(defaultAccount));
+        when(checkpointRepository.findLatestForAccountAt(defaultAccount.getId(), t))
+                .thenReturn(Optional.empty());
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(
+                        fact(LocalDate.of(2026, 10, 1), EventType.INCOME, 90_000),
+                        fact(LocalDate.of(2026, 10, 2), EventType.FUND_TRANSFER, 10_000)));
+
+        assertThat(service.noAnchorFallbackAt(t)).isEqualByComparingTo(BigDecimal.valueOf(90_000));
     }
 }

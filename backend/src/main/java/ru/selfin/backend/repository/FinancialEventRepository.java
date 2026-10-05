@@ -292,12 +292,6 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
             java.util.Collection<ru.selfin.backend.model.enums.WishlistStatus> statuses);
 
     /**
-     * Живые события, привязанные к копилке (ANO-86: переименование при «потрачено на цель»).
-     * Копилка удаляется, и её переводы перестают быть перемещением — они оказались тратой.
-     */
-    List<FinancialEvent> findAllByTargetFundIdAndDeletedFalse(UUID targetFundId);
-
-    /**
      * Правила графика платежей копилки-кредита (Р2-Б, ANO-40): хоть одно событие правила — живое или
      * удалённое — ссылается на копилку. Ссылку несут события, а не правило, и правка правила
      * перегенерирует будущие события без неё (V27, ANO-188): удалённые старые её помнят.
