@@ -36,8 +36,10 @@ class WishlistConversionServiceTest {
             mock(ru.selfin.backend.repository.AccountRepository.class);
     private final ru.selfin.backend.repository.BalanceCheckpointRepository checkpointRepo =
             mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class);
+    /** Настоящий сервис графика поверх моков: проверяется, какое правило он заводит и на какую копилку. */
     private final WishlistConversionService service =
-            new WishlistConversionService(eventRepo, fundRepo, recurringRuleService, categoryRepo,
+            new WishlistConversionService(eventRepo, fundRepo,
+                    new CreditPaymentService(eventRepo, recurringRuleService, categoryRepo, Clock.systemDefaultZone()),
                     new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, mock(FundTransactionRepository.class)),
                     Clock.systemDefaultZone());
 
@@ -163,7 +165,8 @@ class WishlistConversionServiceTest {
     }
 
     @Test
-    void convert_creditWithRecurring_createsFundAndRule() {
+    @org.junit.jupiter.api.DisplayName("Р2-Б: диалог «Кредит» ставит график на ту же копилку — копии и ссылки конверсии нет")
+    void convert_creditWithRecurring_schedulesOnSameFund() {
         UUID id = UUID.randomUUID();
         TargetFund src = TargetFund.builder().id(id).name("Машина")
                 .purchaseType(FundPurchaseType.CREDIT).wishlistStatus(WishlistStatus.OPEN)
@@ -186,9 +189,35 @@ class WishlistConversionServiceTest {
                 new ConvertWishlistRequestDto("CREDIT", "FUND_WITH_CREDIT", true));
 
         assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
-        assertThat(src.getConvertedToFundId()).isNotNull();
+        assertThat(src.getConvertedToFundId()).as("копии нет").isNull();
+        assertThat(resp.convertedTo()).isNull();
         assertThat(resp.recurringRuleId()).isEqualTo(ruleId);
-        verify(recurringRuleService).createFromDto(any(), any(), any(), any(), any(), any(), any(), any());
+        // Правило — на эту же копилку: ссылку несут события (targetFundId).
+        verify(recurringRuleService).createFromDto(any(), any(), any(), any(), any(), eq(id), any(), any());
+        verify(fundRepo).save(src);
+        verify(fundRepo, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("Ревью Codex на #138: «Кредит» для копилки-накопления делает её кредитом — график и вид сходятся")
+    void convert_savingsWithCreditParams_becomesCredit() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder().id(id).name("Машина")
+                .purchaseType(FundPurchaseType.SAVINGS).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).targetDate(LocalDate.now().plusMonths(2))
+                .creditRate(new BigDecimal("16.5")).creditTermMonths(60).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        when(fundRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(recurringRuleService.createFromDto(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new RecurringRuleService.CreateResult(
+                        RecurringRule.builder().id(UUID.randomUUID()).build(), java.util.List.of()));
+
+        service.convertItem(id, new ConvertWishlistRequestDto("SAVINGS", "FUND_WITH_CREDIT", true));
+
+        // Раньше копия заводилась кредитом (buildCreditFund); на месте вид меняется у самой копилки —
+        // иначе ядро не опознало бы её график (findCreditPaymentLinks берёт только кредиты).
+        assertThat(src.getPurchaseType()).isEqualTo(FundPurchaseType.CREDIT);
+        verify(recurringRuleService).createFromDto(any(), any(), any(), any(), any(), eq(id), any(), any());
     }
 
     @Test
@@ -568,8 +597,12 @@ class WishlistConversionServiceTest {
                 .creditRate(new BigDecimal("16.5")).creditTermMonths(60).build();
         when(fundRepo.findById(id)).thenReturn(Optional.of(src));
         stubFundSave();
+        UUID ruleId = UUID.randomUUID();
+        when(recurringRuleService.createFromDto(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new RecurringRuleService.CreateResult(
+                        RecurringRule.builder().id(ruleId).build(), java.util.List.of()));
 
-        service.applyAndFix(id, new SandboxFixRequestDto(
+        var resp = service.applyAndFix(id, new SandboxFixRequestDto(
                 "CREDIT", new BigDecimal("2200000"), LocalDate.of(2026, 7, 31), 0,
                 new BigDecimal("18.0"), 48), TODAY);
 
@@ -577,6 +610,29 @@ class WishlistConversionServiceTest {
         assertThat(src.getCreditRate()).isEqualByComparingTo("18.0");
         assertThat(src.getCreditTermMonths()).isEqualTo(48);
         assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        // Р2-Б (ANO-40): фиксация кредита в примерке ставит график по подкрученным ставке и сроку.
+        assertThat(resp.recurringRuleId()).isEqualTo(ruleId);
+        verify(recurringRuleService).createFromDto(any(), any(), any(), eq(Priority.HIGH), any(), eq(id), any(), any());
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("Р2-Б: фиксация кредита без ставки — 400 до любой записи, а не FIXED без графика")
+    void fix_creditWithoutRate_throws400_andSavesNothing() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder()
+                .id(id).name("Машина")
+                .purchaseType(FundPurchaseType.CREDIT).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).currentBalance(BigDecimal.ZERO)
+                .targetDate(LocalDate.of(2026, 6, 30)).creditTermMonths(60).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+
+        assertThatThrownBy(() -> service.applyAndFix(id, new SandboxFixRequestDto(
+                "CREDIT", new BigDecimal("2000000"), LocalDate.of(2026, 7, 31), 0, null, 60), TODAY))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex)
+                        .getStatusCode().value()).isEqualTo(400));
+        verify(fundRepo, never()).save(any());
+        verify(recurringRuleService, never()).createFromDto(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

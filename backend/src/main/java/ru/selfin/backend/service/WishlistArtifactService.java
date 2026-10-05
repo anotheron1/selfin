@@ -37,6 +37,8 @@ public class WishlistArtifactService {
 
     private final FinancialEventRepository eventRepository;
     private final TargetFundRepository fundRepository;
+    /** Старая копия-кредит из конверсии уходит вместе с будущими платежами своего графика (Р2-Б). */
+    private final CreditPaymentService creditPayments;
 
     /**
      * Мягко удаляет артефакт, на который ссылается хотелка. Ссылку очищает вызывающий.
@@ -90,6 +92,9 @@ public class WishlistArtifactService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Fund holds money and cannot be deleted");
         }
+        // Р2-Б: раньше копия-кредит уходила, а брони её графика оставались в плане — «Свободно»
+        // держало платежи кредита, который вернули в обсуждение.
+        creditPayments.unschedule(fundId);
         fund.setDeleted(true);
         fundRepository.save(fund);
         log.info("wishlist_artifact_deleted kind=FUND id={}", fundId);

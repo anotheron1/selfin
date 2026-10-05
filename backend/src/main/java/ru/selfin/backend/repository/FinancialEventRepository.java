@@ -290,4 +290,43 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     /** Хотелки нескольких статусов одним запросом (вход движка wishlistEvents, спека §3.1). */
     List<FinancialEvent> findByWishlistStatusInAndDeletedFalse(
             java.util.Collection<ru.selfin.backend.model.enums.WishlistStatus> statuses);
+
+    /**
+     * Правила графика платежей копилки-кредита (Р2-Б, ANO-40): хоть одно событие правила — живое или
+     * удалённое — ссылается на копилку. Ссылку несут события, а не правило, и правка правила
+     * перегенерирует будущие события без неё (V27, ANO-188): удалённые старые её помнят.
+     *
+     * <p>Только у копилки-кредита, как в V27 (ревью Codex на #138). Журнал передаёт копилку в правило
+     * при любом типе: через API расход-правило со ссылкой на копилку-накопление завести можно, и снятие
+     * «графика» при её удалении уничтожило бы чужую серию.
+     */
+    @Query("SELECT DISTINCT e.recurringRule.id FROM FinancialEvent e, TargetFund f " +
+           "WHERE e.targetFundId = :fundId AND f.id = e.targetFundId " +
+           "  AND f.purchaseType = ru.selfin.backend.model.enums.FundPurchaseType.CREDIT " +
+           "  AND e.recurringRule IS NOT NULL")
+    List<UUID> findCreditPaymentRuleIds(@Param("fundId") UUID fundId);
+
+    /** Первое живое событие правила в статусе {@code status} не раньше {@code from} — откуда снимать серию. */
+    Optional<FinancialEvent> findFirstByRecurringRuleIdAndDeletedFalseAndStatusAndDateGreaterThanEqualOrderByDateAsc(
+            UUID ruleId, EventStatus status, LocalDate from);
+
+    /** Событие графика платежей и его копилка-кредит. */
+    interface CreditPaymentLink {
+        UUID getEventId();
+        UUID getFundId();
+    }
+
+    /**
+     * Живые события графиков платежей зафиксированных копилок-кредитов (ANO-190): ядро держит их по
+     * ссылке копилки, примерка и «Что с капиталом» считают платёж один раз. Правило опознаётся,
+     * как в {@link #findCreditPaymentRuleIds}: по событию со ссылкой, живому или удалённому.
+     */
+    @Query("SELECT DISTINCT e.id AS eventId, link.targetFundId AS fundId " +
+           "FROM FinancialEvent e, FinancialEvent link, TargetFund f " +
+           "WHERE link.recurringRule = e.recurringRule AND link.targetFundId = f.id " +
+           "  AND f.purchaseType = :credit AND f.wishlistStatus = :fixed AND f.deleted = false " +
+           "  AND e.deleted = false")
+    List<CreditPaymentLink> findCreditPaymentLinks(
+            @Param("credit") ru.selfin.backend.model.enums.FundPurchaseType credit,
+            @Param("fixed") ru.selfin.backend.model.enums.WishlistStatus fixed);
 }
