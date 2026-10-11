@@ -19,17 +19,16 @@ import ru.selfin.backend.model.FundAccountLink;
 import ru.selfin.backend.model.FundTransaction;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
-import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundMoneyDisposal;
 import ru.selfin.backend.model.enums.FundStatus;
+import ru.selfin.backend.model.enums.SystemCategory;
 import ru.selfin.backend.model.enums.WishlistStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.repository.AccountRepository;
-import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.FundAccountLinkRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
@@ -64,7 +63,7 @@ public class TargetFundService {
     private final FundTransactionRepository transactionRepository;
     private final FundAccountLinkRepository linkRepository;
     private final FinancialEventRepository eventRepository;
-    private final CategoryRepository categoryRepository;
+    private final CategoryService categoryService;
     private final AccountRepository accountRepository;
     private final AccountBalanceService accountBalanceService;
     private final WishlistArtifactService wishlistArtifactService;
@@ -77,7 +76,6 @@ public class TargetFundService {
 
     /** Системное имя фонда-кармашка. */
     private static final String POCKET_NAME = "POCKET";
-    static final String GOAL_SPENDING_CATEGORY = "Цели";
 
     /**
      * Возвращает обзор фондов: список активных целевых фондов с прогнозом достижения цели.
@@ -348,7 +346,7 @@ public class TargetFundService {
                             .status(EventStatus.EXECUTED)
                             .factAmount(recorded)
                             .date(today)
-                            .category(getOrCreateGoalSpendingCategory())
+                            .category(categoryService.systemCategory(SystemCategory.GOAL_SPENDING_NAME))
                             .description(fund.getName())
                             .idempotencyKey(key)
                             .build());
@@ -687,39 +685,11 @@ public class TargetFundService {
     }
 
     /**
-     * Системная категория трат «потрачено на цель» (Р10-А, ANO-212): «Цели», как экран копилок.
-     * Та же категория заводится миграцией V29 для старых «потрачено» — имя меняется только вместе.
-     *
-     * <p>Имя уникально во всей таблице, вместе с удалёнными, а удаляет категории сам человек. Удалённая
-     * «Цели» возвращается системной категорией расходов: вторую с тем же именем не завести, и вставка
-     * сорвала бы удаление копилки (ревью Codex на #139). Живая «Цели» человека берётся как есть.
-     */
-    Category getOrCreateGoalSpendingCategory() {
-        Category goals = categoryRepository.findByName(GOAL_SPENDING_CATEGORY)
-                .orElseGet(() -> Category.builder().name(GOAL_SPENDING_CATEGORY).build());
-        if (goals.getId() != null && !goals.isDeleted()) return goals;
-        goals.setDeleted(false);
-        goals.setSystem(true);
-        goals.setType(CategoryType.EXPENSE);
-        goals.setPrimaryIncome(false);
-        // Траты на цели — не обычные траты: в прогнозе их медиана занижала бы свободные, а выключателя
-        // у системной категории на экране нет (ревью Codex на #139).
-        goals.setForecastEnabled(false);
-        return categoryRepository.save(goals);
-    }
-
-    /**
-     * Возвращает или создаёт системную категорию "Переводы в копилки".
+     * Системная категория «Переводы в копилки» — через неё идут все пути перевода: карточка и быстрый
+     * ввод фактом, план из быстрого ввода, правка плана без категории. Удалённую возвращает (ANO-224).
      */
     Category getOrCreateFundTransferCategory() {
-        return categoryRepository.findByNameAndDeletedFalse("Переводы в копилки")
-                .orElseGet(() -> {
-                    Category c = Category.builder()
-                            .name("Переводы в копилки")
-                            .type(CategoryType.EXPENSE)
-                            .build();
-                    return categoryRepository.save(c);
-                });
+        return categoryService.systemCategory(SystemCategory.FUND_TRANSFER_NAME);
     }
 
     /**

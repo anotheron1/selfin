@@ -8,13 +8,12 @@ import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.RecurringConfigDto;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.TargetFund;
-import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.model.enums.RecurringFrequency;
 import ru.selfin.backend.model.enums.ScopeEnum;
-import ru.selfin.backend.repository.CategoryRepository;
+import ru.selfin.backend.model.enums.SystemCategory;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
@@ -33,11 +32,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CreditPaymentService {
 
-    private static final String CREDIT_CATEGORY_NAME = "Кредит";
-
     private final FinancialEventRepository eventRepository;
     private final RecurringRuleService recurringRuleService;
-    private final CategoryRepository categoryRepository;
+    private final CategoryService categoryService;
     private final Clock clock;
 
     /**
@@ -94,11 +91,10 @@ public class CreditPaymentService {
 
     /**
      * Системная категория «Кредит» (EXPENSE): {@code RecurringRule#getCategory()} обязателен, правилу
-     * платежей нужна настоящая категория.
+     * платежей нужна настоящая категория. Через неё же идёт план из копилки в конверсии. Удалённую
+     * возвращает (ANO-224).
      */
     Category creditCategory() {
-        return categoryRepository.findByNameAndDeletedFalse(CREDIT_CATEGORY_NAME)
-                .orElseGet(() -> categoryRepository.save(Category.builder()
-                        .name(CREDIT_CATEGORY_NAME).type(CategoryType.EXPENSE).system(true).build()));
+        return categoryService.systemCategory(SystemCategory.CREDIT_NAME);
     }
 }

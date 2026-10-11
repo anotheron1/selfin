@@ -497,6 +497,53 @@ class FundMoneyFlowIT {
     }
 
     @Test
+    @DisplayName("ANO-224: удалённая «Переводы в копилки» — перевод в копилку возвращает её, а не падает на уникальности имени")
+    void transfer_revivesDeletedTransferCategory() throws Exception {
+        String deletedId = deletedCategory("Переводы в копилки");
+        anchorDefaultAccount("500000");
+        String fundId = createFund("Отпуск");
+
+        transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+
+        Map<String, Object> category = jdbc.queryForMap("""
+                SELECT id::text AS id, type, is_deleted, is_system, primary_income, forecast_enabled
+                FROM categories WHERE name = 'Переводы в копилки'
+                """);
+        assertThat(category.get("id")).as("та же строка: вторую с этим именем не завести").isEqualTo(deletedId);
+        assertThat(category.get("is_deleted")).isEqualTo(false);
+        assertThat(category.get("is_system")).as("«Настройки» больше не дадут её удалить").isEqualTo(true);
+        assertThat(category.get("type")).isEqualTo("EXPENSE");
+        assertThat(category.get("primary_income")).isEqualTo(false);
+        assertThat(category.get("forecast_enabled"))
+                .as("у системной категории выключателя прогноза на экране нет").isEqualTo(false);
+        assertThat(jdbc.queryForObject(
+                "SELECT category_id::text FROM financial_events WHERE target_fund_id = ?::uuid",
+                String.class, fundId)).isEqualTo(deletedId);
+        assertThat(fundBalance(fundId)).isEqualByComparingTo("20000");
+    }
+
+    @Test
+    @DisplayName("ANO-224: удалённая «Переводы в копилки» — план перевода без категории, как из быстрого ввода, тоже записывается")
+    void transferPlan_revivesDeletedTransferCategory() throws Exception {
+        String deletedId = deletedCategory("Переводы в копилки");
+        String fundId = createFund("Отпуск");
+
+        mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date": "%s", "type": "FUND_TRANSFER", "plannedAmount": 5000,
+                                 "priority": "MEDIUM", "targetFundId": "%s"}""".formatted(LocalDate.now(), fundId)))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject(
+                "SELECT category_id::text FROM financial_events WHERE target_fund_id = ?::uuid",
+                String.class, fundId)).isEqualTo(deletedId);
+        assertThat(jdbc.queryForObject(
+                "SELECT is_deleted FROM categories WHERE id = ?::uuid", Boolean.class, deletedId)).isFalse();
+    }
+
+    @Test
     @DisplayName("Р10-А: сверка числом банка после перевода в копилку — дрейфа нет, капитал и свободно не растут")
     void reanchor_afterTransfer_noDrift_noDoubleCount() throws Exception {
         anchorDefaultAccount("54900");
@@ -729,6 +776,18 @@ class FundMoneyFlowIT {
                         + " AND is_deleted = false AND type = 'FUND_TRANSFER'",
                 Integer.class, fundId);
         return n == null ? 0 : n;
+    }
+
+    /**
+     * Удалённая категория — как после «Настроек», с признаками, которых у системной быть не должно.
+     * Имя уникально во всей таблице, вместе с удалёнными, поэтому прежняя строка с ним убирается.
+     */
+    private String deletedCategory(String name) {
+        jdbc.update("DELETE FROM categories WHERE name = ?", name);
+        return jdbc.queryForObject("""
+                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income, forecast_enabled)
+                VALUES (gen_random_uuid(), ?, 'INCOME', TRUE, FALSE, TRUE, TRUE) RETURNING id::text
+                """, String.class, name);
     }
 
     private boolean isDeleted(String fundId) {

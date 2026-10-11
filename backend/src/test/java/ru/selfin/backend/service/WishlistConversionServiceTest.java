@@ -39,7 +39,8 @@ class WishlistConversionServiceTest {
     /** Настоящий сервис графика поверх моков: проверяется, какое правило он заводит и на какую копилку. */
     private final WishlistConversionService service =
             new WishlistConversionService(eventRepo, fundRepo,
-                    new CreditPaymentService(eventRepo, recurringRuleService, categoryRepo, Clock.systemDefaultZone()),
+                    new CreditPaymentService(eventRepo, recurringRuleService,
+                            new CategoryService(categoryRepo, eventRepo, mock(AccountService.class)), Clock.systemDefaultZone()),
                     new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, mock(FundTransactionRepository.class)),
                     Clock.systemDefaultZone());
 
