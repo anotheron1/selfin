@@ -72,9 +72,14 @@ class TargetFundAccountTest {
     void setUp() {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo);
-        service = new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo,
+        service = new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryService(),
                 accountRepo, balanceService, mock(WishlistArtifactService.class),
                 mock(CreditPaymentService.class), pocketService, Clock.systemDefaultZone());
+    }
+
+    /** Настоящий сервис категорий поверх мока: системную категорию он ищет и среди удалённых (ANO-224). */
+    private CategoryService categoryService() {
+        return new CategoryService(categoryRepo, eventRepo, mock(AccountService.class));
     }
 
     private static TargetFund fund(UUID accountId, String storedBalance) {
@@ -154,7 +159,7 @@ class TargetFundAccountTest {
     /** Р9: сервис с часами на заданный день — темп считается от «сегодня». */
     private TargetFundService serviceOn(LocalDate today) {
         ZoneId zone = ZoneId.systemDefault();
-        return new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryRepo, accountRepo,
+        return new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryService(), accountRepo,
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo),
                 mock(WishlistArtifactService.class), mock(CreditPaymentService.class), pocketService,
                 Clock.fixed(today.atStartOfDay(zone).toInstant(), zone));
@@ -255,7 +260,7 @@ class TargetFundAccountTest {
         UUID key = UUID.randomUUID();
         when(txRepo.findByIdempotencyKey(key)).thenReturn(Optional.empty());
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
-        when(categoryRepo.findByNameAndDeletedFalse("Переводы в копилки"))
+        when(categoryRepo.findByName("Переводы в копилки"))
                 .thenReturn(Optional.of(ru.selfin.backend.model.Category.builder()
                         .id(UUID.randomUUID()).name("Переводы в копилки").build()));
 

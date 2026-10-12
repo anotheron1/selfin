@@ -141,6 +141,35 @@ public class CategoryService {
     }
 
     /**
+     * Системная категория по имени — в неё продукт пишет сам: переводы в копилки, траты на цели,
+     * хотелки, платежи по кредиту ({@link SystemCategory}).
+     *
+     * <p>Имя уникально во всей таблице, вместе с удалёнными, а удаляет категории сам человек. Поиск
+     * только среди живых удалённую не находил, а вторую с тем же именем не давала завести база:
+     * удалённая «Переводы в копилки» срывала каждый перевод в копилку (ANO-224), «Цели» — удаление
+     * копилки (ревью Codex на #139). Удалённая возвращается, отсутствующая заводится — системной
+     * категорией расходов; признак основного дохода снимается, иначе тип расходов не сохранить
+     * ({@code chk_primary_income_only_income}). Живая категория человека с этим именем берётся как есть.
+     *
+     * @param name имя из {@link SystemCategory}
+     * @return живая категория с этим именем
+     */
+    @Transactional
+    public Category systemCategory(String name) {
+        Category category = categoryRepository.findByName(name)
+                .orElseGet(() -> Category.builder().name(name).build());
+        if (category.getId() != null && !category.isDeleted()) return category;
+        category.setDeleted(false);
+        category.setSystem(true);
+        category.setType(CategoryType.EXPENSE);
+        category.setPrimaryIncome(false);
+        // Записи системных категорий — не обычные траты: в прогнозе их медиана занижала бы свободные,
+        // а выключателя у системной категории на экране нет (ревью Codex на #139).
+        category.setForecastEnabled(false);
+        return categoryRepository.save(category);
+    }
+
+    /**
      * Циклически меняет приоритет категории: HIGH → MEDIUM → LOW → HIGH.
      * Используется для быстрого переключения из UI без полного PUT.
      *

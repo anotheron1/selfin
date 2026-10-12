@@ -14,8 +14,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.selfin.backend.dto.FactCreateDto;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
+import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
+import ru.selfin.backend.repository.CategoryRepository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -44,6 +47,9 @@ class FinancialEventControllerIT {
 
     @Autowired
     ObjectMapper objectMapper;
+
+    @Autowired
+    CategoryRepository categoryRepository;
 
     /** Получить первую попавшуюся категорию из БД (засеяны V2 миграцией) */
     private String getFirstCategoryId() throws Exception {
@@ -350,6 +356,28 @@ class FinancialEventControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plannedAmount").value(50000))
                 .andExpect(jsonPath("$.priority").value("LOW"));
+    }
+
+    // ── ANO-224: удалённая системная категория не срывает запись ──
+    //
+    // Имя категории уникально во всей таблице, вместе с удалёнными. «Хотелки» искались только среди
+    // живых: удалённую не находили, вторую завести не давала база — новая хотелка отвечала 409.
+    // «Настройки» системную удалить не дают, а сервер удаляет любую категорию.
+
+    @Test
+    void createWishlistItem_revivesDeletedWishlistCategory() throws Exception {
+        Category wishlist = categoryRepository.findByName("Хотелки")
+                .orElseGet(() -> Category.builder().name("Хотелки").type(CategoryType.EXPENSE).system(true).build());
+        wishlist.setDeleted(true);
+        UUID deletedId = categoryRepository.save(wishlist).getId();
+
+        mockMvc.perform(post("/api/v1/events/wishlist")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\": \"Проба ANO-224\", \"plannedAmount\": 30000}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.categoryId").value(deletedId.toString()));
+
+        assertThat(categoryRepository.findById(deletedId).orElseThrow().isDeleted()).isFalse();
     }
 
     // ── ANO-161: старой выборки хотелок больше нет ──

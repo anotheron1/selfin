@@ -13,8 +13,6 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
 
     List<Category> findAllByDeletedFalseAndType(CategoryType type);
 
-    Optional<Category> findByNameAndDeletedFalse(String name);
-
     /** Категория по имени, удалённая тоже: имя уникально во всей таблице (categories_name_unique). */
     Optional<Category> findByName(String name);
 

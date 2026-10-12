@@ -775,8 +775,8 @@ public class FinancialEventService {
 
     /**
      * Создаёт хотелку: LOW-приоритетное PLANNED-событие типа EXPENSE в статусе
-     * {@link WishlistStatus#OPEN}. Категория «Хотелки» создаётся автоматически при
-     * первом вызове. Срок необязателен.
+     * {@link WishlistStatus#OPEN}. Категория «Хотелки» — системная: заводится при первом
+     * вызове, удалённая возвращается (ANO-224). Срок необязателен.
      *
      * <p>Статус проставляется ЗДЕСЬ, одной транзакцией (ANO-34). Раньше он оставался
      * null, и запись выпадала из обеих wishlist-выборок ({@code findAllWishlistEvents}
@@ -789,13 +789,7 @@ public class FinancialEventService {
      */
     @Transactional
     public FinancialEventDto createWishlistItem(WishlistCreateDto dto) {
-        Category category = categoryRepository.findByNameAndDeletedFalse(SystemCategory.WISHLIST_NAME)
-                .orElseGet(() -> categoryRepository.save(
-                        Category.builder()
-                                .name(SystemCategory.WISHLIST_NAME)
-                                .type(CategoryType.EXPENSE)
-                                .system(true)
-                                .build()));
+        Category category = categoryService.systemCategory(SystemCategory.WISHLIST_NAME);
 
         FinancialEvent event = FinancialEvent.builder()
                 .eventKind(EventKind.PLAN)

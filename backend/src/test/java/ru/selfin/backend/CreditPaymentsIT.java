@@ -16,10 +16,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.RecurringRule;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.EventKind;
+import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.FundStatus;
@@ -145,6 +147,23 @@ class CreditPaymentsIT {
             assertThat(e.getPlannedAmount()).isEqualByComparingTo(PMT);
         });
         assertThat(payments.get(0).getDate()).isEqualTo(purchase.plusMonths(1));
+    }
+
+    @Test
+    @DisplayName("ANO-224: удалённая «Кредит» — «Зафиксировать» ставит график и возвращает её, а не падает на уникальности имени")
+    void sandboxFix_revivesDeletedCreditCategory() throws Exception {
+        // «Настройки» системную удалить не дают, а сервер удаляет любую категорию.
+        Category creditCategory = categoryRepository.findByName("Кредит")
+                .orElseGet(() -> Category.builder().name("Кредит").type(CategoryType.EXPENSE).system(true).build());
+        creditCategory.setDeleted(true);
+        UUID deletedId = categoryRepository.save(creditCategory).getId();
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+
+        fixInSandbox(c.getId());
+
+        assertThat(livePayments(c.getId())).hasSize(12);
+        assertThat(categoryRepository.findById(deletedId).orElseThrow().isDeleted())
+                .as("та же строка: вторую с этим именем не завести").isFalse();
     }
 
     @Test
