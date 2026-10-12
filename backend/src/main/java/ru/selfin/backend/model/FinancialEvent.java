@@ -39,9 +39,10 @@ public class FinancialEvent implements FinancialRecord {
 
     /**
      * Idempotency key от клиента (UUID). Гарантирует, что одна операция создания
-     * не продублируется при повторных запросах (потеря связи, ретраи).
+     * не продублируется при повторных запросах (потеря связи, ретраи). Уникален в пределах
+     * владельца — держит база (V31).
      */
-    @Column(name = "idempotency_key", unique = true)
+    @Column(name = "idempotency_key")
     private UUID idempotencyKey;
 
     private LocalDate date;

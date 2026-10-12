@@ -30,7 +30,7 @@ public class FundTransaction {
     @JoinColumn(name = "source_event_id")
     private FinancialEvent sourceEvent;
 
-    @Column(name = "idempotency_key", unique = true)
+    @Column(name = "idempotency_key")
     private UUID idempotencyKey;
 
     @Column(nullable = false, precision = 19, scale = 2)

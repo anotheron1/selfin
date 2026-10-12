@@ -20,7 +20,8 @@ public class Category {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(nullable = false, unique = true)
+    // Уникально в пределах владельца — держит база (uq_categories_owner_name, V31).
+    @Column(nullable = false)
     private String name;
 
     @Enumerated(EnumType.STRING)
