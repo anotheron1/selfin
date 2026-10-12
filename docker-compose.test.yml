@@ -7,6 +7,13 @@
 # Фронт: http://localhost:5174   API: http://localhost:8081   БД: localhost:5433
 # Боевой стенд (5173/8080/5432) не затрагивается.
 #
+# Keycloak (ANO-143): http://localhost:8180, админка — admin / KC_ADMIN_PASSWORD из .env (без него — admin).
+# Ключи бота Telegram — TELEGRAM_CLIENT_ID и TELEGRAM_CLIENT_SECRET в .env (шаблон — .env.example).
+# Реалм selfin — из keycloak/selfin-realm.json, импорт при первом старте; есть реалм — импорт пропускается.
+# Проверка: node tools/keycloak-check.mjs. Пересоздать реалм с нуля (вместе с людьми, вошедшими на стенде):
+#
+#   COMPOSE_PROJECT_NAME=selfin-test docker compose -f docker-compose.yml -f docker-compose.test.yml rm -sf keycloak keycloak-db && docker volume rm selfin-test_keycloak_data
+#
 # !override обязателен: без него compose СКЛЕИВАЕТ списки портов с базовым файлом,
 # и контейнер пытается занять и 8080, и 8081 одновременно.
 services:
@@ -24,3 +31,40 @@ services:
     container_name: selfin-test-frontend
     ports: !override
       - "5174:80"
+
+  # Своя база Keycloak — отдельным контейнером: init-скрипты образа Postgres работают только на пустом
+  # томе, а том стенда уже есть. Дампы и сброс нашей базы Keycloak не задевают.
+  keycloak-db:
+    image: postgres:15-alpine
+    container_name: selfin-test-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - keycloak_data:/var/lib/postgresql/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    container_name: selfin-test-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      # Адрес возврата из Telegram строится от него и обязан совпасть с Allowed URLs бота буква в букву.
+      KC_HOSTNAME: ${KC_HOSTNAME:-http://localhost:8180}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
+      TELEGRAM_CLIENT_ID: ${TELEGRAM_CLIENT_ID:-}
+      TELEGRAM_CLIENT_SECRET: ${TELEGRAM_CLIENT_SECRET:-}
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./keycloak/selfin-realm.json:/opt/keycloak/data/import/selfin-realm.json:ro
+    depends_on:
+      - keycloak-db
+
+volumes:
+  keycloak_data:
