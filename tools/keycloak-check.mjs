@@ -2,14 +2,14 @@
 // Стенд: Keycloak поднял реалм selfin из репозитория, а кнопка Telegram ведёт в Telegram так, как настроено (ANO-143).
 // Спека: docs/superpowers/specs/2026-10-12-keycloak-telegram-design.md
 //
-//   node tools/keycloak-check.mjs [<адрес Keycloak>]   по умолчанию http://localhost:8180; выход 0 — всё сходится
+//   node tools/keycloak-check.mjs [<адрес Keycloak>]   по умолчанию http://127.0.0.1:8180; выход 0 — всё сходится
 //
 // Проходит путь человека до Telegram: страница входа реалма → кнопка Telegram → переход на oauth.telegram.org.
 // Сам вход в Telegram — руками: подтверждение приходит в приложение Telegram.
 
 import { createHash, randomBytes } from 'node:crypto';
 
-const KC = (process.argv[2] ?? 'http://localhost:8180').replace(/\/$/, '');
+const KC = (process.argv[2] ?? 'http://127.0.0.1:8180').replace(/\/$/, '');
 const REALM = `${KC}/realms/selfin`;
 const problems = [];
 const check = (ok, what) => {
