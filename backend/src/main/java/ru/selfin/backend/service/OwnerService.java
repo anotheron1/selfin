@@ -40,7 +40,7 @@ public class OwnerService {
     UUID resolve(String sub) {
         List<UUID> known = jdbc.queryForList("SELECT id FROM users WHERE external_id = ?", UUID.class, sub);
         if (!known.isEmpty()) {
-            return UUID.randomUUID();
+            return known.getFirst();
         }
         if (sub.equals(ownerSub) && jdbc.update(
                 "UPDATE users SET external_id = ? WHERE id = ? AND external_id IS NULL", sub, SYNTHETIC_OWNER) == 1) {
