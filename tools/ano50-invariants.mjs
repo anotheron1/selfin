@@ -16,6 +16,9 @@
  *   INFO — снятое число, ничего не утверждает. Сюда же известные отклонения.
  *
  * Автомат НИЧЕГО НЕ МЕНЯЕТ: только GET.
+ *
+ * С входом (ANO-195) — токен из SELFIN_TOKEN:
+ *   SELFIN_TOKEN=$(node tools/keycloak-token.mjs) node tools/ano50-invariants.mjs
  */
 
 const args = process.argv.slice(2);
@@ -61,7 +64,9 @@ const money = (v) =>
 
 async function get(path) {
   const url = `${API}${path}`;
-  const res = await fetch(url);
+  const res = await fetch(url, process.env.SELFIN_TOKEN
+    ? { headers: { Authorization: `Bearer ${process.env.SELFIN_TOKEN}` } }
+    : undefined);
   const text = await res.text();
   if (!res.ok) {
     return { ok: false, status: res.status, body: text.slice(0, 400), url };

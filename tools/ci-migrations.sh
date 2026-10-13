@@ -17,14 +17,20 @@
 #   4. образ PR отдаёт в GET /api/v1/version коммит, из которого собран (CI_EXPECTED_COMMIT;
 #      без переменной не проверяется) — ANO-194.
 #
+# С входом (ANO-195) ручки закрыты: скрипт поднимает Keycloak с реалмом из своего репозитория,
+# берёт токен скриптов (tools/keycloak-token.mjs) и шлёт его сеятелю (SELFIN_TOKEN) и каждому
+# запросу. Обоим бэкам — адреса Keycloak и SELFIN_OWNER_SUB = sub скриптов: данные, записанные
+# до миграций, принадлежат синтетическому владельцу, и скрипты читают их как он. Образ без входа
+# токен и эти переменные не замечает.
+#
 #   tools/ci-migrations.sh <образ бэка main> <образ бэка PR> <сеятель.mjs> [<исходники main> <исходники PR>]
 #
 # Без каталогов исходников первая проверка пропускается — так скрипт гоняется локально с одним
-# образом дважды. Поднимает свои контейнеры selfin-ci-db и selfin-ci-app (порт 8099) и убирает
-# их за собой; боевую базу и стенд не трогает. Вся логика здесь, а не в workflow, — чтобы
-# гонялась и локально.
+# образом дважды. Поднимает свои контейнеры selfin-ci-db, selfin-ci-app (порт 8099) и
+# selfin-ci-keycloak (порт 8199) и убирает их за собой; боевую базу и стенд не трогает. Вся
+# логика здесь, а не в workflow, — чтобы гонялась и локально.
 #
-# Спека: docs/superpowers/specs/2026-09-23-ci-on-pr-design.md
+# Спеки: docs/superpowers/specs/2026-09-23-ci-on-pr-design.md, 2026-10-13-server-knows-owner-design.md
 set -euo pipefail
 
 BASE_IMAGE=${1:?образ бэка main}
@@ -38,6 +44,10 @@ API="http://localhost:${PORT}/api/v1"
 NET=selfin-ci-net
 DB=selfin-ci-db
 APP=selfin-ci-app
+KC=selfin-ci-keycloak
+KC_URL="http://localhost:${CI_KC_PORT:-8199}"
+TOOLS=$(cd "$(dirname "$0")" && pwd)
+REALM="$(cd "$TOOLS/../keycloak" && pwd)/selfin-realm.json"
 MIGRATIONS=backend/src/main/resources/db/migration
 
 # ── 1а. Файлы миграций PR, которые Flyway пропустит молча — до всяких контейнеров ──
@@ -65,7 +75,7 @@ if [ -n "$BASE_SRC" ] && [ -n "$HEAD_SRC" ]; then
 fi
 
 remove_containers() {
-  docker rm -f "$APP" "$DB" >/dev/null 2>&1 || true
+  docker rm -f "$APP" "$DB" "$KC" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
 }
 remove_containers
@@ -73,6 +83,10 @@ WORK=$(mktemp -d)
 trap 'remove_containers; rm -rf "$WORK"' EXIT
 
 psql_q() { docker exec "$DB" psql -U admin -d selfin -At -F '|' -c "$1"; }
+# Запрос к API с токеном скриптов; TOKEN появляется, когда поднят Keycloak.
+api_curl() { curl -s -H "Authorization: Bearer ${TOKEN}" "$@"; }
+# Путь для docker -v: в Git Bash на Windows docker ждёт C:/…, а не /c/….
+host_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 
 start_app() {
   local image=$1
@@ -81,9 +95,12 @@ start_app() {
     -e SPRING_DATASOURCE_URL="jdbc:postgresql://${DB}:5432/selfin" \
     -e SPRING_DATASOURCE_USERNAME=admin \
     -e SPRING_DATASOURCE_PASSWORD=admin \
+    -e SELFIN_KEYCLOAK_URL="$KC_URL" \
+    -e SELFIN_KEYCLOAK_INTERNAL_URL="http://${KC}:8080" \
+    -e SELFIN_OWNER_SUB="$OWNER_SUB" \
     "$image" >/dev/null
   for _ in $(seq 1 90); do
-    if [ "$(curl -s -o /dev/null -w '%{http_code}' "$API/pocket" || true)" = "200" ]; then
+    if [ "$(api_curl -o /dev/null -w '%{http_code}' "$API/pocket" || true)" = "200" ]; then
       return 0
     fi
     if [ "$(docker inspect -f '{{.State.Running}}' "$APP" 2>/dev/null)" != "true" ]; then
@@ -146,7 +163,7 @@ API_COUNTED=(
 )
 api_counts() {
   for ep in "${API_COUNTED[@]}"; do
-    n=$(curl -s "$API$ep" | node -e 'let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+    n=$(api_curl "$API$ep" | node -e 'let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       try { const j = JSON.parse(s); console.log(Array.isArray(j) ? j.length : "не список"); }
       catch { console.log("не JSON"); } });')
     echo "через API ${ep%%\?*}: записей|$n"
@@ -165,15 +182,34 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
+# Keycloak с реалмом из этого репозитория; издатель токенов — адрес, по которому их берёт скрипт.
+MSYS_NO_PATHCONV=1 docker run -d --name "$KC" --network "$NET" -p "${KC_URL##*:}:8080" \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+  -e KC_HOSTNAME="$KC_URL" -e SELFIN_CLIENT_SECRET=selfin-dev-secret \
+  -e TELEGRAM_CLIENT_ID= -e TELEGRAM_CLIENT_SECRET= \
+  -v "$(host_path "$REALM"):/opt/keycloak/data/import/selfin-realm.json:ro" \
+  quay.io/keycloak/keycloak:26.8.0 start-dev --import-realm >/dev/null
+for _ in $(seq 1 90); do
+  curl -sf -o /dev/null "$KC_URL/realms/selfin/.well-known/openid-configuration" && break
+  sleep 2
+done
+if ! curl -sf -o /dev/null "$KC_URL/realms/selfin/.well-known/openid-configuration"; then
+  echo "::error::Keycloak не поднял реалм selfin"
+  docker logs --tail 80 "$KC" 2>&1 | sed 's/^/    /'
+  exit 1
+fi
+TOKEN=$(KC_ADMIN_PASSWORD=admin node "$TOOLS/keycloak-token.mjs" "$KC_URL")
+OWNER_SUB=$(node -e 'console.log(JSON.parse(Buffer.from(process.argv[1].split(".")[1], "base64url")).sub)' "$TOKEN")
+
 echo "── база на версии main, данные пишет код main: $BASE_IMAGE"
 start_app "$BASE_IMAGE"
-TZ=Europe/Moscow node "$SEEDER" --api "$API"
+SELFIN_TOKEN="$TOKEN" TZ=Europe/Moscow node "$SEEDER" --api "$API"
 # Ленивое продление бессрочных правил — запись на чтении, а не миграция. Первое чтение кармашка
 # на данных дописывает события до конца месяца горизонта (PocketScope.maxEnd, с #129), а правило
 # при создании генерирует до «сегодня + 36 месяцев». Бэкенд PR это чтение делает при старте —
 # start_app ждёт /pocket, — а здесь оно было до посева. Без него разница «после PR» ложная:
 # 05.10 — +3 события на 200 800 (Зарплата, Аванс, Интернет октября через три года) на PR без кода.
-curl -s -o /dev/null "$API/pocket"
+api_curl -o /dev/null "$API/pocket"
 version_base=$(psql_q "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1")
 rank_base=$(psql_q "SELECT max(installed_rank) FROM flyway_schema_history")
 counts > "$WORK/before"
@@ -233,7 +269,7 @@ ENDPOINTS=(
 )
 silent=()
 for ep in "${ENDPOINTS[@]}"; do
-  code=$(curl -s -o "$WORK/body" -w '%{http_code}' "$API$ep" || true)
+  code=$(api_curl -o "$WORK/body" -w '%{http_code}' "$API$ep" || true)
   if [ "$code" != "200" ]; then
     silent+=("$ep → $code: $(head -c 300 "$WORK/body")")
   fi

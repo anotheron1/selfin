@@ -7,6 +7,14 @@ export default defineConfig({
   server: {
     port: process.env.PORT ? parseInt(process.env.PORT) : 5173,
     strictPort: false,
+    // Вход через наш сервер (ANO-195): API, вход, возврат из Keycloak и выход — на бэк тем же адресом,
+    // что и экран, иначе cookie сеанса и CSRF остались бы у другого адреса. Как nginx в docker.
+    proxy: {
+      '/api': 'http://localhost:8080',
+      '/oauth2': 'http://localhost:8080',
+      '/login/oauth2': 'http://localhost:8080',
+      '/logout': 'http://localhost:8080',
+    },
   },
   resolve: {
     alias: {

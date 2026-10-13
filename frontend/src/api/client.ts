@@ -1,7 +1,20 @@
 // Базовый HTTP-клиент для API Spring Boot.
-// VITE_API_URL задаётся в .env.development для локальной разработки.
-// В Docker-деплое не задаётся — используется relative URL, Nginx проксирует /api/ → backend.
-const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
+//
+// Вход — через наш сервер (ANO-195, вариант Б): у браузера cookie сеанса, токенов во фронте нет.
+// Адрес API — только относительный: и в разработке (прокси Vite), и в docker (nginx) запрос идёт
+// тем же адресом, что и экран, — с cookie сеанса и CSRF. Спека — 2026-10-13-server-knows-owner-design.md.
+const BASE_URL = '/api/v1';
+/** Вход начинает сервер: он уводит в Keycloak и возвращает на экран с сеансом. */
+const SIGN_IN_URL = '/oauth2/authorization/keycloak';
+
+/**
+ * CSRF-токен для изменяющего запроса: сервер кладёт его в cookie `XSRF-TOKEN`, фронт возвращает
+ * заголовком — иначе сеанс отвергнет запись (403). Чужая страница cookie прочесть не может.
+ */
+function csrfHeader(): Record<string, string> {
+    const token = globalThis.document?.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)?.[1];
+    return token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {};
+}
 
 /**
  * Ошибка ответа API (ANO-157). До неё клиент бросал голый `Error` со строкой, и ни один
@@ -39,9 +52,16 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
         ...rest,
         headers: {
             'Content-Type': 'application/json',
+            ...(rest.method && rest.method !== 'GET' ? csrfHeader() : {}),
             ...extraHeaders,
         },
     });
+    if (res.status === 401) {
+        // Сеанса нет — на вход. Ответ не приходит никогда: страница уходит, и экран не успевает
+        // показать «Не записалось» на запросе, который просто не дошёл до входа.
+        window.location.assign(SIGN_IN_URL);
+        return new Promise<T>(() => {});
+    }
     if (!res.ok) {
         // Причина с бэка (ErrorResponse.message) — иначе на фронте виден голый код
         // и любая 400 выглядит как «ничего не произошло» (ANO-30).

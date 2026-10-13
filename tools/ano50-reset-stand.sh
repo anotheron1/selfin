@@ -21,8 +21,9 @@ else
 fi
 $COMPOSE start backend >/dev/null
 
+# Готовность — по /version: он открыт без входа (ANO-195), остальные ручки ответили бы 401.
 for i in $(seq 1 60); do
-  if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/v1/pocket)" = "200" ]; then
+  if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/v1/version)" = "200" ]; then
     echo "бэкенд поднялся за ${i} попыток"
     exit 0
   fi
