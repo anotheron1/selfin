@@ -25,7 +25,8 @@ public class UserSettings {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "settings_key", nullable = false, unique = true, length = 64)
+    // Уникален в пределах владельца — держит база (uq_user_settings_owner_key, V31).
+    @Column(name = "settings_key", nullable = false, length = 64)
     private String settingsKey;
 
     @JdbcTypeCode(SqlTypes.JSON)
