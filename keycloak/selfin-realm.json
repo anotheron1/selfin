@@ -7,6 +7,35 @@
     "ru"
   ],
   "defaultLocale": "ru",
+  "clients": [
+    {
+      "clientId": "selfin",
+      "name": "Selfin",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "${SELFIN_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:5173/login/oauth2/code/keycloak",
+        "http://localhost:5173/login/oauth2/code/keycloak",
+        "http://127.0.0.1:5174/login/oauth2/code/keycloak",
+        "http://localhost:5174/login/oauth2/code/keycloak"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "basic"
+      ],
+      "optionalClientScopes": []
+    }
+  ],
   "identityProviders": [
     {
       "alias": "telegram",

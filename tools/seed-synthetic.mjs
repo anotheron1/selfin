@@ -9,6 +9,9 @@
  *
  *   node tools/seed-synthetic.mjs [--api http://localhost:8099/api/v1]
  *
+ * С входом (ANO-195) сервер пускает скрипты по Bearer: токен — из SELFIN_TOKEN
+ * (`node tools/keycloak-token.mjs`); без переменной запросы идут без него, как к API до входа.
+ *
  * Пишет только в чистую базу: если в журнале уже есть события, отказывается. Порт по
  * умолчанию нарочно не 8080 и не 8081 — там боевой бэкенд и стенд.
  *
@@ -40,6 +43,7 @@ let calls = 0;
 async function call(method, path, body) {
   calls++;
   const init = { method, headers: {} };
+  if (process.env.SELFIN_TOKEN) init.headers.Authorization = `Bearer ${process.env.SELFIN_TOKEN}`;
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);

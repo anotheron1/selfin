@@ -46,3 +46,38 @@ test('первый вход не просит заполнить профиль:
     assert.equal(attribute.required, undefined, `${name} не обязателен: у Telegram нет почты, фамилии часто нет`);
   }
 });
+
+// ANO-195: наш сервер входит в Keycloak конфиденциальным клиентом selfin — вариант Б, сервер держит токены.
+// Спека: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md
+const selfin = realm.clients?.find((c) => c.clientId === 'selfin');
+
+test('клиент selfin — вход через наш сервер: конфиденциальный, только код с PKCE S256', () => {
+  assert.equal(selfin?.enabled, true);
+  assert.equal(selfin.publicClient, false);
+  assert.equal(selfin.standardFlowEnabled, true);
+  assert.equal(selfin.implicitFlowEnabled, false);
+  assert.equal(selfin.directAccessGrantsEnabled, false, 'пароль в обход Telegram — нет');
+  assert.equal(selfin.serviceAccountsEnabled, false, 'сервисной учётной записи — нет');
+  assert.equal(selfin.attributes?.['pkce.code.challenge.method'], 'S256');
+});
+
+test('секрет клиента selfin — из окружения: в файле только подстановка', () => {
+  assert.equal(selfin.secret, '${SELFIN_CLIENT_SECRET}');
+});
+
+test('в токенах клиента selfin только sub: область basic, без ролей', () => {
+  assert.deepEqual(selfin.defaultClientScopes, ['basic']);
+  assert.deepEqual(selfin.optionalClientScopes ?? [], []);
+  assert.equal(selfin.fullScopeAllowed, false);
+});
+
+test('адреса возврата — экран разработки и стенда, буква в букву', () => {
+  assert.ok(selfin.redirectUris.length > 0);
+  for (const uri of selfin.redirectUris) {
+    assert.match(uri, /^http:\/\/(127\.0\.0\.1|localhost):517[34]\/login\/oauth2\/code\/keycloak$/);
+  }
+});
+
+test('клиента скриптов в файле нет: файл идёт на сервер, а там он открыл бы API в обход Telegram', () => {
+  assert.deepEqual(realm.clients.map((c) => c.clientId), ['selfin']);
+});

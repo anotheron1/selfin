@@ -15,6 +15,11 @@
 #
 #   COMPOSE_PROJECT_NAME=selfin-test docker compose -f docker-compose.yml -f docker-compose.test.yml rm -sf keycloak keycloak-db && docker volume rm selfin-test_keycloak_data
 #
+# Вход в selfin (ANO-195): экран http://127.0.0.1:5174 → Keycloak → обратно на экран с сеансом.
+# Сервер видит Keycloak по имени сервиса, браузер — по KC_HOSTNAME. Кому достаются нынешние данные —
+# SELFIN_OWNER_SUB в .env. Токен скриптов, тестовый человек и клиенты, которых нет в реалме стенда, —
+# node tools/keycloak-token.mjs; вход целиком — node tools/keycloak-check.mjs.
+#
 # !override обязателен: без него compose СКЛЕИВАЕТ списки портов с базовым файлом,
 # и контейнер пытается занять и 8080, и 8081 одновременно.
 services:
@@ -27,6 +32,13 @@ services:
     container_name: selfin-test-backend
     ports: !override
       - "8081:8080"
+    # Вход (ANO-195): браузер видит Keycloak по адресу на машине — от него и издатель токенов,
+    # сервер — по имени сервиса: 127.0.0.1 внутри контейнера — сам контейнер.
+    environment:
+      SELFIN_KEYCLOAK_URL: ${KC_HOSTNAME:-http://127.0.0.1:8180}
+      SELFIN_KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      SELFIN_CLIENT_SECRET: ${SELFIN_CLIENT_SECRET:-selfin-dev-secret}
+      SELFIN_OWNER_SUB: ${SELFIN_OWNER_SUB:-}
 
   frontend:
     container_name: selfin-test-frontend
@@ -60,6 +72,8 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
       TELEGRAM_CLIENT_ID: ${TELEGRAM_CLIENT_ID:-}
       TELEGRAM_CLIENT_SECRET: ${TELEGRAM_CLIENT_SECRET:-}
+      # Секрет клиента selfin — тот же, что у сервера (ANO-195).
+      SELFIN_CLIENT_SECRET: ${SELFIN_CLIENT_SECRET:-selfin-dev-secret}
     ports:
       - "8180:8080"
     volumes:
