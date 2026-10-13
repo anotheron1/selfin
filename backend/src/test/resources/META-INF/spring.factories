@@ -1,0 +1,2 @@
+# ANO-144: поток теста — от имени синтетического владельца (testsupport/SyntheticOwnerListener).
+org.springframework.test.context.TestExecutionListener=ru.selfin.backend.testsupport.SyntheticOwnerListener

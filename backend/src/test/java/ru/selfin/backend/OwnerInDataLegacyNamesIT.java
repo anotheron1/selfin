@@ -10,7 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -32,9 +32,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>Схема поднимается до {@code V30}, ограничения переименовываются, как на стенде, — затем исполняется
  * <b>сам файл</b> {@code V31} одной транзакцией, как его исполнил бы Flyway.
  *
+ * <p>Роли приложения до {@code V32} нет (ANO-144): приложение здесь — пользователем контейнера.
+ *
  * <p>Спека: {@code docs/superpowers/specs/2026-10-12-owner-in-data-design.md}.
  */
-@SpringBootTest(properties = "spring.flyway.target=30")
+@SpringBootTest(properties = {"spring.flyway.target=30", "selfin.db.app-username=test", "selfin.db.app-password=test"})
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class OwnerInDataLegacyNamesIT {
@@ -44,14 +46,20 @@ class OwnerInDataLegacyNamesIT {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
 
     @Autowired JdbcTemplate jdbc;
-    @Autowired PlatformTransactionManager transactions;
+    /**
+     * Транзакция — на том же источнике данных, что у {@code jdbc}: с ANO-144 он у тестов — роль владельца таблиц,
+     * отдельно от пула приложения, и транзакция JPA его соединение не охватила бы — откат не отменил бы индекс.
+     */
+    private TransactionTemplate asTableOwner() {
+        return new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()));
+    }
 
     @Test
     @Order(1)
     @DisplayName("ANO-146: уникальность только по имени категории осталась индексом, а не ограничением — миграция падает, а не оставляет замок")
     void leftoverSingleColumnUniqueIndex_failsMigration() {
         // Одной транзакцией: отказ откатывает и индекс, и всё, что миграция успела, — следующий тест видит V30.
-        assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
+        assertThatThrownBy(() -> asTableOwner().executeWithoutResult(status -> {
             jdbc.execute("CREATE UNIQUE INDEX legacy_categories_name ON categories (name)");
             jdbc.execute(migration());
         })).hasMessageContaining("осталась уникальность без владельца");
@@ -65,7 +73,7 @@ class OwnerInDataLegacyNamesIT {
         jdbc.execute("ALTER TABLE financial_events RENAME CONSTRAINT financial_events_idempotency_key_unique TO uk8ah901xrytr2g6iijijfoeomu");
         jdbc.execute("ALTER TABLE fund_transactions RENAME CONSTRAINT fund_transactions_idempotency_key_unique TO uk4k0iv9ql6nf0rucnplt8jebo7");
 
-        new TransactionTemplate(transactions).executeWithoutResult(status -> jdbc.execute(migration()));
+        asTableOwner().executeWithoutResult(status -> jdbc.execute(migration()));
 
         assertThat(uniqueConstraints("categories")).containsExactly("user_id,name");
         assertThat(uniqueConstraints("financial_events")).containsExactly("user_id,idempotency_key");

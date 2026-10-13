@@ -10,10 +10,12 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
+import ru.selfin.backend.service.OwnerService;
 
 /**
  * Вход (ANO-195), вариант Б: сервер держит токены, у браузера — только cookie сеанса.
@@ -34,7 +36,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    SecurityFilterChain scripts(HttpSecurity http) throws Exception {
+    SecurityFilterChain scripts(HttpSecurity http, OwnerService owners) throws Exception {
         return http
                 .securityMatcher(new RequestHeaderRequestMatcher(HttpHeaders.AUTHORIZATION))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
@@ -42,12 +44,13 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // Подделывать нечего: у скриптов нет cookie, а токен в заголовок чужая страница не положит.
                 .csrf(AbstractHttpConfigurer::disable)
+                .addFilterAfter(new OwnerFilter(owners), AuthorizationFilter.class)
                 .build();
     }
 
     @Bean
     @Order(2)
-    SecurityFilterChain browser(HttpSecurity http) throws Exception {
+    SecurityFilterChain browser(HttpSecurity http, OwnerService owners) throws Exception {
         return http
                 .authorizeHttpRequests(requests -> requests
                         // Коммит сборки — по нему ждут готовности и сверяют образ (ANO-194).
@@ -64,6 +67,8 @@ public class SecurityConfig {
                         PathPatternRequestMatcher.withDefaults().matcher("/api/**")))
                 // После входа — на «/»: запомненный запрос к API увёл бы браузер на JSON.
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))
+                // Владелец запроса — после авторизации: с ним пул пускает к строкам (ANO-144).
+                .addFilterAfter(new OwnerFilter(owners), AuthorizationFilter.class)
                 .build();
     }
 }
