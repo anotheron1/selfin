@@ -80,3 +80,36 @@
 * **Что видит сервер за прокси** — `frontend/nginx.conf` (`proxy_set_header Host $http_host`) и `frontend/vite.config.ts` (прокси без `changeOrigin`).
 * **Как Spring решает, что запрос — CORS** — `CorsUtils.isCorsRequest`: заголовок `Origin` и несовпадение схемы, хоста или порта с адресом запроса; без правил `DefaultCorsProcessor` запрос не отвергает и разрешений не пишет.
 * **Что отвечает сервер чужому адресу** — `curl` на стенд с `Origin: https://evil.example`: предзапрос `OPTIONS` к `/api/v1/categories` с `Access-Control-Request-Method: POST`, `GET /api/v1/version`. Первая редакция спеки утверждала, что предзапрос получает `*` до проверки входа, — по рассуждению о `HandlerMappingIntrospector`; мутация «вернуть `WebConfig`» оставила тест предзапроса зелёным, замер показал 401.
+
+---
+# Выполнено
+
+15.10.2026, ветка `feat/ano-153-no-cors`.
+
+## Тест — красный до правки
+
+`SignInIT.noCorsPermissionForForeignOrigin` на коде с `WebConfig` — красный: «Response should not contain header 'Access-Control-Allow-Origin'». После удаления `WebConfig` — `SignInIT` 14 из 14.
+
+## Полный прогон
+
+497 юнитов, 326 IT — все зелёные; новый IT один — в `SignInIT`.
+
+## Мутации
+
+| мутация | итог |
+|---|---|
+| CONTROL | зелёный |
+| `WebConfig` вернули из `main` | красный: `noCorsPermissionForForeignOrigin` |
+
+Первая редакция теста проверяла и предзапрос — отдельным тестом. При возвращённом `WebConfig` он остался зелёным: предзапрос и со `*` режет цепочка безопасности (замер ниже). Тест, который не краснеет от настройки, ради которой написан, — холостой; убран, причина — в разделе «Как проверяется».
+
+## Стенд
+
+`curl` с `Origin: https://evil.example` на `http://127.0.0.1:8081`:
+
+| запрос | до (`7bd74d8`, с `WebConfig`) | после (`b0000ca`) |
+|---|---|---|
+| `OPTIONS /api/v1/categories`, `Access-Control-Request-Method: POST` | 401, разрешений нет | 401, разрешений нет |
+| `GET /api/v1/version` | 200, `Access-Control-Allow-Origin: *` | 200, разрешений нет |
+
+Вход целиком (`tools/keycloak-check.mjs`) на образе ветки — 24 из 24: экран, вход через Keycloak, запись сеанса с CSRF через прокси экрана. Свободно −225 412, на счёте 59 900, капитал 2 668 177 — как до. После — стенду возвращён образ #155.
