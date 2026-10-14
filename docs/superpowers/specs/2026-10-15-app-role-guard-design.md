@@ -90,3 +90,44 @@
 * **Кто обходит RLS** — документация Postgres, «Row Security Policies»: суперпользователь, `BYPASSRLS`, владелец таблицы без `FORCE`. Что владелец — это права роли, а не имя, — исходник Postgres 15: `check_enable_rls` → `pg_class_ownercheck` → `has_privs_of_role` (в 16 функция названа `object_ownercheck`); и замер на `postgres:15-alpine` — ниже, в «Выполнено».
 * **Порядок старта** — `AbstractApplicationContext.refresh`: `SmartInitializingSingleton.afterSingletonsInstantiated` — в конце `finishBeanFactoryInitialization`, веб-сервер стартует позже, в `finishRefresh`. Flyway — бин-инициализатор, он к этому моменту прошёл.
 * **Кто пускал приложение не той ролью** — `selfin.db.app-username` в `src/test`: один тест, `OwnerInDataLegacyNamesIT`.
+
+---
+# Выполнено
+
+15.10.2026, ветка `feat/ano-229-app-role-check`.
+
+## Тест — красный до правки
+
+`AppRoleGuardIT` на заглушке проверки: 4 из 5 красные — отказов нет, приложение под суперпользователем контейнера стартует; `appRolePasses` — зелёный. Первый прогон старта был красным не по той причине: свойства `SpringApplicationBuilder.properties()` — значения по умолчанию, их перебил `application.properties`, и приложение пошло на `localhost:5432`. Теперь — аргументами командной строки.
+
+## Член роли-владельца обходит RLS — замер
+
+Контейнер `postgres:15-alpine` (15.17): таблица с политикой `USING (user_id = 1)` и двумя строками, владелец — роль без входа; член этой роли видит **2** строки, посторонний с тем же `SELECT` — **1**; `pg_has_role(член, владелец, 'USAGE')` — `true`.
+
+## Полный прогон
+
+497 юнитов, 330 IT — все зелёные; новых IT пять, все в `AppRoleGuardIT`.
+
+## Мутации
+
+Итоговый код, прогон `AppRoleGuardIT`; CONTROL — зелёный.
+
+| мутация | итог |
+|---|---|
+| бина проверки нет | красный: `appRefusesToStartAsSuperuser` |
+| без условия «суперпользователь» | красный: `appRefusesToStartAsSuperuser`, `superuserRefused` — у суперпользователя контейнера остаются `BYPASSRLS` и владение, отказ есть, но без нужной причины |
+| без условия `BYPASSRLS` | красный: `bypassRlsRefused` |
+| без условия владельца | красный: `tableOwnerAndOwnerMemberRefused` |
+| владелец по имени: `relowner = роль` | красный: `tableOwnerAndOwnerMemberRefused`, роль — `guard_member`: самого владельца имя ловит, члена — нет |
+
+## Стенд
+
+Бэк — образ ветки, база стенда — копия базы владельца на `V33` из #155: Flyway образа ветки её «будущую» миграцию пропускает, сущности ветки `user_id` не отображают — приложение работает как прежде.
+
+* **Под `admin`** (переопределение compose: `SELFIN_DB_APPUSERNAME=admin`): контейнер вышел с кодом 1, в журнале — «Пул приложения — роль «admin», а политики RLS на неё не действуют: суперпользователь; BYPASSRLS; владелец таблиц accounts, balance_checkpoints, capital_items, capital_revaluations, categories, financial_events, fund_account_links, fund_transactions, recurring_rule, target_funds, user_settings…». API не отвечает.
+* **Под `selfin_app`:** поднялся, роль пула — `selfin_app` (`pg_stat_activity`); свободно −225 412, на счёте 59 900, капитал 2 668 177 — как до; вход — 24 из 24.
+* После — стенду возвращён образ #155 (`7bd74d8`).
+
+## Найдено по ходу
+
+* **Фронт стенда не переживает перезапуск Docker, если бэк поднимается позже:** nginx разрешает имя `backend` при старте и выходит — «host not found in upstream». Политик перезапуска у контейнеров стенда нет ни у одной. Комментарий с вариантами — в ANO-197.
