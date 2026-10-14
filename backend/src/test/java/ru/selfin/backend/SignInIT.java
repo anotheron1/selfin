@@ -45,7 +45,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -246,17 +245,13 @@ class SignInIT {
     // ── чужая страница: CORS ────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("чужая страница с cookie сеанса ответа не прочтёт: разрешения CORS нет (ANO-153)")
-    void foreignPageCannotReadAnswer() throws Exception {
-        mvc.perform(get("/api/v1/me").with(oidcLogin()).header(HttpHeaders.ORIGIN, FOREIGN_PAGE))
+    @DisplayName("чужому адресу разрешений CORS нет — ни на открытый адрес, ни на запрос с сеансом (ANO-153)")
+    void noCorsPermissionForForeignOrigin() throws Exception {
+        // Предзапрос чужого адреса и без этого получает 401 от цепочки безопасности; разрешение CORS попадало
+        // в ответы, прошедшие безопасность, — на открытые адреса и на запросы с сеансом.
+        mvc.perform(get("/api/v1/version").header(HttpHeaders.ORIGIN, FOREIGN_PAGE))
                 .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
-    }
-
-    @Test
-    @DisplayName("предзапрос чужой страницы — без разрешений: браузер не пошлёт запись (ANO-153)")
-    void foreignPreflightGetsNoPermission() throws Exception {
-        mvc.perform(options("/api/v1/categories").header(HttpHeaders.ORIGIN, FOREIGN_PAGE)
-                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
+        mvc.perform(get("/api/v1/me").with(oidcLogin()).header(HttpHeaders.ORIGIN, FOREIGN_PAGE))
                 .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
     }
 
