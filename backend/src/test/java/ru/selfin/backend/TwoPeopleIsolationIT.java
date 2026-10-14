@@ -99,6 +99,8 @@ class TwoPeopleIsolationIT {
         // Чужие id — и до ударов: удачный удар мог бы удалить строку, и её id выпал бы из списка.
         Map<String, String> foreignToFirst = foreignIds(first.owner);
         Map<String, String> foreignToSecond = foreignIds(second.owner);
+        // Правило 1 держится на том, что чужие id читаются в обход RLS — ролью владельца таблиц, а не пулом приложения.
+        softly.assertThat(foreignToFirst).as("в списке чужих для первого — строки второго").containsKey(second.id("account"));
         attack(second, first);
         attack(first, second);
 
