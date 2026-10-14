@@ -297,6 +297,12 @@ class TwoPeopleIsolationIT {
                         {"sourceKind":"WISHLIST","target":"PLAN_EVENT"}"""),
                 new Hit(POST, "/api/v1/wishlist/items/%s/fix", "wish", """
                         {"sourceKind":"WISHLIST","amount":1}"""),
+                // У fix и convert вторая ветка — от копилки: другой репозиторий, свой удар.
+                new Hit(POST, "/api/v1/wishlist/items/%s/fix", "credit", """
+                        {"sourceKind":"CREDIT","amount":1,"date":"%s","stretchMonths":0,"creditRate":12,"creditTermMonths":12}"""
+                        .formatted(TODAY.plusMonths(6))),
+                new Hit(POST, "/api/v1/wishlist/items/%s/convert", "credit", """
+                        {"sourceKind":"CREDIT","target":"PLAN_EVENT"}"""),
                 new Hit(PUT, "/api/v1/funds/%s", "fund", """
                         {"name":"Чужая","targetAmount":1}"""),
                 new Hit(POST, "/api/v1/funds/%s/transfer", "fund", """
@@ -317,8 +323,8 @@ class TwoPeopleIsolationIT {
                     hit.path().formatted(victim.id(hit.role())), hit.body(), null).getResponse();
             String answer = response.getStatus() == 404 ? "404"
                     : response.getStatus() + " " + response.getContentAsString(UTF_8);
-            softly.assertThat(answer).as("%s %s у %s по id %s", hit.method(), hit.path(), who.sub, victim.sub)
-                    .isEqualTo(hit.answer());
+            softly.assertThat(answer).as("%s %s [%s] у %s по id %s", hit.method(), hit.path(), hit.role(), who.sub,
+                    victim.sub).isEqualTo(hit.answer());
         }
     }
 
