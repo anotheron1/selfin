@@ -37,7 +37,7 @@ public class OwnerService {
         return resolve(SecurityContextHolder.getContext().getAuthentication().getName());
     }
 
-    UUID resolve(String sub) {
+    public UUID resolve(String sub) {
         List<UUID> known = jdbc.queryForList("SELECT id FROM users WHERE external_id = ?", UUID.class, sub);
         if (!known.isEmpty()) {
             return known.getFirst();
