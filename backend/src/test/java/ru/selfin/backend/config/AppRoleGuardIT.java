@@ -71,8 +71,8 @@ class AppRoleGuardIT {
         jdbc.execute("ALTER TABLE guard_probe OWNER TO guard_owner");
         try {
             for (String role : new String[] {"guard_owner", "guard_member"}) {
-                assertThatThrownBy(() -> DatabaseRolesConfig.requireRowLevelSecurityRole(login(role, "guard")))
-                        .as(role).isInstanceOf(IllegalStateException.class)
+                assertThatThrownBy(() -> DatabaseRolesConfig.requireRowLevelSecurityRole(login(role, "guard")), role)
+                        .isInstanceOf(IllegalStateException.class)
                         .hasMessageContaining("«" + role + "»").hasMessageContaining("владелец таблиц guard_probe");
             }
         } finally {
