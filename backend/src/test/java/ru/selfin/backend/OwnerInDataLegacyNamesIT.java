@@ -32,11 +32,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>Схема поднимается до {@code V30}, ограничения переименовываются, как на стенде, — затем исполняется
  * <b>сам файл</b> {@code V31} одной транзакцией, как его исполнил бы Flyway.
  *
- * <p>Роли приложения до {@code V32} нет (ANO-144): приложение здесь — пользователем контейнера.
+ * <p>Роли приложения до {@code V32} нет (ANO-144): приложение здесь — пользователем контейнера. Сверки схемы с
+ * сущностями тоже нет: до {@code V31} колонки {@code user_id}, которую сущности отображают с ANO-147, ещё нет, а
+ * JPA этот тест не использует.
  *
  * <p>Спека: {@code docs/superpowers/specs/2026-10-12-owner-in-data-design.md}.
  */
-@SpringBootTest(properties = {"spring.flyway.target=30", "selfin.db.app-username=test", "selfin.db.app-password=test"})
+@SpringBootTest(properties = {"spring.flyway.target=30", "selfin.db.app-username=test", "selfin.db.app-password=test",
+        "spring.jpa.hibernate.ddl-auto=none"})
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class OwnerInDataLegacyNamesIT {
