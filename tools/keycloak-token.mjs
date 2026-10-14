@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 // Токен для скриптов стенда и CI (ANO-195): сервер принимает Bearer с аудиторией selfin.
-// Спека: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md
+// Спеки: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md, 2026-10-14-row-level-security-design.md
 //
-//   node tools/keycloak-token.mjs [<адрес Keycloak>]   по умолчанию http://127.0.0.1:8180; печатает access token
+//   node tools/keycloak-token.mjs [<адрес Keycloak>]         по умолчанию http://127.0.0.1:8180; печатает access token
+//   node tools/keycloak-token.mjs [<адрес Keycloak>] --sub   печатает sub тестового человека — для SELFIN_OWNER_SUB
 //   SELFIN_TOKEN=$(node tools/keycloak-token.mjs) node tools/ano50-invariants.mjs
 //
-// Заводит в реалме selfin то, чего нет в keycloak/selfin-realm.json и не должно быть на сервере: клиента
-// скриптов selfin-scripts — сервисная учётная запись, аудитория selfin, токен на час — и тестового
-// человека с паролем — проверять вход без Telegram (tools/keycloak-check.mjs). Тем же частичным импортом
-// догоняет клиентов из файла реалма: стенд, заведённый до них, получает их без пересоздания и не теряет
-// вошедших людей. Импорт не перезаписывает: чего нет — заводит, что есть — не трогает.
+// Скрипты ходят от имени тестового человека с паролем: на стенде и в CI данные принадлежат ему
+// (SELFIN_OWNER_SUB — его sub, решение владельца 14.10). С RLS (ANO-144) каждый человек видит только своё —
+// скрипты и вход формой видят одни и те же данные, только если это один человек.
+//
+// Заводит в реалме selfin то, чего нет в keycloak/selfin-realm.json и не должно быть на сервере: тестового
+// человека и клиента скриптов selfin-scripts — вход паролем, аудитория selfin, токен на час. Тем же частичным
+// импортом догоняет клиентов из файла реалма: стенд, заведённый до них, получает их без пересоздания и не
+// теряет вошедших людей. Чего нет — заводит, что есть — не трогает; клиента скриптов — перезаписывает, чтобы
+// его настройка доходила и до старых стендов.
 //
 // Админ Keycloak — admin / KC_ADMIN_PASSWORD (без него — admin), секрет клиента selfin — SELFIN_CLIENT_SECRET
 // (без него — selfin-dev-secret), как в docker-compose.test.yml.
@@ -28,49 +33,54 @@ async function json(response, what) {
   return response.json();
 }
 
-/** Заводит недостающее в реалме и выдаёт токен скриптов. */
+/** Заводит недостающее в реалме и выдаёт токен скриптов — токен тестового человека. */
 export async function scriptsToken(keycloak = 'http://127.0.0.1:8180') {
   const kc = keycloak.replace(/\/$/, '');
   const admin = await json(await fetch(`${kc}/realms/master/protocol/openid-connect/token`, form({
     grant_type: 'password', client_id: 'admin-cli', username: 'admin', password: process.env.KC_ADMIN_PASSWORD || 'admin',
   })), 'вход администратора Keycloak');
+  const partialImport = async (ifResourceExists, resources) => json(await fetch(`${kc}/admin/realms/selfin/partialImport`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ifResourceExists, ...resources }),
+  }), `частичный импорт в реалм selfin (${ifResourceExists})`);
 
   const secret = process.env.SELFIN_CLIENT_SECRET || 'selfin-dev-secret';
   const realmClients = JSON.parse(readFileSync(new URL('../keycloak/selfin-realm.json', import.meta.url), 'utf8'))
     .clients.map((client) => ({ ...client, secret: client.secret === '${SELFIN_CLIENT_SECRET}' ? secret : client.secret }));
 
-  await json(await fetch(`${kc}/admin/realms/selfin/partialImport`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ifResourceExists: 'SKIP',
-      clients: [...realmClients, {
-        clientId: SCRIPTS.clientId, secret: SCRIPTS.secret, enabled: true, publicClient: false,
-        serviceAccountsEnabled: true, standardFlowEnabled: false, directAccessGrantsEnabled: false,
-        fullScopeAllowed: false, defaultClientScopes: ['basic'],
-        attributes: { 'access.token.lifespan': '3600' },
-        protocolMappers: [{
-          name: 'аудитория selfin', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
-          config: { 'included.custom.audience': 'selfin', 'access.token.claim': 'true', 'id.token.claim': 'false' },
-        }],
+  await partialImport('SKIP', {
+    clients: realmClients,
+    users: [{
+      username: TESTER.username, enabled: true,
+      credentials: [{ type: 'password', value: TESTER.password, temporary: false }],
+    }],
+  });
+  await partialImport('OVERWRITE', {
+    clients: [{
+      clientId: SCRIPTS.clientId, secret: SCRIPTS.secret, enabled: true, publicClient: false,
+      serviceAccountsEnabled: false, standardFlowEnabled: false, directAccessGrantsEnabled: true,
+      fullScopeAllowed: false, defaultClientScopes: ['basic'],
+      attributes: { 'access.token.lifespan': '3600' },
+      protocolMappers: [{
+        name: 'аудитория selfin', protocol: 'openid-connect', protocolMapper: 'oidc-audience-mapper',
+        config: { 'included.custom.audience': 'selfin', 'access.token.claim': 'true', 'id.token.claim': 'false' },
       }],
-      users: [{
-        username: TESTER.username, enabled: true,
-        credentials: [{ type: 'password', value: TESTER.password, temporary: false }],
-      }, {
-        // Сервисную учётную запись клиента частичный импорт сам не заводит — без неё client credentials
-        // отвечает 401 «service account … does not exist».
-        username: `service-account-${SCRIPTS.clientId}`, enabled: true, serviceAccountClientId: SCRIPTS.clientId,
-      }],
-    }),
-  }), 'частичный импорт в реалм selfin');
+    }],
+  });
 
   const token = await json(await fetch(`${kc}/realms/selfin/protocol/openid-connect/token`, form({
-    grant_type: 'client_credentials', client_id: SCRIPTS.clientId, client_secret: SCRIPTS.secret,
+    grant_type: 'password', client_id: SCRIPTS.clientId, client_secret: SCRIPTS.secret,
+    username: TESTER.username, password: TESTER.password,
   })), 'токен скриптов');
   return token.access_token;
 }
 
+/** sub из токена — без проверки подписи: токен только что выдал свой Keycloak. */
+export const subOf = (token) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url')).sub;
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  console.log(await scriptsToken(process.argv[2]));
+  const args = process.argv.slice(2);
+  const token = await scriptsToken(args.find((a) => !a.startsWith('--')));
+  console.log(args.includes('--sub') ? subOf(token) : token);
 }

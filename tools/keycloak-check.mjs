@@ -108,9 +108,10 @@ const withCsrf = await go(`${APP}/api/v1/categories`, jar.app, {
 });
 check(withCsrf.status === 400, `запись сеанса с CSRF доходит до проверки полей — ${withCsrf.status}`);
 
+// Скрипты ходят тестовым человеком (ANO-144): по Bearer — тот же владелец, что у входа формой.
 const bearer = await fetch(`${APP}/api/v1/me`, { headers: { authorization: `Bearer ${scripts}` } });
 const robot = bearer.ok ? (await bearer.json()).id : null;
-check(Boolean(robot) && robot !== person, `Bearer скриптов — свой владелец: ${robot ?? bearer.status}`);
+check(robot === person, `Bearer скриптов — тот же человек, что вошёл формой: ${robot ?? bearer.status}`);
 
 console.log(problems.length ? `Итог: не сходится — ${problems.length}` : 'Итог: сходится');
 process.exitCode = problems.length ? 1 : 0;
