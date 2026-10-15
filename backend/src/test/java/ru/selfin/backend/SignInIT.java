@@ -47,6 +47,7 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,7 +61,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>{@link MockMvc} здесь свой: у остальных IT каждый запрос — от вошедшего человека
  * ({@code testsupport.SignedInMockMvc}), а здесь вход и есть предмет.
  *
- * <p>Спека: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md
+ * <p>Чужой странице CORS ничего не разрешает (ANO-153): экран и API — на одном адресе.
+ *
+ * <p>Спеки: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md,
+ * docs/superpowers/specs/2026-10-15-no-cors-design.md
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "selfin.owner-sub=" + SignInIT.OWNER_SUB)
@@ -71,6 +75,8 @@ class SignInIT {
     static final String SYNTHETIC_OWNER = "00000000-0000-0000-0000-000000000001";
     /** Издатель токенов — внешний адрес Keycloak из application.properties. */
     static final String ISSUER = "http://127.0.0.1:8180/realms/selfin";
+    /** Страница чужого адреса — её JavaScript делает запросы к нашему API из браузера человека. */
+    static final String FOREIGN_PAGE = "https://evil.example";
 
     static final RSAKey KEY = rsaKey("realm");
     static final HttpServer KEYS = serveKeys();
@@ -234,6 +240,19 @@ class SignInIT {
         assertThat(me(oidcLogin().idToken(t -> t.subject(OWNER_SUB)))).isEqualTo(SYNTHETIC_OWNER);
         assertThat(me(oidcLogin().idToken(t -> t.subject("browser-person"))))
                 .isEqualTo(me(bearer(token(c -> c.subject("browser-person")))));
+    }
+
+    // ── чужая страница: CORS ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("чужому адресу разрешений CORS нет — ни на открытый адрес, ни на запрос с сеансом (ANO-153)")
+    void noCorsPermissionForForeignOrigin() throws Exception {
+        // Предзапрос чужого адреса и без этого получает 401 от цепочки безопасности; разрешение CORS попадало
+        // в ответы, прошедшие безопасность, — на открытые адреса и на запросы с сеансом.
+        mvc.perform(get("/api/v1/version").header(HttpHeaders.ORIGIN, FOREIGN_PAGE))
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+        mvc.perform(get("/api/v1/me").with(oidcLogin()).header(HttpHeaders.ORIGIN, FOREIGN_PAGE))
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
     }
 
     // ── помощники ───────────────────────────────────────────────────────────────
