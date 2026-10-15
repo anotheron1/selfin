@@ -7,6 +7,8 @@
     "ru"
   ],
   "defaultLocale": "ru",
+  "ssoSessionIdleTimeout": 2592000,
+  "ssoSessionMaxLifespan": 2592000,
   "clients": [
     {
       "clientId": "selfin",

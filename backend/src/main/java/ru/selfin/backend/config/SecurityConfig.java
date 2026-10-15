@@ -1,6 +1,7 @@
 package ru.selfin.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,12 +30,14 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequ
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import ru.selfin.backend.service.OwnerService;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 
@@ -51,7 +54,8 @@ import java.util.Set;
  * </ul>
  *
  * <p>Экран входа (ANO-152): кнопка «Войти через Telegram» ведёт прямо к Telegram — {@link ProviderHint};
- * выход гасит и наш сеанс, и сеанс Keycloak — {@link SignOutThroughKeycloak}.
+ * вход держится 30 дней — {@link LongSessionAfterSignIn}; выход гасит и наш сеанс, и сеанс Keycloak —
+ * {@link SignOutThroughKeycloak}.
  *
  * <p>Спеки: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md,
  * docs/superpowers/specs/2026-10-15-sign-in-screen-design.md
@@ -78,14 +82,16 @@ public class SecurityConfig {
     @Bean
     @Order(2)
     SecurityFilterChain browser(HttpSecurity http, OwnerService owners, ClientRegistrationRepository registrations,
-                                ObjectMapper json) throws Exception {
+                                ObjectMapper json,
+                                @Value("${server.servlet.session.cookie.max-age}") Duration session) throws Exception {
         return http
                 .authorizeHttpRequests(requests -> requests
                         // Коммит сборки — по нему ждут готовности и сверяют образ (ANO-194).
                         .requestMatchers("/api/v1/version", "/error").permitAll()
                         .anyRequest().authenticated())
-                .oauth2Login(login -> login.authorizationEndpoint(endpoint -> endpoint
-                        .authorizationRequestResolver(new ProviderHint(registrations))))
+                .oauth2Login(login -> login
+                        .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(new ProviderHint(registrations)))
+                        .successHandler(new LongSessionAfterSignIn(session)))
                 .logout(logout -> logout.logoutSuccessHandler(new SignOutThroughKeycloak(registrations, json)))
                 // spa(): токен — в cookie XSRF-TOKEN, читаемой фронтом, и грузится на каждом запросе:
                 // cookie есть у экрана до первой записи.
@@ -153,6 +159,28 @@ public class SecurityConfig {
             return OAuth2AuthorizationRequest.from(authorization)
                     .additionalParameters(parameters -> parameters.put("kc_idp_hint", provider))
                     .build();
+        }
+    }
+
+    /**
+     * Вход держится 30 дней (решение владельца 15.10, ANO-152): сеанс вошедшего живёт без действий столько же, сколько
+     * cookie сеанса, — у кассы приложение открывается сразу, подтверждение в Telegram — раз в месяц. Сеанс до входа
+     * остаётся по умолчанию сервера, 30 минут: брошенный вход не держит память сервера месяц. После входа — на «/».
+     */
+    static final class LongSessionAfterSignIn extends SimpleUrlAuthenticationSuccessHandler {
+
+        private final Duration length;
+
+        LongSessionAfterSignIn(Duration length) {
+            super("/");
+            this.length = length;
+        }
+
+        @Override
+        public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
+                                            Authentication authentication) throws IOException, ServletException {
+            request.getSession().setMaxInactiveInterval((int) length.toSeconds());
+            super.onAuthenticationSuccess(request, response, authentication);
         }
     }
 

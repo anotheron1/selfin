@@ -91,8 +91,15 @@ const back = await go(action, jar.kc, {
 });
 const callback = back.headers.get('location') ?? '';
 check(callback.startsWith(`${APP}/login/oauth2/code/keycloak?`), `Keycloak вернул на экран — ${back.status}`);
+// Вход держится 30 дней (ANO-152): срок сеанса Keycloak виден по его cookie KEYCLOAK_SESSION, наш — по JSESSIONID.
+const lifetime = (response, name) =>
+  response.headers.getSetCookie().find((c) => c.startsWith(`${name}=`))?.match(/Max-Age=(\d+)/)?.[1] ?? 'до закрытия браузера';
+const kcSession = lifetime(back, 'KEYCLOAK_SESSION');
+check(kcSession === '2592000', `сеанс Keycloak — не дольше 30 дней: ${kcSession} (ANO-152)`);
 const home = await go(callback, jar.app);
 check(home.status === 302 && new URL(home.headers.get('location') ?? '/', APP).pathname === '/', `наш сервер открыл сеанс и вернул на «/» — ${home.status}`);
+const ourSession = lifetime(home, 'JSESSIONID');
+check(ourSession === '2592000', `cookie нашего сеанса — на 30 дней, переживает закрытие браузера: ${ourSession} (ANO-152)`);
 
 const me = await go(`${APP}/api/v1/me`, jar.app);
 const who = me.ok ? await me.json() : {};

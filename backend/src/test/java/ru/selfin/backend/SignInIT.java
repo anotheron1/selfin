@@ -14,21 +14,28 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -40,7 +47,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.selfin.backend.service.OwnerService;
 
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.net.URLDecoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -82,6 +93,8 @@ class SignInIT {
     static final String ISSUER = "http://127.0.0.1:8180/realms/selfin";
     /** Страница чужого адреса — её JavaScript делает запросы к нашему API из браузера человека. */
     static final String FOREIGN_PAGE = "https://evil.example";
+    /** Длина сеанса — решение владельца 15.10 (ANO-152), в секундах. */
+    static final int THIRTY_DAYS = 30 * 24 * 60 * 60;
 
     static final RSAKey KEY = rsaKey("realm");
     static final HttpServer KEYS = serveKeys();
@@ -109,6 +122,12 @@ class SignInIT {
 
     @Autowired
     ClientRegistrationRepository registrations;
+
+    @Autowired
+    FilterChainProxy security;
+
+    @LocalServerPort
+    int port;
 
     MockMvc mvc;
 
@@ -197,6 +216,26 @@ class SignInIT {
                 .andExpect(jsonPath("$.name").value("anotheron1"));
         mvc.perform(get("/api/v1/me").with(bearer(token(c -> c.subject("named-bearer").claim("name", "Bearer Name")))))
                 .andExpect(jsonPath("$.name").value("Bearer Name"));
+    }
+
+    // ── сеанс ───────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("вход держится 30 дней: cookie сеанса — на 30 дней, сеанс вошедшего — 30 дней без действий (ANO-152)")
+    void signedInSessionLastsThirtyDays() throws Exception {
+        // Cookie выписывает Tomcat, и её настройку видит только настоящий сервер, не MockMvc.
+        HttpResponse<Void> start = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/oauth2/authorization/keycloak")).build(),
+                HttpResponse.BodyHandlers.discarding());
+        assertThat(start.headers().allValues(HttpHeaders.SET_COOKIE))
+                .anyMatch(c -> c.startsWith("JSESSIONID=") && c.contains("Max-Age=" + THIRTY_DAYS));
+
+        // Сеанс вошедшего продлевает обработчик успешного входа — тот, что стоит в цепочке браузера.
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        onSignIn().onAuthenticationSuccess(request, response, new TestingAuthenticationToken("someone", null));
+        assertThat(request.getSession().getMaxInactiveInterval()).isEqualTo(THIRTY_DAYS);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/");
     }
 
     // ── скрипты: Bearer ─────────────────────────────────────────────────────────
@@ -322,6 +361,15 @@ class SignInIT {
      * токенов прямо в фильтре контекста, подмена переживает тест — и cookie после неё больше не выписывается.
      */
     /** Куда сервер уводит браузер, начиная вход, — адрес Keycloak с параметрами. */
+    private AuthenticationSuccessHandler onSignIn() {
+        OAuth2LoginAuthenticationFilter login = security.getFilterChains().stream()
+                .flatMap(chain -> chain.getFilters().stream())
+                .filter(OAuth2LoginAuthenticationFilter.class::isInstance)
+                .map(OAuth2LoginAuthenticationFilter.class::cast)
+                .findFirst().orElseThrow();
+        return ReflectionTestUtils.invokeMethod(login, "getSuccessHandler");
+    }
+
     private String authorizationRedirect(String query) throws Exception {
         return URLDecoder.decode(mvc.perform(get("/oauth2/authorization/keycloak" + query))
                 .andExpect(status().isFound())

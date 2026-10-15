@@ -88,6 +88,14 @@ test('адреса после выхода — экран входа разра�
   }
 });
 
+// ANO-152, решение владельца 15.10: вход держится 30 дней. Сеанс Keycloak нужен, когда наш сеанс потерян —
+// после перезапуска сервера: пока он жив, «Войти» возвращает без подтверждения в Telegram.
+test('сеанс Keycloak — 30 дней без действий и не дольше 30 дней', () => {
+  const thirtyDays = 30 * 24 * 60 * 60;
+  assert.equal(realm.ssoSessionIdleTimeout, thirtyDays);
+  assert.equal(realm.ssoSessionMaxLifespan, thirtyDays);
+});
+
 test('клиента скриптов в файле нет: файл идёт на сервер, а там он открыл бы API в обход Telegram', () => {
   assert.deepEqual(realm.clients.map((c) => c.clientId), ['selfin']);
 });
