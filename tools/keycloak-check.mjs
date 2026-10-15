@@ -95,8 +95,10 @@ const home = await go(callback, jar.app);
 check(home.status === 302 && new URL(home.headers.get('location') ?? '/', APP).pathname === '/', `наш сервер открыл сеанс и вернул на «/» — ${home.status}`);
 
 const me = await go(`${APP}/api/v1/me`, jar.app);
-const person = me.ok ? (await me.json()).id : null;
+const who = me.ok ? await me.json() : {};
+const person = who.id ?? null;
 check(Boolean(person), `сеанс: чей запрос — ${person ?? me.status}`);
+check(Boolean(who.name), `сеанс: кто вошёл — «${who.name ?? ''}» (ANO-152)`);
 check(jar.app.has('XSRF-TOKEN'), 'сеанс: cookie XSRF-TOKEN для фронта');
 const noCsrf = await go(`${APP}/api/v1/categories`, jar.app, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
 check(noCsrf.status === 403, `запись сеанса без CSRF — ${noCsrf.status}`);
@@ -112,6 +114,31 @@ check(withCsrf.status === 400, `запись сеанса с CSRF доходит
 const bearer = await fetch(`${APP}/api/v1/me`, { headers: { authorization: `Bearer ${scripts}` } });
 const robot = bearer.ok ? (await bearer.json()).id : null;
 check(robot === person, `Bearer скриптов — тот же человек, что вошёл формой: ${robot ?? bearer.status}`);
+
+// ── Экран входа и выход (ANO-152) ────────────────────────────────────────────────────────────
+// Кнопка экрана входа несёт провайдера: Keycloak уводит прямо к Telegram, своей страницы не показывает.
+const fresh = { app: new Map(), kc: new Map() };
+let hop = new URL((await go(`${APP}/oauth2/authorization/keycloak?provider=telegram`, fresh.app)).headers.get('location') ?? 'https://invalid/');
+check(hop.searchParams.get('kc_idp_hint') === 'telegram', `кнопка экрана входа — с подсказкой Telegram: ${hop.searchParams.get('kc_idp_hint')}`);
+for (let i = 0; i < 3 && hop.origin === new URL(KC).origin; i++) {
+  hop = new URL((await go(hop, fresh.kc)).headers.get('location') ?? 'https://invalid/', hop);
+}
+check(hop.host === 'oauth.telegram.org', `подсказка — сразу к Telegram, без страницы Keycloak: ${hop.host}`);
+
+// Выход — и у нас, и в Keycloak: сервер отвечает адресом выхода Keycloak, браузер проходит его и
+// возвращается на экран входа; новый вход снова спрашивает пароль — сеанса Keycloak больше нет.
+const out = await go(`${APP}/logout`, jar.app, {
+  method: 'POST',
+  headers: { 'x-xsrf-token': decodeURIComponent(jar.app.get('XSRF-TOKEN') ?? '') },
+});
+const exit = out.ok ? (await out.json()).redirect ?? '' : '';
+check(exit.startsWith(`${REALM}/protocol/openid-connect/logout?`), `выход: адрес выхода Keycloak — ${out.status}`);
+const ended = await go(exit || 'https://invalid/', jar.kc);
+check(ended.headers.get('location') === `${APP}/login`, `Keycloak погасил сеанс и вернул на экран входа — ${ended.status} ${ended.headers.get('location') ?? ''}`);
+check((await go(`${APP}/api/v1/me`, jar.app)).status === 401, 'наш сеанс погашен — API 401');
+const again = await go(`${APP}/oauth2/authorization/keycloak`, jar.app);
+const againForm = await go(new URL(again.headers.get('location') ?? 'https://invalid/'), jar.kc);
+check(/id="kc-form-login"/.test(await againForm.text()), 'новый вход снова спрашивает пароль — сеанс Keycloak погашен');
 
 console.log(problems.length ? `Итог: не сходится — ${problems.length}` : 'Итог: сходится');
 process.exitCode = problems.length ? 1 : 0;

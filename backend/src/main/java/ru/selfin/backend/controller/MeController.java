@@ -1,5 +1,8 @@
 package ru.selfin.backend.controller;
 
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -12,13 +15,25 @@ import java.util.UUID;
  * Чей это запрос (ANO-195): id владельца из {@code users}. До ограничителя (шаг 5 плана спринта 5)
  * по экрану не отличить, связан ли вход с синтетическим владельцем, — отличает этот ответ. С ANO-144 — тот
  * владелец, с которым запрос ходит в базу: его ставит {@code OwnerFilter}.
+ *
+ * <p>Имя — для строки «Вы вошли как» в «Настройках» (ANO-152): {@code name} из ID token сеанса или из токена
+ * Bearer — Telegram присылает «Имя Фамилия», — иначе ник ({@code preferred_username}).
  */
 @RestController
 @RequestMapping("/api/v1")
 public class MeController {
 
+    record Me(UUID id, String name) {
+    }
+
     @GetMapping("/me")
-    public Map<String, UUID> me() {
-        return Map.of("id", OwnerContext.get());
+    public Me me(Authentication authentication) {
+        Map<String, Object> claims = switch (authentication.getPrincipal()) {
+            case OidcUser user -> user.getClaims();
+            case Jwt jwt -> jwt.getClaims();
+            case null, default -> Map.of();
+        };
+        Object name = claims.getOrDefault("name", claims.get("preferred_username"));
+        return new Me(OwnerContext.get(), name == null ? null : name.toString());
     }
 }

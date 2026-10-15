@@ -10,6 +10,7 @@ import type {
     BalanceCheckpoint,
     BalanceCheckpointCreateDto,
     CapitalItem,
+    Me,
     CapitalItemCreateDto,
     CapitalItemKind,
     CapitalItemUpdateDto,
@@ -46,6 +47,9 @@ import type {
 } from '../types/api';
 
 // --- Categories ---
+
+/** Кто вошёл (ANO-152): id — ключ личного черновика примерки, имя — для «Вы вошли как». */
+export const fetchMe = () => get<Me>('/me');
 
 /** Загружает список всех активных категорий. */
 export const fetchCategories = () => get<Category[]>('/categories');

@@ -27,11 +27,13 @@
       ],
       "webOrigins": [],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://127.0.0.1:5173/login##http://localhost:5173/login##http://127.0.0.1:5174/login##http://localhost:5174/login"
       },
       "fullScopeAllowed": false,
       "defaultClientScopes": [
-        "basic"
+        "basic",
+        "profile"
       ],
       "optionalClientScopes": []
     }

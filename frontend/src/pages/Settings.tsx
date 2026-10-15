@@ -10,6 +10,7 @@ import type { Account, BalanceCheckpoint, Category, CategoryType, ForecastReadin
 import PriorityButton from '../components/PriorityButton';
 import AccountsSection from '../components/accounts/AccountsSection';
 import NzForm from '../components/pocket/NzForm';
+import SignOutSection from '../components/SignOutSection';
 import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { AmountInput, amountValue } from '../components/ui/amount-input';
@@ -545,6 +546,8 @@ export default function Settings() {
                         ))}
                     </div>
                 ))}
+
+                <SignOutSection />
             </div>
         </ScrollArea>
 

@@ -641,3 +641,9 @@ export interface ConvertResponse {
     artifactKind: 'PLAN_EVENT' | 'FUND' | 'FUND_WITH_CREDIT';
     recurringRuleId?: string | null;
 }
+
+/** Кто вошёл (ANO-152): id владельца и имя для «Вы вошли как» — из Telegram; имени может не быть. */
+export interface Me {
+    id: string;
+    name: string | null;
+}

@@ -1,14 +1,31 @@
 package ru.selfin.backend.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientProperties;
+import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientPropertiesMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
+import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
@@ -16,6 +33,10 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import ru.selfin.backend.service.OwnerService;
+
+import java.io.IOException;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Вход (ANO-195), вариант Б: сервер держит токены, у браузера — только cookie сеанса.
@@ -29,9 +50,15 @@ import ru.selfin.backend.service.OwnerService;
  *       {@code XSRF-TOKEN}, которую фронт возвращает заголовком {@code X-XSRF-TOKEN}.</li>
  * </ul>
  *
- * <p>Спека: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md
+ * <p>Экран входа (ANO-152): кнопка «Войти через Telegram» ведёт прямо к Telegram — {@link ProviderHint};
+ * выход гасит и наш сеанс, и сеанс Keycloak — {@link SignOutThroughKeycloak}.
+ *
+ * <p>Спеки: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md,
+ * docs/superpowers/specs/2026-10-15-sign-in-screen-design.md
  */
 @Configuration
+// Свойства клиента Boot включает в своей конфигурации репозитория регистраций, а она уступает нашему (ANO-152).
+@EnableConfigurationProperties(OAuth2ClientProperties.class)
 public class SecurityConfig {
 
     @Bean
@@ -50,13 +77,16 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    SecurityFilterChain browser(HttpSecurity http, OwnerService owners) throws Exception {
+    SecurityFilterChain browser(HttpSecurity http, OwnerService owners, ClientRegistrationRepository registrations,
+                                ObjectMapper json) throws Exception {
         return http
                 .authorizeHttpRequests(requests -> requests
                         // Коммит сборки — по нему ждут готовности и сверяют образ (ANO-194).
                         .requestMatchers("/api/v1/version", "/error").permitAll()
                         .anyRequest().authenticated())
-                .oauth2Login(Customizer.withDefaults())
+                .oauth2Login(login -> login.authorizationEndpoint(endpoint -> endpoint
+                        .authorizationRequestResolver(new ProviderHint(registrations))))
+                .logout(logout -> logout.logoutSuccessHandler(new SignOutThroughKeycloak(registrations, json)))
                 // spa(): токен — в cookie XSRF-TOKEN, читаемой фронтом, и грузится на каждом запросе:
                 // cookie есть у экрана до первой записи.
                 .csrf(csrf -> csrf.spa())
@@ -70,5 +100,85 @@ public class SecurityConfig {
                 // Владелец запроса — после авторизации: с ним пул пускает к строкам (ANO-144).
                 .addFilterAfter(new OwnerFilter(owners), AuthorizationFilter.class)
                 .build();
+    }
+
+    /**
+     * Регистрация клиента — из свойств Boot и то, что без discovery взять неоткуда (ANO-152): адрес выхода
+     * Keycloak — для выхода и в нём — и издатель, по которому сверяется {@code iss} у ID token. Реалм — тот же,
+     * что у Bearer.
+     */
+    @Bean
+    ClientRegistrationRepository clientRegistrations(OAuth2ClientProperties properties,
+            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String realm) {
+        return new InMemoryClientRegistrationRepository(new OAuth2ClientPropertiesMapper(properties)
+                .asClientRegistrations().values().stream()
+                .map(registration -> ClientRegistration.withClientRegistration(registration)
+                        .issuerUri(realm)
+                        .providerConfigurationMetadata(Map.of("end_session_endpoint", realm + "/protocol/openid-connect/logout"))
+                        .build())
+                .toList());
+    }
+
+    /**
+     * Кнопка экрана входа называет провайдера, и Keycloak уводит прямо к нему, без своей страницы (ANO-152):
+     * {@code ?provider=telegram} → {@code kc_idp_hint=telegram}. Только известные провайдеры. Без подсказки — страница
+     * Keycloak: ею входит тестовый человек стенда и живая проверка входа.
+     */
+    static final class ProviderHint implements OAuth2AuthorizationRequestResolver {
+
+        private static final Set<String> PROVIDERS = Set.of("telegram");
+
+        private final OAuth2AuthorizationRequestResolver resolver;
+
+        ProviderHint(ClientRegistrationRepository registrations) {
+            resolver = new DefaultOAuth2AuthorizationRequestResolver(registrations,
+                    OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI);
+        }
+
+        @Override
+        public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
+            return hint(request, resolver.resolve(request));
+        }
+
+        @Override
+        public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String registrationId) {
+            return hint(request, resolver.resolve(request, registrationId));
+        }
+
+        /** Адрес Keycloak пересобирается из параметров: {@code from} копирует их, но не готовый адрес. */
+        private static OAuth2AuthorizationRequest hint(HttpServletRequest request, OAuth2AuthorizationRequest authorization) {
+            String provider = request.getParameter("provider");
+            // Set.of не принимает null даже в contains — без провайдера проверка до него не доходит.
+            if (authorization == null || provider == null || !PROVIDERS.contains(provider)) return authorization;
+            return OAuth2AuthorizationRequest.from(authorization)
+                    .additionalParameters(parameters -> parameters.put("kc_idp_hint", provider))
+                    .build();
+        }
+    }
+
+    /**
+     * Выход — и у нас, и в Keycloak (ANO-152): иначе сеанс Keycloak жив, и «Войти» впустит без подтверждения.
+     * Экран шлёт {@code POST /logout} запросом с заголовком CSRF: форма с CSRF {@code spa()} не проходит — параметр
+     * {@code _csrf} сверяется как замаскированный токен, а у экрана только сырой. Поэтому вместо переадресации —
+     * 200 и адрес выхода Keycloak с возвратом на экран входа: по нему экран уходит сам, и браузер гасит сеанс
+     * Keycloak. Без сеанса — сразу на экран входа.
+     */
+    static final class SignOutThroughKeycloak extends OidcClientInitiatedLogoutSuccessHandler {
+
+        private final ObjectMapper json;
+
+        SignOutThroughKeycloak(ClientRegistrationRepository registrations, ObjectMapper json) {
+            super(registrations);
+            this.json = json;
+            setPostLogoutRedirectUri("{baseUrl}/login");
+            setDefaultTargetUrl("/login");
+        }
+
+        @Override
+        public void onLogoutSuccess(HttpServletRequest request, HttpServletResponse response,
+                                    Authentication authentication) throws IOException {
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            json.writeValue(response.getWriter(), Map.of("redirect", determineTargetUrl(request, response, authentication)));
+        }
     }
 }

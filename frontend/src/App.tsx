@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard';
 import Budget from './pages/Budget';
 import Funds from './pages/Funds';
 import Settings from './pages/Settings';
+import SignIn from './pages/SignIn';
 import Strategy from './pages/Strategy';
 import Wishlist from './pages/Wishlist';
 
@@ -21,12 +22,15 @@ function Main({ children }: { children: React.ReactNode }) {
   return <main className={wide ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto'}>{children}</main>;
 }
 
-export default function App() {
+/** Экран входа (ANO-152) — сам по себе: без навигации и «+», им без входа всё равно некуда вести. */
+function Screens() {
   const [refreshKey, setRefreshKey] = useState(0);
   const handleSuccess = () => setRefreshKey(k => k + 1);
 
+  if (useLocation().pathname === '/login') return <SignIn />;
+
   return (
-    <BrowserRouter>
+    <>
       <div className="min-h-dvh overflow-x-hidden" style={{ paddingBottom: 'var(--nav-height)' }}>
         <Main>
           <Routes>
@@ -43,6 +47,14 @@ export default function App() {
       </div>
       <Fab onSuccess={handleSuccess} />
       <BottomNav />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Screens />
     </BrowserRouter>
   );
 }

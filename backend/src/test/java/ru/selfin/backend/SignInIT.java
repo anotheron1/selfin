@@ -1,11 +1,13 @@
 package ru.selfin.backend;
 
+import com.jayway.jsonpath.JsonPath;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.sun.net.httpserver.HttpServer;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,8 +18,10 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -26,6 +30,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -102,6 +107,9 @@ class SignInIT {
     @Autowired
     JdbcTemplate jdbc;
 
+    @Autowired
+    ClientRegistrationRepository registrations;
+
     MockMvc mvc;
 
     @BeforeEach
@@ -139,13 +147,56 @@ class SignInIT {
     @Test
     @DisplayName("вход начинается у Keycloak: клиент selfin, код с PKCE S256, возврат — на адрес экрана")
     void signInStartsAtKeycloak() throws Exception {
-        String location = URLDecoder.decode(mvc.perform(get("/oauth2/authorization/keycloak"))
-                .andExpect(status().isFound())
-                .andReturn().getResponse().getHeader(HttpHeaders.LOCATION), StandardCharsets.UTF_8);
-        assertThat(location)
+        assertThat(authorizationRedirect(""))
                 .startsWith(ISSUER + "/protocol/openid-connect/auth?")
                 .contains("response_type=code", "client_id=selfin", "code_challenge_method=S256",
                         "redirect_uri=http://localhost/login/oauth2/code/keycloak");
+    }
+
+    @Test
+    @DisplayName("кнопка экрана входа — сразу в Telegram: provider=telegram становится kc_idp_hint; без него и с чужим — нет (ANO-152)")
+    void signInButtonGoesStraightToTelegram() throws Exception {
+        assertThat(authorizationRedirect("?provider=telegram")).contains("kc_idp_hint=telegram", "code_challenge_method=S256");
+        // Без подсказки — страница Keycloak: ею входит тестовый человек стенда и живая проверка входа.
+        assertThat(authorizationRedirect("")).doesNotContain("kc_idp_hint");
+        assertThat(authorizationRedirect("?provider=evil")).doesNotContain("kc_idp_hint");
+    }
+
+    // ── выход ───────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("выход гасит и наш сеанс, и сеанс Keycloak: ответ — адрес выхода Keycloak с возвратом на экран входа (ANO-152)")
+    void signOutEndsKeycloakSessionToo() throws Exception {
+        MvcResult result = mvc.perform(post("/logout")
+                        .with(oidcLogin().clientRegistration(registrations.findByRegistrationId("keycloak"))
+                                .idToken(t -> t.tokenValue("id-token-value")))
+                        .with(xsrfFromServer()))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(URLDecoder.decode(JsonPath.read(result.getResponse().getContentAsString(), "$.redirect"), StandardCharsets.UTF_8))
+                .startsWith(ISSUER + "/protocol/openid-connect/logout?")
+                .contains("id_token_hint=id-token-value", "post_logout_redirect_uri=http://localhost/login");
+        HttpSession session = result.getRequest().getSession(false);
+        assertThat(session == null || ((MockHttpSession) session).isInvalid()).as("наш сеанс погашен").isTrue();
+    }
+
+    @Test
+    @DisplayName("выход без сеанса — сразу на экран входа (ANO-152)")
+    void signOutWithoutSessionGoesToSignIn() throws Exception {
+        mvc.perform(post("/logout").with(xsrfFromServer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.redirect").value("/login"));
+    }
+
+    @Test
+    @DisplayName("кто вошёл: имя из ID token у сеанса и из токена у Bearer, без имени — ник (ANO-152)")
+    void meTellsWhoSignedIn() throws Exception {
+        mvc.perform(get("/api/v1/me").with(oidcLogin().idToken(t -> t.subject("named").claim("name", "Another One"))))
+                .andExpect(jsonPath("$.name").value("Another One"));
+        mvc.perform(get("/api/v1/me").with(oidcLogin().idToken(t -> t.subject("nick").claim("preferred_username", "anotheron1"))))
+                .andExpect(jsonPath("$.name").value("anotheron1"));
+        mvc.perform(get("/api/v1/me").with(bearer(token(c -> c.subject("named-bearer").claim("name", "Bearer Name")))))
+                .andExpect(jsonPath("$.name").value("Bearer Name"));
     }
 
     // ── скрипты: Bearer ─────────────────────────────────────────────────────────
@@ -270,6 +321,13 @@ class SignInIT {
      * возвращает её значение заголовком. Не {@code csrf()} из spring-security-test: тот подменяет хранилище
      * токенов прямо в фильтре контекста, подмена переживает тест — и cookie после неё больше не выписывается.
      */
+    /** Куда сервер уводит браузер, начиная вход, — адрес Keycloak с параметрами. */
+    private String authorizationRedirect(String query) throws Exception {
+        return URLDecoder.decode(mvc.perform(get("/oauth2/authorization/keycloak" + query))
+                .andExpect(status().isFound())
+                .andReturn().getResponse().getHeader(HttpHeaders.LOCATION), StandardCharsets.UTF_8);
+    }
+
     private RequestPostProcessor xsrfFromServer() throws Exception {
         Cookie xsrf = mvc.perform(get("/api/v1/version")).andReturn().getResponse().getCookie("XSRF-TOKEN");
         assertThat(xsrf).as("сервер выписал cookie XSRF-TOKEN").isNotNull();

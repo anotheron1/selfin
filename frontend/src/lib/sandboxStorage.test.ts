@@ -17,6 +17,8 @@ class MemoryStorage {
 }
 (globalThis as unknown as { localStorage: MemoryStorage }).localStorage = new MemoryStorage();
 
+/** Владелец черновика — id из /api/v1/me. */
+const OWNER = '00000000-0000-0000-0000-00000000000a';
 const FUND: SandboxRef = { type: 'FUND', id: 'f1' };
 const EVENT: SandboxRef = { type: 'EVENT', id: 'e1' };
 
@@ -31,17 +33,30 @@ describe('sandboxStorage', () => {
     beforeEach(() => localStorage.clear());
 
     it('load без записи → пустое состояние', () => {
-        expect(loadSandbox()).toEqual(emptyState());
+        expect(loadSandbox(OWNER)).toEqual(emptyState());
     });
 
     it('save затем load — round-trip переживает перезагрузку', () => {
-        saveSandbox(state());
-        expect(loadSandbox()).toEqual(state());
+        saveSandbox(OWNER, state());
+        expect(loadSandbox(OWNER)).toEqual(state());
     });
 
     it('битый JSON → пустое состояние, не падает', () => {
-        localStorage.setItem('selfin.sandbox.v1', '{ не json');
-        expect(loadSandbox()).toEqual(emptyState());
+        localStorage.setItem('selfin.sandbox.v1.' + OWNER, '{ не json');
+        expect(loadSandbox(OWNER)).toEqual(emptyState());
+    });
+
+    // ANO-152: двое на одном браузере — у каждого своя примерка.
+    it('черновик одного человека не читается другим', () => {
+        saveSandbox(OWNER, state());
+        expect(loadSandbox('другой-человек')).toEqual(emptyState());
+        expect(loadSandbox(OWNER)).toEqual(state());
+    });
+
+    it('общий черновик до ANO-152 никому не отдаётся и стирается: чей он — не узнать', () => {
+        localStorage.setItem('selfin.sandbox.v1', JSON.stringify(state()));
+        expect(loadSandbox(OWNER)).toEqual(emptyState());
+        expect(localStorage.getItem('selfin.sandbox.v1')).toBeNull();
     });
 
     it('forgetRef убирает ref из enabled и excluded', () => {
@@ -81,9 +96,9 @@ describe('sandboxStorage', () => {
     });
 
     it('старый черновик с полем excluded читается без падения (поле отбрасывается)', () => {
-        localStorage.setItem('selfin.sandbox.v1', JSON.stringify({
+        localStorage.setItem('selfin.sandbox.v1.' + OWNER, JSON.stringify({
             enabled: [], adhoc: [], excluded: [{ type: 'FUND', id: 'old' }],
         }));
-        expect(loadSandbox()).toEqual(emptyState());
+        expect(loadSandbox(OWNER)).toEqual(emptyState());
     });
 });
