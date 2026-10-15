@@ -18,7 +18,7 @@ export default function SignIn() {
                 <Button variant="outline" className="w-full" disabled>VK ID — скоро</Button>
             </div>
             <p className="text-xs text-center max-w-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Selfin получит из Telegram только имя и ник — без телефона.
+                Из Telegram Selfin сохранит только имя и ник. Телефон не получит.
             </p>
         </div>
     );

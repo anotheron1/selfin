@@ -25,7 +25,7 @@
 
 ### 1. Свой экран входа `/login`
 
-Маршрут SPA: название, **«Войти через Telegram»**, ниже неактивные **«Яндекс ID»** и **«VK ID»** с пометкой «скоро» и строка «Selfin получит из Telegram только имя и ник — без телефона» (в реалме у провайдера — `openid profile`, без телефона, ANO-143). Нижней навигации и «+» на экране нет. Прокси nginx и Vite отдают `/login` фронту — на бэк уходят только `/login/oauth2/…`.
+Маршрут SPA: название, **«Войти через Telegram»**, ниже неактивные **«Яндекс ID»** и **«VK ID»** с пометкой «скоро» и строка «Из Telegram Selfin сохранит только имя и ник. Телефон не получит.» (в реалме у провайдера — `openid profile`, без телефона, ANO-143; почему не «получит только имя и ник» — «Выполнено», «Стенд»). Нижней навигации и «+» на экране нет. Прокси nginx и Vite отдают `/login` фронту — на бэк уходят только `/login/oauth2/…`.
 
 ### 2. На 401 — на наш экран
 
@@ -132,5 +132,55 @@
 * **CSRF и форма** — `javap -c` класса `CsrfConfigurer$SpaCsrfTokenRequestHandler` из `spring-security-config-7.0.3.jar`.
 * **Сеансы** — `application.properties` (длина не задана), реалм стенда через Admin API: `ssoSessionIdleTimeout` 1 800 с, `ssoSessionMaxLifespan` 36 000 с, `rememberMe` false.
 * **Регистрация в коде** — `javap` `OAuth2ClientPropertiesMapper` (публичный, `asClientRegistrations()`) и `OAuth2ClientConfigurations$ClientRegistrationRepositoryConfiguration` (`@ConditionalOnMissingBean`) из `spring-boot-security-oauth2-client-4.0.3.jar`.
-* **Что Telegram присылает** — блок 2 факультатива: `name`, `preferred_username`, без телефона.
+* **Что Telegram присылает** — блок 2 факультатива: в ID token из `profile` — `name`, `preferred_username`, `picture`, `id`, телефона нет; мапперов у провайдера в реалме нет, токен Telegram Keycloak не хранит — остаются имя и ник.
 * **Прокси** — `frontend/nginx.conf`, `frontend/vite.config.ts`: `/login` не проксируется.
+
+---
+# Выполнено
+
+15.10.2026, ветка `feat/ano-152-sign-in-screen`. Длина сеанса (раздел 9) — ждёт решения владельца; остальное сделано.
+
+## Тест — красный до правки
+
+`SignInIT` на коде до правки: 4 из 18 красные — `signInButtonGoesStraightToTelegram`, `signOutEndsKeycloakSessionToo`, `signOutWithoutSessionGoesToSignIn`, `meTellsWhoSignedIn`; после — 18 из 18. Тесты фронта и сторожа реалма писались вместе с кодом — что каждый ловит своё, показывают мутации ниже.
+
+## Полный прогон
+
+Бэк (`mvnw clean verify`): 497 юнитов, 342 IT — все зелёные. Фронт: 532 теста, `tsc` чистый, сборка проходит. Сторож реалма — 11 из 11.
+
+## Мутации
+
+Итоговый код; CONTROL каждого набора — зелёный.
+
+| мутация | итог |
+|---|---|
+| `provider` не переносится в `kc_idp_hint` | красный: `signInButtonGoesStraightToTelegram` |
+| подсказка без проверки значения | красный: `signInButtonGoesStraightToTelegram` |
+| выход — обычный 302 вместо JSON | красный: `signOutEndsKeycloakSessionToo`, `signOutWithoutSessionGoesToSignIn` |
+| регистрация без `end_session_endpoint` | красный: `signOutEndsKeycloakSessionToo` |
+| `/me` без имени | красный: `meTellsWhoSignedIn` |
+| 401 — прямо в Keycloak | красный: `client.test.ts`, «401 — уход на наш экран входа…» |
+| `signOut` без заголовка CSRF | красный: `client.test.ts`, «POST /logout с CSRF-токеном в заголовке…» |
+| `signOut` глотает отказ | красный: `client.test.ts`, «выход не удался — ошибка…» |
+| песочница под общим ключом | красный: `sandboxStorage.test.ts`, «черновик одного человека не читается другим» и round-trip |
+| общий ключ не стирается | красный: `sandboxStorage.test.ts`, «общий черновик до ANO-152 никому не отдаётся…» |
+| реалм без `profile` | красный: сторож, «…области basic и profile…» |
+| чужой адрес после выхода | красный: сторож, «адреса после выхода — …буква в букву» |
+
+Первая редакция мутации «обычный 302» звала `super.onLogoutSuccess` и не собиралась: родитель бросает `ServletException`, наш метод — нет. Заменена на `response.sendRedirect(...)` — тот же смысл.
+
+## Стенд
+
+Реалм — Admin API (`post.logout.redirect.uris` и область `profile` у клиента `selfin`, как в `selfin-realm.json`); бэк и фронт — образы ветки.
+
+* **До** (`main` `cde55df`): экран без сеанса уводил на страницу Keycloak «Вход в учетную запись» — форма пароля, «or», «Sign in with Telegram».
+* **После:** без сеанса — наш `/login`; «Войти через Telegram» — сразу на `oauth.telegram.org`, страницы Keycloak нет; в «Настройках» — «Вы вошли как tester» и «Выйти»; «Выйти» — `POST /logout` 200, выход Keycloak, возврат на `/login`; новый вход снова показывает форму Keycloak — его сеанс погашен.
+* `tools/keycloak-check.mjs` — 31 из 31, из них 7 новых: имя в `/me`, подсказка, выход до конца.
+* Свободно −225 412, на счёте 59 900, капитал 2 668 177 — как до.
+* Вход через Telegram до конца — владельцем: подтверждение приходит в приложение Telegram.
+
+**Строка под кнопками поправлена по стенду.** Было «Selfin получит из Telegram только имя и ник — без телефона», а следующим экраном Telegram пишет: «Сайту будут известны Ваши имя, публичная ссылка и фотография». Ссылку на фото Telegram в ID token и правда присылает (блок 2), Keycloak её не сохраняет. Стало «Из Telegram Selfin сохранит только имя и ник. Телефон не получит.» — не спорит с экраном Telegram и верно по сути.
+
+## Найдено по ходу
+
+* **«Настройки» на ширине 375 px шире экрана — 448 px**, правые края всех карточек срезаны. Причина — поле названия в «Добавить категорию»: его ширина по умолчанию раздвигает внутренний блок `ScrollArea` (`width: 0` у поля в браузере — 375; `min-width: 0` — по-прежнему 448). Раздел «Вход» ни при чём: без него те же 448. Заведено ANO-231 с замером. Первая догадка — «раздвигает нижняя навигация» — замером не подтвердилась: без навигации тоже 448.
