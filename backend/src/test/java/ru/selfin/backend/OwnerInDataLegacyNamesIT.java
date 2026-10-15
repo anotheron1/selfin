@@ -33,11 +33,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <b>сам файл</b> {@code V31} одной транзакцией, как его исполнил бы Flyway.
  *
  * <p>Роли приложения до {@code V32} нет — её заводит скрипт инициализации контейнера, как {@code V32}: под
- * суперпользователем контейнера приложение не стартует (ANO-229).
+ * суперпользователем контейнера приложение не стартует (ANO-229). Сверки схемы с сущностями тоже нет: до
+ * {@code V31} колонки {@code user_id}, которую сущности отображают с ANO-147, ещё нет, а JPA этот тест не использует.
  *
  * <p>Спека: {@code docs/superpowers/specs/2026-10-12-owner-in-data-design.md}.
  */
-@SpringBootTest(properties = "spring.flyway.target=30")
+@SpringBootTest(properties = {"spring.flyway.target=30", "spring.jpa.hibernate.ddl-auto=none"})
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class OwnerInDataLegacyNamesIT {

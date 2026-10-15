@@ -2,6 +2,7 @@ package ru.selfin.backend.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.TenantId;
 import ru.selfin.backend.model.enums.EventStatus;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
@@ -36,6 +37,10 @@ public class FinancialEvent implements FinancialRecord {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    @TenantId
+    @Column(name = "user_id", nullable = false, updatable = false)
+    private UUID userId;
 
     /**
      * Idempotency key от клиента (UUID). Гарантирует, что одна операция создания

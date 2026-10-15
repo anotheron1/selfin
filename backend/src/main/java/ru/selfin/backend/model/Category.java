@@ -2,6 +2,7 @@ package ru.selfin.backend.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.TenantId;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.Priority;
 
@@ -19,6 +20,10 @@ public class Category {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    @TenantId
+    @Column(name = "user_id", nullable = false, updatable = false)
+    private UUID userId;
 
     // Уникально в пределах владельца — держит база (uq_categories_owner_name, V31).
     @Column(nullable = false)

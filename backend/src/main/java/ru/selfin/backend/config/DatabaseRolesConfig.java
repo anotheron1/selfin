@@ -109,10 +109,12 @@ public class DatabaseRolesConfig {
      * Владелец — на каждое соединение из пула: свой у потока, без него — пустой. Каждая выдача перезаписывает
      * прежнего, поэтому соединение не унесёт чужого владельца в следующий запрос. На выдаче, а не на транзакции:
      * ленивые загрузки после транзакции идут на соединении вне её.
+     *
+     * <p>Открыт для IT: их данные ролью владельца таблиц пишутся тем же владельцем, что у потока теста (ANO-147).
      */
-    static final class OwnerAwareDataSource extends DelegatingDataSource {
+    public static final class OwnerAwareDataSource extends DelegatingDataSource {
 
-        OwnerAwareDataSource(DataSource pool) {
+        public OwnerAwareDataSource(DataSource pool) {
             super(pool);
         }
 
