@@ -1,6 +1,7 @@
 package ru.selfin.backend.config;
 
 import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.flyway.autoconfigure.FlywayDataSource;
 import org.springframework.boot.jdbc.DataSourceBuilder;
@@ -8,6 +9,7 @@ import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import ru.selfin.backend.service.OwnerContext;
@@ -16,6 +18,9 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -26,7 +31,10 @@ import java.util.UUID;
  * свойств переписывает пулу пользователя из connection details, если они не из свойств, — у контейнеров тестов.
  * IT тогда тихо остались бы суперпользователем, и проверка изоляции была бы зелёной вхолостую.
  *
- * <p>Спека: docs/superpowers/specs/2026-10-14-row-level-security-design.md
+ * <p>Ошибка той же природы на сервере — пул под ролью, которая обходит RLS, — останавливает старт (ANO-229).
+ *
+ * <p>Спеки: docs/superpowers/specs/2026-10-14-row-level-security-design.md,
+ * docs/superpowers/specs/2026-10-15-app-role-guard-design.md
  */
 @Configuration
 public class DatabaseRolesConfig {
@@ -61,13 +69,52 @@ public class DatabaseRolesConfig {
     }
 
     /**
+     * Роль пула — та, на которую действуют политики RLS (ANO-229). Под суперпользователем, ролью с {@code BYPASSRLS}
+     * или владельцем таблицы политики на месте, а защиты нет — и ни один тест этого не увидит: CI проверяет свою
+     * настройку, не серверную. Проверка — после всех бинов, то есть после миграций, и до старта веб-сервера.
+     * Выключателя нет: настройка «не проверять» была бы той же ошибкой сервера.
+     */
+    @Bean
+    SmartInitializingSingleton appRoleGuard(DataSource pool) {
+        return () -> requireRowLevelSecurityRole(pool);
+    }
+
+    /**
+     * Отказ, если RLS роль пула пропускает. Владелец — не только по имени: Postgres пускает мимо RLS всякого, у кого
+     * права роли-владельца, то есть и её члена, — отсюда {@code pg_has_role}.
+     */
+    static void requireRowLevelSecurityRole(DataSource pool) {
+        Map<String, Object> role = new JdbcTemplate(pool).queryForMap("""
+                SELECT r.rolname, r.rolsuper, r.rolbypassrls,
+                       (SELECT string_agg(c.relname, ', ' ORDER BY c.relname)
+                          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                         WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+                           AND pg_has_role(c.relowner, 'USAGE')
+                           AND EXISTS (SELECT 1 FROM pg_attribute a
+                                        WHERE a.attrelid = c.oid AND a.attname = 'user_id' AND NOT a.attisdropped)) AS owned
+                  FROM pg_roles r WHERE r.rolname = current_user
+                """);
+        List<String> why = new ArrayList<>();
+        if ((Boolean) role.get("rolsuper")) why.add("суперпользователь");
+        if ((Boolean) role.get("rolbypassrls")) why.add("BYPASSRLS");
+        if (role.get("owned") != null) why.add("владелец таблиц " + role.get("owned"));
+        if (!why.isEmpty()) {
+            throw new IllegalStateException(("Пул приложения — роль «%s», а политики RLS на неё не действуют: %s. Под такой "
+                    + "ролью видны деньги всех людей — приложение не стартует. Роль приложения задаёт "
+                    + "selfin.db.app-username, нужна selfin_app (ANO-229).").formatted(role.get("rolname"), String.join("; ", why)));
+        }
+    }
+
+    /**
      * Владелец — на каждое соединение из пула: свой у потока, без него — пустой. Каждая выдача перезаписывает
      * прежнего, поэтому соединение не унесёт чужого владельца в следующий запрос. На выдаче, а не на транзакции:
      * ленивые загрузки после транзакции идут на соединении вне её.
+     *
+     * <p>Открыт для IT: их данные ролью владельца таблиц пишутся тем же владельцем, что у потока теста (ANO-147).
      */
-    static final class OwnerAwareDataSource extends DelegatingDataSource {
+    public static final class OwnerAwareDataSource extends DelegatingDataSource {
 
-        OwnerAwareDataSource(DataSource pool) {
+        public OwnerAwareDataSource(DataSource pool) {
             super(pool);
         }
 

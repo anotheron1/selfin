@@ -70,7 +70,7 @@ class OwnerInDataMigrationIT {
     }
 
     @Test
-    @DisplayName("ANO-145: у 11 таблиц — user_id NOT NULL со ссылкой на users и синтетическим владельцем по умолчанию; у budget_snapshots — нет")
+    @DisplayName("ANO-145: у 11 таблиц — user_id NOT NULL со ссылкой на users, по умолчанию — владелец сеанса (V33); у budget_snapshots — нет")
     void everyOwnedTable_hasOwnerColumn() {
         for (String table : OWNED) {
             Map<String, Object> column = jdbc.queryForMap("""
@@ -78,7 +78,7 @@ class OwnerInDataMigrationIT {
                     WHERE table_schema = 'public' AND table_name = ? AND column_name = 'user_id'
                     """, table);
             assertThat(column.get("is_nullable")).as(table).isEqualTo("NO");
-            assertThat((String) column.get("column_default")).as(table + ": переход до шага 8").contains(SYNTHETIC);
+            assertThat(column.get("column_default")).as(table + ": без синтетического запасного").isEqualTo("current_owner()");
             assertThat(jdbc.queryForObject("""
                     SELECT count(*) FROM pg_constraint c
                     JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
@@ -106,8 +106,8 @@ class OwnerInDataMigrationIT {
     }
 
     @Test
-    @DisplayName("ANO-145: запись кодом продукта без владельца получает синтетического — до шага 8 код записи не меняется")
-    void productWrite_getsSyntheticOwner() {
+    @DisplayName("ANO-147: запись кодом продукта — владельцу потока, у теста синтетическому: его ставит Hibernate")
+    void productWrite_getsThreadOwner() {
         Category saved = categoryRepository.save(
                 Category.builder().name("Проба ANO-145").type(CategoryType.EXPENSE).build());
 
@@ -148,6 +148,7 @@ class OwnerInDataMigrationIT {
     @DisplayName("ANO-146: ключ идемпотентности события уникален в пределах владельца")
     void eventIdempotencyKey_isUniquePerOwner() {
         String key = uuid();
+        insertCategory(second, "Продукты ANO-146"); // событию — категория своего владельца: ссылка составная (V33)
         insertEvent(SYNTHETIC, key);
         insertEvent(second, key);
 
@@ -210,9 +211,9 @@ class OwnerInDataMigrationIT {
                 INSERT INTO financial_events
                     (id, idempotency_key, date, category_id, type, planned_amount, status, priority, is_deleted,
                      event_kind, created_at, description, user_id)
-                VALUES (gen_random_uuid(), ?::uuid, CURRENT_DATE, (SELECT id FROM categories LIMIT 1), 'EXPENSE', 100,
-                        'PLANNED', 'MEDIUM', FALSE, 'PLAN', now(), 'Проба ANO-146', ?::uuid)
-                """, key, owner);
+                VALUES (gen_random_uuid(), ?::uuid, CURRENT_DATE, (SELECT id FROM categories WHERE user_id = ?::uuid LIMIT 1),
+                        'EXPENSE', 100, 'PLANNED', 'MEDIUM', FALSE, 'PLAN', now(), 'Проба ANO-146', ?::uuid)
+                """, key, owner, owner);
     }
 
     private String insertFund(String owner) {

@@ -62,7 +62,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * </ol>
  * Сторож полноты сверяет вызванные ручки с картой Spring: новая ручка без проверки тест не пройдёт.
  *
- * <p>Спека: docs/superpowers/specs/2026-10-14-two-people-isolation-design.md
+ * <p>Второй тест — второй слой (ANO-147): тот же сценарий с выключенным RLS. Изоляцию тогда держат
+ * {@code @TenantId}, владелец в нативном запросе и составные ключи ссылок — без помощи базы.
+ *
+ * <p>Спеки: docs/superpowers/specs/2026-10-14-two-people-isolation-design.md,
+ * docs/superpowers/specs/2026-10-15-tenant-id-second-layer-design.md
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
@@ -88,11 +92,26 @@ class TwoPeopleIsolationIT {
     @Test
     @DisplayName("ни одна ручка не отдаёт и не меняет чужое: два человека с пересекающимися данными")
     void noEndpointShowsOrChangesSomeoneElses() throws Exception {
-        Person first = seed("first-person", 1);
+        twoPeople("first-person", "second-person");
+    }
+
+    @Test
+    @DisplayName("второй слой: то же с выключенным RLS — изоляцию держит приложение само")
+    void secondLayerHoldsWithoutRowLevelSecurity() throws Exception {
+        rowLevelSecurity("DISABLE");
+        try {
+            twoPeople("first-without-rls", "second-without-rls");
+        } finally {
+            rowLevelSecurity("ENABLE");
+        }
+    }
+
+    private void twoPeople(String firstSub, String secondSub) throws Exception {
+        Person first = seed(firstSub, 1);
         reads(first); // вхолостую: чтения достраивают бессрочные повторы
         Map<String, String> firstAlone = reads(first);
 
-        Person second = seed("second-person", 2);
+        Person second = seed(secondSub, 2);
         reads(second);
         Map<String, String> secondBefore = reads(second);
 
@@ -224,12 +243,22 @@ class TwoPeopleIsolationIT {
         }
     }
 
+    /** Таблицы с владельцем — все, где есть {@code user_id}. */
+    private List<String> ownerTables() {
+        return jdbc.queryForList("""
+                SELECT table_name FROM information_schema.columns
+                 WHERE table_schema = 'public' AND column_name = 'user_id'""", String.class);
+    }
+
+    /** {@code DISABLE} или {@code ENABLE} RLS на всех таблицах с владельцем — ролью владельца таблиц. */
+    private void rowLevelSecurity(String action) {
+        ownerTables().forEach(table -> jdbc.execute("ALTER TABLE " + table + " " + action + " ROW LEVEL SECURITY"));
+    }
+
     /** Id строк других владельцев → таблица: во всех таблицах с {@code user_id} и в {@code users}. */
     private Map<String, String> foreignIds(UUID owner) {
         Map<String, String> foreign = new HashMap<>();
-        for (String table : jdbc.queryForList("""
-                SELECT table_name FROM information_schema.columns
-                 WHERE table_schema = 'public' AND column_name = 'user_id'""", String.class)) {
+        for (String table : ownerTables()) {
             jdbc.queryForList("SELECT id::text FROM " + table + " WHERE user_id <> ?", String.class, owner)
                     .forEach(id -> foreign.put(id, table));
         }
@@ -252,14 +281,20 @@ class TwoPeopleIsolationIT {
 
     // ── удары по чужому id ──────────────────────────────────────────────────────
 
-    /** Удар по ручке с id в пути: {@code %s} — id строки другого человека по роли; ответ — 404, если не указан иной. */
+    /**
+     * Удар чужим id: {@code %s} в пути или в теле — id строки другого человека по роли. Ответ — 404, если не указан
+     * иной; 409 — без тела: в нём время.
+     */
     private record Hit(HttpMethod method, String path, String role, String body, String answer) {
         Hit(HttpMethod method, String path, String role, String body) {
             this(method, path, role, body, "404");
         }
     }
 
-    /** Каждая ручка с id в пути — по id другого человека. Удаления — последними, дочерние до родителей. */
+    /**
+     * Каждая ручка с id в пути — по id другого человека, и каждая ссылка в теле записи — на его строку.
+     * Удаления — последними, дочерние до родителей.
+     */
     private void attack(Person who, Person victim) throws Exception {
         String yesterday = TODAY.minusDays(1).toString();
         List<Hit> hits = List.of(
@@ -311,6 +346,20 @@ class TwoPeopleIsolationIT {
                         {"targetAmount":1}"""),
                 new Hit(PATCH, "/api/v1/funds/%s/wishlist-status", "credit", """
                         {"status":"DISMISSED"}"""),
+                // Своя запись со ссылкой на чужую строку (ANO-147). Пять ссылок сервис ищет через findById — 404;
+                // targetFundId он не ищет, его держит составной ключ схемы — 409.
+                new Hit(POST, "/api/v1/events", "category", """
+                        {"date":"2030-01-01","categoryId":"%s","type":"EXPENSE","plannedAmount":1}"""),
+                new Hit(POST, "/api/v1/events/facts", "category", """
+                        {"date":"2026-01-01","categoryId":"%s","type":"EXPENSE","factAmount":1}"""),
+                new Hit(POST, "/api/v1/accounts", "category", """
+                        {"name":"Чужая цель","kind":"DEBIT","purposeCategoryId":"%s"}"""),
+                new Hit(POST, "/api/v1/balance-checkpoints", "account", """
+                        {"date":"2026-01-01","amount":1,"accountId":"%s"}"""),
+                new Hit(POST, "/api/v1/funds", "account", """
+                        {"name":"На чужом счёте","targetAmount":1,"accountId":"%s"}"""),
+                new Hit(POST, "/api/v1/events", "fund", """
+                        {"date":"2030-01-01","type":"FUND_TRANSFER","plannedAmount":1,"targetFundId":"%s"}""", "409"),
                 new Hit(DELETE, "/api/v1/capital/revaluations/%s", "revaluation", null),
                 new Hit(DELETE, "/api/v1/capital/items/%s", "item", null),
                 new Hit(DELETE, "/api/v1/balance-checkpoints/%s", "checkpoint", null),
@@ -319,10 +368,12 @@ class TwoPeopleIsolationIT {
                 new Hit(DELETE, "/api/v1/accounts/%s", "account", null),
                 new Hit(DELETE, "/api/v1/categories/%s", "category", null));
         for (Hit hit : hits) {
-            MockHttpServletResponse response = call(who, attacked, hit.method(),
-                    hit.path().formatted(victim.id(hit.role())), hit.body(), null).getResponse();
-            String answer = response.getStatus() == 404 ? "404"
-                    : response.getStatus() + " " + response.getContentAsString(UTF_8);
+            String id = victim.id(hit.role());
+            MockHttpServletResponse response = call(who, attacked, hit.method(), hit.path().formatted(id),
+                    hit.body() == null ? null : hit.body().formatted(id), null).getResponse();
+            int status = response.getStatus();
+            String answer = status == 404 || status == 409 ? String.valueOf(status)
+                    : status + " " + response.getContentAsString(UTF_8);
             softly.assertThat(answer).as("%s %s [%s] у %s по id %s", hit.method(), hit.path(), hit.role(), who.sub,
                     victim.sub).isEqualTo(hit.answer());
         }
