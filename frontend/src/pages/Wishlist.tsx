@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronDown, TrendingUp } from 'lucide-react';
 import {
     postPocketSandbox, fixSandboxItem, setEventWishlistStatus, setFundWishlistStatus,
-    createWishlistItem,
+    createWishlistItem, fetchMe,
 } from '../api';
 import type {
     SandboxItem, SandboxRef, SandboxRequest, SandboxResponse, SandboxTryOn,
@@ -14,7 +14,7 @@ import {
     defaultTryOn, realizationScope, refKey, sameRef,
 } from '../lib/sandboxMath';
 import {
-    loadSandbox, saveSandbox, forgetRef, reconcile, differs, type SandboxState,
+    emptyState, loadSandbox, saveSandbox, forgetRef, reconcile, differs, type SandboxState,
 } from '../lib/sandboxStorage';
 import SandboxChart from '../components/sandbox/SandboxChart';
 import SandboxItemRow from '../components/sandbox/SandboxItemRow';
@@ -43,7 +43,9 @@ function reason(e: Error): string {
 export default function Wishlist() {
     const navigate = useNavigate();
     const [scope, setScope] = useState<string | undefined>(undefined);
-    const [state, setState] = useState<SandboxState>(() => loadSandbox());
+    /** Чей черновик (ANO-152): пока /me не ответил, примерка не читается и не пишется. */
+    const [owner, setOwner] = useState<string | null>(null);
+    const [state, setState] = useState<SandboxState>(emptyState);
     const [resp, setResp] = useState<SandboxResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     /** Заметка о сбросе примерки; гасится следующим действием пользователя. */
@@ -51,7 +53,12 @@ export default function Wishlist() {
     const [showCapital, setShowCapital] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    useEffect(() => { saveSandbox(state); }, [state]);
+    useEffect(() => {
+        fetchMe()
+            .then(me => { setOwner(me.id); setState(loadSandbox(me.id)); })
+            .catch((e: Error) => setError(reason(e)));
+    }, []);
+    useEffect(() => { if (owner) saveSandbox(owner, state); }, [owner, state]);
 
     // Скоуп «до реализации»: max дата включённых датированных элементов (§7).
     const realization = useMemo(() => {

@@ -4,8 +4,13 @@
 // Адрес API — только относительный: и в разработке (прокси Vite), и в docker (nginx) запрос идёт
 // тем же адресом, что и экран, — с cookie сеанса и CSRF. Спека — 2026-10-13-server-knows-owner-design.md.
 const BASE_URL = '/api/v1';
-/** Вход начинает сервер: он уводит в Keycloak и возвращает на экран с сеансом. */
-const SIGN_IN_URL = '/oauth2/authorization/keycloak';
+/** Свой экран входа (ANO-152): на него уводит 401. */
+const SIGN_IN_SCREEN = '/login';
+/**
+ * Вход начинает сервер: он уводит в Keycloak и возвращает на экран с сеансом. `provider=telegram` сервер
+ * превращает в `kc_idp_hint` — Keycloak сразу уводит к Telegram, без своей страницы (ANO-152).
+ */
+export const SIGN_IN_WITH_TELEGRAM = '/oauth2/authorization/keycloak?provider=telegram';
 
 /**
  * CSRF-токен для изменяющего запроса: сервер кладёт его в cookie `XSRF-TOKEN`, фронт возвращает
@@ -57,9 +62,9 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
         },
     });
     if (res.status === 401) {
-        // Сеанса нет — на вход. Ответ не приходит никогда: страница уходит, и экран не успевает
+        // Сеанса нет — на экран входа. Ответ не приходит никогда: страница уходит, и экран не успевает
         // показать «Не записалось» на запросе, который просто не дошёл до входа.
-        window.location.assign(SIGN_IN_URL);
+        window.location.assign(SIGN_IN_SCREEN);
         return new Promise<T>(() => {});
     }
     if (!res.ok) {
@@ -140,4 +145,19 @@ export function patch<T>(path: string, body?: unknown) {
         method: 'PATCH',
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
+}
+
+/**
+ * Выход — и у нас, и в Keycloak (ANO-152), иначе «Войти» впустит снова без подтверждения в Telegram.
+ * Форма не годится: CSRF сервера (`spa()`) сверяет параметр формы как замаскированный токен, а у экрана только
+ * сырой из cookie. Поэтому запрос с заголовком; сервер гасит наш сеанс и отвечает адресом выхода Keycloak —
+ * экран уходит по нему, браузер гасит сеанс Keycloak, и Keycloak возвращает на экран входа.
+ *
+ * @throws ApiError если сервер выход не принял — экран остаётся, чтобы человек не думал, что вышел
+ */
+export async function signOut(): Promise<void> {
+    const res = await fetch('/logout', { method: 'POST', headers: csrfHeader() });
+    if (!res.ok) throw new ApiError(res.status, [], `API error: ${res.status} /logout`);
+    const { redirect } = await res.json() as { redirect: string };
+    window.location.assign(redirect);
 }

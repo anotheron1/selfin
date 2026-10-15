@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, del, get, patch, post, put } from './client';
+import { ApiError, del, get, patch, post, put, signOut } from './client';
 import { setEventWishlistStatus, setFundWishlistStatus } from './index';
 import { attempt } from '../lib/writeFailure';
 
@@ -57,12 +57,12 @@ describe('успешный ответ без тела (ANO-208)', () => {
  * Спека — 2026-10-13-server-knows-owner-design.md.
  */
 describe('вход через наш сервер (ANO-195)', () => {
-    it('401 — уход на вход через сервер', async () => {
+    it('401 — уход на наш экран входа, а не прямо в Keycloak (ANO-152)', async () => {
         const assign = vi.fn();
         vi.stubGlobal('window', { location: { assign } });
         answer(new Response(null, { status: 401 }));
         void get('/pocket');
-        await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/oauth2/authorization/keycloak'));
+        await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/login'));
     });
 
     it('изменяющие запросы несут CSRF-токен из cookie, GET — нет', async () => {
@@ -85,5 +85,32 @@ describe('вход через наш сервер (ANO-195)', () => {
         vi.stubGlobal('fetch', fetch);
         await get('/pocket');
         expect(fetch).toHaveBeenCalledWith('/api/v1/pocket', expect.anything());
+    });
+});
+
+/**
+ * ANO-152. Выход — и у нас, и в Keycloak. Форма не годится: CSRF сервера (`spa()`) сверяет параметр формы как
+ * замаскированный токен, а у экрана только сырой из cookie. Поэтому запрос с заголовком, а сервер отвечает адресом
+ * выхода Keycloak — экран уходит по нему, и браузер гасит сеанс Keycloak.
+ * Спека — 2026-10-15-sign-in-screen-design.md.
+ */
+describe('выход (ANO-152)', () => {
+    it('POST /logout с CSRF-токеном в заголовке и переход по адресу выхода из ответа', async () => {
+        vi.stubGlobal('document', { cookie: 'XSRF-TOKEN=tok%3D' });
+        const assign = vi.fn();
+        vi.stubGlobal('window', { location: { assign } });
+        const fetch = vi.fn(async () => new Response(JSON.stringify({ redirect: 'http://kc/logout?id_token_hint=x' })));
+        vi.stubGlobal('fetch', fetch);
+        await signOut();
+        expect(fetch).toHaveBeenCalledWith('/logout', { method: 'POST', headers: { 'X-XSRF-TOKEN': 'tok=' } });
+        expect(assign).toHaveBeenCalledWith('http://kc/logout?id_token_hint=x');
+    });
+
+    it('выход не удался — ошибка, экран остаётся: иначе человек думал бы, что вышел', async () => {
+        const assign = vi.fn();
+        vi.stubGlobal('window', { location: { assign } });
+        answer(new Response(null, { status: 403 }));
+        await expect(signOut()).rejects.toBeInstanceOf(ApiError);
+        expect(assign).not.toHaveBeenCalled();
     });
 });

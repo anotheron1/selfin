@@ -65,8 +65,9 @@ test('секрет клиента selfin — из окружения: в фай�
   assert.equal(selfin.secret, '${SELFIN_CLIENT_SECRET}');
 });
 
-test('в токенах клиента selfin только sub: область basic, без ролей', () => {
-  assert.deepEqual(selfin.defaultClientScopes, ['basic']);
+// ANO-152: «Вы вошли как» в «Настройках» — имя и ник из области profile; почты и ролей серверу не нужно.
+test('в токенах клиента selfin — sub, имя и ник: области basic и profile, без почты и ролей', () => {
+  assert.deepEqual(selfin.defaultClientScopes, ['basic', 'profile']);
   assert.deepEqual(selfin.optionalClientScopes ?? [], []);
   assert.equal(selfin.fullScopeAllowed, false);
 });
@@ -76,6 +77,23 @@ test('адреса возврата — экран разработки и ст�
   for (const uri of selfin.redirectUris) {
     assert.match(uri, /^http:\/\/(127\.0\.0\.1|localhost):517[34]\/login\/oauth2\/code\/keycloak$/);
   }
+});
+
+// ANO-152: выход завершается в Keycloak, и он возвращает на наш экран входа — только на эти адреса.
+test('адреса после выхода — экран входа разработки и стенда, буква в букву', () => {
+  const uris = selfin.attributes?.['post.logout.redirect.uris']?.split('##') ?? [];
+  assert.ok(uris.length > 0);
+  for (const uri of uris) {
+    assert.match(uri, /^http:\/\/(127\.0\.0\.1|localhost):517[34]\/login$/);
+  }
+});
+
+// ANO-152, решение владельца 15.10: вход держится 30 дней. Сеанс Keycloak нужен, когда наш сеанс потерян —
+// после перезапуска сервера: пока он жив, «Войти» возвращает без подтверждения в Telegram.
+test('сеанс Keycloak — 30 дней без действий и не дольше 30 дней', () => {
+  const thirtyDays = 30 * 24 * 60 * 60;
+  assert.equal(realm.ssoSessionIdleTimeout, thirtyDays);
+  assert.equal(realm.ssoSessionMaxLifespan, thirtyDays);
 });
 
 test('клиента скриптов в файле нет: файл идёт на сервер, а там он открыл бы API в обход Telegram', () => {

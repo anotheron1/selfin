@@ -12,16 +12,27 @@ export interface SandboxState {
     adhoc: SandboxTryOn[];
 }
 
-const KEY = 'selfin.sandbox.v1';
+/** Общий ключ до ANO-152: один черновик на браузер. Чей он — не узнать, поэтому стирается, а не отдаётся. */
+const SHARED_KEY = 'selfin.sandbox.v1';
+
+/** Черновик — свой у каждого человека (ANO-152): двое на одном браузере не видят примерку друг друга. */
+function key(owner: string): string {
+    return `${SHARED_KEY}.${owner}`;
+}
 
 export function emptyState(): SandboxState {
     return { enabled: [], adhoc: [] };
 }
 
-/** Читает черновик; поля старых версий (excluded) молча отбрасываются. */
-export function loadSandbox(): SandboxState {
+/**
+ * Читает черновик человека; поля старых версий (excluded) молча отбрасываются.
+ *
+ * @param owner id из `GET /api/v1/me`
+ */
+export function loadSandbox(owner: string): SandboxState {
     try {
-        const raw = localStorage.getItem(KEY);
+        localStorage.removeItem(SHARED_KEY);
+        const raw = localStorage.getItem(key(owner));
         if (!raw) return emptyState();
         const p = JSON.parse(raw) as Partial<SandboxState>;
         return {
@@ -33,9 +44,9 @@ export function loadSandbox(): SandboxState {
     }
 }
 
-export function saveSandbox(state: SandboxState): void {
+export function saveSandbox(owner: string, state: SandboxState): void {
     try {
-        localStorage.setItem(KEY, JSON.stringify(state));
+        localStorage.setItem(key(owner), JSON.stringify(state));
     } catch {
         /* приватный режим/переполнение — молча теряем черновик, не роняем UI */
     }
