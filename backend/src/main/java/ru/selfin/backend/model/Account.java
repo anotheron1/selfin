@@ -2,6 +2,7 @@ package ru.selfin.backend.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.TenantId;
 import ru.selfin.backend.model.enums.AccountKind;
 
 import java.math.BigDecimal;
@@ -36,6 +37,10 @@ public class Account {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    @TenantId
+    @Column(name = "user_id", nullable = false, updatable = false)
+    private UUID userId;
 
     @Column(nullable = false, length = 255)
     private String name;

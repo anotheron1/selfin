@@ -117,10 +117,11 @@ class RowLevelSecurityIT {
     void noOwnerSeesNothing() {
         as(null, () -> {
             assertThat(app().queryForObject("SELECT count(*) FROM categories", Long.class)).isZero();
+            // Владелец в строке явно: без него запись остановил бы NOT NULL раньше политики (V33).
             assertThatThrownBy(() -> app().update("""
-                    INSERT INTO categories (id, name, type, is_deleted, is_system, forecast_enabled)
-                    VALUES (gen_random_uuid(), 'Ничья', 'EXPENSE', FALSE, FALSE, FALSE)
-                    """)).rootCause().hasMessageContaining("violates row-level security policy");
+                    INSERT INTO categories (id, name, type, is_deleted, is_system, forecast_enabled, user_id)
+                    VALUES (gen_random_uuid(), 'Ничья', 'EXPENSE', FALSE, FALSE, FALSE, ?)
+                    """, OwnerService.SYNTHETIC_OWNER)).rootCause().hasMessageContaining("violates row-level security policy");
             return null;
         });
     }

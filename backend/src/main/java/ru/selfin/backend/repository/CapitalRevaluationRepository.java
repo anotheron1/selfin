@@ -31,6 +31,9 @@ public interface CapitalRevaluationRepository extends JpaRepository<CapitalReval
      * (tie-break по {@code created_at DESC}). Item'ы без подходящей переоценки в результат не попадают.
      *
      * <p>Реализация — один SQL с {@code DISTINCT ON} (PostgreSQL). Не делать N+1.
+     *
+     * <p>Владелец — в самом запросе (ANO-147): нативный SQL фильтр Hibernate не получает, а без RLS сложил бы
+     * предметы всех людей. {@code current_owner()} — владелец соединения, его ставит пул приложения.
      */
     @Query(value = """
             SELECT DISTINCT ON (r.item_id)
@@ -39,7 +42,9 @@ public interface CapitalRevaluationRepository extends JpaRepository<CapitalReval
                    r.value    AS value
             FROM capital_revaluations r
             JOIN capital_items i ON i.id = r.item_id
-            WHERE r.is_deleted = false
+            WHERE r.user_id = current_owner()
+              AND i.user_id = current_owner()
+              AND r.is_deleted = false
               AND i.is_deleted = false
               AND r.valued_at <= :asOfDate
             ORDER BY r.item_id, r.valued_at DESC, r.created_at DESC
