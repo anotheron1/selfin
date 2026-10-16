@@ -45,6 +45,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.selfin.backend.service.OwnerService;
+import ru.selfin.backend.service.Registration;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -119,6 +120,9 @@ class SignInIT {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    Registration registration;
 
     @Autowired
     ClientRegistrationRepository registrations;
@@ -261,7 +265,7 @@ class SignInIT {
     void ownerLinkIsOneTime() throws Exception {
         assertThat(me(bearer(token(c -> c.subject(OWNER_SUB))))).isEqualTo(SYNTHETIC_OWNER);
         // Реалм пересоздали, у владельца новый sub, его вписали в настройку: данные остаются у прежнего.
-        OwnerService reconfigured = new OwnerService(jdbc, "owner-after-realm-reset");
+        OwnerService reconfigured = new OwnerService(jdbc, registration, "owner-after-realm-reset");
         SecurityContextHolder.getContext()
                 .setAuthentication(new TestingAuthenticationToken("owner-after-realm-reset", null, "ROLE_USER"));
         try {

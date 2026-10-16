@@ -88,13 +88,16 @@ class RowLevelSecurityIT {
     @DisplayName("второй человек не видит категорий первого и пишет своё — людей различает сервер")
     void secondPersonSeesOnlyOwn() throws Exception {
         assertThat(categories(null)).as("первый — синтетический владелец со стартовыми категориями").isNotEmpty();
-        assertThat(categories(second())).as("второму чужие категории не видны").isEmpty();
+        // У второго — свой стартовый набор (ANO-151): виден ровно он, строк синтетического в нём нет.
+        assertThat(categories(second())).as("второму чужие категории не видны")
+                .containsExactlyInAnyOrderElementsOf(ownCategories(secondOwner())).doesNotContain("Аренда / ЖКХ");
 
         mvc.perform(post("/api/v1/categories").with(second()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Своя второго\",\"type\":\"EXPENSE\"}"))
                 .andExpect(status().isOk());
 
-        assertThat(categories(second())).containsExactly("Своя второго");
+        assertThat(categories(second())).contains("Своя второго")
+                .containsExactlyInAnyOrderElementsOf(ownCategories(secondOwner()));
         assertThat(categories(null)).doesNotContain("Своя второго");
         assertThat(jdbc.queryForObject("SELECT user_id FROM categories WHERE name = 'Своя второго'", UUID.class))
                 .as("строку получил второй, а не синтетический").isEqualTo(secondOwner())
@@ -152,6 +155,11 @@ class RowLevelSecurityIT {
 
     private UUID secondOwner() {
         return owners.resolve(SECOND_SUB);
+    }
+
+    /** Живые категории человека по базе — ролью владельца таблиц, мимо RLS. */
+    private List<String> ownCategories(UUID owner) {
+        return jdbc.queryForList("SELECT name FROM categories WHERE user_id = ? AND NOT is_deleted", String.class, owner);
     }
 
     /** Имена категорий, которые видит человек: {@code null} — пользователь MockMvc по умолчанию. */
