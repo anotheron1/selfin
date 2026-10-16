@@ -139,10 +139,11 @@ class TwoPeopleIsolationIT {
     private Person seed(String sub, int k) throws Exception {
         Person p = new Person(sub);
         p.owner = UUID.fromString(JsonPath.read(ok(p, GET, "/api/v1/me", null, null), "$.id"));
+        // Стартовый набор у каждого свой и с одними именами (ANO-151); заведённое — сверх него, имена вне набора.
         p.save("category", ok(p, POST, "/api/v1/categories", """
-                {"name":"Продукты","type":"EXPENSE"}""", null));
+                {"name":"Спорт","type":"EXPENSE"}""", null));
         p.save("income", ok(p, POST, "/api/v1/categories", """
-                {"name":"Зарплата","type":"INCOME"}""", null));
+                {"name":"Аванс","type":"INCOME"}""", null));
         p.save("account", ok(p, POST, "/api/v1/accounts", """
                 {"name":"Карта","kind":"DEBIT","trackBalance":true}""", null));
         ok(p, PATCH, "/api/v1/accounts/" + p.id("account") + "/default", null, null);
