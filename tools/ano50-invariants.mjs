@@ -80,16 +80,6 @@ async function get(path) {
 
 // ── Кармашек: разбор одного скоупа ───────────────────────────────────────────
 
-/** Строки ДО TRAJECTORY_MIN объясняют минимум; всё после POCKET — оговорки (Javadoc BreakdownType). */
-const EXPLAINING = [
-  'STARTING_BALANCE',
-  'OVERDUE_RESERVE',
-  'PLANNED_EXPENSES',
-  'SAVINGS_CONTRIBUTIONS',
-  'PLANNED_INCOME',
-  'UNPLANNED_FORECAST',
-];
-
 function checkPocket(scope, p) {
   const lines = p.breakdown ?? [];
   const byType = {};
@@ -108,8 +98,11 @@ function checkPocket(scope, p) {
   const pocketLine = byType.POCKET;
   const bufferLine = byType.BUFFER ?? 0;
 
-  // I1. Объяснимость: сумма объясняющих строк = минимум траектории.
-  const explained = EXPLAINING.reduce((s, t) => s + (byType[t] ?? 0), 0);
+  // I1. Объяснимость: сумма объясняющих строк = минимум траектории. Объясняют строки ДО TRAJECTORY_MIN, всё после
+  // POCKET — оговорки (Javadoc BreakdownType): по порядку ответа, а не списком типов. Список устарел молча — без
+  // ENVELOPE_FUNDS (Р10-А) I1 краснел на любых деньгах в копилках без счёта (ANO-154, копия базы владельца).
+  const explaining = lines.slice(0, Math.max(lines.findIndex((l) => l.type === 'TRAJECTORY_MIN'), 0));
+  const explained = explaining.reduce((s, l) => s + num(l.amount), 0);
   if (minLine === undefined) {
     fail('I1-объяснимость', scope, 'в breakdown нет строки TRAJECTORY_MIN');
   } else if (!eq(explained, minLine)) {
@@ -117,7 +110,7 @@ function checkPocket(scope, p) {
       сумма: explained,
       минимум: minLine,
       разница: explained - minLine,
-      слагаемые: Object.fromEntries(EXPLAINING.filter((t) => byType[t] !== undefined).map((t) => [t, byType[t]])),
+      слагаемые: Object.fromEntries(explaining.map((l) => [l.type, num(l.amount)])),
     });
   }
 
