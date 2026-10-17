@@ -11,6 +11,7 @@ import Funds from './pages/Funds';
 import Settings from './pages/Settings';
 import SignIn from './pages/SignIn';
 import Strategy from './pages/Strategy';
+import UpdateBanner from './components/UpdateBanner';
 import Wishlist from './pages/Wishlist';
 
 /**
@@ -47,6 +48,7 @@ function Screens() {
       </div>
       <Fab onSuccess={handleSuccess} />
       <BottomNav />
+      <UpdateBanner />
     </>
   );
 }
