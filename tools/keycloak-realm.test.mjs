@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { ownIssuer } from './keycloak-token.mjs';
 
 const realm = JSON.parse(readFileSync(new URL('../keycloak/selfin-realm.json', import.meta.url), 'utf8'));
 const telegram = realm.identityProviders?.find((p) => p.alias === 'telegram');
@@ -72,19 +73,23 @@ test('в токенах клиента selfin — sub, имя и ник: обл�
   assert.equal(selfin.fullScopeAllowed, false);
 });
 
-test('адреса возврата — экран разработки и стенда, буква в букву', () => {
-  assert.ok(selfin.redirectUris.length > 0);
-  for (const uri of selfin.redirectUris) {
-    assert.match(uri, /^http:\/\/(127\.0\.0\.1|localhost):517[34]\/login\/oauth2\/code\/keycloak$/);
+// ANO-197: адрес сервера — подстановкой из окружения при импорте реалма; без переменной — адрес стенда.
+const SERVER = '${SELFIN_PUBLIC_URL:http://127.0.0.1:5174}';
+const STAND = /^http:\/\/(127\.0\.0\.1|localhost):517[34]/;
+
+test('адреса возврата — экран разработки и стенда и адрес сервера из окружения, буква в букву', () => {
+  assert.ok(selfin.redirectUris.includes(`${SERVER}/login/oauth2/code/keycloak`), 'адрес сервера — из SELFIN_PUBLIC_URL');
+  for (const uri of selfin.redirectUris.filter((u) => !u.startsWith(SERVER))) {
+    assert.match(uri, new RegExp(`${STAND.source}/login/oauth2/code/keycloak$`));
   }
 });
 
 // ANO-152: выход завершается в Keycloak, и он возвращает на наш экран входа — только на эти адреса.
-test('адреса после выхода — экран входа разработки и стенда, буква в букву', () => {
+test('адреса после выхода — экран входа разработки и стенда и адрес сервера из окружения, буква в букву', () => {
   const uris = selfin.attributes?.['post.logout.redirect.uris']?.split('##') ?? [];
-  assert.ok(uris.length > 0);
-  for (const uri of uris) {
-    assert.match(uri, /^http:\/\/(127\.0\.0\.1|localhost):517[34]\/login$/);
+  assert.ok(uris.includes(`${SERVER}/login`), 'адрес сервера — из SELFIN_PUBLIC_URL');
+  for (const uri of uris.filter((u) => !u.startsWith(SERVER))) {
+    assert.match(uri, new RegExp(`${STAND.source}/login$`));
   }
 });
 
@@ -98,4 +103,14 @@ test('сеанс Keycloak — 30 дней без действий и не дол
 
 test('клиента скриптов в файле нет: файл идёт на сервер, а там он открыл бы API в обход Telegram', () => {
   assert.deepEqual(realm.clients.map((c) => c.clientId), ['selfin']);
+});
+
+// Тестовый человек с паролем из репозитория и клиент скриптов (tools/keycloak-token.mjs) открыли бы серверу вход
+// в обход Telegram (ревью Codex на #171). Их заводят только в своём Keycloak — тот, чей издатель на этой машине:
+// у сервера издатель — его адрес, даже через туннель к консоли (замер 18.10).
+test('тестового человека заводят только в своём Keycloak: издатель на этой машине, а не сервер', () => {
+  for (const own of ['http://127.0.0.1:8180/realms/selfin', 'http://localhost:8199/realms/selfin',
+    'https://localhost:8443/auth/realms/selfin', 'http://[::1]:8180/realms/selfin']) assert.ok(ownIssuer(own), own);
+  for (const server of ['https://selfin.duckdns.org/auth/realms/selfin', 'https://localhost.example.com/auth/realms/selfin',
+    'https://127.0.0.1.nip.io/auth/realms/selfin']) assert.ok(!ownIssuer(server), server);
 });

@@ -1,6 +1,9 @@
 package ru.selfin.backend.config;
 
 import com.zaxxer.hikari.HikariDataSource;
+import org.flywaydb.core.api.callback.Callback;
+import org.flywaydb.core.api.callback.Context;
+import org.flywaydb.core.api.callback.Event;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.flyway.autoconfigure.FlywayDataSource;
@@ -17,7 +20,9 @@ import ru.selfin.backend.service.OwnerContext;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +51,48 @@ public class DatabaseRolesConfig {
         return DataSourceBuilder.create().type(SimpleDriverDataSource.class)
                 .url(login.getJdbcUrl()).username(login.getUsername()).password(login.getPassword())
                 .build();
+    }
+
+    /**
+     * Пароль роли приложения — из {@code selfin.db.app-password}, после каждого {@code migrate} (ANO-197): {@code V32}
+     * заводит роль с паролем разработки, на сервере — свой. Ставит роль миграций, владелец таблиц; в кавычки пароль берёт
+     * сам Postgres ({@code format('%L')}), в текст ошибок он не попадает. Ручного шага на сервере нет — и забыть его нельзя.
+     *
+     * <p>Спека: docs/superpowers/specs/2026-10-17-server-compose-design.md
+     */
+    @Bean
+    Callback appRolePassword(Environment environment) {
+        return new Callback() {
+            @Override
+            public boolean supports(Event event, Context context) {
+                return event == Event.AFTER_MIGRATE;
+            }
+
+            @Override
+            public boolean canHandleInTransaction(Event event, Context context) {
+                return true;
+            }
+
+            @Override
+            public void handle(Event event, Context context) {
+                try (PreparedStatement quote = context.getConnection()
+                        .prepareStatement("SELECT format('ALTER ROLE %I PASSWORD %L', ?, ?)")) {
+                    quote.setString(1, environment.getRequiredProperty("selfin.db.app-username"));
+                    quote.setString(2, environment.getRequiredProperty("selfin.db.app-password"));
+                    try (ResultSet alter = quote.executeQuery(); Statement statement = context.getConnection().createStatement()) {
+                        alter.next();
+                        statement.execute(alter.getString(1));
+                    }
+                } catch (SQLException e) {
+                    throw new IllegalStateException("пароль роли приложения не поставлен: " + e.getSQLState(), e);
+                }
+            }
+
+            @Override
+            public String getCallbackName() {
+                return "appRolePassword";
+            }
+        };
     }
 
     /** Пул приложения: роль {@code selfin_app} — после всех пост-процессоров Boot, и владелец на выдаче. */

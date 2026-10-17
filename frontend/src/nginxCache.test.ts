@@ -10,6 +10,24 @@ import { readFileSync } from 'node:fs';
 const conf = readFileSync(new URL('../nginx.conf', import.meta.url), 'utf8');
 const block = (location: string) => conf.match(new RegExp(`location ${location} \\{([^}]*)\\}`))?.[1] ?? '';
 
+describe('nginx фронта: прокси на бэк (ANO-197)', () => {
+    it('схема запроса — от HTTPS-прокси впереди, а без него своя: иначе Spring строит адрес возврата http://', () => {
+        expect(conf).toMatch(/map \$http_x_forwarded_proto \$forwarded_proto \{[^}]*default \$http_x_forwarded_proto;[^}]*"" \$scheme;[^}]*\}/);
+        expect(conf).toMatch(/proxy_set_header X-Forwarded-Proto \$forwarded_proto;/);
+    });
+
+    it('публичный порт — из Host: на нестандартном порту адрес возврата не теряет порт (ревью Codex на #171)', () => {
+        expect(conf).toMatch(/map \$http_host \$forwarded_port \{[^}]*~:\(\?<port>\\d\+\)\$ \$port;[^}]*\}/);
+        expect(conf).toMatch(/proxy_set_header X-Forwarded-Port \$forwarded_port;/);
+    });
+
+    it('бэк ищется по имени на каждый запрос: фронт стартует и без бэка (находка 15.10)', () => {
+        expect(conf).toMatch(/resolver 127\.0\.0\.11/);
+        expect(conf).toMatch(/set \$backend http:\/\/backend:8080;/);
+        expect(conf).toMatch(/proxy_pass \$backend;/);
+    });
+});
+
 describe('nginx фронта: кэш (ANO-222)', () => {
     it('index.html — без хранения: браузер сверяет ETag и после выкладки грузит новый бандл', () => {
         expect(block('= /index\\.html')).toMatch(/add_header\s+Cache-Control\s+"no-cache"/);
