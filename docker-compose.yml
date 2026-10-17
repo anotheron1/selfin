@@ -36,7 +36,11 @@ services:
       - db
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      # Тот же коммит, что у бэка: экран сравнивает его с GET /api/v1/version (ANO-222).
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: selfin-frontend
     ports:
       - "5173:80"

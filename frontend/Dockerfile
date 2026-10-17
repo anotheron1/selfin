@@ -3,6 +3,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
+# Коммит сборки — экран сравнивает его с GET /api/v1/version и предлагает обновиться (ANO-222).
+ARG GIT_COMMIT=unknown
+ENV VITE_GIT_COMMIT=$GIT_COMMIT
 RUN npm run build
 
 FROM nginx:stable-alpine

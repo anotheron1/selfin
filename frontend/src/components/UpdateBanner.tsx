@@ -1,21 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Button } from './ui/button';
-import { serverCommit, versionWatch } from '../lib/versionWatch';
+import { BUILD_COMMIT, serverCommit, stale } from '../lib/versionWatch';
 
 /**
- * Строка «вышло обновление» (ANO-222): сервер обновили, пока вкладка была открыта. Проверка — при открытии и когда
- * вкладка снова становится видимой. Перезагружает кнопка, а не сама вкладка: человек может быть посреди ввода.
+ * Строка «вышло обновление» (ANO-222): экран и сервер из разных сборок. Проверка — при открытии и когда вкладка снова
+ * становится видимой. Перезагружает кнопка, а не сама вкладка: человек может быть посреди ввода.
  */
 export default function UpdateBanner() {
     const [updated, setUpdated] = useState(false);
 
     useEffect(() => {
-        const changed = versionWatch(serverCommit);
-        void changed(); // запомнить коммит сервера при открытии
+        const check = () => void serverCommit().then((commit) => stale(BUILD_COMMIT, commit) && setUpdated(true));
+        check();
         // ponytail: только по возврату на вкладку; таймер — если выкладка застанет видимую вкладку посреди ввода
-        const onVisible = () => {
-            if (document.visibilityState === 'visible') void changed().then((yes) => yes && setUpdated(true));
-        };
+        const onVisible = () => document.visibilityState === 'visible' && check();
         document.addEventListener('visibilitychange', onVisible);
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, []);

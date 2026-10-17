@@ -53,7 +53,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Коммит сборки для GET /api/v1/version (ANO-194); фронт аргумент не читает.
+          # Коммит сборки: бэк отдаёт его в GET /api/v1/version (ANO-194), фронт сравнивает с ним свой (ANO-222).
           build-args: GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
