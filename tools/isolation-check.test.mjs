@@ -1,7 +1,12 @@
 // node --test tools/isolation-check.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { leaks, changed } from './isolation-check.mjs';
+import { leaks, changed, runnable } from './isolation-check.mjs';
+
+test('удар без чужой строки нужной роли пропускается: он проверял бы не изоляцию (ревью Codex на #167)', () => {
+  const entries = [{ role: 'fund', path: 'a' }, { role: 'account', path: 'b' }];
+  assert.deepEqual(runnable(entries, { account: 'id-1', fund: undefined }), [{ role: 'account', path: 'b' }]);
+});
 
 const FOREIGN = new Map([['11111111-aaaa-4aaa-8aaa-111111111111', 'accounts'], ['22222222-bbbb-4bbb-8bbb-222222222222', 'users']]);
 
