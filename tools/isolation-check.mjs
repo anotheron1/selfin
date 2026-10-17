@@ -89,12 +89,14 @@ async function probe(person, victim, victimToken, violations) {
   console.log('роль пула приложения:', sql(`SELECT string_agg(DISTINCT usename, ',') FROM pg_stat_activity
     WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid()`)[0]);
 
+  // Прогрев — первым (ревью Codex на #167): чтения хозяина данных достраивают его бессрочные повторы, и их id должны
+  // попасть и в список чужих, и в отпечаток — как в TwoPeopleIsolationIT, где чужие id снимаются после холостых чтений.
+  const victimBefore = victimToken && await reads(victimToken);
+
   const foreign = new Map();
   for (const table of PERSON_TABLES) for (const id of sql(`SELECT id FROM ${table} WHERE user_id <> '${secondId}'`)) foreign.set(id, table);
   for (const id of sql(`SELECT id FROM users WHERE id <> '${secondId}'`)) foreign.set(id, 'users');
   console.log(`чужих строк: ${foreign.size}`);
-
-  const victimBefore = victimToken && await reads(victimToken); // заодно достраивает бессрочные повторы до отпечатка
   const before = fingerprint(secondId);
 
   // ── чтения второго ────────────────────────────────────────────────────────
@@ -125,6 +127,9 @@ async function probe(person, victim, victimToken, violations) {
     creditFund: one(`SELECT id FROM target_funds WHERE user_id = '${victim}' AND NOT is_deleted AND purchase_type = 'CREDIT'
       AND wishlist_status IS NOT NULL ORDER BY (wishlist_status = 'OPEN') DESC LIMIT 1`),
   };
+  // Своя категория второго — в теле правки чужого события: чужим должен быть только id в пути, иначе 404 даст проверка
+  // категории и спрячет дыру в поиске события (ревью Codex на #167; так же в TwoPeopleIsolationIT).
+  const ownCategory = one(`SELECT id FROM categories WHERE user_id = '${secondId}' AND NOT is_deleted AND type = 'EXPENSE' LIMIT 1`);
   const missing = Object.keys(ids).filter((role) => !ids[role]);
   if (missing.length) console.log('у хозяина данных нет строк для ударов:', missing.join(', '));
   const yesterday = day(-1);
@@ -137,7 +142,7 @@ async function probe(person, victim, victimToken, violations) {
     hit('POST', '/capital/items/%s/revaluations', 'item', { value: 1, valuedAt: yesterday }),
     hit('PUT', '/capital/revaluations/%s', 'revaluation', { value: 1 }),
     hit('PUT', '/categories/%s', 'category', { name: 'Чужая', type: 'EXPENSE' }), hit('PATCH', '/categories/%s/priority', 'category'),
-    hit('PUT', '/events/%s', 'plan', { date: day(5), categoryId: ids.category, type: 'EXPENSE', plannedAmount: 1 }),
+    hit('PUT', '/events/%s', 'plan', { date: day(5), categoryId: ownCategory, type: 'EXPENSE', plannedAmount: 1 }),
     hit('PATCH', '/events/%s/fact', 'fact', { factAmount: 1 }), hit('PATCH', '/events/%s/priority', 'plan'),
     hit('POST', '/events/%s/facts', 'plan', { date: day(), factAmount: 1 }),
     hit('PATCH', '/events/%s/wishlist-params', 'wish', { plannedAmount: 1 }),

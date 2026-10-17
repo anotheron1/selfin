@@ -83,6 +83,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const { kcId, userId, left } = await deletePerson({ username: option('--username'), sub: option('--sub'), oursOnly });
     const done = oursOnly ? 'наши строки удалены, учётная запись Keycloak оставлена' : 'удалён целиком';
     console.log(`Keycloak ${kcId}, у нас ${userId ?? 'строки не было'}: ${left.length ? `осталось — ${left.join('; ')}` : done}`);
+    // Сеансы приложения — в памяти сервера и живут до 30 дней: открытая вкладка удалённого человека первым же запросом
+    // завела бы его заново (ревью Codex на #167). Временный второй человек ходит по Bearer, сеанса у него нет.
+    if (!left.length && !oursOnly) {
+      console.log('если человек входил из браузера — перезапусти бэк: его сеанс в памяти сервера иначе заведёт его заново');
+    }
     process.exitCode = left.length ? 1 : 0;
   } catch (e) {
     console.error(e.message);
