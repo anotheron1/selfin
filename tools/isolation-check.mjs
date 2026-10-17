@@ -12,8 +12,8 @@
 // Выход 1 — изоляция нарушена, проверка оборвалась или что-то не убралось. Адреса — как у second-person.mjs.
 
 import { pathToFileURL } from 'node:url';
-import { adminToken, scriptsToken, SCRIPTS } from './keycloak-token.mjs';
-import { KC, KC_ADMIN, adminCall, api, secondPerson, sql } from './second-person.mjs';
+import { scriptsToken } from './keycloak-token.mjs';
+import { KC, api, removeScriptsClient, secondPerson, sql } from './second-person.mjs';
 import { deletePerson, PERSON_TABLES } from './delete-person.mjs';
 
 /** Ответы, где встретились чужие id: [вызов, ['таблица id', …]]. */
@@ -228,13 +228,7 @@ async function main(args) {
     }
     if (args.includes('--remove-scripts-client')) {
       try {
-        const admin = await adminToken(KC_ADMIN);
-        const clients = await (await adminCall(admin, 'GET', `/clients?clientId=${SCRIPTS.clientId}`)).json();
-        for (const client of clients) {
-          const response = await adminCall(admin, 'DELETE', `/clients/${client.id}`);
-          if (!response.ok) throw new Error(`удаление ответило ${response.status} ${await response.text()}`);
-        }
-        console.log(`клиент скриптов убран: ${clients.length}`);
+        console.log(`клиент скриптов убран: ${await removeScriptsClient()}`);
       } catch (e) {
         violations.push(`клиент скриптов не убран: ${e.message}`);
       }

@@ -2,18 +2,19 @@
 // Удаление человека со всеми данными (спека 2026-10-17-stand-tools-design.md): временного второго человека после
 // проверки и любого человека по его просьбе.
 //
-//   node tools/delete-person.mjs --username <имя> | --sub <id Keycloak> [--ours-only]
+//   node tools/delete-person.mjs --username <имя> | --sub <id Keycloak> [--ours-only] [--remove-scripts-client]
 //
 // Сначала наши строки — одной транзакцией, в порядке tools/person-tables.json, строка users последней; потом учётная
 // запись Keycloak. Общей транзакции у двух систем нет: повторный запуск доделывает начатое. В конце проверяются оба
 // условия — строк человека ноль, учётной записи нет; выход 1 — что-то осталось.
 // --ours-only — только наши строки, учётную запись Keycloak не трогать (ловушка шага 7 плана спринта 6).
+// --remove-scripts-client — заодно убрать клиент скриптов: на сервере он живёт только на время проверки.
 // Синтетического владельца — историю владельца, на стенде копию — не удаляет. Адреса — как у second-person.mjs.
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { adminToken } from './keycloak-token.mjs';
-import { KC_ADMIN, adminCall, findUser, sql } from './second-person.mjs';
+import { KC_ADMIN, adminCall, findUser, removeScriptsClient, sql } from './second-person.mjs';
 
 /** Таблицы с владельцем в порядке удаления — дочерние до родителей. Сторож — тест в TwoPeopleIsolationIT. */
 export const PERSON_TABLES = JSON.parse(readFileSync(new URL('./person-tables.json', import.meta.url), 'utf8'));
@@ -88,6 +89,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (!left.length && !oursOnly) {
       console.log('если человек входил из браузера — перезапусти бэк: его сеанс в памяти сервера иначе заведёт его заново');
     }
+    if (args.includes('--remove-scripts-client')) console.log(`клиент скриптов убран: ${await removeScriptsClient()}`);
     process.exitCode = left.length ? 1 : 0;
   } catch (e) {
     console.error(e.message);

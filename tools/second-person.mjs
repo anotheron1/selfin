@@ -76,13 +76,27 @@ export async function secondPerson(prefix = 'tester2') {
     }), `токен ${username}`);
     return { token: (await token.json()).access_token, kcId, username };
   } catch (e) {
-    await adminCall(admin, 'DELETE', `/users/${kcId}`); // без токена человек не нужен — не оставлять его
+    // Без токена человек не нужен — не оставлять его; не убрался — сказать, как убрать (ревью Codex на #167).
+    const rollback = await adminCall(admin, 'DELETE', `/users/${kcId}`);
+    if (!rollback.ok && rollback.status !== 404) {
+      e.message += `; учётная запись ${username} не убрана (${rollback.status}) — node tools/delete-person.mjs --sub ${kcId}`;
+    }
     throw e;
   }
 }
 
+/** Убирает клиент скриптов — на сервере он живёт только на время проверки. Возвращает, сколько убрано. */
+export async function removeScriptsClient() {
+  const admin = await adminToken(KC_ADMIN);
+  const found = await ok(await adminCall(admin, 'GET', `/clients?clientId=${SCRIPTS.clientId}`), 'поиск клиента скриптов');
+  const clients = await found.json();
+  for (const client of clients) await ok(await adminCall(admin, 'DELETE', `/clients/${client.id}`), 'удаление клиента скриптов');
+  return clients.length;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { token, kcId, username } = await secondPerson(process.argv[2]);
-  console.error(`второй человек ${username}; убрать — node tools/delete-person.mjs --sub ${kcId}`);
+  console.error(`второй человек ${username}; убрать — node tools/delete-person.mjs --sub ${kcId}`
+    + ' (на сервере — ещё --remove-scripts-client)');
   console.log(token);
 }
