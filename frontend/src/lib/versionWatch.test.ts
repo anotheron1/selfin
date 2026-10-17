@@ -1,0 +1,50 @@
+import { describe, expect, it } from 'vitest';
+import { versionWatch } from './versionWatch';
+
+/** Сервер, отвечающий по очереди; последний ответ повторяется. */
+const server = (...answers: (string | null | Error)[]) => {
+    let i = 0;
+    return async () => {
+        const answer = answers[Math.min(i++, answers.length - 1)];
+        if (answer instanceof Error) throw answer;
+        return answer;
+    };
+};
+
+describe('versionWatch — открытая вкладка после выкладки (ANO-222)', () => {
+    it('первый вызов запоминает коммит сервера; тот же коммит — не обновление', async () => {
+        const changed = versionWatch(server('aaa', 'aaa'));
+        expect(await changed()).toBe(false);
+        expect(await changed()).toBe(false);
+    });
+
+    it('коммит сервера сменился с открытия вкладки — обновление', async () => {
+        const changed = versionWatch(server('aaa', 'bbb'));
+        await changed();
+        expect(await changed()).toBe(true);
+    });
+
+    it('сборка без GIT_COMMIT и пустой ответ — не повод звать обновляться', async () => {
+        const unknown = versionWatch(server('unknown', 'unknown'));
+        expect(await unknown()).toBe(false);
+        expect(await unknown()).toBe(false);
+        // unknown не запоминается и с настоящим коммитом не сравнивается — ни в одну, ни в другую сторону
+        const becameUnknown = versionWatch(server('aaa', 'unknown'));
+        await becameUnknown();
+        expect(await becameUnknown()).toBe(false);
+        const wasUnknown = versionWatch(server('unknown', 'bbb', 'bbb'));
+        expect(await wasUnknown()).toBe(false);
+        expect(await wasUnknown()).toBe(false);
+        expect(await wasUnknown()).toBe(false);
+        const empty = versionWatch(server('aaa', null));
+        await empty();
+        expect(await empty()).toBe(false);
+    });
+
+    it('сетевая ошибка — не обновление и не сбивает запомненный коммит', async () => {
+        const changed = versionWatch(server('aaa', new Error('нет связи'), 'bbb'));
+        await changed();
+        expect(await changed()).toBe(false);
+        expect(await changed()).toBe(true);
+    });
+});
