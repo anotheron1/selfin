@@ -72,6 +72,16 @@ class ServerSetupIT {
     }
 
     @Test
+    @DisplayName("за HTTPS-прокси на нестандартном порту адрес возврата сохраняет порт из X-Forwarded-Port (ревью Codex на #171)")
+    void behindHttpsProxyOnOwnPort() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/oauth2/authorization/keycloak"))
+                .header("X-Forwarded-Proto", "https").header("X-Forwarded-Port", "8443").build();
+        HttpResponse<Void> start = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding());
+        assertThat(URLDecoder.decode(start.headers().firstValue(HttpHeaders.LOCATION).orElseThrow(), UTF_8))
+                .contains("redirect_uri=https://localhost:8443/login/oauth2/code/keycloak");
+    }
+
+    @Test
     @DisplayName("без прокси — как прежде: адрес возврата http, cookie без Secure — стенд и разработка не задеты")
     void withoutProxy() throws Exception {
         HttpResponse<Void> start = signInStart(null);

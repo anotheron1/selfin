@@ -16,6 +16,11 @@ describe('nginx фронта: прокси на бэк (ANO-197)', () => {
         expect(conf).toMatch(/proxy_set_header X-Forwarded-Proto \$forwarded_proto;/);
     });
 
+    it('публичный порт — из Host: на нестандартном порту адрес возврата не теряет порт (ревью Codex на #171)', () => {
+        expect(conf).toMatch(/map \$http_host \$forwarded_port \{[^}]*~:\(\?<port>\\d\+\)\$ \$port;[^}]*\}/);
+        expect(conf).toMatch(/proxy_set_header X-Forwarded-Port \$forwarded_port;/);
+    });
+
     it('бэк ищется по имени на каждый запрос: фронт стартует и без бэка (находка 15.10)', () => {
         expect(conf).toMatch(/resolver 127\.0\.0\.11/);
         expect(conf).toMatch(/set \$backend http:\/\/backend:8080;/);
