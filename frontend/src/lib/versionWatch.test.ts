@@ -41,6 +41,16 @@ describe('versionWatch — открытая вкладка после выкла
         expect(await empty()).toBe(false);
     });
 
+    it('при открытии сверить не удалось — первая удачная проверка предлагает обновиться (ревью Codex на #169)', async () => {
+        // Вкладка открылась, пока сервер перезапускался: её код мог остаться старым, а новый коммит молча стал бы базой.
+        const failed = versionWatch(server(new Error('нет связи'), 'bbb'));
+        expect(await failed()).toBe(false);
+        expect(await failed()).toBe(true);
+        const noAnswer = versionWatch(server(null, 'bbb'));
+        expect(await noAnswer()).toBe(false);
+        expect(await noAnswer()).toBe(true);
+    });
+
     it('сетевая ошибка — не обновление и не сбивает запомненный коммит', async () => {
         const changed = versionWatch(server('aaa', new Error('нет связи'), 'bbb'));
         await changed();

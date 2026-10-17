@@ -12,20 +12,32 @@
 /** Коммит, который отдаёт сервер; `unknown` — сборка без `GIT_COMMIT`. */
 export type ServerCommit = () => Promise<string | null>;
 
-/** Проверка: первый удачный вызов запоминает коммит, следующие отвечают, сменился ли он. */
+/**
+ * Проверка: первый вызов запоминает коммит, следующие отвечают, сменился ли он. Если при открытии сверить не удалось
+ * (сервер перезапускался), первая удачная проверка предлагает обновиться: код вкладки мог остаться старым, а новый
+ * коммит иначе молча стал бы базой (ревью Codex на #169). Лишняя перезагрузка после сбоя связи безвредна.
+ */
 export function versionWatch(serverCommit: ServerCommit): () => Promise<boolean> {
     let opened: string | undefined;
+    let first = true;
+    let unverified = false;
     return async () => {
+        const opening = first;
+        first = false;
         let commit: string | null;
         try {
             commit = await serverCommit();
         } catch {
+            commit = null;
+        }
+        if (!commit) {
+            if (opening) unverified = true;
             return false; // нет связи — не повод звать обновляться
         }
-        if (!commit || commit === 'unknown') return false;
+        if (commit === 'unknown') return false;
         if (opened === undefined) {
             opened = commit;
-            return false;
+            return unverified;
         }
         return commit !== opened;
     };
