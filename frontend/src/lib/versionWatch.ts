@@ -21,7 +21,9 @@ export function versionWatch(serverCommit: ServerCommit): () => Promise<boolean>
     let opened: string | undefined;
     let first = true;
     let unverified = false;
-    return async () => {
+    // Проверки — по очереди вызова (ревью Codex на #169): иначе ранний ответ второй проверки стал бы базой раньше первой.
+    let queue: Promise<unknown> = Promise.resolve();
+    const check = async (): Promise<boolean> => {
         const opening = first;
         first = false;
         let commit: string | null;
@@ -40,6 +42,11 @@ export function versionWatch(serverCommit: ServerCommit): () => Promise<boolean>
             return unverified;
         }
         return commit !== opened;
+    };
+    return () => {
+        const result = queue.then(check);
+        queue = result.catch(() => undefined);
+        return result;
     };
 }
 

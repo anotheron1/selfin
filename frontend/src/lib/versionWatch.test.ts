@@ -51,6 +51,19 @@ describe('versionWatch — открытая вкладка после выкла
         expect(await noAnswer()).toBe(true);
     });
 
+    it('проверки идут по очереди: ранний ответ второй не становится базой (ревью Codex на #169)', async () => {
+        // Первый запрос ещё в пути, вкладку скрыли и вернули через выкладку — второй ответил бы раньше и новым коммитом.
+        let releaseFirst!: (commit: string) => void;
+        const answers = [new Promise<string>((resolve) => (releaseFirst = resolve)), Promise.resolve('bbb')];
+        let call = 0;
+        const changed = versionWatch(() => answers[call++]);
+        const opening = changed();
+        const visible = changed();
+        releaseFirst('aaa');
+        expect(await opening).toBe(false);
+        expect(await visible).toBe(true);
+    });
+
     it('сетевая ошибка — не обновление и не сбивает запомненный коммит', async () => {
         const changed = versionWatch(server('aaa', new Error('нет связи'), 'bbb'));
         await changed();
