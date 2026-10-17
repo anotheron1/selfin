@@ -26,6 +26,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.selfin.backend.service.OwnerService;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -104,6 +106,43 @@ class TwoPeopleIsolationIT {
         } finally {
             rowLevelSecurity("ENABLE");
         }
+    }
+
+    /**
+     * Удаление человека (спека 2026-10-17-stand-tools-design.md): порядок — из {@code tools/person-tables.json}, тот же,
+     * по которому удаляет {@code tools/delete-person.mjs}. Сторож и порядка, и полноты: таблица с владельцем, которой
+     * нет в списке, и неверный порядок роняют тест.
+     */
+    @Test
+    @DisplayName("удаление человека по tools/person-tables.json: ни одной его строки, у другого ничего не изменилось")
+    void deletingPersonByToolOrderLeavesNothingAndTouchesNoOneElse() throws Exception {
+        Person stays = seed("stays", 1);
+        reads(stays);
+        Map<String, String> staysBefore = reads(stays);
+        Person deleted = seed("deleted", 2);
+        reads(deleted);
+
+        List<String> order = JsonPath.read(Files.readString(Path.of("..", "tools", "person-tables.json")), "$");
+        assertThat(order).as("tools/person-tables.json — все таблицы с владельцем, и только они")
+                .containsExactlyInAnyOrderElementsOf(ownerTables());
+        // Порядок — по ключам схемы, не по данным: удаление ловит неверный порядок, только если у человека есть строка
+        // с этой ссылкой. Ключи с ON DELETE SET NULL и ссылки на свою же таблицу порядка не требуют.
+        jdbc.queryForList("""
+                SELECT conrelid::regclass::text AS child, confrelid::regclass::text AS parent FROM pg_constraint
+                 WHERE contype = 'f' AND connamespace = 'public'::regnamespace AND confdeltype IN ('a', 'r')
+                   AND conrelid <> confrelid AND confrelid <> 'users'::regclass""")
+                .forEach(fk -> softly.assertThat(order.indexOf((String) fk.get("child")))
+                        .as("%s ссылается на %s — в списке раньше неё", fk.get("child"), fk.get("parent"))
+                        .isLessThan(order.indexOf((String) fk.get("parent"))));
+        order.forEach(table -> jdbc.update("DELETE FROM " + table + " WHERE user_id = ?", deleted.owner));
+        jdbc.update("DELETE FROM users WHERE id = ?", deleted.owner);
+
+        for (String table : ownerTables()) {
+            softly.assertThat(jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE user_id = ?", Long.class,
+                    deleted.owner)).as("строк удалённого в %s", table).isZero();
+        }
+        unchanged(stays, staysBefore);
+        softly.assertAll();
     }
 
     private void twoPeople(String firstSub, String secondSub) throws Exception {

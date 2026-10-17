@@ -33,30 +33,23 @@ async function json(response, what) {
   return response.json();
 }
 
-/** Заводит недостающее в реалме и выдаёт токен скриптов — токен тестового человека. */
-export async function scriptsToken(keycloak = 'http://127.0.0.1:8180') {
-  const kc = keycloak.replace(/\/$/, '');
-  const admin = await json(await fetch(`${kc}/realms/master/protocol/openid-connect/token`, form({
+/** Токен администратора Keycloak — из реалма master. */
+export async function adminToken(keycloak = 'http://127.0.0.1:8180') {
+  const admin = await json(await fetch(`${keycloak.replace(/\/$/, '')}/realms/master/protocol/openid-connect/token`, form({
     grant_type: 'password', client_id: 'admin-cli', username: 'admin', password: process.env.KC_ADMIN_PASSWORD || 'admin',
   })), 'вход администратора Keycloak');
-  const partialImport = async (ifResourceExists, resources) => json(await fetch(`${kc}/admin/realms/selfin/partialImport`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ifResourceExists, ...resources }),
-  }), `частичный импорт в реалм selfin (${ifResourceExists})`);
+  return admin.access_token;
+}
 
-  const secret = process.env.SELFIN_CLIENT_SECRET || 'selfin-dev-secret';
-  const realmClients = JSON.parse(readFileSync(new URL('../keycloak/selfin-realm.json', import.meta.url), 'utf8'))
-    .clients.map((client) => ({ ...client, secret: client.secret === '${SELFIN_CLIENT_SECRET}' ? secret : client.secret }));
+const partialImport = async (kc, admin, ifResourceExists, resources) => json(await fetch(`${kc}/admin/realms/selfin/partialImport`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ifResourceExists, ...resources }),
+}), `частичный импорт в реалм selfin (${ifResourceExists})`);
 
-  await partialImport('SKIP', {
-    clients: realmClients,
-    users: [{
-      username: TESTER.username, enabled: true,
-      credentials: [{ type: 'password', value: TESTER.password, temporary: false }],
-    }],
-  });
-  await partialImport('OVERWRITE', {
+/** Клиент скриптов — перезаписывается, чтобы его настройка доходила и до старых стендов. Тестового человека не заводит. */
+export async function ensureScriptsClient(keycloak, admin) {
+  await partialImport(keycloak.replace(/\/$/, ''), admin, 'OVERWRITE', {
     clients: [{
       clientId: SCRIPTS.clientId, secret: SCRIPTS.secret, enabled: true, publicClient: false,
       serviceAccountsEnabled: false, standardFlowEnabled: false, directAccessGrantsEnabled: true,
@@ -68,6 +61,25 @@ export async function scriptsToken(keycloak = 'http://127.0.0.1:8180') {
       }],
     }],
   });
+}
+
+/** Заводит недостающее в реалме и выдаёт токен скриптов — токен тестового человека. */
+export async function scriptsToken(keycloak = 'http://127.0.0.1:8180') {
+  const kc = keycloak.replace(/\/$/, '');
+  const admin = await adminToken(kc);
+
+  const secret = process.env.SELFIN_CLIENT_SECRET || 'selfin-dev-secret';
+  const realmClients = JSON.parse(readFileSync(new URL('../keycloak/selfin-realm.json', import.meta.url), 'utf8'))
+    .clients.map((client) => ({ ...client, secret: client.secret === '${SELFIN_CLIENT_SECRET}' ? secret : client.secret }));
+
+  await partialImport(kc, admin, 'SKIP', {
+    clients: realmClients,
+    users: [{
+      username: TESTER.username, enabled: true,
+      credentials: [{ type: 'password', value: TESTER.password, temporary: false }],
+    }],
+  });
+  await ensureScriptsClient(kc, admin);
 
   const token = await json(await fetch(`${kc}/realms/selfin/protocol/openid-connect/token`, form({
     grant_type: 'password', client_id: SCRIPTS.clientId, client_secret: SCRIPTS.secret,

@@ -1,0 +1,13 @@
+[
+  "fund_transactions",
+  "fund_account_links",
+  "balance_checkpoints",
+  "capital_revaluations",
+  "financial_events",
+  "target_funds",
+  "recurring_rule",
+  "accounts",
+  "capital_items",
+  "categories",
+  "user_settings"
+]
