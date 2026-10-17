@@ -47,7 +47,7 @@ jobs:
         with:
           node-version: 20
       - name: Скрипты ворот
-        run: node --test tools/pr-ready.test.mjs tools/spec-check.test.mjs tools/keycloak-realm.test.mjs
+        run: node --test tools/pr-ready.test.mjs tools/spec-check.test.mjs tools/keycloak-realm.test.mjs tools/delete-person.test.mjs tools/isolation-check.test.mjs
 
   # Ворота 3 (ANO-194): изменённая спека *-design.md — с разделом «Правила продукта — сверка»,
   # а если в ней есть замер — ещё и «Как мерил». Спека: docs/superpowers/specs/2026-09-26-spec-sections-check-design.md
