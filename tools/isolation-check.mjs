@@ -23,9 +23,27 @@ export function leaks(answers, foreign) {
     .filter(([, found]) => found.length);
 }
 
-/** Вызовы, чей ответ изменился — статус или текст. */
+/** JSON без учёта порядка в массивах и ключей — как NON_EXTENSIBLE в TwoPeopleIsolationIT; не JSON — как есть. */
+function canonical(text = '') {
+  const sortDeep = (value) => {
+    if (Array.isArray(value)) return value.map(sortDeep).map((v) => JSON.stringify(v)).sort().map((v) => JSON.parse(v));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((k) => [k, sortDeep(value[k])]));
+    return value;
+  };
+  try {
+    return JSON.stringify(sortDeep(JSON.parse(text)));
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Вызовы, чей ответ изменился — статус или содержимое. Порядок строк в массиве — не изменение: часть запросов идёт без
+ * ORDER BY, и чужие записи меняют порядок строк, а не их состав (ANO-232).
+ */
 export function changed(before, after) {
-  return Object.keys(before).filter((call) => before[call].status !== after[call]?.status || before[call].text !== after[call]?.text);
+  return Object.keys(before).filter((call) => before[call].status !== after[call]?.status
+    || canonical(before[call].text) !== canonical(after[call]?.text));
 }
 
 const SECOND = 'tester2';
@@ -195,5 +213,8 @@ async function main(args) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exitCode = (await main(process.argv.slice(2))) ? 0 : 1;
+  process.exitCode = await main(process.argv.slice(2)).then((ok) => (ok ? 0 : 1), (e) => {
+    console.error(e.message);
+    return 1;
+  });
 }

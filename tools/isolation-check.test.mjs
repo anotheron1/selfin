@@ -17,6 +17,18 @@ test('свои id — не утечка', () => {
   assert.deepEqual(leaks({ 'GET /me': { status: 200, text: '{"id":"33333333-cccc-4ccc-8ccc-333333333333"}' } }, FOREIGN), []);
 });
 
+test('порядок в массиве — не изменение, как NON_EXTENSIBLE в TwoPeopleIsolationIT (ANO-232)', () => {
+  const before = { p: { status: 200, text: '{"upcoming":[{"id":"a","n":1},{"id":"b","n":2}],"x":1}' } };
+  const after = { p: { status: 200, text: '{"x":1,"upcoming":[{"n":2,"id":"b"},{"n":1,"id":"a"}]}' } };
+  assert.deepEqual(changed(before, after), []);
+});
+
+test('новая строка или другое значение в массиве — изменение', () => {
+  const before = { p: { status: 200, text: '{"upcoming":[{"id":"a","n":1}]}' } };
+  assert.deepEqual(changed(before, { p: { status: 200, text: '{"upcoming":[{"id":"a","n":1},{"id":"c","n":3}]}' } }), ['p']);
+  assert.deepEqual(changed(before, { p: { status: 200, text: '{"upcoming":[{"id":"a","n":2}]}' } }), ['p']);
+});
+
 test('изменившиеся чтения — по тексту и по статусу; одинаковые — нет', () => {
   const before = { a: { status: 200, text: '1' }, b: { status: 200, text: '2' }, c: { status: 200, text: '3' } };
   const after = { a: { status: 200, text: '1' }, b: { status: 200, text: '20' }, c: { status: 500, text: '3' } };

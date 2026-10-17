@@ -78,9 +78,14 @@ export async function deletePerson({ username, sub, oursOnly = false }) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
-  const { kcId, userId, left } = await deletePerson({
-    username: option('--username'), sub: option('--sub'), oursOnly: args.includes('--ours-only'),
-  });
-  console.log(`Keycloak ${kcId}, у нас ${userId ?? 'строки не было'}: ${left.length ? `осталось — ${left.join('; ')}` : 'удалён целиком'}`);
-  process.exitCode = left.length ? 1 : 0;
+  const oursOnly = args.includes('--ours-only');
+  try {
+    const { kcId, userId, left } = await deletePerson({ username: option('--username'), sub: option('--sub'), oursOnly });
+    const done = oursOnly ? 'наши строки удалены, учётная запись Keycloak оставлена' : 'удалён целиком';
+    console.log(`Keycloak ${kcId}, у нас ${userId ?? 'строки не было'}: ${left.length ? `осталось — ${left.join('; ')}` : done}`);
+    process.exitCode = left.length ? 1 : 0;
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 1;
+  }
 }
