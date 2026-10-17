@@ -26,6 +26,12 @@ import { pathToFileURL } from 'node:url';
 export const SCRIPTS = { clientId: 'selfin-scripts', secret: 'selfin-scripts-dev' };
 export const TESTER = { username: 'tester', password: 'tester' };
 
+/**
+ * Свой Keycloak — тот, чей издатель на этой машине: стенд, CI, сборка для сервера на своей машине. У сервера издатель —
+ * его адрес, даже через туннель к консоли (замер 18.10), поэтому тестового человека туда не завести (ревью Codex на #171).
+ */
+export const ownIssuer = (issuer) => ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(issuer).hostname);
+
 const form = (fields) => ({ method: 'POST', body: new URLSearchParams(fields) });
 
 async function json(response, what) {
@@ -66,6 +72,10 @@ export async function ensureScriptsClient(keycloak, admin) {
 /** Заводит недостающее в реалме и выдаёт токен скриптов — токен тестового человека. */
 export async function scriptsToken(keycloak = 'http://127.0.0.1:8180') {
   const kc = keycloak.replace(/\/$/, '');
+  const { issuer } = await json(await fetch(`${kc}/realms/selfin/.well-known/openid-configuration`), 'реалм selfin');
+  if (!ownIssuer(issuer)) {
+    throw new Error(`${issuer} — Keycloak не на этой машине: тестового человека и клиент скриптов заводят только на стенде, в CI и в сборке на своей машине`);
+  }
   const admin = await adminToken(kc);
 
   const secret = process.env.SELFIN_CLIENT_SECRET || 'selfin-dev-secret';

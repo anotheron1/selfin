@@ -6,15 +6,16 @@
 //   node tools/keycloak-check.mjs [<адрес Keycloak> [<адрес экрана>]]   по умолчанию http://127.0.0.1:8180
 //                                                                         и http://127.0.0.1:5174; выход 0 — всё сходится
 //
-// Сборка для сервера (ANO-197): консоль администратора и реалм master снаружи закрыты — Admin API по своему адресу,
-// SELFIN_KC_ADMIN (например, http://127.0.0.1:8180/auth на самом сервере); без неё — тот же адрес Keycloak.
+// Сборка для сервера на своей машине (ANO-197): консоль администратора и реалм master снаружи закрыты — Admin API
+// по своему адресу, SELFIN_KC_ADMIN (например, http://127.0.0.1:8190/auth); без неё — тот же адрес Keycloak.
+// Настоящий сервер — только до входа: тестового человека с паролем из репозитория там не заводим (keycloak-token.mjs).
 //
 // Проходит путь человека до Telegram: страница входа реалма → кнопка Telegram → переход на oauth.telegram.org.
 // Сам вход в Telegram — руками: подтверждение приходит в приложение Telegram. Вход в selfin — тестовым человеком
 // с паролем (tools/keycloak-token.mjs): экран → наш сервер → Keycloak → форма → наш сервер → экран с сеансом.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { scriptsToken, TESTER } from './keycloak-token.mjs';
+import { ownIssuer, scriptsToken, TESTER } from './keycloak-token.mjs';
 
 const KC = (process.argv[2] ?? 'http://127.0.0.1:8180').replace(/\/$/, '');
 const APP = (process.argv[3] ?? 'http://127.0.0.1:5174').replace(/\/$/, '');
@@ -29,7 +30,8 @@ const discovery = await fetch(`${REALM}/.well-known/openid-configuration`)
   .catch((e) => ({ ok: false, status: e.cause?.code ?? e.message }));
 check(discovery.ok, `реалм selfin отвечает — ${discovery.status}`);
 if (!discovery.ok) process.exit(1);
-check((await discovery.json()).issuer === REALM, `издатель токенов — ${REALM}`);
+const { issuer } = await discovery.json();
+check(issuer === REALM, `издатель токенов — ${REALM}`);
 
 // Страница входа консоли учётной записи — так её видит человек.
 const verifier = randomBytes(32).toString('base64url');
@@ -60,6 +62,13 @@ check(to.get('redirect_uri') === `${REALM}/broker/telegram/endpoint`, `возв�
 check(Boolean(to.get('client_id')), `Client ID бота задан — ${to.get('client_id') ? 'да' : 'пусто: нет TELEGRAM_CLIENT_ID в .env'}`);
 
 // ── Вход в selfin через наш сервер (ANO-195) ─────────────────────────────────────────────────
+// Тестовый человек — только свой Keycloak: на сервере он открыл бы вход в обход Telegram (ревью Codex на #171).
+if (!ownIssuer(issuer)) {
+  console.log(`вход тестовым человеком пропущен: ${issuer} — Keycloak не на этой машине, ничего не заведено`);
+  console.log(problems.length ? `Итог: не сходится — ${problems.length}` : 'Итог: до входа сходится');
+  process.exit(problems.length ? 1 : 0);
+}
+
 // Cookie — как у браузера: свои у экрана, свои у Keycloak.
 const jar = { app: new Map(), kc: new Map() };
 const keep = (cookies, response) => {

@@ -76,6 +76,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.0
     restart: unless-stopped
+    # Реалм из файла — только при первом старте: если selfin уже есть, импорт его пропускает. Как менять потом — .env.example.
     command: start --import-realm
     mem_limit: 1g
     environment:
