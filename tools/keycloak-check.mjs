@@ -6,6 +6,9 @@
 //   node tools/keycloak-check.mjs [<адрес Keycloak> [<адрес экрана>]]   по умолчанию http://127.0.0.1:8180
 //                                                                         и http://127.0.0.1:5174; выход 0 — всё сходится
 //
+// Сборка для сервера (ANO-197): консоль администратора и реалм master снаружи закрыты — Admin API по своему адресу,
+// SELFIN_KC_ADMIN (например, http://127.0.0.1:8180/auth на самом сервере); без неё — тот же адрес Keycloak.
+//
 // Проходит путь человека до Telegram: страница входа реалма → кнопка Telegram → переход на oauth.telegram.org.
 // Сам вход в Telegram — руками: подтверждение приходит в приложение Telegram. Вход в selfin — тестовым человеком
 // с паролем (tools/keycloak-token.mjs): экран → наш сервер → Keycloak → форма → наш сервер → экран с сеансом.
@@ -70,7 +73,7 @@ const sent = (cookies) => [...cookies].map(([name, value]) => `${name}=${value}`
 const go = (url, cookies, init = {}) => fetch(url, { redirect: 'manual', ...init, headers: { ...init.headers, cookie: sent(cookies) } })
   .then((response) => keep(cookies, response));
 
-const scripts = await scriptsToken(KC);
+const scripts = await scriptsToken(process.env.SELFIN_KC_ADMIN ?? KC);
 // Тем же набором cookie, что и вход: запомни сервер этот запрос — после входа вернул бы на JSON, а не на «/».
 check((await go(`${APP}/api/v1/pocket`, jar.app)).status === 401, 'API без входа — 401');
 

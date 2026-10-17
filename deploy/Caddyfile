@@ -1,0 +1,14 @@
+# Вход на сервер selfin (ANO-197): сертификат Let's Encrypt для SELFIN_DOMAIN Caddy получает и продлевает сам,
+# X-Forwarded-Proto и X-Forwarded-For проставляет сам. Спека: docs/superpowers/specs/2026-10-17-server-compose-design.md
+{$SELFIN_DOMAIN} {
+	# route — строго по порядку записи: иначе Caddy ставит respond после reverse_proxy, и закрытое уходит в Keycloak.
+	route {
+		# Keycloak снаружи — только вход, выход и возврат из Telegram. Консоль администратора — с самого сервера
+		# (127.0.0.1:8180), консоль учётной записи закрыта: через неё учётная запись заводится мимо согласия (шаг 4).
+		@closed path /auth/admin* /auth/realms/master* /auth/realms/selfin/account*
+		respond @closed 404
+
+		reverse_proxy /auth/* keycloak:8080
+		reverse_proxy frontend:80
+	}
+}

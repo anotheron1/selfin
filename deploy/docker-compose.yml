@@ -1,0 +1,110 @@
+# Сервер selfin (ANO-197, шаг 3 плана спринта 6): HTTPS через Caddy, приложение на «/», Keycloak под «/auth».
+# Спека: docs/superpowers/specs/2026-10-17-server-compose-design.md
+#
+#   cd deploy && cp .env.example .env    # заполнить .env — пароли и ключи вводит владелец, в репозиторий они не попадают
+#   docker compose pull && docker compose up -d
+#
+# Образы — из GHCR, публикуются по вливанию в main (.github/workflows/publish-images.yml), пакеты открыты.
+# Консоль администратора Keycloak снаружи закрыта — только с самого сервера: http://127.0.0.1:8180/auth/admin,
+# с компьютера владельца — SSH-туннель (ssh -L 8180:127.0.0.1:8180 <сервер>). Туда же ходят команды tools/ (SELFIN_KC_ADMIN).
+# Своё имя проекта: у экземпляра владельца на его машине проект «selfin» — одно имя смешало бы их контейнеры.
+name: selfin-server
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "${SELFIN_HTTP_PORT:-80}:80"
+      - "${SELFIN_HTTPS_PORT:-443}:443"
+    environment:
+      SELFIN_DOMAIN: ${SELFIN_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - keycloak
+
+  frontend:
+    image: ghcr.io/anotheron1/selfin-frontend:${SELFIN_TAG:-latest}
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/anotheron1/selfin-backend:${SELFIN_TAG:-latest}
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/selfin
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      # Пароль роли приложения ставит само приложение после миграций (afterMigrate), экранирует его Postgres.
+      SELFIN_DB_APP_PASSWORD: ${SELFIN_DB_APP_PASSWORD}
+      # Браузер видит Keycloak по публичному адресу — от него и издатель токенов; сервер — по имени сервиса.
+      SELFIN_KEYCLOAK_URL: ${SELFIN_PUBLIC_URL}/auth
+      SELFIN_KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth
+      SELFIN_CLIENT_SECRET: ${SELFIN_CLIENT_SECRET}
+      SELFIN_OWNER_SUB: ${SELFIN_OWNER_SUB:-}
+      TZ: ${TZ:-Europe/Moscow}
+      # Куча — три четверти лимита контейнера: по умолчанию JVM берёт четверть.
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    # Наружу не открыта: приложение ходит по сети compose, владелец — через docker compose exec.
+    environment:
+      POSTGRES_DB: selfin
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  keycloak-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+    volumes:
+      - keycloak_data:/var/lib/postgresql/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    restart: unless-stopped
+    command: start --import-realm
+    mem_limit: 1g
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      # Публичный адрес — от него адрес возврата из Telegram (Allowed URLs бота) и издатель токенов.
+      KC_HOSTNAME: ${SELFIN_PUBLIC_URL}/auth
+      KC_HOSTNAME_ADMIN: http://127.0.0.1:${SELFIN_KC_ADMIN_PORT:-8180}/auth
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+      # Подстановки реалма при импорте: ключи бота, секрет клиента selfin, адрес сервера.
+      TELEGRAM_CLIENT_ID: ${TELEGRAM_CLIENT_ID}
+      TELEGRAM_CLIENT_SECRET: ${TELEGRAM_CLIENT_SECRET}
+      SELFIN_CLIENT_SECRET: ${SELFIN_CLIENT_SECRET}
+      SELFIN_PUBLIC_URL: ${SELFIN_PUBLIC_URL}
+    ports:
+      - "127.0.0.1:${SELFIN_KC_ADMIN_PORT:-8180}:8080"
+    volumes:
+      - ../keycloak/selfin-realm.json:/opt/keycloak/data/import/selfin-realm.json:ro
+    depends_on:
+      - keycloak-db
+
+volumes:
+  db_data:
+  keycloak_data:
+  caddy_data:
+  caddy_config:

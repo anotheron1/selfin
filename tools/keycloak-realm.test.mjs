@@ -72,19 +72,23 @@ test('в токенах клиента selfin — sub, имя и ник: обл�
   assert.equal(selfin.fullScopeAllowed, false);
 });
 
-test('адреса возврата — экран разработки и стенда, буква в букву', () => {
-  assert.ok(selfin.redirectUris.length > 0);
-  for (const uri of selfin.redirectUris) {
-    assert.match(uri, /^http:\/\/(127\.0\.0\.1|localhost):517[34]\/login\/oauth2\/code\/keycloak$/);
+// ANO-197: адрес сервера — подстановкой из окружения при импорте реалма; без переменной — адрес стенда.
+const SERVER = '${SELFIN_PUBLIC_URL:http://127.0.0.1:5174}';
+const STAND = /^http:\/\/(127\.0\.0\.1|localhost):517[34]/;
+
+test('адреса возврата — экран разработки и стенда и адрес сервера из окружения, буква в букву', () => {
+  assert.ok(selfin.redirectUris.includes(`${SERVER}/login/oauth2/code/keycloak`), 'адрес сервера — из SELFIN_PUBLIC_URL');
+  for (const uri of selfin.redirectUris.filter((u) => !u.startsWith(SERVER))) {
+    assert.match(uri, new RegExp(`${STAND.source}/login/oauth2/code/keycloak$`));
   }
 });
 
 // ANO-152: выход завершается в Keycloak, и он возвращает на наш экран входа — только на эти адреса.
-test('адреса после выхода — экран входа разработки и стенда, буква в букву', () => {
+test('адреса после выхода — экран входа разработки и стенда и адрес сервера из окружения, буква в букву', () => {
   const uris = selfin.attributes?.['post.logout.redirect.uris']?.split('##') ?? [];
-  assert.ok(uris.length > 0);
-  for (const uri of uris) {
-    assert.match(uri, /^http:\/\/(127\.0\.0\.1|localhost):517[34]\/login$/);
+  assert.ok(uris.includes(`${SERVER}/login`), 'адрес сервера — из SELFIN_PUBLIC_URL');
+  for (const uri of uris.filter((u) => !u.startsWith(SERVER))) {
+    assert.match(uri, new RegExp(`${STAND.source}/login$`));
   }
 });
 
