@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { adminToken, realmIssuer } from './keycloak-token.mjs';
 import { API, KC_ADMIN, adminCall, sql } from './second-person.mjs';
-import { deletePerson, journalEntries, JOURNAL } from './delete-person.mjs';
+import { deletePerson, journalEntries, JOURNAL, keepJournal } from './delete-person.mjs';
 
 /** Запрос манифеста — тот же файл, что у копии: расхождение в самом запросе невозможно. */
 export const MANIFEST_SQL = readFileSync(new URL('../deploy/backup/manifest.sql', import.meta.url), 'utf8');
@@ -35,9 +35,10 @@ export function parseManifest(text) {
  * Нет журнала владельца — восстановление не принимается (ревью Codex на #175): удаление, сделанное после копии, есть
  * только в нём, и с опечаткой в пути удалённый вернулся бы молча. Никого не удалял — пустой файл.
  */
-export const journalProblems = (file, exists) => (exists ? [] : [
-  `журнала владельца нет (${file}): удаления после копии не повторить — если ты никого не удалял, создай пустой файл`,
-]);
+export const journalProblems = (file, exists, malformed = []) => [
+  ...(exists ? [] : [`журнала владельца нет (${file}): удаления после копии не повторить — если ты никого не удалял, создай пустой файл`]),
+  ...(malformed.length ? [`журнал владельца: строки ${malformed.join(', ')} не читаются — удаление в них не повторено, поправь их и запусти проверку снова`] : []),
+];
 
 /** Чем восстановленные таблицы расходятся с копией. */
 export function tableProblems(expected, actual) {
@@ -83,8 +84,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // 3. Повтор удалений — журнал копии и журнал владельца, только этого реалма.
   const issuer = await realmIssuer(KC_ADMIN);
   const hasJournal = existsSync(journalFile);
-  problems.push(...journalProblems(journalFile, hasJournal));
-  const owners = hasJournal ? journalEntries(readFileSync(journalFile, 'utf8').split('\n'), issuer) : [];
+  const { subs: owners, malformed } = hasJournal
+    ? journalEntries(readFileSync(journalFile, 'utf8').split('\n'), issuer) : { subs: [], malformed: [] };
+  problems.push(...journalProblems(journalFile, hasJournal, malformed));
+  if (hasJournal) keepJournal(journalFile);
   const subs = [...new Set([...manifest.deletions, ...owners])];
   for (const sub of subs) {
     const { left } = await deletePerson({ sub, journal: false });

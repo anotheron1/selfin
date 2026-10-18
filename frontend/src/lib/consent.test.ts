@@ -77,7 +77,7 @@ describe('согласие: тексты', () => {
         const consentText = legal.slice(legal.indexOf('export function ConsentText'));
         const policy = legal.slice(0, legal.indexOf('export function ConsentText'));
         for (const point of ['Резервная копия делается каждую', 'ключом, который есть только у оператора',
-            'во внешнем хранилище', 'из резервных копий данные уходят']) {
+            'во внешнем хранилище', 'из резервных копий данные уходят', 'хранится в журнале удалений']) {
             expect(policy).toContain(point);
         }
         for (const point of ['Резервная копия каждую ночь уходит во внешнее хранилище', 'только у оператора',

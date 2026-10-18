@@ -12,6 +12,9 @@ enc() { age -r "$SELFIN_BACKUP_AGE_RECIPIENT" -o "$dir/$1.age"; }
 ours() { PGPASSWORD="$POSTGRES_PASSWORD" "$@" -h db -U admin -d selfin; }
 keycloak() { PGPASSWORD="$KC_DB_PASSWORD" "$@" -h keycloak-db -U keycloak -d keycloak; }
 
+# Журнал удалений помнит удалённого 30 дней — столько живёт самая старая копия, из которой он мог бы вернуться;
+# дальше номер учётной записи ни с чем не связан и уходит (тексты обещают удаление всех данных за 30 дней).
+ours psql -XAtq -v ON_ERROR_STOP=1 -c "DELETE FROM ops.deletions WHERE deleted_at < now() - interval '30 days'"
 ours pg_dump --clean --if-exists | enc selfin.sql
 keycloak pg_dump --clean --if-exists | enc keycloak.sql
 # ponytail: манифест — отдельным снимком после дампа; запись между ними даст расхождение в проверке. В 03:30 писать
@@ -22,9 +25,9 @@ keycloak pg_dump --clean --if-exists | enc keycloak.sql
 } | enc manifest.txt
 
 rclone copy "$dir" "store:$SELFIN_BACKUP_BUCKET/$stamp"
-# Сроки — не настройка: в хранилище 30 дней, потому что тексты обещают удаление данных в течение 30 дней, и из копий
-# удалённый уходит вместе с самой старой из них; на сервере — 7, на случай без хранилища.
+# Сроки — не настройка: тексты обещают удаление данных в течение 30 дней, и из копий удалённый уходит вместе с самой
+# старой из них. Чистка — раз в сутки, поэтому порог 29 дней: копия живёт не дольше 30. На сервере — 7 дней.
 find /backups -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
-rclone delete --min-age 30d --rmdirs "store:$SELFIN_BACKUP_BUCKET"
+rclone delete --min-age 29d --rmdirs "store:$SELFIN_BACKUP_BUCKET"
 [ -z "${SELFIN_BACKUP_PING_URL:-}" ] || curl -fsS -m 10 --retry 3 -o /dev/null "$SELFIN_BACKUP_PING_URL"
 echo "копия $stamp: обе базы и манифест выгружены"

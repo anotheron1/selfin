@@ -16,7 +16,7 @@
 // каждую ночную копию, — а у владельца дописывается файл SELFIN_DELETIONS (по умолчанию ~/selfin-deletions.jsonl):
 // удаление после последней копии есть только в нём. Восстановили сервер из копии — --replay с этим файлом.
 
-import { appendFileSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -58,16 +58,52 @@ export function deletionSql({ userId, kcId, journal = true }, tables = PERSON_TA
 /** Строка журнала владельца: когда, чей реалм (издатель), sub Keycloak и наш id. */
 export const journalLine = ({ at, issuer, kcId, userId }) => JSON.stringify({ at, issuer, sub: kcId, userId: userId ?? null });
 
-/** Кого повторить после восстановления: удаления того же реалма, каждый sub — один раз. */
+/**
+ * Сколько дней журнал помнит удалённого: столько живёт самая старая копия, из которой он мог бы вернуться (копии —
+ * не дольше 30 дней). Дальше номер учётной записи ни с чем не связан, и журнал его забывает (ревью Codex на #175).
+ */
+export const JOURNAL_DAYS = 30;
+
+/** Запись журнала, если строка — запись: объект с реалмом, sub и временем. Иначе — null. */
+function entryOf(line) {
+  try {
+    const entry = JSON.parse(line);
+    return typeof entry?.issuer === 'string' && ID.test(entry.sub) && !Number.isNaN(Date.parse(entry.at)) ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Кого повторить после восстановления: удаления того же реалма, каждый sub — один раз. Пустые строки — ничего;
+ * непустая строка, которая не запись, — в {@code malformed} номером: в ней могло быть удаление после копии, и молча
+ * её не пропускаем (ревью Codex на #175).
+ */
 export function journalEntries(lines, issuer) {
   const subs = new Set();
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line);
-      if (entry.issuer === issuer && ID.test(entry.sub)) subs.add(entry.sub);
-    } catch { /* пустая или битая строка — не удаление */ }
-  }
-  return [...subs];
+  const malformed = [];
+  lines.forEach((line, index) => {
+    if (!line.trim()) return;
+    const entry = entryOf(line);
+    if (!entry) malformed.push(index + 1);
+    else if (entry.issuer === issuer) subs.add(entry.sub);
+  });
+  return { subs: [...subs], malformed };
+}
+
+/** Журнал без записей старше JOURNAL_DAYS и без пустых строк; битые строки остаются — их надо увидеть и поправить. */
+export function prunedJournal(lines, now, days = JOURNAL_DAYS) {
+  return lines.filter((line) => {
+    if (!line.trim()) return false;
+    const entry = entryOf(line);
+    return !entry || now - Date.parse(entry.at) < days * 86_400_000;
+  });
+}
+
+/** Переписывает журнал владельца: старые записи — вон, новые — в конец. */
+export function keepJournal(file, added = []) {
+  const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : [];
+  writeFileSync(file, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''));
 }
 
 /** Чем набор таблиц схемы расходится со списком удаления. */
@@ -97,7 +133,7 @@ export async function deletePerson({ username, sub, oursOnly = false, journal = 
   const statement = deletionSql({ userId, kcId, journal });
   if (statement) sql(statement);
   if (journal) {
-    appendFileSync(JOURNAL, `${journalLine({ at: new Date().toISOString(), issuer: await realmIssuer(KC_ADMIN), kcId, userId })}\n`);
+    keepJournal(JOURNAL, [journalLine({ at: new Date().toISOString(), issuer: await realmIssuer(KC_ADMIN), kcId, userId })]);
   }
   if (!oursOnly) {
     const response = await adminCall(admin, 'DELETE', `/users/${kcId}`);
@@ -122,13 +158,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const oursOnly = args.includes('--ours-only');
   if (option('--replay')) {
     try {
-      const subs = journalEntries(readFileSync(option('--replay'), 'utf8').split('\n'), await realmIssuer(KC_ADMIN));
-      let failed = 0;
+      const file = option('--replay');
+      const { subs, malformed } = journalEntries(readFileSync(file, 'utf8').split('\n'), await realmIssuer(KC_ADMIN));
+      if (malformed.length) console.log(`журнал: строки ${malformed.join(', ')} не читаются — удаление в них не повторено, поправь их`);
+      let failed = malformed.length;
       for (const sub of subs) {
         const { userId, left } = await deletePerson({ sub, journal: false });
         console.log(`${sub}: ${left.length ? `осталось — ${left.join('; ')}` : `нет (наша строка ${userId ? 'удалена' : 'не нашлась'})`}`);
         if (left.length) failed++;
       }
+      keepJournal(file);
       console.log(`повтор по журналу: ${subs.length} удалений этого реалма${failed ? `, не доделано — ${failed}` : ''}`);
       process.exitCode = failed ? 1 : 0;
     } catch (e) {
