@@ -1,7 +1,14 @@
 // node --test tools/delete-person.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deletionSql, journalEntries, journalLine, prunedJournal, tableSetProblems, PERSON_TABLES } from './delete-person.mjs';
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  deletionSql, journalEntries, journalLine, keepJournal, prunedJournal, tableSetProblems, PERSON_TABLES,
+} from './delete-person.mjs';
+
+const SOURCE = readFileSync(new URL('./delete-person.mjs', import.meta.url), 'utf8');
 
 const ID = '7b0c1c8e-2f6a-4c3e-9a51-3f1d2e4b5a69';
 const KC = '0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f';
@@ -90,4 +97,25 @@ test('набор таблиц: совпал — проблем нет, расх�
 
 test('список без повторов', () => {
   assert.equal(new Set(PERSON_TABLES).size, PERSON_TABLES.length);
+});
+
+test('журнал владельца пишется до удаления на сервере: оборвись запись после — удаление нигде не осталось бы (ревью Codex на #175)', () => {
+  const body = SOURCE.slice(SOURCE.indexOf('export async function deletePerson'));
+  const journal = body.indexOf('keepJournal(JOURNAL');
+  assert.ok(journal > 0 && journal < body.indexOf('sql(statement)'), 'keepJournal(JOURNAL, …) — раньше sql(statement)');
+});
+
+test('журнал заменяется целиком, переименованием временного файла: обрыв не теряет прежних строк (ревью Codex на #175)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'selfin-journal-'));
+  const file = join(dir, 'selfin-deletions.jsonl');
+  const at = new Date().toISOString();
+  const [kept, added] = [KC, ID].map((sub) => journalLine({ at, issuer: 'x', kcId: sub, userId: null }));
+  writeFileSync(file, `${kept}\n`);
+  const before = statSync(file, { bigint: true }).ino;
+  keepJournal(file, [added]);
+  assert.equal(readFileSync(file, 'utf8'), `${kept}\n${added}\n`);
+  assert.notEqual(statSync(file, { bigint: true }).ino, before, 'журнал — новый файл, а не прежний, переписанный на месте');
+  assert.deepEqual(readdirSync(dir), ['selfin-deletions.jsonl'], 'временного файла не осталось');
+  const keep = SOURCE.slice(SOURCE.indexOf('export function keepJournal')).split(/\r?\n\}\r?\n/)[0];
+  assert.match(keep, /flush: true/, 'временный файл — на диск до переименования');
 });

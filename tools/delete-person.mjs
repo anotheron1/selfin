@@ -16,7 +16,7 @@
 // каждую ночную копию, — а у владельца дописывается файл SELFIN_DELETIONS (по умолчанию ~/selfin-deletions.jsonl):
 // удаление после последней копии есть только в нём. Восстановили сервер из копии — --replay с этим файлом.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -100,10 +100,15 @@ export function prunedJournal(lines, now, days = JOURNAL_DAYS) {
   });
 }
 
-/** Переписывает журнал владельца: старые записи — вон, новые — в конец. */
+/**
+ * Переписывает журнал владельца: старые записи — вон, новые — в конец. Целиком во временный файл рядом, на диск — и
+ * переименованием поверх: оборванная запись не теряет прежних строк (ревью Codex на #175).
+ */
 export function keepJournal(file, added = []) {
   const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : [];
-  writeFileSync(file, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''));
+  const temp = `${file}.tmp`;
+  writeFileSync(temp, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''), { flush: true });
+  renameSync(temp, file);
 }
 
 /** Чем набор таблиц схемы расходится со списком удаления. */
@@ -131,10 +136,12 @@ export async function deletePerson({ username, sub, oursOnly = false, journal = 
 
   const [userId] = sql(`SELECT id FROM users WHERE external_id = '${kcId}'`);
   const statement = deletionSql({ userId, kcId, journal });
-  if (statement) sql(statement);
+  // Журнал владельца — раньше удаления на сервере (ревью Codex на #175): удаление после последней копии есть только в
+  // нём, и запись после удаления могла не случиться. Удаление сорвалось — запись остаётся намерением: повтори команду.
   if (journal) {
     keepJournal(JOURNAL, [journalLine({ at: new Date().toISOString(), issuer: await realmIssuer(KC_ADMIN), kcId, userId })]);
   }
+  if (statement) sql(statement);
   if (!oursOnly) {
     const response = await adminCall(admin, 'DELETE', `/users/${kcId}`);
     if (!response.ok && response.status !== 404) throw new Error(`удаление из Keycloak: ${response.status} ${await response.text()}`);
