@@ -77,9 +77,13 @@ describe('latestAllowedIso — не позже сегодня ни по мест
         expect(at('Europe/Kaliningrad', '2026-10-17T21:30:00Z')).toEqual({ offset: -120, local: '2026-10-17', allowed: '2026-10-17' });
     });
 
-    it('пояс сервера — тот же, что TZ в compose', () => {
+    it('пояс сервера — тот же, что TZ в compose, и переменной его не переопределить', () => {
+        // Переменная TZ в .env развела бы экран и сервер: экран считал бы предел по SERVER_TIME_ZONE,
+        // а сервер — по своему поясу, и запись снова получала бы 400 молча (второй круг Codex на #177).
         for (const file of ['../../../docker-compose.yml', '../../../deploy/docker-compose.yml']) {
-            expect(readFileSync(new URL(file, import.meta.url), 'utf8')).toContain(`TZ: \${TZ:-${SERVER_TIME_ZONE}}`);
+            const compose = readFileSync(new URL(file, import.meta.url), 'utf8');
+            expect(compose).toContain(`TZ: ${SERVER_TIME_ZONE}`);
+            expect(compose).not.toMatch(/TZ: \$\{TZ/);
         }
     });
 });
