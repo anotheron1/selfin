@@ -95,6 +95,14 @@ describe('riskZones', () => {
         expect(block).toContain('fetchPocketSettings()');
         expect(block.match(/riskZones\([^)]*, nz\)/g) ?? []).toHaveLength(2);
     });
+    it('зона месяца рисуется полосой на ширину месяца: у оси X полосная шкала (сторож, ANO-221)', () => {
+        // Полоса — ReferenceArea с x1 = x2 = подпись месяца. На точечной шкале у точки нет ширины, и с 17.06
+        // все 36 полос были пустыми — тесты функции оставались зелёными. На полосной recharts ставит x1 в
+        // начало полосы, x2 — в конец.
+        const chart = readFileSync(new URL('./WishlistImpactChart.tsx', import.meta.url), 'utf8');
+        expect(chart).toMatch(/x1=\{row\.label\}\s+x2=\{row\.label\}/);
+        expect(chart).toMatch(/<XAxis\s[^>]*scale="band"/);
+    });
     it('НЗ не пришёл — не ноль: блок грузится или говорит об ошибке (сторож, ревью Codex на #134)', () => {
         // С нулём остаток ниже настоящего НЗ был бы зелёным, а шапка сказала бы «НЗ не задан».
         const block = readFileSync(new URL('../sandbox/CapitalWhatIf.tsx', import.meta.url), 'utf8');
