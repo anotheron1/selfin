@@ -14,13 +14,14 @@ import SignOutSection from '../components/SignOutSection';
 import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { AmountInput, amountValue } from '../components/ui/amount-input';
+import { latestAllowedIso } from '../lib/factDate';
 
 const inputStyle = {
     background: 'var(--color-surface-2)',
     border: '1px solid var(--color-border)',
     color: 'var(--color-text)',
 };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => latestAllowedIso(new Date());
 
 const MONTHS_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];

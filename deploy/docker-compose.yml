@@ -57,7 +57,8 @@ services:
       SELFIN_KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth
       SELFIN_CLIENT_SECRET: ${SELFIN_CLIENT_SECRET}
       SELFIN_OWNER_SUB: ${SELFIN_OWNER_SUB:-}
-      TZ: ${TZ:-Europe/Moscow}
+      # Зона зашита: экран считает «не позже сегодня» по ней же (SERVER_TIME_ZONE во фронте, тест сверяет).
+      TZ: Europe/Moscow
       # Куча — три четверти лимита контейнера: по умолчанию JVM берёт четверть.
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75
     depends_on:
@@ -128,7 +129,7 @@ services:
     restart: unless-stopped
     logging: *logging
     environment:
-      TZ: ${TZ:-Europe/Moscow}
+      TZ: Europe/Moscow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       KC_DB_PASSWORD: ${KC_DB_PASSWORD}
       SELFIN_BACKUP_AGE_RECIPIENT: ${SELFIN_BACKUP_AGE_RECIPIENT}
