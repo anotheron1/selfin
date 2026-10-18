@@ -3,6 +3,8 @@
 // Вход — через наш сервер (ANO-195, вариант Б): у браузера cookie сеанса, токенов во фронте нет.
 // Адрес API — только относительный: и в разработке (прокси Vite), и в docker (nginx) запрос идёт
 // тем же адресом, что и экран, — с cookie сеанса и CSRF. Спека — 2026-10-13-server-knows-owner-design.md.
+import { CONSENT_VERSION, needsConsent } from '../lib/consent';
+
 const BASE_URL = '/api/v1';
 /** Свой экран входа (ANO-152): на него уводит 401. */
 const SIGN_IN_SCREEN = '/login';
@@ -79,6 +81,11 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
             // подтверждаемый отказ от безусловного, не разбирая текст сообщения.
             if (Array.isArray(body?.details)) details = body.details;
         } catch { /* тело не JSON — обойдёмся кодом */ }
+        if (needsConsent(res.status, details)) {
+            // Вошёл, но согласия ещё не дал (ANO-196) — на экран входа, к галочке. Ответ не придёт: страница уходит.
+            window.location.assign(SIGN_IN_SCREEN);
+            return new Promise<T>(() => {});
+        }
         throw new ApiError(res.status, details,
             `API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
     }
@@ -145,6 +152,17 @@ export function patch<T>(path: string, body?: unknown) {
         method: 'PATCH',
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
+}
+
+/**
+ * Галочка согласия (ANO-196) — на сервер до входа: он кладёт отметку в сеанс и только с ней пускает в Keycloak.
+ * До входа cookie `XSRF-TOKEN` может ещё не быть — её выписывает любой ответ сервера, поэтому сначала коммит сборки.
+ *
+ * @throws ApiError если сервер галочку не принял — например, экран устарел и версия текста не та (409)
+ */
+export async function giveConsent(): Promise<void> {
+    if (!csrfHeader()['X-XSRF-TOKEN']) await fetch(`${BASE_URL}/version`);
+    await post<void>('/consent', { version: CONSENT_VERSION });
 }
 
 /**

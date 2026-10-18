@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.service.Consent;
 
 import javax.sql.DataSource;
 import java.net.URI;
@@ -63,40 +64,67 @@ class ServerSetupIT {
     @Test
     @DisplayName("за HTTPS-прокси адрес возврата из Keycloak — https, cookie сеанса — Secure")
     void behindHttpsProxy() throws Exception {
-        HttpResponse<Void> start = signInStart("https");
-        assertThat(start.statusCode()).isEqualTo(302);
-        assertThat(URLDecoder.decode(start.headers().firstValue(HttpHeaders.LOCATION).orElseThrow(), UTF_8))
-                .contains("redirect_uri=https://localhost/login/oauth2/code/keycloak");
-        assertThat(start.headers().allValues(HttpHeaders.SET_COOKIE))
-                .anyMatch(cookie -> cookie.startsWith("JSESSIONID=") && cookie.contains("Secure"));
+        Start start = signInStart("X-Forwarded-Proto", "https");
+        assertThat(start.keycloak().statusCode()).isEqualTo(302);
+        assertThat(start.redirect()).contains("redirect_uri=https://localhost/login/oauth2/code/keycloak");
+        assertThat(start.sessionCookie()).contains("Secure");
     }
 
     @Test
     @DisplayName("за HTTPS-прокси на нестандартном порту адрес возврата сохраняет порт из X-Forwarded-Port (ревью Codex на #171)")
     void behindHttpsProxyOnOwnPort() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/oauth2/authorization/keycloak"))
-                .header("X-Forwarded-Proto", "https").header("X-Forwarded-Port", "8443").build();
-        HttpResponse<Void> start = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding());
-        assertThat(URLDecoder.decode(start.headers().firstValue(HttpHeaders.LOCATION).orElseThrow(), UTF_8))
+        assertThat(signInStart("X-Forwarded-Proto", "https", "X-Forwarded-Port", "8443").redirect())
                 .contains("redirect_uri=https://localhost:8443/login/oauth2/code/keycloak");
     }
 
     @Test
     @DisplayName("без прокси — как прежде: адрес возврата http, cookie без Secure — стенд и разработка не задеты")
     void withoutProxy() throws Exception {
-        HttpResponse<Void> start = signInStart(null);
-        assertThat(URLDecoder.decode(start.headers().firstValue(HttpHeaders.LOCATION).orElseThrow(), UTF_8))
-                .contains("redirect_uri=http://localhost:" + port + "/login/oauth2/code/keycloak");
-        assertThat(start.headers().allValues(HttpHeaders.SET_COOKIE))
-                .filteredOn(cookie -> cookie.startsWith("JSESSIONID="))
-                .noneMatch(cookie -> cookie.contains("Secure"));
+        Start start = signInStart();
+        assertThat(start.redirect()).contains("redirect_uri=http://localhost:" + port + "/login/oauth2/code/keycloak");
+        assertThat(start.sessionCookie()).doesNotContain("Secure");
     }
 
-    /** Начало входа: наш сервер уводит в Keycloak. {@code proto} — схема, которую проставил бы прокси. */
-    private HttpResponse<Void> signInStart(String proto) throws Exception {
-        HttpRequest.Builder request = HttpRequest.newBuilder(
-                URI.create("http://localhost:" + port + "/oauth2/authorization/keycloak"));
-        if (proto != null) request.header("X-Forwarded-Proto", proto);
-        return HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.discarding());
+    /** Галочка и переход в Keycloak: сеанс рождается на галочке, адрес возврата — у перехода. */
+    private record Start(HttpResponse<Void> consent, HttpResponse<Void> keycloak) {
+
+        String redirect() {
+            return URLDecoder.decode(keycloak.headers().firstValue(HttpHeaders.LOCATION).orElseThrow(), UTF_8);
+        }
+
+        String sessionCookie() {
+            return consent.headers().allValues(HttpHeaders.SET_COOKIE).stream()
+                    .filter(cookie -> cookie.startsWith("JSESSIONID=")).findFirst().orElseThrow();
+        }
+    }
+
+    /**
+     * Начало входа, как у экрана (ANO-196): галочка с CSRF кладёт отметку в сеанс, и только с ней наш адрес входа уводит
+     * в Keycloak. {@code proxy} — заголовки, которые проставил бы прокси, парами «имя, значение», — на каждом запросе.
+     */
+    private Start signInStart(String... proxy) throws Exception {
+        HttpClient http = HttpClient.newHttpClient();
+        String xsrf = cookie(http.send(request("/api/v1/version", proxy).build(), HttpResponse.BodyHandlers.discarding()),
+                "XSRF-TOKEN");
+        HttpResponse<Void> consent = http.send(request("/api/v1/consent", proxy)
+                        .header(HttpHeaders.COOKIE, "XSRF-TOKEN=" + xsrf).header("X-XSRF-TOKEN", xsrf)
+                        .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"version\":\"" + Consent.CURRENT + "\"}")).build(),
+                HttpResponse.BodyHandlers.discarding());
+        HttpResponse<Void> keycloak = http.send(request("/oauth2/authorization/keycloak", proxy)
+                        .header(HttpHeaders.COOKIE, "JSESSIONID=" + cookie(consent, "JSESSIONID")).build(),
+                HttpResponse.BodyHandlers.discarding());
+        return new Start(consent, keycloak);
+    }
+
+    private HttpRequest.Builder request(String path, String... proxy) {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path));
+        for (int i = 0; i < proxy.length; i += 2) request.header(proxy[i], proxy[i + 1]);
+        return request;
+    }
+
+    private static String cookie(HttpResponse<?> response, String name) {
+        return response.headers().allValues(HttpHeaders.SET_COOKIE).stream().filter(c -> c.startsWith(name + "="))
+                .findFirst().orElseThrow().replaceAll("^" + name + "=([^;]*).*", "$1");
     }
 }

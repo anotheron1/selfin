@@ -24,6 +24,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerService;
 
 import java.nio.file.Files;
@@ -177,6 +178,8 @@ class TwoPeopleIsolationIT {
     /** Один и тот же набор у каждого — строки во всех 11 таблицах с владельцем. Суммы — умноженные на {@code k}. */
     private Person seed(String sub, int k) throws Exception {
         Person p = new Person(sub);
+        // Заводит человека согласие (ANO-196) — тем же запросом, что у экрана вошедшего.
+        ok(p, POST, "/api/v1/consent", "{\"version\":\"" + Consent.CURRENT + "\"}", null);
         p.owner = UUID.fromString(JsonPath.read(ok(p, GET, "/api/v1/me", null, null), "$.id"));
         // Стартовый набор у каждого свой и с одними именами (ANO-151); заведённое — сверх него, имена вне набора.
         p.save("category", ok(p, POST, "/api/v1/categories", """

@@ -2,8 +2,9 @@
 // Временный второй человек для проверок на стенде и сервере (спека 2026-10-17-stand-tools-design.md).
 //
 //   node tools/second-person.mjs [<приставка>]   заводит нового человека <приставка>-<хвост> (по умолчанию tester2-…)
-//                                                со случайным паролем и печатает его токен Bearer; первый запрос с токеном
-//                                                заводит его со стартовым набором. Как убрать — печатает в stderr.
+//                                                со случайным паролем, даёт за него согласие — оно заводит его со
+//                                                стартовым набором (ANO-196) — и печатает его токен Bearer. Как убрать —
+//                                                печатает в stderr.
 //
 // Адреса — переменными, по умолчанию стенд: SELFIN_API, SELFIN_KC, SELFIN_KC_ADMIN, SELFIN_PSQL — таблица в спеке.
 // Админ Keycloak — admin / KC_ADMIN_PASSWORD (без него — admin), как в keycloak-token.mjs.
@@ -11,7 +12,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { adminToken, ensureScriptsClient, SCRIPTS } from './keycloak-token.mjs';
+import { adminToken, CONSENT_VERSION, ensureScriptsClient, SCRIPTS } from './keycloak-token.mjs';
 
 const trim = (url) => url.replace(/\/$/, '');
 export const API = trim(process.env.SELFIN_API || 'http://127.0.0.1:8081/api/v1');
@@ -74,7 +75,11 @@ export async function secondPerson(prefix = 'tester2') {
         grant_type: 'password', client_id: SCRIPTS.clientId, client_secret: SCRIPTS.secret, username, password,
       }),
     }), `токен ${username}`);
-    return { token: (await token.json()).access_token, kcId, username };
+    const bearer = (await token.json()).access_token;
+    // Без согласия сервер человека не заводит (ANO-196): скрипт даёт его за своего временного человека.
+    const consent = await api(bearer, 'POST', '/consent', JSON.stringify({ version: CONSENT_VERSION }));
+    if (consent.status !== 204) throw new Error(`согласие ${username}: ${consent.status} ${consent.text}`);
+    return { token: bearer, kcId, username };
   } catch (e) {
     // Без токена человек не нужен — не оставлять его; не убрался — сказать, как убрать (ревью Codex на #167).
     const rollback = await adminCall(admin, 'DELETE', `/users/${kcId}`);

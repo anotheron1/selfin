@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerContext;
 import ru.selfin.backend.service.OwnerService;
 
@@ -87,6 +88,7 @@ class RowLevelSecurityIT {
     @Test
     @DisplayName("второй человек не видит категорий первого и пишет своё — людей различает сервер")
     void secondPersonSeesOnlyOwn() throws Exception {
+        secondOwner();
         assertThat(categories(null)).as("первый — синтетический владелец со стартовыми категориями").isNotEmpty();
         // У второго — свой стартовый набор (ANO-151): виден ровно он, строк синтетического в нём нет.
         assertThat(categories(second())).as("второму чужие категории не видны")
@@ -153,8 +155,9 @@ class RowLevelSecurityIT {
         return oidcLogin().idToken(t -> t.subject(SECOND_SUB));
     }
 
+    /** Второй человек — с согласием (ANO-196): без него сервер его не заводит. */
     private UUID secondOwner() {
-        return owners.resolve(SECOND_SUB);
+        return owners.resolve(SECOND_SUB, Consent.current());
     }
 
     /** Живые категории человека по базе — ролью владельца таблиц, мимо RLS. */

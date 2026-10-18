@@ -1,9 +1,11 @@
 package ru.selfin.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientProperties;
@@ -12,6 +14,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
@@ -34,6 +37,10 @@ import org.springframework.security.web.authentication.SimpleUrlAuthenticationSu
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.filter.OncePerRequestFilter;
+import ru.selfin.backend.service.Consent;
+import ru.selfin.backend.service.ConsentRequiredException;
 import ru.selfin.backend.service.OwnerService;
 
 import java.io.IOException;
@@ -55,7 +62,7 @@ import java.util.Set;
  *
  * <p>Экран входа (ANO-152): кнопка «Войти через Telegram» ведёт прямо к Telegram — {@link ProviderHint};
  * вход держится 30 дней — {@link LongSessionAfterSignIn}; выход гасит и наш сеанс, и сеанс Keycloak —
- * {@link SignOutThroughKeycloak}.
+ * {@link SignOutThroughKeycloak}. В Keycloak — только после галочки согласия — {@link ConsentBeforeKeycloak} (ANO-196).
  *
  * <p>Спеки: docs/superpowers/specs/2026-10-13-server-knows-owner-design.md,
  * docs/superpowers/specs/2026-10-15-sign-in-screen-design.md
@@ -67,7 +74,7 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    SecurityFilterChain scripts(HttpSecurity http, OwnerService owners) throws Exception {
+    SecurityFilterChain scripts(HttpSecurity http, OwnerService owners, ObjectMapper json) throws Exception {
         return http
                 .securityMatcher(new RequestHeaderRequestMatcher(HttpHeaders.AUTHORIZATION))
                 .authorizeHttpRequests(requests -> requests.anyRequest().authenticated())
@@ -75,7 +82,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // Подделывать нечего: у скриптов нет cookie, а токен в заголовок чужая страница не положит.
                 .csrf(AbstractHttpConfigurer::disable)
-                .addFilterAfter(new OwnerFilter(owners), AuthorizationFilter.class)
+                .addFilterAfter(new OwnerFilter(owners, json), AuthorizationFilter.class)
                 .build();
     }
 
@@ -88,10 +95,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(requests -> requests
                         // Коммит сборки — по нему ждут готовности и сверяют образ (ANO-194).
                         .requestMatchers("/api/v1/version", "/error").permitAll()
+                        // Галочка согласия — до входа (ANO-196); CSRF у неё, как у всех записей браузера.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/consent").permitAll()
                         .anyRequest().authenticated())
                 .oauth2Login(login -> login
                         .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(new ProviderHint(registrations)))
-                        .successHandler(new LongSessionAfterSignIn(session)))
+                        .successHandler(new LongSessionAfterSignIn(session, owners)))
+                .addFilterBefore(new ConsentBeforeKeycloak(), OAuth2AuthorizationRequestRedirectFilter.class)
                 .logout(logout -> logout.logoutSuccessHandler(new SignOutThroughKeycloak(registrations, json)))
                 // spa(): токен — в cookie XSRF-TOKEN, читаемой фронтом, и грузится на каждом запросе:
                 // cookie есть у экрана до первой записи.
@@ -104,8 +114,34 @@ public class SecurityConfig {
                 // После входа — на «/»: запомненный запрос к API увёл бы браузер на JSON.
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 // Владелец запроса — после авторизации: с ним пул пускает к строкам (ANO-144).
-                .addFilterAfter(new OwnerFilter(owners), AuthorizationFilter.class)
+                .addFilterAfter(new OwnerFilter(owners, json), AuthorizationFilter.class)
                 .build();
+    }
+
+    /**
+     * В Keycloak — только после галочки (ANO-196): наш адрес входа без отметки согласия в сеансе ведёт на экран входа.
+     * Иначе ссылка в обход экрана завела бы учётную запись Keycloak с именем и ником из Telegram ещё до согласия.
+     */
+    static final class ConsentBeforeKeycloak extends OncePerRequestFilter {
+
+        private static final RequestMatcher SIGN_IN =
+                PathPatternRequestMatcher.withDefaults().matcher("/oauth2/authorization/**");
+
+        @Override
+        protected boolean shouldNotFilter(HttpServletRequest request) {
+            return !SIGN_IN.matches(request);
+        }
+
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+                throws ServletException, IOException {
+            HttpSession session = request.getSession(false);
+            if (session == null || session.getAttribute(Consent.SESSION_KEY) == null) {
+                response.sendRedirect("/login");
+                return;
+            }
+            chain.doFilter(request, response);
+        }
     }
 
     /**
@@ -166,20 +202,33 @@ public class SecurityConfig {
      * Вход держится 30 дней (решение владельца 15.10, ANO-152): сеанс вошедшего живёт без действий столько же, сколько
      * cookie сеанса, — у кассы приложение открывается сразу, подтверждение в Telegram — раз в месяц. Сеанс до входа
      * остаётся по умолчанию сервера, 30 минут: брошенный вход не держит память сервера месяц. После входа — на «/».
+     *
+     * <p>Отметка галочки живёт до входа и не дольше (ANO-196): незнакомый человек заводится с ней, а с сеанса она
+     * снимается — иначе удалённый по просьбе с живым сеансом завёлся бы снова без нового согласия.
      */
     static final class LongSessionAfterSignIn extends SimpleUrlAuthenticationSuccessHandler {
 
         private final Duration length;
+        private final OwnerService owners;
 
-        LongSessionAfterSignIn(Duration length) {
+        LongSessionAfterSignIn(Duration length, OwnerService owners) {
             super("/");
             this.length = length;
+            this.owners = owners;
         }
 
         @Override
         public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
                                             Authentication authentication) throws IOException, ServletException {
-            request.getSession().setMaxInactiveInterval((int) length.toSeconds());
+            HttpSession session = request.getSession();
+            session.setMaxInactiveInterval((int) length.toSeconds());
+            Consent consent = (Consent) session.getAttribute(Consent.SESSION_KEY);
+            session.removeAttribute(Consent.SESSION_KEY);
+            try {
+                owners.resolve(authentication.getName(), consent);
+            } catch (ConsentRequiredException e) {
+                // Отметки нет — сеанс истёк между галочкой и возвратом: не заводим, первый запрос экрана уведёт к галочке.
+            }
             super.onAuthenticationSuccess(request, response, authentication);
         }
     }

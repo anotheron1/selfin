@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerService;
 
 import javax.sql.DataSource;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Регистрация (ANO-151): новый человек с первого запроса получает стартовый набор — ядро категорий v4 и счёт
+ * Регистрация (ANO-151): новый человек, дав согласие (ANO-196), получает стартовый набор — ядро категорий v4 и счёт
  * по умолчанию — одной транзакцией со своей строкой {@code users}.
  *
  * <p>{@code jdbc} — роль владельца таблиц, мимо RLS: тест видит строки любого человека.
@@ -66,6 +67,7 @@ class RegistrationIT {
     @Test
     @DisplayName("новый человек — ядро категорий v4, бронь у четырёх и у зарплаты; второй запрос второго набора не заводит")
     void newPersonGetsCoreCategories() throws Exception {
+        consent("core-person");
         for (int request = 1; request <= 2; request++) {
             List<Map<String, Object>> categories = JsonPath.read(ok(get("/api/v1/categories"), "core-person"), "$");
             assertThat(categories).as("запрос %d", request)
@@ -96,6 +98,7 @@ class RegistrationIT {
     @Test
     @DisplayName("новый человек — счёт «Основная карта» по умолчанию: остаток вводится без выбора счёта")
     void newPersonGetsDefaultAccount() throws Exception {
+        consent("account-person");
         List<Map<String, Object>> accounts = JsonPath.read(ok(get("/api/v1/accounts"), "account-person"), "$");
         assertThat(accounts).singleElement().satisfies(a -> assertThat(a)
                 .containsEntry("name", "Основная карта").containsEntry("kind", "DEBIT")
@@ -118,7 +121,7 @@ class RegistrationIT {
     }
 
     @Test
-    @DisplayName("одной транзакцией: пока набор первого запроса не лёг, второй первый запрос того же человека ждёт")
+    @DisplayName("одной транзакцией: пока набор первого заведения не лёг, второе заведение того же человека ждёт")
     void secondFirstRequestWaitsForTheSet() throws Exception {
         String sub = "racing-person";
         ExecutorService threads = Executors.newFixedThreadPool(2);
@@ -126,11 +129,11 @@ class RegistrationIT {
             lock.setAutoCommit(false);
             // Счёт набора не вставится, пока замок не снят: первый запрос встанет внутри своей транзакции.
             lock.createStatement().execute("LOCK TABLE accounts IN EXCLUSIVE MODE");
-            CompletableFuture<UUID> first = CompletableFuture.supplyAsync(() -> owners.resolve(sub), threads);
+            CompletableFuture<UUID> first = CompletableFuture.supplyAsync(() -> owners.resolve(sub, Consent.current()), threads);
             awaitLockWait("insert into accounts", first);
 
             CompletableFuture<Long> second = CompletableFuture.supplyAsync(
-                    () -> liveCategories(owners.resolve(sub)), threads);
+                    () -> liveCategories(owners.resolve(sub, Consent.current())), threads);
             awaitLockWait("insert into users", second);
             assertThat(second).as("второй ждёт строку первого, а не читает пустого человека").isNotDone();
 
@@ -147,6 +150,12 @@ class RegistrationIT {
     private String ok(MockHttpServletRequestBuilder request, String sub) throws Exception {
         return mvc.perform(request.with(oidcLogin().idToken(t -> t.subject(sub))))
                 .andExpect(status().is2xxSuccessful()).andReturn().getResponse().getContentAsString();
+    }
+
+    /** Согласие человека — тем же запросом, что у экрана вошедшего (ANO-196): с ним он и заводится. */
+    private void consent(String sub) throws Exception {
+        ok(post("/api/v1/consent").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"version\":\"" + Consent.CURRENT + "\"}"), sub);
     }
 
     private long liveCategories(UUID owner) {
