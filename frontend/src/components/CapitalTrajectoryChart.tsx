@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { fetchCapitalTrajectory } from '../api';
 import type { CapitalTrajectory } from '../types/api';
+import { todayIso } from '../lib/factDate';
 import { Button } from './ui/button';
 
 type Range = '6m' | '1y' | '3y' | 'all';
@@ -110,5 +111,5 @@ function shortDate(iso: string): string {
 function isoMinusMonths(d: Date, months: number): string {
     const r = new Date(d);
     r.setMonth(r.getMonth() - months);
-    return r.toISOString().slice(0, 10);
+    return todayIso(r);
 }

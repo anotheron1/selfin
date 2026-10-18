@@ -11,6 +11,7 @@ import {
 } from '../api';
 import type { CapitalItem, CapitalItemKind } from '../types/api';
 import CapitalRevaluationHistory from './CapitalRevaluationHistory';
+import { todayIso } from '../lib/factDate';
 
 const fmt = (n: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(n);
@@ -31,13 +32,13 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [revValue, setRevValue] = useState('');
-    const [revDate, setRevDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [revDate, setRevDate] = useState(() => todayIso(new Date()));
     const [revNote, setRevNote] = useState('');
     const [historyTick, setHistoryTick] = useState(0);
     const [loading, setLoading] = useState(false);
     const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
     const [disposalOpen, setDisposalOpen] = useState(false);
-    const [disposalDate, setDisposalDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [disposalDate, setDisposalDate] = useState(() => todayIso(new Date()));
 
     useEffect(() => {
         if (mode?.type === 'view') {
@@ -53,7 +54,7 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
         }
         setRevValue('');
         setRevNote('');
-        setRevDate(new Date().toISOString().slice(0, 10));
+        setRevDate(todayIso(new Date()));
     }, [mode]);
 
     if (!mode) return null;
@@ -179,7 +180,7 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
                         <Input
                             type="date"
                             value={revDate}
-                            max={new Date().toISOString().slice(0, 10)}
+                            max={todayIso(new Date())}
                             onChange={e => setRevDate(e.target.value)}
                         />
                         {!isCreate && (
@@ -221,7 +222,7 @@ export default function CapitalSheet({ open, mode, onClose, onChanged }: Props) 
                                     <Input
                                         type="date"
                                         value={disposalDate}
-                                        max={new Date().toISOString().slice(0, 10)}
+                                        max={todayIso(new Date())}
                                         onChange={e => setDisposalDate(e.target.value)} />
                                     <div className="flex gap-2">
                                         <Button size="sm" onClick={handleDisposeConfirm} disabled={loading}>

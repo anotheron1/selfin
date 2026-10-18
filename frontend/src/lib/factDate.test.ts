@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { canRecordFact, todayIso } from './factDate';
 
@@ -39,12 +39,33 @@ describe('todayIso (ANO-155)', () => {
     });
 });
 
-describe('формы факта берут «сегодня» одним способом (ревью #45)', () => {
+describe('todayIso в Москве после полуночи — местная дата (ANO-220)', () => {
+    // 23:00 31 декабря не отличает местную дату от UTC ни в Москве, ни в UTC, то есть в CI.
+    // В 00:30 по Москве UTC — ещё вчера: так поля дат отставали на день до правки.
+    const tz = process.env.TZ;
+    beforeAll(() => { process.env.TZ = 'Europe/Moscow'; });
+    afterAll(() => { process.env.TZ = tz; });
+
+    it('пояс действительно московский — иначе тест зелёный и с дефектом', () => {
+        expect(new Date(2026, 9, 18).getTimezoneOffset()).toBe(-180);
+    });
+
+    it('00:30 18 октября — 18-е, а не 17-е по UTC', () => {
+        expect(todayIso(new Date('2026-10-17T21:30:00Z'))).toBe('2026-10-18');
+    });
+});
+
+describe('экраны берут «сегодня» одним способом (ревью #45, ANO-220)', () => {
     // В быстром добавлении умолчание даты считалось по UTC, а граница «не позже сегодня» —
     // по местной дате. Западнее Гринвича после полуночи по UTC форма объявляла будущим
-    // собственное умолчание и прятала поле факта, пока дату не поправят руками. Сторож
-    // читает исходник: поведенческого теста на это нет — компонентных тестов в проекте нет.
-    const forms = ['../components/Fab.tsx', '../components/FactCreateSheet.tsx'];
+    // собственное умолчание и прятала поле факта, пока дату не поправят руками. Восточнее —
+    // наоборот: в Москве с полуночи до трёх ночи лист капитала и сверка остатка предлагали
+    // вчерашнее число и не давали выбрать сегодняшнее (ANO-220). Сторож читает исходник:
+    // поведенческого теста на это нет — компонентных тестов в проекте нет.
+    const forms = [
+        '../components/Fab.tsx', '../components/FactCreateSheet.tsx',
+        '../components/CapitalSheet.tsx', '../pages/Settings.tsx', '../components/CapitalTrajectoryChart.tsx',
+    ];
 
     it.each(forms)('%s не берёт дату из toISOString()', (file) => {
         const src = readFileSync(new URL(file, import.meta.url), 'utf8');
