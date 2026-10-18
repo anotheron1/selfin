@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { CONSENT_VERSION, needsConsent } from './consent';
+import { CONSENT_VERSION, needsConsent, OPERATOR } from './consent';
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -58,6 +58,11 @@ describe('согласие: тексты', () => {
             '5. Как обрабатываются', '6. Уточнение, удаление и ответы на запросы']) {
             expect(legal).toContain(section);
         }
+    });
+
+    it('оператор назван и куда писать — сказано: заглушек в текстах нет (ревью Codex на #173)', () => {
+        expect(`${OPERATOR.name} ${OPERATOR.contact}`).not.toMatch(/[[\]]/);
+        expect(OPERATOR.contact).toMatch(/@\w+/);
     });
 
     it('согласие говорит честно: где данные, кто имеет доступ, как отозвать и за сколько удаляем', () => {

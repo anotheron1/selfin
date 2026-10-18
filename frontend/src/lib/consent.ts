@@ -12,8 +12,8 @@ export const CONSENT_REQUIRED = 'CONSENT_REQUIRED';
 /** Нужна ли галочка: так сервер отвечает вошедшему, которого ещё не завёл. */
 export const needsConsent = (status: number, details: string[]) => status === 403 && details.includes(CONSENT_REQUIRED);
 
-/** Оператор персональных данных — владелец сервиса; так он назван в политике и в согласии. */
+/** Оператор персональных данных — владелец сервиса; так он назван в политике и в согласии (решение владельца 18.10). */
 export const OPERATOR = {
-    name: '[ФИО оператора]',
-    contact: '[контакт для обращений]',
+    name: 'Вохмянин Кирилл Ильич',
+    contact: '@AnotherOn1 в Telegram',
 };
