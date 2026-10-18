@@ -1,0 +1,9 @@
+#!/bin/sh
+# Восстановление одной базы из расшифрованной копии на stdin (шаг 5, deploy/RESTORE.md): selfin или keycloak.
+# Расшифровка — у владельца, сюда приходит поток: ключа на сервере нет. Копия — SQL с --clean: прежнее удаляется.
+set -eu
+case "${1:-}" in
+  selfin) PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h db -U admin -d selfin -Xq -v ON_ERROR_STOP=1 ;;
+  keycloak) PGPASSWORD="$KC_DB_PASSWORD" exec psql -h keycloak-db -U keycloak -d keycloak -Xq -v ON_ERROR_STOP=1 ;;
+  *) echo 'restore selfin|keycloak < расшифрованная копия' >&2; exit 2 ;;
+esac

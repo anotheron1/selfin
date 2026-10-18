@@ -87,6 +87,17 @@ class RowLevelSecurityIT {
     }
 
     @Test
+    @DisplayName("журнал удалений (ops.deletions) приложению недоступен: его пишет и читает только владелец таблиц (шаг 5)")
+    void deletionJournalIsOutOfAppReach() {
+        // Спрашивает владелец таблиц: роль приложения без прав на схему не может даже назвать ops.deletions.
+        Map<String, Object> access = jdbc.queryForMap("""
+                SELECT has_schema_privilege('selfin_app', 'ops', 'USAGE') AS schema,
+                       has_table_privilege('selfin_app', 'ops.deletions', 'SELECT, INSERT, UPDATE, DELETE') AS journal
+                """);
+        assertThat(access).containsEntry("schema", false).containsEntry("journal", false);
+    }
+
+    @Test
     @DisplayName("второй человек не видит категорий первого и пишет своё — людей различает сервер")
     void secondPersonSeesOnlyOwn() throws Exception {
         secondOwner();
