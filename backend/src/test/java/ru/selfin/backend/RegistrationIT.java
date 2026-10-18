@@ -153,10 +153,9 @@ class RegistrationIT {
                 .andExpect(status().is2xxSuccessful()).andReturn().getResponse().getContentAsString();
     }
 
-    /** Согласие человека — тем же запросом, что у экрана вошедшего (ANO-196): с ним он и заводится. */
-    private void consent(String sub) throws Exception {
-        ok(post("/api/v1/consent").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"version\":\"" + Consent.CURRENT + "\"}"), sub);
+    /** Человек заводится с согласием (ANO-196) — так его заводит обработчик входа после галочки. */
+    private void consent(String sub) {
+        owners.resolve(sub, Consent.current(Clock.systemUTC()));
     }
 
     private long liveCategories(UUID owner) {

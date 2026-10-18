@@ -406,13 +406,14 @@ class SignInIT {
     }
 
     @Test
-    @DisplayName("вошедший из браузера без строки: галочка заводит его и кладёт отметку для входа (ANO-196)")
-    void signedInConsentRegistersAndMarks() throws Exception {
+    @DisplayName("вошедший из браузера без строки: галочка только кладёт отметку — заводит свежий вход, а не старый sub сеанса (ревью Codex на #173)")
+    void signedInConsentOnlyMarks() throws Exception {
+        // Сеанс удалённого по просьбе ещё несёт его старый sub: заведи его галочка — удаление отменилось бы до Keycloak.
         HttpSession session = mvc.perform(post("/api/v1/consent").with(oidcLogin().idToken(t -> t.subject("browser-late")))
                         .with(xsrfFromServer()).contentType(MediaType.APPLICATION_JSON).content(consentBody(Consent.CURRENT)))
                 .andExpect(status().isNoContent())
                 .andReturn().getRequest().getSession(false);
-        assertThat(users("browser-late")).isOne();
+        assertThat(users("browser-late")).isZero();
         assertThat(session.getAttribute(Consent.SESSION_KEY)).isInstanceOf(Consent.class);
     }
 

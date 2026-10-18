@@ -20,11 +20,10 @@ import java.time.Clock;
  * Галочка согласия на обработку персональных данных (ANO-196).
  *
  * <ul>
- *   <li>до входа — отметка в сеансе: с ней наш адрес входа пускает в Keycloak, и после входа человек заводится с этим
- *       согласием;</li>
- *   <li>вошедший из браузера, которого ещё нет, заводится сразу — и тоже с отметкой, чтобы переход в Keycloak после
- *       галочки прошёл;</li>
- *   <li>скрипт по Bearer заводит своего человека — сеанса у него нет.</li>
+ *   <li>браузер — только отметка в сеансе, вошёл он или нет: с ней наш адрес входа пускает в Keycloak, а заводит
+ *       человека обработчик входа — у свежего входа. Заводить здесь нельзя (ревью Codex на #173): сеанс удалённого
+ *       по просьбе ещё несёт его старый {@code sub}, и галочка завела бы старую строку до Keycloak;</li>
+ *   <li>скрипт по Bearer заводит своего человека сразу — сеанса и входа у него нет.</li>
  * </ul>
  *
  * Версия не та, что на сервере, — 409: экран устарел, и согласие на другой текст не записывается.
@@ -49,12 +48,10 @@ public class ConsentController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Текст согласия обновился — обновите страницу");
         }
         Consent consent = Consent.current(clock);
-        if (!(authentication instanceof JwtAuthenticationToken)) {
-            request.getSession().setAttribute(Consent.SESSION_KEY, consent);
-        }
-        // Без входа Authentication здесь нет: аргумент берётся из getUserPrincipal, а у анонима его нет.
-        if (authentication != null) {
+        if (authentication instanceof JwtAuthenticationToken) {
             owners.resolve(authentication.getName(), consent);
+        } else {
+            request.getSession().setAttribute(Consent.SESSION_KEY, consent);
         }
         return ResponseEntity.noContent().build();
     }
