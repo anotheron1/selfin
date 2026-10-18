@@ -178,10 +178,11 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
             // Перечитывание сбрасывает подкрученное (overrideMap): диалог держит снимок хотелки с
             // записанными числами, и повтор ушёл бы с ними — найдено перечиткой диффа. И уводит блок
             // в загрузку, а без связи — в ошибку загрузки: карточка со строкой отказа пропадает
-            // (ревью Codex, #108).
+            // (ревью Codex, #108). Перечитывание — через страницу, `changed()`: она перечитывает и
+            // примерку выше (ANO-209).
             const body = handlerBody(BLOCK, name);
-            expect(body.match(/refetch\(\)/g)).toHaveLength(1);
-            expect(body).toMatch(/if \(failure\) \{[\s\S]*?return;\s*\}[\s\S]*refetch\(\);/);
+            expect(body.match(/changed\(\)/g)).toHaveLength(1);
+            expect(body).toMatch(/if \(failure\) \{[\s\S]*?return;\s*\}[\s\S]*changed\(\);/);
         });
 
     it.each([['closeFix', 'fixError'], ['closeDismiss', 'dismissError']])(
@@ -189,18 +190,18 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
         (name, error) => {
             // После отказа часть записи могла пройти: примерка до отказа конверсии, одна из двух
             // частей удаления. Без попытки перечитывание сбросило бы подкрученное простым «Отмена».
-            expect(handlerBody(BLOCK, name)).toMatch(new RegExp(`if\\s*\\(${error}\\)\\s*refetch\\(\\)`));
+            expect(handlerBody(BLOCK, name)).toMatch(new RegExp(`if\\s*\\(${error}\\)\\s*changed\\(\\)`));
         });
 
     it('closeDelete перечитывает список после отказа и после вопроса «что с деньгами» (ANO-198)', () => {
         // Вопрос — тоже след попытки: хотелка могла удалиться, а копилка с деньгами — нет. «Не
         // удалять» оставил бы на экране хотелку, которой уже нет.
-        expect(handlerBody(BLOCK, 'closeDelete')).toMatch(/if\s*\(deleteError \|\| deleteAsksMoney\)\s*refetch\(\)/);
+        expect(handlerBody(BLOCK, 'closeDelete')).toMatch(/if\s*\(deleteError \|\| deleteAsksMoney\)\s*changed\(\)/);
     });
 
     it('ни один обработчик не прячет отказ за перечитыванием', () => {
         const src = read(BLOCK);
-        expect(src).not.toMatch(/\.catch\(\s*refetch\s*\)/);
+        expect(src).not.toMatch(/\.catch\(\s*(refetch|changed)\s*\)/);
         expect(src).not.toMatch(/allSettled/);
     });
 

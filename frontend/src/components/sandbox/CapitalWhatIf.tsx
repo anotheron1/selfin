@@ -28,14 +28,23 @@ function worstZone(zones: RiskLevel[]): RiskLevel | undefined {
     return zones.reduce((acc, z) => (rank[z] >= rank[acc] ? z : acc), 'green' as RiskLevel);
 }
 
+interface Props {
+    /** Счётчик смен хотелок на странице: сменился — список перечитывается (ANO-209). */
+    refreshSignal?: number;
+    /** Запись прошла: странице — перечитать и примерку выше. Без него блок перечитывает только себя. */
+    onChanged?: () => void;
+}
+
 /**
  * «Что с капиталом» (ANO-16 §7): месячная картинка счёта/капитала/долгов — реюз
  * прежнего экрана /wishlist целиком. Вторичный вид «приблизительно, по месяцам»;
  * дневная правда о кармашке живёт в песочнице выше. Ленивая загрузка по раскрытию.
  */
-export default function CapitalWhatIf() {
-    const sim = useWishlistSimulation();
+export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
+    const sim = useWishlistSimulation(36, refreshSignal);
     const { data, isLoading, error, refetch, activeMap, overrideMap, composed, futureMonths, actions } = sim;
+    /** После записи — через страницу: она поднимет счётчик, и перечитаются оба блока (ANO-209). */
+    const changed = onChanged ?? refetch;
     /** Номера пересчётов по строкам: опоздавший ответ не применяется (ANO-105). */
     const recomputes = useRef(new LatestRequests()).current;
 
@@ -180,7 +189,7 @@ export default function CapitalWhatIf() {
             setStatusErrors(prev => ({ ...prev, [item.id]: failure }));
             return;
         }
-        refetch();
+        changed();
     };
 
     const openFix = (item: WishlistItem) => {
@@ -214,7 +223,7 @@ export default function CapitalWhatIf() {
             return;
         }
         setFixItem(null);
-        refetch();
+        changed();
     };
 
     const handleFixWithoutConversion = async () => {
@@ -229,7 +238,7 @@ export default function CapitalWhatIf() {
             return;
         }
         setFixItem(null);
-        refetch();
+        changed();
     };
 
     /**
@@ -238,7 +247,7 @@ export default function CapitalWhatIf() {
      */
     const closeFix = () => {
         setFixItem(null);
-        if (fixError) refetch();
+        if (fixError) changed();
     };
 
     /**
@@ -260,13 +269,13 @@ export default function CapitalWhatIf() {
             return;
         }
         setDismissItem(null);
-        refetch();
+        changed();
     };
 
     /** Закрыть без записи. После отказа — перечитать: ответ мог потеряться уже после записи. */
     const closeDismiss = () => {
         setDismissItem(null);
-        if (dismissError) refetch();
+        if (dismissError) changed();
     };
 
     const openDelete = (item: WishlistItem) => {
@@ -300,7 +309,7 @@ export default function CapitalWhatIf() {
             return;
         }
         setDeleteItem(null);
-        refetch();
+        changed();
     };
 
     /**
@@ -309,7 +318,7 @@ export default function CapitalWhatIf() {
      */
     const closeDelete = () => {
         setDeleteItem(null);
-        if (deleteError || deleteAsksMoney) refetch();
+        if (deleteError || deleteAsksMoney) changed();
     };
 
     const currentMonth = data?.baseline.currentMonth ?? '';
@@ -399,7 +408,7 @@ export default function CapitalWhatIf() {
                         onDelete={openDelete}
                         onStatusChange={handleStatusChange}
                         statusErrors={statusErrors}
-                        onCreated={refetch}
+                        onCreated={changed}
                     />
                 </>
             )}
