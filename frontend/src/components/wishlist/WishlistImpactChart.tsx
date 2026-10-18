@@ -80,6 +80,7 @@ export default function WishlistImpactChart({ months, account, capital, zones, c
 
                 <XAxis
                     dataKey="label"
+                    scale="band"
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
