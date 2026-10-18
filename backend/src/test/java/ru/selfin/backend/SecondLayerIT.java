@@ -27,6 +27,7 @@ import ru.selfin.backend.service.OwnerContext;
 import ru.selfin.backend.service.OwnerService;
 
 import javax.sql.DataSource;
+import java.time.Clock;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -126,7 +127,7 @@ class SecondLayerIT {
     @Test
     @DisplayName("писать другому нельзя: строка с чужим владельцем — отказ Hibernate, до базы")
     void cannotWriteForSomeoneElse() {
-        UUID other = owners.resolve("second-layer-other", Consent.current());
+        UUID other = owners.resolve("second-layer-other", Consent.current(Clock.systemUTC()));
         assertThatThrownBy(() -> categories.save(Category.builder().name("Подброшенная").type(CategoryType.EXPENSE)
                 .userId(other).build()))
                 .rootCause().hasMessageContaining("assigned tenant id differs");

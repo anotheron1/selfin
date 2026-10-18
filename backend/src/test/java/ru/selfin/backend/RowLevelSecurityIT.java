@@ -18,6 +18,7 @@ import ru.selfin.backend.service.OwnerContext;
 import ru.selfin.backend.service.OwnerService;
 
 import javax.sql.DataSource;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -157,7 +158,7 @@ class RowLevelSecurityIT {
 
     /** Второй человек — с согласием (ANO-196): без него сервер его не заводит. */
     private UUID secondOwner() {
-        return owners.resolve(SECOND_SUB, Consent.current());
+        return owners.resolve(SECOND_SUB, Consent.current(Clock.systemUTC()));
     }
 
     /** Живые категории человека по базе — ролью владельца таблиц, мимо RLS. */

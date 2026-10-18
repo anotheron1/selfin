@@ -49,6 +49,7 @@ import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerService;
 import ru.selfin.backend.service.Registration;
 
+import java.time.Clock;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -150,7 +151,7 @@ class SignInIT {
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
         // Вошедший по умолчанию у oidcLogin() — «user»: здесь он не владелец и заводится только с согласием (ANO-196).
-        owners.resolve("user", Consent.current());
+        owners.resolve("user", Consent.current(Clock.systemUTC()));
     }
 
     // ── без входа ──────────────────────────────────────────────────────────────
@@ -292,7 +293,7 @@ class SignInIT {
         assertThat(me(bearer(token(c -> c.subject(OWNER_SUB))))).isEqualTo(SYNTHETIC_OWNER);
         // Реалм пересоздали, у владельца новый sub, его вписали в настройку: данные остаются у прежнего.
         OwnerService reconfigured = new OwnerService(jdbc, registration, sessions, "owner-after-realm-reset");
-        assertThat(reconfigured.resolve("owner-after-realm-reset", Consent.current()))
+        assertThat(reconfigured.resolve("owner-after-realm-reset", Consent.current(Clock.systemUTC())))
                 .isNotEqualTo(OwnerService.SYNTHETIC_OWNER);
         assertThat(me(bearer(token(c -> c.subject(OWNER_SUB))))).isEqualTo(SYNTHETIC_OWNER);
     }
@@ -484,7 +485,7 @@ class SignInIT {
     /** Сеанс с отметкой галочки — как после неё на экране входа. */
     private static MockHttpSession consented() {
         MockHttpSession session = new MockHttpSession();
-        session.setAttribute(Consent.SESSION_KEY, Consent.current());
+        session.setAttribute(Consent.SESSION_KEY, Consent.current(Clock.systemUTC()));
         return session;
     }
 

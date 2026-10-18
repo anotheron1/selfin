@@ -14,6 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerService;
 
+import java.time.Clock;
+
 /**
  * Галочка согласия на обработку персональных данных (ANO-196).
  *
@@ -38,6 +40,7 @@ public class ConsentController {
     }
 
     private final OwnerService owners;
+    private final Clock clock;
 
     @PostMapping
     public ResponseEntity<Void> accept(@RequestBody ConsentRequest body, Authentication authentication,
@@ -45,7 +48,7 @@ public class ConsentController {
         if (!Consent.CURRENT.equals(body.version())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Текст согласия обновился — обновите страницу");
         }
-        Consent consent = Consent.current();
+        Consent consent = Consent.current(clock);
         if (!(authentication instanceof JwtAuthenticationToken)) {
             request.getSession().setAttribute(Consent.SESSION_KEY, consent);
         }

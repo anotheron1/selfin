@@ -1,6 +1,7 @@
 package ru.selfin.backend.service;
 
 import java.io.Serializable;
+import java.time.Clock;
 import java.time.Instant;
 
 /**
@@ -23,8 +24,8 @@ public record Consent(String version, Instant at) implements Serializable {
     /** Отметка галочки в сеансе — до входа в Keycloak. */
     public static final String SESSION_KEY = "selfin.consent";
 
-    /** Согласие с нынешним текстом — сейчас. */
-    public static Consent current() {
-        return new Consent(CURRENT, Instant.now());
+    /** Согласие с нынешним текстом — сейчас по часам приложения (ANO-39). */
+    public static Consent current(Clock clock) {
+        return new Consent(CURRENT, Instant.now(clock));
     }
 }

@@ -19,6 +19,7 @@ import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerService;
 
 import javax.sql.DataSource;
+import java.time.Clock;
 import java.sql.Connection;
 import java.time.LocalDate;
 import java.util.List;
@@ -129,11 +130,11 @@ class RegistrationIT {
             lock.setAutoCommit(false);
             // Счёт набора не вставится, пока замок не снят: первый запрос встанет внутри своей транзакции.
             lock.createStatement().execute("LOCK TABLE accounts IN EXCLUSIVE MODE");
-            CompletableFuture<UUID> first = CompletableFuture.supplyAsync(() -> owners.resolve(sub, Consent.current()), threads);
+            CompletableFuture<UUID> first = CompletableFuture.supplyAsync(() -> owners.resolve(sub, Consent.current(Clock.systemUTC())), threads);
             awaitLockWait("insert into accounts", first);
 
             CompletableFuture<Long> second = CompletableFuture.supplyAsync(
-                    () -> liveCategories(owners.resolve(sub, Consent.current())), threads);
+                    () -> liveCategories(owners.resolve(sub, Consent.current(Clock.systemUTC()))), threads);
             awaitLockWait("insert into users", second);
             assertThat(second).as("второй ждёт строку первого, а не читает пустого человека").isNotDone();
 
