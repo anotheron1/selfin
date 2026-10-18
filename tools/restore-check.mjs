@@ -31,6 +31,14 @@ export function parseManifest(text) {
   return manifest;
 }
 
+/**
+ * Нет журнала владельца — восстановление не принимается (ревью Codex на #175): удаление, сделанное после копии, есть
+ * только в нём, и с опечаткой в пути удалённый вернулся бы молча. Никого не удалял — пустой файл.
+ */
+export const journalProblems = (file, exists) => (exists ? [] : [
+  `журнала владельца нет (${file}): удаления после копии не повторить — если ты никого не удалял, создай пустой файл`,
+]);
+
 /** Чем восстановленные таблицы расходятся с копией. */
 export function tableProblems(expected, actual) {
   const problems = [];
@@ -74,14 +82,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
   // 3. Повтор удалений — журнал копии и журнал владельца, только этого реалма.
   const issuer = await realmIssuer(KC_ADMIN);
-  const owners = existsSync(journalFile) ? journalEntries(readFileSync(journalFile, 'utf8').split('\n'), issuer) : [];
+  const hasJournal = existsSync(journalFile);
+  problems.push(...journalProblems(journalFile, hasJournal));
+  const owners = hasJournal ? journalEntries(readFileSync(journalFile, 'utf8').split('\n'), issuer) : [];
   const subs = [...new Set([...manifest.deletions, ...owners])];
   for (const sub of subs) {
     const { left } = await deletePerson({ sub, journal: false });
     problems.push(...left.map((what) => `${sub} из журнала: ${what}`));
   }
-  console.log(`удаления: в копии ${manifest.deletions.length}, у владельца ${owners.length}, повторено ${subs.length}` +
-    `${existsSync(journalFile) ? '' : ` — журнала владельца нет (${journalFile})`}`);
+  console.log(`удаления: в копии ${manifest.deletions.length}, у владельца ${owners.length}, повторено ${subs.length}`);
 
   for (const problem of problems) console.log(`  НЕТ  ${problem}`);
   console.log(problems.length ? `Итог: не сходится — ${problems.length}` : 'Итог: восстановление сходится');

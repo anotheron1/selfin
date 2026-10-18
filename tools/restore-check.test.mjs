@@ -1,7 +1,7 @@
 // node --test tools/restore-check.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseManifest, tableProblems } from './restore-check.mjs';
+import { journalProblems, parseManifest, tableProblems } from './restore-check.mjs';
 
 const KC = '0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f';
 
@@ -38,5 +38,12 @@ test('расхождения названы: строк не столько, с�
     'public.users: содержимое расходится с копией',
     'ops.deletions: в копии есть, после восстановления нет',
     'public.extra: после восстановления есть, в копии нет',
+  ]);
+});
+
+test('нет журнала владельца — проверка не сходится: удаление после копии не повторить (ревью Codex на #175)', () => {
+  assert.deepEqual(journalProblems('/home/me/selfin-deletions.jsonl', true), []);
+  assert.deepEqual(journalProblems('/home/me/selfin-deletions.jsonl', false), [
+    'журнала владельца нет (/home/me/selfin-deletions.jsonl): удаления после копии не повторить — если ты никого не удалял, создай пустой файл',
   ]);
 });
