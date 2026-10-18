@@ -8,6 +8,7 @@ import Capital from './pages/Capital';
 import Dashboard from './pages/Dashboard';
 import Budget from './pages/Budget';
 import Funds from './pages/Funds';
+import { ConsentText, Privacy } from './pages/Legal';
 import Settings from './pages/Settings';
 import SignIn from './pages/SignIn';
 import Strategy from './pages/Strategy';
@@ -23,12 +24,22 @@ function Main({ children }: { children: React.ReactNode }) {
   return <main className={wide ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto'}>{children}</main>;
 }
 
-/** Экран входа (ANO-152) — сам по себе: без навигации и «+», им без входа всё равно некуда вести. */
+/**
+ * Экран входа (ANO-152) и тексты политики и согласия (ANO-196) — сами по себе: без навигации и «+», им без входа
+ * всё равно некуда вести. Тексты API не зовут — их читают до входа.
+ */
+const STANDALONE: Record<string, () => React.ReactElement> = {
+  '/login': () => <SignIn />,
+  '/privacy': () => <Privacy />,
+  '/consent': () => <ConsentText />,
+};
+
 function Screens() {
   const [refreshKey, setRefreshKey] = useState(0);
   const handleSuccess = () => setRefreshKey(k => k + 1);
 
-  if (useLocation().pathname === '/login') return <SignIn />;
+  const standalone = STANDALONE[useLocation().pathname];
+  if (standalone) return standalone();
 
   return (
     <>

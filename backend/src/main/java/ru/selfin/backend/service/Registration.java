@@ -13,6 +13,7 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.CategoryRepository;
 
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -64,15 +65,18 @@ public class Registration {
     private final AccountRepository accounts;
 
     /**
-     * Заводит человека со стартовым набором.
+     * Заводит человека со стартовым набором и его согласием (ANO-196).
      *
      * @return {@code false} — строку с этим {@code sub} уже завёл параллельный запрос; набор у неё свой
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean register(UUID id, String sub) {
-        int created = entityManager.createNativeQuery(
-                        "INSERT INTO users (id, external_id) VALUES (?1, ?2) ON CONFLICT (external_id) DO NOTHING")
-                .setParameter(1, id).setParameter(2, sub).executeUpdate();
+    public boolean register(UUID id, String sub, Consent consent) {
+        int created = entityManager.createNativeQuery("""
+                        INSERT INTO users (id, external_id, consent_version, consent_at) VALUES (?1, ?2, ?3, ?4)
+                        ON CONFLICT (external_id) DO NOTHING""")
+                .setParameter(1, id).setParameter(2, sub)
+                .setParameter(3, consent.version()).setParameter(4, consent.at().atOffset(ZoneOffset.UTC))
+                .executeUpdate();
         if (created == 0) return false;
         categories.saveAll(CORE.stream().map(Seed::category).toList());
         // Как сид V20: счёт-приёмник безадресных операций — ввод остатка без выбора счёта идёт сюда.

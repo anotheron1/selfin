@@ -6,6 +6,7 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.sun.net.httpserver.HttpServer;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.AfterAll;
@@ -44,9 +45,11 @@ import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerService;
 import ru.selfin.backend.service.Registration;
 
+import java.time.Clock;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -55,10 +58,13 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -125,6 +131,12 @@ class SignInIT {
     Registration registration;
 
     @Autowired
+    OwnerService owners;
+
+    @Autowired
+    EntityManagerFactory sessions;
+
+    @Autowired
     ClientRegistrationRepository registrations;
 
     @Autowired
@@ -138,6 +150,8 @@ class SignInIT {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        // Вошедший по умолчанию у oidcLogin() — «user»: здесь он не владелец и заводится только с согласием (ANO-196).
+        owners.resolve("user", Consent.current(Clock.systemUTC()));
     }
 
     // ── без входа ──────────────────────────────────────────────────────────────
@@ -214,6 +228,7 @@ class SignInIT {
     @Test
     @DisplayName("кто вошёл: имя из ID token у сеанса и из токена у Bearer, без имени — ник (ANO-152)")
     void meTellsWhoSignedIn() throws Exception {
+        for (String sub : List.of("named", "nick", "named-bearer")) consent(bearer(token(c -> c.subject(sub))));
         mvc.perform(get("/api/v1/me").with(oidcLogin().idToken(t -> t.subject("named").claim("name", "Another One"))))
                 .andExpect(jsonPath("$.name").value("Another One"));
         mvc.perform(get("/api/v1/me").with(oidcLogin().idToken(t -> t.subject("nick").claim("preferred_username", "anotheron1"))))
@@ -227,11 +242,21 @@ class SignInIT {
     @Test
     @DisplayName("вход держится 30 дней: cookie сеанса — на 30 дней, сеанс вошедшего — 30 дней без действий (ANO-152)")
     void signedInSessionLastsThirtyDays() throws Exception {
-        // Cookie выписывает Tomcat, и её настройку видит только настоящий сервер, не MockMvc.
-        HttpResponse<Void> start = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/oauth2/authorization/keycloak")).build(),
+        // Cookie выписывает Tomcat, и её настройку видит только настоящий сервер, не MockMvc. Сеанс рождается
+        // на галочке экрана входа (ANO-196): до неё сервер сеанса не заводит.
+        HttpClient http = HttpClient.newHttpClient();
+        String xsrf = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/version")).build(),
+                        HttpResponse.BodyHandlers.discarding())
+                .headers().allValues(HttpHeaders.SET_COOKIE).stream().filter(c -> c.startsWith("XSRF-TOKEN="))
+                .findFirst().orElseThrow().replaceAll("^XSRF-TOKEN=([^;]*).*", "$1");
+        HttpResponse<Void> consent = http.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/consent"))
+                        .header(HttpHeaders.COOKIE, "XSRF-TOKEN=" + xsrf).header("X-XSRF-TOKEN", xsrf)
+                        .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                        .POST(HttpRequest.BodyPublishers.ofString(consentBody(Consent.CURRENT))).build(),
                 HttpResponse.BodyHandlers.discarding());
-        assertThat(start.headers().allValues(HttpHeaders.SET_COOKIE))
+        assertThat(consent.statusCode()).isEqualTo(204);
+        assertThat(consent.headers().allValues(HttpHeaders.SET_COOKIE))
                 .anyMatch(c -> c.startsWith("JSESSIONID=") && c.contains("Max-Age=" + THIRTY_DAYS));
 
         // Сеанс вошедшего продлевает обработчик успешного входа — тот, что стоит в цепочке браузера.
@@ -247,6 +272,8 @@ class SignInIT {
     @Test
     @DisplayName("Bearer: свой токен — владелец из sub; повторный запрос — тот же владелец")
     void bearerOwnToken() throws Exception {
+        consent(bearer(token(c -> c.subject("someone"))));
+        consent(bearer(token(c -> c.subject("someone-else"))));
         String first = me(bearer(token(c -> c.subject("someone"))));
         String again = me(bearer(token(c -> c.subject("someone"))));
         assertThat(first).isNotEqualTo(SYNTHETIC_OWNER).isEqualTo(again);
@@ -265,14 +292,9 @@ class SignInIT {
     void ownerLinkIsOneTime() throws Exception {
         assertThat(me(bearer(token(c -> c.subject(OWNER_SUB))))).isEqualTo(SYNTHETIC_OWNER);
         // Реалм пересоздали, у владельца новый sub, его вписали в настройку: данные остаются у прежнего.
-        OwnerService reconfigured = new OwnerService(jdbc, registration, "owner-after-realm-reset");
-        SecurityContextHolder.getContext()
-                .setAuthentication(new TestingAuthenticationToken("owner-after-realm-reset", null, "ROLE_USER"));
-        try {
-            assertThat(reconfigured.current()).isNotEqualTo(OwnerService.SYNTHETIC_OWNER);
-        } finally {
-            SecurityContextHolder.clearContext();
-        }
+        OwnerService reconfigured = new OwnerService(jdbc, registration, sessions, "owner-after-realm-reset");
+        assertThat(reconfigured.resolve("owner-after-realm-reset", Consent.current(Clock.systemUTC())))
+                .isNotEqualTo(OwnerService.SYNTHETIC_OWNER);
         assertThat(me(bearer(token(c -> c.subject(OWNER_SUB))))).isEqualTo(SYNTHETIC_OWNER);
     }
 
@@ -298,6 +320,7 @@ class SignInIT {
     @Test
     @DisplayName("Bearer пишет без CSRF: у скриптов нет cookie, подделывать нечего")
     void bearerWritesWithoutCsrf() throws Exception {
+        consent(bearer(token(c -> { })));
         mvc.perform(post("/api/v1/categories").with(bearer(token(c -> { })))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Вход Bearer\",\"type\":\"EXPENSE\"}"))
@@ -331,9 +354,100 @@ class SignInIT {
     @Test
     @DisplayName("сеанс: владелец — из sub ID token, тот же, что у Bearer")
     void sessionOwnerFromSub() throws Exception {
+        consent(bearer(token(c -> c.subject("browser-person"))));
         assertThat(me(oidcLogin().idToken(t -> t.subject(OWNER_SUB)))).isEqualTo(SYNTHETIC_OWNER);
         assertThat(me(oidcLogin().idToken(t -> t.subject("browser-person"))))
                 .isEqualTo(me(bearer(token(c -> c.subject("browser-person")))));
+    }
+
+    // ── согласие (ANO-196) ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("без согласия незнакомого не заводим: 403 с кодом CONSENT_REQUIRED, строки нет (ANO-196)")
+    void noConsentNoRegistration() throws Exception {
+        mvc.perform(get("/api/v1/me").with(bearer(token(c -> c.subject("no-consent")))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.details[0]").value("CONSENT_REQUIRED"));
+        assertThat(users("no-consent")).isZero();
+    }
+
+    @Test
+    @DisplayName("согласие скрипта заводит человека с версией текста и временем (ANO-196)")
+    void bearerConsentRegisters() throws Exception {
+        Instant before = Instant.now().minusSeconds(1);
+        consent(bearer(token(c -> c.subject("consenting"))));
+        assertThat(jdbc.queryForObject("SELECT consent_version FROM users WHERE external_id = 'consenting'", String.class))
+                .isEqualTo(Consent.CURRENT);
+        assertThat(jdbc.queryForObject("SELECT consent_at FROM users WHERE external_id = 'consenting'", OffsetDateTime.class)
+                .toInstant()).isAfter(before);
+        me(bearer(token(c -> c.subject("consenting"))));
+    }
+
+    @Test
+    @DisplayName("устаревшая страница — 409: согласие на другой текст не записываем (ANO-196)")
+    void staleVersionRefused() throws Exception {
+        mvc.perform(post("/api/v1/consent").with(bearer(token(c -> c.subject("stale-page"))))
+                        .contentType(MediaType.APPLICATION_JSON).content(consentBody("1999-01-01")))
+                .andExpect(status().isConflict());
+        assertThat(users("stale-page")).isZero();
+    }
+
+    @Test
+    @DisplayName("галочка до входа — отметка в сеансе, и только с CSRF (ANO-196)")
+    void signedOutConsentGoesToSession() throws Exception {
+        mvc.perform(post("/api/v1/consent").contentType(MediaType.APPLICATION_JSON).content(consentBody(Consent.CURRENT)))
+                .andExpect(status().isForbidden());
+        HttpSession session = mvc.perform(post("/api/v1/consent").with(xsrfFromServer())
+                        .contentType(MediaType.APPLICATION_JSON).content(consentBody(Consent.CURRENT)))
+                .andExpect(status().isNoContent())
+                .andReturn().getRequest().getSession(false);
+        assertThat(session).isNotNull();
+        assertThat(session.getAttribute(Consent.SESSION_KEY)).isInstanceOf(Consent.class);
+    }
+
+    @Test
+    @DisplayName("вошедший из браузера без строки: галочка только кладёт отметку — заводит свежий вход, а не старый sub сеанса (ревью Codex на #173)")
+    void signedInConsentOnlyMarks() throws Exception {
+        // Сеанс удалённого по просьбе ещё несёт его старый sub: заведи его галочка — удаление отменилось бы до Keycloak.
+        HttpSession session = mvc.perform(post("/api/v1/consent").with(oidcLogin().idToken(t -> t.subject("browser-late")))
+                        .with(xsrfFromServer()).contentType(MediaType.APPLICATION_JSON).content(consentBody(Consent.CURRENT)))
+                .andExpect(status().isNoContent())
+                .andReturn().getRequest().getSession(false);
+        assertThat(users("browser-late")).isZero();
+        assertThat(session.getAttribute(Consent.SESSION_KEY)).isInstanceOf(Consent.class);
+    }
+
+    @Test
+    @DisplayName("в Keycloak — только с отметкой: без неё наш адрес входа ведёт на экран входа (ANO-196)")
+    void keycloakOnlyWithConsent() throws Exception {
+        mvc.perform(get("/oauth2/authorization/keycloak?provider=telegram"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(HttpHeaders.LOCATION, "/login"));
+        assertThat(authorizationRedirect("?provider=telegram")).startsWith(ISSUER + "/protocol/openid-connect/auth?");
+    }
+
+    @Test
+    @DisplayName("вход с отметкой заводит с временем галочки и снимает отметку; без отметки — не заводит (ANO-196)")
+    void signInRegistersOnlyWithConsent() throws Exception {
+        Consent ticked = new Consent(Consent.CURRENT, Instant.now().minus(5, ChronoUnit.MINUTES));
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession().setAttribute(Consent.SESSION_KEY, ticked);
+        onSignIn().onAuthenticationSuccess(request, new MockHttpServletResponse(), new TestingAuthenticationToken("signed-in", null));
+        assertThat(request.getSession().getAttribute(Consent.SESSION_KEY)).as("отметка снята").isNull();
+        assertThat(jdbc.queryForObject("SELECT consent_at FROM users WHERE external_id = 'signed-in'", OffsetDateTime.class)
+                .toInstant()).isCloseTo(ticked.at(), within(1, ChronoUnit.MILLIS));
+
+        MockHttpServletRequest unmarked = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        onSignIn().onAuthenticationSuccess(unmarked, response, new TestingAuthenticationToken("signed-in-unmarked", null));
+        assertThat(response.getRedirectedUrl()).isEqualTo("/");
+        assertThat(users("signed-in-unmarked")).isZero();
+    }
+
+    @Test
+    @DisplayName("коммит сборки открыт и вошедшему без согласия — экран сверяет версию до всего (ANO-196)")
+    void versionOpenWithoutConsent() throws Exception {
+        mvc.perform(get("/api/v1/version").with(bearer(token(c -> c.subject("version-only"))))).andExpect(status().isOk());
     }
 
     // ── чужая страница: CORS ────────────────────────────────────────────────────
@@ -359,6 +473,27 @@ class SignInIT {
         return body.replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1");
     }
 
+    /** Согласие, как его даёт скрипт или экран вошедшего (ANO-196): POST с версией текста. */
+    private void consent(RequestPostProcessor who) throws Exception {
+        mvc.perform(post("/api/v1/consent").with(who).contentType(MediaType.APPLICATION_JSON).content(consentBody(Consent.CURRENT)))
+                .andExpect(status().isNoContent());
+    }
+
+    private static String consentBody(String version) {
+        return "{\"version\":\"" + version + "\"}";
+    }
+
+    /** Сеанс с отметкой галочки — как после неё на экране входа. */
+    private static MockHttpSession consented() {
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(Consent.SESSION_KEY, Consent.current(Clock.systemUTC()));
+        return session;
+    }
+
+    private long users(String sub) {
+        return jdbc.queryForObject("SELECT count(*) FROM users WHERE external_id = ?", Long.class, sub);
+    }
+
     /**
      * CSRF-токен, как его берёт экран: сервер выписывает cookie XSRF-TOKEN на любой запрос браузера, фронт
      * возвращает её значение заголовком. Не {@code csrf()} из spring-security-test: тот подменяет хранилище
@@ -375,7 +510,7 @@ class SignInIT {
     }
 
     private String authorizationRedirect(String query) throws Exception {
-        return URLDecoder.decode(mvc.perform(get("/oauth2/authorization/keycloak" + query))
+        return URLDecoder.decode(mvc.perform(get("/oauth2/authorization/keycloak" + query).session(consented()))
                 .andExpect(status().isFound())
                 .andReturn().getResponse().getHeader(HttpHeaders.LOCATION), StandardCharsets.UTF_8);
     }

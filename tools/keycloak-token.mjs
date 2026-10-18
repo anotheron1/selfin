@@ -27,6 +27,12 @@ export const SCRIPTS = { clientId: 'selfin-scripts', secret: 'selfin-scripts-dev
 export const TESTER = { username: 'tester', password: 'tester' };
 
 /**
+ * Версия текста согласия (ANO-196): с ней скрипты дают согласие за своих людей — без него сервер нового человека не
+ * заводит. Та же — в Consent.java и frontend/src/lib/consent.ts; сверяет сторож consent.test.ts.
+ */
+export const CONSENT_VERSION = '2026-10-18';
+
+/**
  * Свой Keycloak — тот, чей издатель на этой машине: стенд, CI, сборка для сервера на своей машине. У сервера издатель —
  * его адрес, даже через туннель к консоли (замер 18.10), поэтому тестового человека туда не завести (ревью Codex на #171).
  */

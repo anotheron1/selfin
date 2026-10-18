@@ -15,7 +15,7 @@
 // с паролем (tools/keycloak-token.mjs): экран → наш сервер → Keycloak → форма → наш сервер → экран с сеансом.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { ownIssuer, scriptsToken, TESTER } from './keycloak-token.mjs';
+import { CONSENT_VERSION, ownIssuer, scriptsToken, TESTER } from './keycloak-token.mjs';
 
 const KC = (process.argv[2] ?? 'http://127.0.0.1:8180').replace(/\/$/, '');
 const APP = (process.argv[3] ?? 'http://127.0.0.1:5174').replace(/\/$/, '');
@@ -81,10 +81,25 @@ const keep = (cookies, response) => {
 const sent = (cookies) => [...cookies].map(([name, value]) => `${name}=${value}`).join('; ');
 const go = (url, cookies, init = {}) => fetch(url, { redirect: 'manual', ...init, headers: { ...init.headers, cookie: sent(cookies) } })
   .then((response) => keep(cookies, response));
+// Галочка экрана входа (ANO-196): POST с CSRF кладёт отметку в сеанс, и только с ней наш адрес входа ведёт в Keycloak.
+// Cookie XSRF-TOKEN выписывает любой ответ сервера; после выхода она стёрта — тогда сначала коммит сборки.
+const consent = async (cookies) => {
+  if (!cookies.get('XSRF-TOKEN')) await go(`${APP}/api/v1/version`, cookies);
+  return go(`${APP}/api/v1/consent`, cookies, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-xsrf-token': decodeURIComponent(cookies.get('XSRF-TOKEN') ?? '') },
+    body: JSON.stringify({ version: CONSENT_VERSION }),
+  });
+};
 
 const scripts = await scriptsToken(process.env.SELFIN_KC_ADMIN ?? KC);
 // Тем же набором cookie, что и вход: запомни сервер этот запрос — после входа вернул бы на JSON, а не на «/».
 check((await go(`${APP}/api/v1/pocket`, jar.app)).status === 401, 'API без входа — 401');
+
+const unticked = await go(`${APP}/oauth2/authorization/keycloak`, new Map());
+check(unticked.status === 302 && new URL(unticked.headers.get('location') ?? 'https://invalid/', APP).pathname === '/login',
+  `без галочки наш адрес входа ведёт на экран входа, а не в Keycloak — ${unticked.status} ${unticked.headers.get('location') ?? ''} (ANO-196)`);
+check((await consent(jar.app)).status === 204, 'галочка согласия принята — 204 (ANO-196)');
 
 const start = await go(`${APP}/oauth2/authorization/keycloak`, jar.app);
 const toKeycloak = new URL(start.headers.get('location') ?? 'https://invalid/');
@@ -137,6 +152,7 @@ check(robot === person, `Bearer скриптов — тот же человек,
 // ── Экран входа и выход (ANO-152) ────────────────────────────────────────────────────────────
 // Кнопка экрана входа несёт провайдера: Keycloak уводит прямо к Telegram, своей страницы не показывает.
 const fresh = { app: new Map(), kc: new Map() };
+await consent(fresh.app);
 let hop = new URL((await go(`${APP}/oauth2/authorization/keycloak?provider=telegram`, fresh.app)).headers.get('location') ?? 'https://invalid/');
 check(hop.searchParams.get('kc_idp_hint') === 'telegram', `кнопка экрана входа — с подсказкой Telegram: ${hop.searchParams.get('kc_idp_hint')}`);
 for (let i = 0; i < 3 && hop.origin === new URL(KC).origin; i++) {
@@ -155,6 +171,7 @@ check(exit.startsWith(`${REALM}/protocol/openid-connect/logout?`), `выход: 
 const ended = await go(exit || 'https://invalid/', jar.kc);
 check(ended.headers.get('location') === `${APP}/login`, `Keycloak погасил сеанс и вернул на экран входа — ${ended.status} ${ended.headers.get('location') ?? ''}`);
 check((await go(`${APP}/api/v1/me`, jar.app)).status === 401, 'наш сеанс погашен — API 401');
+await consent(jar.app);
 const again = await go(`${APP}/oauth2/authorization/keycloak`, jar.app);
 const againForm = await go(new URL(again.headers.get('location') ?? 'https://invalid/'), jar.kc);
 check(/id="kc-form-login"/.test(await againForm.text()), 'новый вход снова спрашивает пароль — сеанс Keycloak погашен');

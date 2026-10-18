@@ -24,8 +24,10 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.OwnerService;
 
+import java.time.Clock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -83,6 +85,7 @@ class TwoPeopleIsolationIT {
 
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
+    @Autowired OwnerService owners;
     @Autowired @Qualifier("requestMappingHandlerMapping") RequestMappingHandlerMapping handlers;
 
     /** Вызванные ручки по роли вызова — «METHOD шаблон». */
@@ -177,6 +180,9 @@ class TwoPeopleIsolationIT {
     /** Один и тот же набор у каждого — строки во всех 11 таблицах с владельцем. Суммы — умноженные на {@code k}. */
     private Person seed(String sub, int k) throws Exception {
         Person p = new Person(sub);
+        // Галочка браузера — только отметка в сеансе (ANO-196); заводит человека вход с ней — здесь сразу сервис.
+        ok(p, POST, "/api/v1/consent", "{\"version\":\"" + Consent.CURRENT + "\"}", null);
+        owners.resolve(sub, Consent.current(Clock.systemUTC()));
         p.owner = UUID.fromString(JsonPath.read(ok(p, GET, "/api/v1/me", null, null), "$.id"));
         // Стартовый набор у каждого свой и с одними именами (ANO-151); заведённое — сверх него, имена вне набора.
         p.save("category", ok(p, POST, "/api/v1/categories", """
