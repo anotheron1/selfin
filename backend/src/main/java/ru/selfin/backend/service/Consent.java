@@ -19,7 +19,7 @@ public record Consent(String version, Instant at) implements Serializable {
      * Версия текста согласия — дата редакции. Та же — в {@code frontend/src/lib/consent.ts} и
      * {@code tools/keycloak-token.mjs}; сверяет сторож {@code consent.test.ts}.
      */
-    public static final String CURRENT = "2026-10-18";
+    public static final String CURRENT = "2026-10-18.2";
 
     /** Отметка галочки в сеансе — до входа в Keycloak. */
     public static final String SESSION_KEY = "selfin.consent";

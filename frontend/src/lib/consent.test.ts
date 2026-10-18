@@ -71,4 +71,19 @@ describe('согласие: тексты', () => {
             expect(legal).toContain(point);
         }
     });
+
+    it('копии названы честно и в политике, и в согласии: каждую ночь, ключ только у оператора, удаление и из копий (шаг 5)', () => {
+        // Каждый документ — по отдельности: фраза, найденная в одном, не должна прикрывать её отсутствие в другом.
+        const consentText = legal.slice(legal.indexOf('export function ConsentText'));
+        const policy = legal.slice(0, legal.indexOf('export function ConsentText'));
+        for (const point of ['Резервная копия делается каждую', 'ключом, который есть только у оператора',
+            'во внешнем хранилище', 'из резервных копий данные уходят', 'хранится в журнале удалений']) {
+            expect(policy).toContain(point);
+        }
+        for (const point of ['Резервная копия каждую ночь уходит во внешнее хранилище', 'только у оператора',
+            'из резервных копий тоже']) {
+            expect(consentText).toContain(point);
+        }
+        expect(CONSENT_VERSION).toBe('2026-10-18.2');
+    });
 });
