@@ -19,6 +19,13 @@ import java.time.LocalDate;
 @RequiredArgsConstructor
 public class VisitService {
 
+    /**
+     * Редакция согласия, которая добавила дни визита. Человек с прежней их не принимал — ему дни не пишутся
+     * (ревью Codex на #187); владельцу, оператору данных, согласие не нужно. Повторного согласия у знакомого
+     * человека пока нет — ANO-238.
+     */
+    static final String CONSENT_SINCE = "2026-10-19";
+
     private final VisitDayRepository visits;
     private final Clock clock;
 
@@ -31,8 +38,8 @@ public class VisitService {
     @Transactional
     public void mark(boolean wrote) {
         LocalDate today = LocalDate.now(clock);
-        if (wrote) visits.markWrote(today);
-        else visits.markOpened(today);
+        if (wrote) visits.markWrote(today, OwnerService.SYNTHETIC_OWNER, CONSENT_SINCE);
+        else visits.markOpened(today, OwnerService.SYNTHETIC_OWNER, CONSENT_SINCE);
     }
 
     /** Последний день визита до сегодняшнего; первый визит — {@code null}. */

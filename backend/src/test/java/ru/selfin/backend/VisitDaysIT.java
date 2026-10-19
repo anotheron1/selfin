@@ -17,13 +17,16 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import ru.selfin.backend.controller.WritesData;
+import ru.selfin.backend.service.Consent;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -57,6 +60,7 @@ class VisitDaysIT {
     @AfterEach
     void cleanDb() {
         jdbc.update("DELETE FROM visit_days");
+        jdbc.update("DELETE FROM users WHERE external_id IN ('old-consent', 'fresh-consent')");
     }
 
     /** Отметки «записывал» за сегодня: строки нет — пусто, «открывал» без записи — {@code false}. */
@@ -93,6 +97,23 @@ class VisitDaysIT {
                 .andExpect(status().isOk());
 
         assertThat(todayWrote()).containsExactly(false);
+    }
+
+    @Test
+    @DisplayName("согласие прежней редакции — дней визита нет: эту цель добавила редакция 2026-10-19 (ревью Codex на #187)")
+    void oldConsent_noVisitDays() throws Exception {
+        UUID old = UUID.randomUUID();
+        UUID fresh = UUID.randomUUID();
+        jdbc.update("INSERT INTO users (id, external_id, consent_version, consent_at) VALUES (?, 'old-consent', "
+                + "'2026-10-18.2', now()), (?, 'fresh-consent', ?, now())", old, fresh, Consent.CURRENT);
+
+        mvc.perform(get("/api/v1/categories").with(oidcLogin().idToken(t -> t.subject("old-consent"))))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/categories").with(oidcLogin().idToken(t -> t.subject("fresh-consent"))))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForList("SELECT user_id FROM visit_days", UUID.class))
+                .as("пишется только принявшему нынешнюю редакцию").containsExactly(fresh);
     }
 
     @Test
