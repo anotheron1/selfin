@@ -81,8 +81,10 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
     /** ANO-198: сервер отказал удалить копилку с деньгами — диалог спрашивает, что с ними. */
     const [deleteAsksMoney, setDeleteAsksMoney] = useState(false);
     const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
-    // ANO-210: «Отложить» у хотелки с созданным планом или копилкой спрашивает, как удаление.
+    // ANO-210: «Отложить» у хотелки с созданным планом или копилкой спрашивает, как удаление;
+    // ANO-226: «Вернуть в обсуждение» у такой же отложенной — тот же вопрос. Куда переводим — dismissTo.
     const [dismissItem, setDismissItem] = useState<WishlistItem | null>(null);
+    const [dismissTo, setDismissTo] = useState<'DISMISSED' | 'OPEN'>('DISMISSED');
     const [dismissBusy, setDismissBusy] = useState(false);
     const [dismissError, setDismissError] = useState<string | null>(null);
 
@@ -172,10 +174,11 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
      * не сменился — перечитывать нечего; повтор той же смены безопасен.
      */
     const handleStatusChange = async (item: WishlistItem, status: WishlistStatus) => {
-        // ANO-210: у хотелки с созданным «Отложить» оставило бы созданное в расчёте молча —
-        // сначала вопрос, запись — из диалога.
-        if (status === 'DISMISSED' && dismissQuestion(item)) {
+        // ANO-210, ANO-226: у хотелки с созданным «Отложить» и «Вернуть в обсуждение» оставили бы созданное
+        // в расчёте молча — сначала вопрос, запись — из диалога.
+        if ((status === 'DISMISSED' || status === 'OPEN') && dismissQuestion(item)) {
             setDismissError(null);
+            setDismissTo(status);
             setDismissItem(item);
             return;
         }
@@ -251,9 +254,9 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
     };
 
     /**
-     * «Отложить» из диалога (ANO-210): с галочкой созданное удаляется вместе со сменой статуса —
-     * одной записью на сервере. Диалог закрывается только на успехе; отказ остаётся в нём строкой.
-     * На отказе список не перечитывается: сервер откатил всё, перечитывать нечего.
+     * «Отложить» или «Вернуть в обсуждение» из диалога (ANO-210, ANO-226): с галочкой созданное удаляется
+     * вместе со сменой статуса — одной записью на сервере. Диалог закрывается только на успехе; отказ
+     * остаётся в нём строкой. На отказе список не перечитывается: сервер откатил всё, перечитывать нечего.
      */
     const handleDismissConfirm = async (alsoArtifact: boolean) => {
         if (!dismissItem?.convertedTo) return;
@@ -261,8 +264,8 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
         const kind = dismissItem.convertedTo.kind;
         setDismissBusy(true);
         setDismissError(null);
-        const failure = await attempt(() => changeStatus(item, 'DISMISSED', alsoArtifact),
-            err => dismissFailure(err, kind));
+        const failure = await attempt(() => changeStatus(item, dismissTo, alsoArtifact),
+            err => dismissFailure(err, kind, dismissTo));
         setDismissBusy(false);
         if (failure) {
             setDismissError(failure);
@@ -450,6 +453,7 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
                     open={!!dismissItem}
                     item={dismissItem}
                     question={dismissQuestion(dismissItem)!}
+                    to={dismissTo}
                     busy={dismissBusy}
                     error={dismissError}
                     onClose={closeDismiss}

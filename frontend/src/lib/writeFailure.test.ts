@@ -152,6 +152,24 @@ describe('фраза отказа «Отложить» с удалением с�
     });
 });
 
+describe('фраза отказа «Вернуть в обсуждение» с удалением созданного (ANO-226)', () => {
+    // Тот же отказ сервера, что и у «Отложить», — другое действие: «вернётся», а не «отложится».
+    it('план, 409 — по нему уже есть факт; подсказка — без галочки', () => {
+        expect(dismissFailure(refused(409), 'EVENT', 'OPEN')).toBe(
+            'Не вернулось: по созданному плану уже есть факт, и его не удалить. Без галочки — вернётся, план останется.');
+    });
+
+    it('копилка, 409 — в ней лежат деньги; удалить её можно на «Целях»', () => {
+        expect(dismissFailure(refused(409), 'FUND', 'OPEN')).toBe(
+            'Не вернулось: в созданной копилке лежат деньги. Без галочки — вернётся, а копилку можно '
+            + 'удалить на «Целях»: там спросят, что с ними.');
+    });
+
+    it('обрыв связи — «Не записалось — попробуйте ещё раз»', () => {
+        expect(dismissFailure(lost(), 'EVENT', 'OPEN')).toBe(WRITE_FAILED);
+    });
+});
+
 describe('«Что с капиталом» не глотает отказ (ANO-141, сторож по исходнику)', () => {
     // Компонентных тестов во фронте нет, а вернуть `.catch(refetch)` — правка в одну строку.
     const BLOCK = '../components/sandbox/CapitalWhatIf.tsx';
@@ -218,19 +236,25 @@ describe('«Что с капиталом» не глотает отказ (ANO-1
             .toMatch(/statusError=\{p\.statusErrors\[item\.id\]\}/);
     });
 
-    it('«Отложить» у хотелки с созданным сначала спрашивает, а не пишет (ANO-210)', () => {
+    it('«Отложить» и «Вернуть в обсуждение» у хотелки с созданным сначала спрашивают, а не пишут (ANO-210, ANO-226)', () => {
+        // «Вернуть в обсуждение» с созданным бывает только у отложенной: примерка сконвертированных не
+        // показывает, у карточки зафиксированной кнопки возврата нет (спека ANO-226).
         const body = handlerBody(BLOCK, 'handleStatusChange');
-        const ask = body.search(/status === 'DISMISSED' && dismissQuestion\(item\)\) \{\s*setDismissError\(null\);\s*setDismissItem\(item\);\s*return;/);
+        const ask = body.search(/\(status === 'DISMISSED' \|\| status === 'OPEN'\) && dismissQuestion\(item\)\) \{\s*setDismissError\(null\);\s*setDismissTo\(status\);\s*setDismissItem\(item\);\s*return;/);
         expect(ask, 'вопрос до записи').toBeGreaterThanOrEqual(0);
         expect(ask, 'вопрос раньше записи статуса').toBeLessThan(body.search(/attempt\(/));
         // С галочкой статус уходит вместе с удалением созданного — одной записью на сервере.
-        expect(handlerBody(BLOCK, 'handleDismissConfirm')).toMatch(/changeStatus\(item, 'DISMISSED', alsoArtifact\)/);
-        expect(handlerBody(BLOCK, 'handleDismissConfirm')).toMatch(/dismissFailure\(err, /);
+        const confirm = handlerBody(BLOCK, 'handleDismissConfirm');
+        expect(confirm).toMatch(/changeStatus\(item, dismissTo, alsoArtifact\)/);
+        expect(confirm).toMatch(/dismissFailure\(err, kind, dismissTo\)/);
+        expect(read(BLOCK)).toMatch(/to=\{dismissTo\}/);
     });
 
-    it('диалог «Отложить»: вопрос, строка и галочка — выключенная при каждом открытии (ANO-210)', () => {
+    it('диалог: вопрос по действию, строка и галочка — выключенная при каждом открытии (ANO-210, ANO-226)', () => {
         const src = read(DISMISS);
         expect(src).toMatch(/Отложить «\{item\.name\}»\?/);
+        expect(src).toMatch(/Вернуть «\{item\.name\}» в обсуждение\?/);
+        expect(src).toMatch(/\{to === 'OPEN' \? 'Вернуть' : 'Отложить'\}/);
         expect(src).toMatch(/\{question\.stays\}/);
         expect(src).toMatch(/\{question\.also\}/);
         expect(src).toMatch(/useState\(false\)/);

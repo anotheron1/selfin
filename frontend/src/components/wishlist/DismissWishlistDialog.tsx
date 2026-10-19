@@ -9,6 +9,8 @@ interface Props {
     item: WishlistItem;
     /** Строки вопроса — `dismissQuestion(item)`: что останется в расчёте и как предложить удалить. */
     question: DismissQuestion;
+    /** Куда переводим: «Отложить» или «Вернуть в обсуждение» (ANO-226) — вопрос один, действие своё. */
+    to: 'DISMISSED' | 'OPEN';
     /** Идёт запись: кнопки заняты, закрыть нельзя. */
     busy: boolean;
     /** Отказ последней записи словами экрана; `null` — отказа не было. */
@@ -18,11 +20,11 @@ interface Props {
 }
 
 /**
- * «Отложить» у хотелки, из которой создан план или копилка (ANO-210). Устроен как удаление хотелки
- * (`DeleteWishlistDialog`): созданное остаётся в расчёте, а удалить его — явный выбор, галочка
- * выключена при каждом открытии. Отказ остаётся в диалоге строкой.
+ * «Отложить» у хотелки, из которой создан план или копилка (ANO-210), и «Вернуть в обсуждение» у такой же
+ * отложенной (ANO-226). Устроен как удаление хотелки (`DeleteWishlistDialog`): созданное остаётся в
+ * расчёте, а удалить его — явный выбор, галочка выключена при каждом открытии. Отказ остаётся в диалоге строкой.
  */
-export default function DismissWishlistDialog({ open, item, question, busy, error, onClose, onConfirm }: Props) {
+export default function DismissWishlistDialog({ open, item, question, to, busy, error, onClose, onConfirm }: Props) {
     const [alsoArtifact, setAlsoArtifact] = useState(false);
 
     useEffect(() => {
@@ -33,7 +35,9 @@ export default function DismissWishlistDialog({ open, item, question, busy, erro
         <Dialog open={open} onOpenChange={o => !o && !busy && onClose()}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Отложить «{item.name}»?</DialogTitle>
+                    <DialogTitle>
+                        {to === 'OPEN' ? <>Вернуть «{item.name}» в обсуждение?</> : <>Отложить «{item.name}»?</>}
+                    </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-2 py-2">
                     <p className="text-sm">{question.stays}</p>
@@ -52,7 +56,7 @@ export default function DismissWishlistDialog({ open, item, question, busy, erro
                 <DialogFooter>
                     <Button variant="ghost" disabled={busy} onClick={onClose}>Отмена</Button>
                     <Button disabled={busy} onClick={() => onConfirm(alsoArtifact)}>
-                        Отложить
+                        {to === 'OPEN' ? 'Вернуть' : 'Отложить'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
