@@ -33,6 +33,7 @@ public class PocketController {
     }
 
     /** Примерка «что если» (спека sandbox §4): ничего не пишет, движок с подменённым входом. */
+    @WritesData(false)
     @PostMapping("/sandbox")
     public SandboxResponseDto sandbox(@RequestBody SandboxRequestDto request) {
         return sandboxService.simulate(request, LocalDate.now(clock));

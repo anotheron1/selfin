@@ -64,7 +64,7 @@ class RowLevelSecurityIT {
                 SELECT table_name FROM information_schema.columns
                  WHERE table_schema = 'public' AND column_name = 'user_id' ORDER BY table_name
                 """, String.class);
-        assertThat(ownerTables).hasSize(11);
+        assertThat(ownerTables).hasSize(12);
         List<String> unguarded = jdbc.queryForList("""
                 SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                  WHERE n.nspname = 'public' AND c.relname = ANY (?)

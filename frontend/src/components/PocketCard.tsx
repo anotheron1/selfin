@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HelpCircle, Pencil, Wallet, FlaskConical } from 'lucide-react';
-import { fetchPocket } from '../api';
+import { fetchMe, fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
 import { balanceWord, buildPocketPhrase } from '../lib/pocketPhrase';
 import { noExpectationsNote } from '../lib/noExpectationsNote';
 import { buildGapMode, FREE_LABEL } from '../lib/gapMode';
 import { buildBreakdownView, type BreakdownRow } from '../lib/breakdownRows';
-import { buildAgeHint } from '../lib/reanchor';
+import { buildAgeHint, buildBreakHint } from '../lib/reanchor';
 import ReanchorSheet from './pocket/ReanchorSheet';
 import NzSheet from './pocket/NzSheet';
 import HelpDialog from './HelpDialog';
@@ -74,6 +74,9 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     const [showReanchor, setShowReanchor] = useState(false);
     const [showNz, setShowNz] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
+    // ANO-102: день прошлого визита — для строки о перерыве; не пришёл — строки нет.
+    const [lastVisit, setLastVisit] = useState<string | null>(null);
+    useEffect(() => { fetchMe().then(me => setLastVisit(me.lastVisit)).catch(() => setLastVisit(null)); }, []);
 
     const load = useCallback(() => {
         fetchPocket(scope)
@@ -185,7 +188,9 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             {(() => {
                                 const t = new Date();
                                 const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-                                const hint = buildAgeHint(data.checkpointDate, todayIso);
+                                // ANO-102: после перерыва — строка о нём вместо давности остатка: обе ведут в шторку.
+                                const hint = buildBreakHint(lastVisit, data.checkpointDate, todayIso)
+                                    ?? buildAgeHint(data.checkpointDate, todayIso);
                                 return hint && (
                                     <button onClick={() => setShowReanchor(true)}
                                         className="text-[11px] text-white/50 hover:text-white/80 transition-colors text-left">

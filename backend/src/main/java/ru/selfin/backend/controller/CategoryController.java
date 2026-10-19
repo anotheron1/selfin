@@ -36,12 +36,14 @@ public class CategoryController {
     }
 
     @Operation(summary = "Создать новую категорию")
+    @WritesData
     @PostMapping
     public CategoryDto create(@Valid @RequestBody CategoryCreateDto dto) {
         return categoryService.create(dto);
     }
 
     @Operation(summary = "Обновить категорию")
+    @WritesData
     @PutMapping("/{id}")
     public CategoryDto update(
             @Parameter(description = "ID категории") @PathVariable UUID id,
@@ -50,6 +52,7 @@ public class CategoryController {
     }
 
     @Operation(summary = "Мягко удалить категорию (soft delete)")
+    @WritesData
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
             @Parameter(description = "ID категории") @PathVariable UUID id) {
@@ -58,6 +61,7 @@ public class CategoryController {
     }
 
     @Operation(summary = "Циклически сменить приоритет категории (HIGH → MEDIUM → LOW → HIGH)")
+    @WritesData
     @PatchMapping("/{id}/priority")
     public CategoryDto cyclePriority(
             @Parameter(description = "ID категории") @PathVariable UUID id) {

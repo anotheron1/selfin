@@ -32,17 +32,20 @@ public class AccountController {
         return service.get(id);
     }
 
+    @WritesData
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public AccountDto create(@Valid @RequestBody AccountCreateDto dto) {
         return service.create(dto);
     }
 
+    @WritesData
     @PutMapping("/{id}")
     public AccountDto update(@PathVariable UUID id, @Valid @RequestBody AccountCreateDto dto) {
         return service.update(id, dto);
     }
 
+    @WritesData
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
@@ -54,6 +57,7 @@ public class AccountController {
      * старый обязан потерять флаг в той же транзакции, иначе частичный уникальный индекс
      * отвергнет промежуточное состояние.
      */
+    @WritesData
     @PatchMapping("/{id}/default")
     public AccountDto makeDefault(@PathVariable UUID id) {
         return service.makeDefault(id);

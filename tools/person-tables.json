@@ -1,4 +1,5 @@
 [
+  "visit_days",
   "fund_transactions",
   "fund_account_links",
   "balance_checkpoints",

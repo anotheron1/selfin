@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fmtRub } from './format';
 import {
     buildAgeHint,
+    buildBreakHint,
     buildDriftPreview,
     buildMirrorLabel,
     checkpointAgeDays,
@@ -31,6 +32,33 @@ describe('buildAgeHint', () => {
     });
     it('якоря не было — онбординг-подсказка', () => {
         expect(buildAgeHint(null, TODAY)).toBe('остаток ещё не якорился — тапни, чтобы задать');
+    });
+});
+
+describe('buildBreakHint (ANO-102)', () => {
+    it('прошлый визит больше недели назад — его дата и предложение обновить остаток', () => {
+        expect(buildBreakHint('2026-07-10', '2026-07-01', TODAY)).toBe('После 10 июля записей нет — обновить остаток?');
+    });
+    it('неделя и меньше — строки нет', () => {
+        expect(buildBreakHint('2026-07-11', '2026-07-01', TODAY)).toBeNull(); // ровно 7
+        expect(buildBreakHint('2026-07-17', null, TODAY)).toBeNull();
+    });
+    it('первый визит — строки нет', () => {
+        expect(buildBreakHint(null, '2026-07-01', TODAY)).toBeNull();
+    });
+    it('остаток сверен сегодня — строки нет: предложение исполнено', () => {
+        expect(buildBreakHint('2026-07-01', TODAY, TODAY)).toBeNull();
+    });
+});
+
+describe('строка о перерыве в «Свободно» (ANO-102)', () => {
+    const src = readFileSync(new URL('../components/PocketCard.tsx', import.meta.url), 'utf8');
+
+    it('вместо подсказки о давности, когда есть: обе предлагают сверить остаток', () => {
+        expect(src).toMatch(/buildBreakHint\([^)]*\)\s*\?\?\s*buildAgeHint\(/);
+    });
+    it('день прошлого визита — из /me', () => {
+        expect(src).toMatch(/fetchMe\(\)[\s\S]{0,80}lastVisit/);
     });
 });
 

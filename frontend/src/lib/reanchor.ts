@@ -1,4 +1,4 @@
-import { fmtRub } from './format';
+import { fmtDayMonth, fmtRub } from './format';
 import type { Account } from '../types/api';
 
 /**
@@ -8,6 +8,7 @@ import type { Account } from '../types/api';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const STALE_AFTER_DAYS = 30;
+const BREAK_AFTER_DAYS = 7;
 
 const parseIso = (iso: string) => {
     const [y, m, d] = iso.split('-').map(Number);
@@ -30,6 +31,19 @@ export function buildAgeHint(checkpointDate: string | null, todayIso: string): s
     if (age == null) return 'остаток ещё не якорился — тапни, чтобы задать';
     if (age <= STALE_AFTER_DAYS) return null;
     return `остаток обновлялся ${age} дн. назад`;
+}
+
+/**
+ * Строка о перерыве (ANO-102, вариант А владельца): прошлый визит больше недели назад. За перерыв продукт о тратах
+ * не знает, и одно число в шторке остатка проще разбора пропущенного. Дата — прошлый визит: после него записей нет
+ * по определению; «после», а не «с» — в сам день визита записи могли быть. Без упрёка и без счётчика дней
+ * (правило 12). Первый визит и остаток, сверенный сегодня, — строки нет.
+ */
+export function buildBreakHint(lastVisit: string | null, checkpointDate: string | null, todayIso: string): string | null {
+    if (!lastVisit || checkpointDate === todayIso) return null;
+    const gap = Math.round((parseIso(todayIso).getTime() - parseIso(lastVisit).getTime()) / MS_PER_DAY);
+    if (gap <= BREAK_AFTER_DAYS) return null;
+    return `После ${fmtDayMonth(lastVisit)} записей нет — обновить остаток?`;
 }
 
 /**

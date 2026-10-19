@@ -646,4 +646,6 @@ export interface ConvertResponse {
 export interface Me {
     id: string;
     name: string | null;
+    /** День прошлого визита, до сегодняшнего (ANO-102); первый визит — null. */
+    lastVisit: string | null;
 }

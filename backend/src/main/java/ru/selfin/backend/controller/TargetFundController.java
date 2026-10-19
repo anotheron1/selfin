@@ -48,12 +48,14 @@ public class TargetFundController {
     }
 
     @Operation(summary = "Создать новый целевой фонд")
+    @WritesData
     @PostMapping
     public TargetFundDto create(@Valid @RequestBody TargetFundCreateDto dto) {
         return fundService.create(dto);
     }
 
     @Operation(summary = "Обновить целевой фонд", description = "Изменяет название, целевую сумму, срок достижения и приоритет фонда")
+    @WritesData
     @PutMapping("/{id}")
     public TargetFundDto update(
             @Parameter(description = "ID фонда") @PathVariable UUID id,
@@ -65,6 +67,7 @@ public class TargetFundController {
             description = "Soft delete. Если на копилке лежат деньги, обязателен параметр money: "
                     + "RETURN — вернуть их в свободные деньги, SPENT — признать потраченными "
                     + "на цель. Без него 409: молча решать судьбу денег продукт не вправе.")
+    @WritesData
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(
@@ -77,6 +80,7 @@ public class TargetFundController {
     @Operation(summary = "Перевести средства в фонд", description = "Добавляет указанную сумму на баланс фонда (пополнение из кармашка). "
             +
             "Требует Idempotency-Key для защиты от двойного зачисления.")
+    @WritesData
     @PostMapping("/{id}/transfer")
     public TargetFundDto transfer(
             @Parameter(description = "ID фонда") @PathVariable UUID id,
@@ -89,6 +93,7 @@ public class TargetFundController {
     @Operation(summary = "Записать параметры примерки копилки/кредита: цель, срок, ставку и срок кредита (ANO-162)",
             description = "Только их: счёт, имя, вид и приоритет не трогает — отсутствующий счёт здесь не "
                     + "«отвязать», как в PUT. Не присланное не меняется, кроме цели. Не хотелка — 404.")
+    @WritesData
     @PatchMapping("/{id}/wishlist-params")
     public void applyWishlistParams(
             @Parameter(description = "ID фонда") @PathVariable UUID id,
@@ -97,6 +102,7 @@ public class TargetFundController {
     }
 
     @Operation(summary = "Сменить wishlist-статус копилки/кредита (OPEN/FIXED/DISMISSED)")
+    @WritesData
     @PatchMapping("/{id}/wishlist-status")
     public void setWishlistStatus(
             @Parameter(description = "ID фонда") @PathVariable UUID id,

@@ -30,6 +30,7 @@ public class BalanceCheckpointController {
     }
 
     @Operation(summary = "Создать чекпоинт", description = "Фиксирует реальный остаток на счёте на указанную дату")
+    @WritesData
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public BalanceCheckpointDto create(@Valid @RequestBody BalanceCheckpointCreateDto dto) {
@@ -37,6 +38,7 @@ public class BalanceCheckpointController {
     }
 
     @Operation(summary = "Обновить чекпоинт", description = "Исправляет дату или сумму существующей записи")
+    @WritesData
     @PutMapping("/{id}")
     public BalanceCheckpointDto update(@PathVariable UUID id,
                                        @Valid @RequestBody BalanceCheckpointCreateDto dto) {
@@ -44,6 +46,7 @@ public class BalanceCheckpointController {
     }
 
     @Operation(summary = "Удалить чекпоинт")
+    @WritesData
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
