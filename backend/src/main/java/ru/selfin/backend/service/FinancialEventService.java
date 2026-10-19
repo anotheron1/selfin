@@ -295,6 +295,8 @@ public class FinancialEventService {
         // ANO-183: до первого сеттера — отказ не оставляет строку наполовину переписанной.
         requireWishlistCharacter(event, priority);
         BigDecimal oldFact = event.getFactAmount();
+        // До смены типа: копилка решается и по прежнему типу строки (ANO-225).
+        UUID fund = targetFundFor(event, dto);
         event.setDate(dto.date());
         event.setCategory(category);
         event.setType(dto.type());
@@ -302,7 +304,7 @@ public class FinancialEventService {
         event.setPriority(priority);
         event.setDescription(dto.description());
         event.setRawInput(dto.rawInput());
-        event.setTargetFundId(targetFundFor(event, dto));
+        event.setTargetFundId(fund);
         if (oldFact != null) {
             log.info("plan_update event_id={} category={} planned={} (fact retained on FACT record)",
                     event.getId(), category.getName(), dto.plannedAmount());
@@ -327,10 +329,18 @@ public class FinancialEventService {
      * переводом — прежняя: форма журнала копилку не знает и не шлёт, а раньше её отсутствие
      * снимало копилку с плана, и факт к нему навсегда падал 400 «has no fund to transfer into».
      * Строка перестала быть переводом — копилки у неё нет.
+     *
+     * <p>Строка была и осталась расходом или доходом — тоже прежняя (ANO-225). Копилка у них бывает
+     * только у платежа графика кредита: журнал её у расхода не принимает и не шлёт, а не прислать — не
+     * значит снять. Правка «только эта» единственного платежа месячного кредита иначе отвязывала его
+     * от графика, и отказ от кредита оставлял этот платёж в плане.
+     *
+     * <p>Зовётся до перезаписи строки: прежний тип — {@code event.getType()}.
      */
     private static UUID targetFundFor(FinancialEvent event, FinancialEventCreateDto dto) {
         if (dto.targetFundId() != null) return dto.targetFundId();
-        return dto.type() == EventType.FUND_TRANSFER ? event.getTargetFundId() : null;
+        if (dto.type() == EventType.FUND_TRANSFER) return event.getTargetFundId();
+        return event.getType() == EventType.FUND_TRANSFER ? null : event.getTargetFundId();
     }
 
     /**

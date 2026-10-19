@@ -464,4 +464,249 @@ class CreditPaymentsIT {
         assertThat(item).isNotNull();
         assertThat(item.get("inBaseline").asBoolean()).isTrue();
     }
+
+    // ====== ANO-225: три края зафиксированного кредита ======
+
+    private void putFund(UUID id, int term, String amount, LocalDate date) throws Exception {
+        putFund(id, term, amount, "12", date);
+    }
+
+    private void putFund(UUID id, int term, String amount, String rate, LocalDate date) throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/funds/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Проверка кредита","targetAmount":%s,"targetDate":"%s","purchaseType":"CREDIT",
+                                 "creditRate":%s,"creditTermMonths":%d}""".formatted(amount, date, rate, term)))
+                .andExpect(status().isOk());
+    }
+
+    private List<UUID> ids(List<FinancialEvent> events) {
+        return events.stream().map(FinancialEvent::getId).toList();
+    }
+
+    private void convertWithPayments(UUID id, boolean payments) throws Exception {
+        mockMvc.perform(post("/api/v1/wishlist/items/" + id + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceKind":"CREDIT","target":"FUND_WITH_CREDIT","createRecurringPayments":%s}"""
+                                .formatted(payments)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: правка срока в редакторе копилок переставляет график — платежи по новому сроку и новой сумме")
+    void editorTermChange_reschedules() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+        assertThat(livePayments(c.getId())).hasSize(12);
+
+        putFund(c.getId(), 24, "120000", purchase);
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after).hasSize(24);
+        assertThat(after.get(0).getDate()).isEqualTo(purchase.plusMonths(1));
+        assertThat(after.get(23).getDate()).isEqualTo(purchase.plusMonths(24));
+        BigDecimal pmt = after.get(0).getPlannedAmount();
+        assertThat(pmt).as("аннуитет на 24 месяца — меньше, чем на 12").isLessThan(PMT);
+        assertThat(after).allSatisfy(e -> assertThat(e.getPlannedAmount()).isEqualByComparingTo(pmt));
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: правка ставки переставляет график — платёж по новой ставке")
+    void editorRateChange_reschedules() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+
+        putFund(c.getId(), 12, "120000", "24", purchase);
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after).hasSize(12);
+        assertThat(after.get(0).getPlannedAmount()).as("ставка выше — платёж больше").isGreaterThan(PMT);
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: правка даты покупки переставляет график — платежи от новой даты")
+    void editorDateChange_reschedules() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+
+        putFund(c.getId(), 12, "120000", purchase.plusMonths(1));
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after).hasSize(12);
+        assertThat(after.get(0).getDate()).isEqualTo(purchase.plusMonths(2));
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: сохранение без смены условий график не трогает — 12 и 12.00 одна ставка")
+    void editorSameTerms_keepsSchedule() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+        List<UUID> before = ids(livePayments(c.getId()));
+
+        // В базе 120000.00 и 12.00, в теле — 120000 и 12.
+        putFund(c.getId(), 12, "120000", purchase);
+
+        assertThat(ids(livePayments(c.getId()))).as("те же платежи, не переставленные").isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: начатый кредит с внесённым платежом — правка ставит остаток с сегодня, внесённый остаётся")
+    void editorTermChange_runningCredit_reschedulesFromToday() throws Exception {
+        // Покупка два месяца назад: первый платёж внесён, второй прошёл без факта, третий впереди.
+        LocalDate past = today.minusMonths(2).minusDays(5);
+        TargetFund c = credit(WishlistStatus.FIXED, past);
+        creditPayments.schedule(c);
+        FinancialEvent paid = livePayments(c.getId()).get(0);
+        paid.setDate(past.plusMonths(1));
+        paid.setStatus(EventStatus.EXECUTED);
+        eventRepository.save(paid);
+
+        putFund(c.getId(), 24, "120000", past);
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after.get(0).getId()).as("внесённый — история").isEqualTo(paid.getId());
+        assertThat(after.get(1).getDate()).as("остаток — с ближайшего платежа не раньше сегодня")
+                .isEqualTo(past.plusMonths(3)).isAfterOrEqualTo(today);
+        assertThat(after.get(after.size() - 1).getDate()).isEqualTo(past.plusMonths(24));
+        assertThat(after).hasSize(1 + 22);
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: правка суммы из «Что с капиталом» у зафиксированного кредита тоже переставляет график")
+    void capitalBlockParams_reschedule() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+
+        mockMvc.perform(patch("/api/v1/funds/" + c.getId() + "/wishlist-params")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"targetAmount":100000,"targetDate":"%s","creditRate":12,"creditTermMonths":12}"""
+                                .formatted(purchase)))
+                .andExpect(status().is2xxSuccessful());
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after).hasSize(12);
+        BigDecimal pmt = after.get(0).getPlannedAmount();
+        assertThat(pmt).as("сумма меньше — платёж меньше").isLessThan(PMT);
+        assertThat(after).allSatisfy(e -> assertThat(e.getPlannedAmount()).isEqualByComparingTo(pmt));
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: платёж, внесённый заранее, после перестановки не задваивается — новый график начинается после него")
+    void reschedule_keepsPaidEarlyPayment() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+        FinancialEvent first = livePayments(c.getId()).get(0);
+        first.setStatus(EventStatus.EXECUTED);
+        eventRepository.save(first);
+
+        putFund(c.getId(), 24, "120000", purchase);
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after).as("внесённый остался, остальные 23 — по новому сроку").hasSize(24);
+        assertThat(after.get(0).getId()).isEqualTo(first.getId());
+        assertThat(after).filteredOn(e -> e.getDate().equals(first.getDate())).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: кредиту, зафиксированному без графика, правка условий график не заводит")
+    void editorTermChange_creditWithoutSchedule_staysWithout() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        convertWithPayments(c.getId(), false);
+
+        putFund(c.getId(), 24, "120000", purchase);
+
+        assertThat(livePayments(c.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: график, снятый возвратом в обсуждение, правка условий не возвращает")
+    void editorTermChange_afterUnfix_staysWithout() throws Exception {
+        // Первый платёж прошёл без факта: снятие его оставляет, но график он не держит — действующий
+        // смотрится по платежам с сегодня. Подготовка — как в leavingFixed_unschedulesFuturePayments_keepsPast.
+        TargetFund c = credit(WishlistStatus.FIXED, today);
+        creditPayments.schedule(c);
+        FinancialEvent first = livePayments(c.getId()).get(0);
+        RecurringRule rule = ruleRepository.findById(first.getRecurringRule().getId()).orElseThrow();
+        rule.setStartDate(today.minusMonths(1));
+        ruleRepository.save(rule);
+        first.setDate(today.minusDays(1));
+        eventRepository.save(first);
+        setStatus(c.getId(), "{\"status\":\"OPEN\"}");
+        assertThat(livePayments(c.getId())).as("предусловие: остался прошедший").hasSize(1);
+
+        putFund(c.getId(), 24, "120000", today);
+
+        assertThat(livePayments(c.getId())).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: покупка в прошлом — график с ближайшего платежа не раньше сегодня (I3), до конца срока")
+    void schedule_pastPurchase_startsFromToday() {
+        LocalDate past = today.minusMonths(3).minusDays(1);
+        TargetFund c = credit(WishlistStatus.FIXED, past);
+        int firstK = java.util.stream.IntStream.rangeClosed(1, 12)
+                .filter(k -> !past.plusMonths(k).isBefore(today)).findFirst().orElseThrow();
+
+        creditPayments.schedule(c);
+
+        List<FinancialEvent> payments = livePayments(c.getId());
+        assertThat(payments).hasSize(12 - firstK + 1);
+        assertThat(payments.get(0).getDate()).isEqualTo(past.plusMonths(firstK)).isAfterOrEqualTo(today);
+        assertThat(payments.get(payments.size() - 1).getDate()).isEqualTo(past.plusMonths(12));
+        assertThat(payments).allSatisfy(e -> assertThat(e.getPlannedAmount()).isEqualByComparingTo(PMT));
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 1: все платежи кредита в прошлом — ставить нечего, и это не ошибка")
+    void schedule_creditFullyInPast_noPayments() {
+        TargetFund c = credit(WishlistStatus.FIXED, today.minusMonths(13));
+
+        creditPayments.schedule(c);
+
+        assertThat(livePayments(c.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 2: правка «только эта» единственного платежа месячного кредита ссылку не снимает — возврат снимает платёж")
+    void oneMonthCredit_editOnlyPayment_keepsLink() throws Exception {
+        TargetFund c = fundRepository.save(TargetFund.builder()
+                .name("Месячный кредит").purchaseType(FundPurchaseType.CREDIT).status(FundStatus.FUNDING)
+                .wishlistStatus(WishlistStatus.OPEN).targetAmount(new BigDecimal("120000")).targetDate(purchase)
+                .creditRate(new BigDecimal("12")).creditTermMonths(1).build());
+        convertWithPayments(c.getId(), true);
+        List<FinancialEvent> payments = livePayments(c.getId());
+        assertThat(payments).hasSize(1);
+        FinancialEvent only = payments.get(0);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/api/v1/events/" + only.getId() + "?scope=THIS")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","categoryId":"%s","type":"EXPENSE","plannedAmount":121500,"priority":"HIGH"}"""
+                                .formatted(only.getDate(), only.getCategory().getId())))
+                .andExpect(status().isOk());
+
+        assertThat(eventRepository.findById(only.getId()).orElseThrow().getTargetFundId())
+                .as("журнал копилку не шлёт — ссылка платежа на кредит та же").isEqualTo(c.getId());
+
+        setStatus(c.getId(), "{\"status\":\"OPEN\"}");
+
+        assertThat(eventRepository.findById(only.getId()).orElseThrow().isDeleted())
+                .as("отказ от кредита снимает и поправленный платёж").isTrue();
+    }
+
+    @Test
+    @DisplayName("ANO-225, край 3: повторная фиксация со снятой галочкой «Создать график платежей» снимает прежний график")
+    void refixWithoutPayments_unschedules() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+        assertThat(livePayments(c.getId())).hasSize(12);
+
+        convertWithPayments(c.getId(), false);
+
+        assertThat(livePayments(c.getId())).as("без галочки — без графика: явный выбор").isEmpty();
+        assertThat(fundRepository.findById(c.getId()).orElseThrow().getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+    }
 }
