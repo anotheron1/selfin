@@ -610,6 +610,47 @@ class CreditPaymentsIT {
     }
 
     @Test
+    @DisplayName("Ревью Codex на #185: частично внесённый платёж перестановка не снимает — его факт засчитан, новый график после него")
+    void reschedule_keepsPartiallyPaidPayment() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+        FinancialEvent first = livePayments(c.getId()).get(0);
+        mockMvc.perform(post("/api/v1/events/" + first.getId() + "/facts")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"date":"%s","factAmount":5000}""".formatted(today)))
+                .andExpect(status().is2xxSuccessful());
+        assertThat(eventRepository.findById(first.getId()).orElseThrow().getStatus())
+                .as("предусловие: внесена часть — платёж остался в плане").isEqualTo(EventStatus.PLANNED);
+
+        putFund(c.getId(), 24, "120000", purchase);
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after.get(0).getId()).as("частично внесённый — на месте, с фактом").isEqualTo(first.getId());
+        assertThat(after).filteredOn(e -> e.getDate().equals(first.getDate())).hasSize(1);
+        assertThat(after).as("он и 23 по новому сроку").hasSize(24);
+    }
+
+    @Test
+    @DisplayName("Ревью Codex на #185: неоплаченный платёж перед внесённым заранее перестановка не теряет")
+    void reschedule_keepsUnpaidBeforePaidEarly() throws Exception {
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        fixInSandbox(c.getId());
+        List<FinancialEvent> before = livePayments(c.getId());
+        FinancialEvent second = before.get(1);
+        second.setStatus(EventStatus.EXECUTED);
+        eventRepository.save(second);
+
+        putFund(c.getId(), 24, "120000", purchase);
+
+        List<FinancialEvent> after = livePayments(c.getId());
+        assertThat(after.get(0).getId()).as("первый, не оплаченный, на месте").isEqualTo(before.get(0).getId());
+        assertThat(after.get(1).getId()).as("второй, внесённый заранее, — история").isEqualTo(second.getId());
+        assertThat(after).as("два прежних и 22 по новому сроку").hasSize(24);
+    }
+
+    @Test
     @DisplayName("ANO-225, край 1: кредиту, зафиксированному без графика, правка условий график не заводит")
     void editorTermChange_creditWithoutSchedule_staysWithout() throws Exception {
         TargetFund c = credit(WishlistStatus.OPEN, purchase);

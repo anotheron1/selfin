@@ -330,17 +330,18 @@ public class FinancialEventService {
      * снимало копилку с плана, и факт к нему навсегда падал 400 «has no fund to transfer into».
      * Строка перестала быть переводом — копилки у неё нет.
      *
-     * <p>Строка была и осталась расходом или доходом — тоже прежняя (ANO-225). Копилка у них бывает
-     * только у платежа графика кредита: журнал её у расхода не принимает и не шлёт, а не прислать — не
-     * значит снять. Правка «только эта» единственного платежа месячного кредита иначе отвязывала его
-     * от графика, и отказ от кредита оставлял этот платёж в плане.
+     * <p>Строка была и осталась расходом — тоже прежняя (ANO-225). Копилка у расхода бывает только у
+     * платежа графика кредита: журнал её у расхода не принимает и не шлёт, а не прислать — не значит
+     * снять. Правка «только эта» единственного платежа месячного кредита иначе отвязывала его от
+     * графика, и отказ от кредита оставлял этот платёж в плане. Расход, ставший доходом, ссылку теряет:
+     * запросы графика тип строки не смотрят, и доход снимался бы вместе с кредитом (ревью Codex на #185).
      *
      * <p>Зовётся до перезаписи строки: прежний тип — {@code event.getType()}.
      */
     private static UUID targetFundFor(FinancialEvent event, FinancialEventCreateDto dto) {
         if (dto.targetFundId() != null) return dto.targetFundId();
         if (dto.type() == EventType.FUND_TRANSFER) return event.getTargetFundId();
-        return event.getType() == EventType.FUND_TRANSFER ? null : event.getTargetFundId();
+        return event.getType() == EventType.EXPENSE && dto.type() == EventType.EXPENSE ? event.getTargetFundId() : null;
     }
 
     /**
