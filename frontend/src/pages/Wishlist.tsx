@@ -51,6 +51,13 @@ export default function Wishlist() {
     /** Заметка о сбросе примерки; гасится следующим действием пользователя. */
     const [notice, setNotice] = useState<string | null>(null);
     const [showCapital, setShowCapital] = useState(false);
+    /**
+     * Счётчик смен хотелок на странице (ANO-209). Примерка и «Что с капиталом» показывают одни хотелки,
+     * а перечитывал каждый блок только свой список: зафиксированная внизу строка наверху оставалась
+     * незафиксированной до перезагрузки. Теперь после записи в любом блоке перечитываются оба.
+     */
+    const [wishlistVersion, setWishlistVersion] = useState(0);
+    const wishlistChanged = useCallback(() => setWishlistVersion(v => v + 1), []);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
@@ -114,12 +121,12 @@ export default function Wishlist() {
             });
     }, [request, effectiveScope]);
 
-    // Debounce 200 мс на любое изменение (тумблер/правка/скоуп).
+    // Debounce 200 мс на любое изменение (тумблер/правка/скоуп) и на смену хотелок в «Что с капиталом».
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(load, 200);
         return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-    }, [load]);
+    }, [load, wishlistVersion]);
 
     const items = resp?.items ?? [];
 
@@ -211,6 +218,7 @@ export default function Wishlist() {
         // Явный load() был бы гонкой: он бы стрельнул старым request с ещё живым ref
         // (сконвертирован/DISMISSED) → лишний 400-мигание до перезапроса.
         setState(s => forgetRef(s, ref));
+        wishlistChanged();
     };
 
     // ── ad-hoc ──────────────────────────────────────────────────────────────
@@ -236,6 +244,7 @@ export default function Wishlist() {
                     ...s,
                     adhoc: s.adhoc.filter(t => !(t.amount === amount && t.date === date)),
                 }));
+                wishlistChanged();
             })
             .catch(failed);
     };
@@ -375,7 +384,7 @@ export default function Wishlist() {
                 </button>
                 {showCapital && (
                     <div className="px-3 pb-3">
-                        <CapitalWhatIf />
+                        <CapitalWhatIf refreshSignal={wishlistVersion} onChanged={wishlistChanged} />
                     </div>
                 )}
             </div>

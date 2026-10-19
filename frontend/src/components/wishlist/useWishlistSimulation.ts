@@ -67,8 +67,10 @@ export interface UseWishlistSimulationResult {
  *
  * <p>Соглашение об индексах (load-bearing): {@code monthIndex = 0} ⟷ {@code current+1}.
  * Симуляционная поверхность — только FUTURE-сегмент baseline; массив index i ⟷ monthIndex i.
+ *
+ * @param refreshSignal счётчик смен хотелок на странице: сменился — перечитать (ANO-209)
  */
-export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulationResult {
+export function useWishlistSimulation(horizonMonths = 36, refreshSignal = 0): UseWishlistSimulationResult {
     const [data, setData] = useState<WishlistSimulationDto | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -99,7 +101,7 @@ export function useWishlistSimulation(horizonMonths = 36): UseWishlistSimulation
                 setIsLoading(false);
             });
         return () => { cancelled = true; };
-    }, [tick, horizonMonths]);
+    }, [tick, horizonMonths, refreshSignal]);
 
     const toggleItem = useCallback((id: string) => {
         setActiveMap(prev => ({ ...prev, [id]: !prev[id] }));

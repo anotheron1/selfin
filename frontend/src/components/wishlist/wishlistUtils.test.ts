@@ -208,28 +208,29 @@ describe('график платежей — только у «Кредита» (
     });
 });
 
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+/** Текст инициализатора `const имя = …` — тело обработчика. */
+const handlerBody = (path: string, name: string): string => {
+    const src = read(path);
+    const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    let body: string | null = null;
+    const visit = (node: ts.Node): void => {
+        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)
+            && node.name.text === name && node.initializer) {
+            body = node.initializer.getText(sf);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    if (body === null) throw new Error(`${path}: нет обработчика ${name}`);
+    return body;
+};
+
 describe('путь назад у отложенной (ANO-107)', () => {
     // «Отложить» было дорогой в один конец: строка пропадала отовсюду, раздел «Отклонено» в «Что с
     // капиталом» был нарисован, но сервер не отдавал ему данных. Теперь отложенная приходит с пустой
     // дельтой, раздел «Отложено» рисует её короткой карточкой, а примерка говорит, где её искать.
-    const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
-
-    /** Текст инициализатора `const имя = …` — тело обработчика. */
-    const handlerBody = (path: string, name: string): string => {
-        const src = read(path);
-        const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-        let body: string | null = null;
-        const visit = (node: ts.Node): void => {
-            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)
-                && node.name.text === name && node.initializer) {
-                body = node.initializer.getText(sf);
-            }
-            ts.forEachChild(node, visit);
-        };
-        visit(sf);
-        if (body === null) throw new Error(`${path}: нет обработчика ${name}`);
-        return body;
-    };
 
     it('заметка после «Отложить» говорит, где вернуть', () => {
         expect(dismissedNotice('Велосипед'))
@@ -642,5 +643,38 @@ describe('взнос копилки в примерке (ANO-105, ревью Cod
 
     it('взноса нет ни в хотелке, ни в пересчёте — строки нет', () => {
         expect(effectiveContribution(savings({ monthlyContribution: null }), { amount: 60000 })).toBeNull();
+    });
+});
+
+describe('два блока «Хотелок» видят смены друг друга (ANO-209)', () => {
+    // Примерка (`POST /pocket/sandbox`) и «Что с капиталом» (`GET /wishlist/simulation`) показывают одни
+    // хотелки, а перечитывал каждый только свой список: зафиксированная внизу строка наверху оставалась
+    // незафиксированной до перезагрузки, возвращённая наверху — внизу «зафиксированной». Компонентных
+    // тестов нет — связку держит исходник.
+    const page = '../../pages/Wishlist.tsx';
+    const block = '../sandbox/CapitalWhatIf.tsx';
+
+    it('страница держит счётчик смен и отдаёт его «Что с капиталом»', () => {
+        expect(read(page)).toMatch(/<CapitalWhatIf refreshSignal=\{wishlistVersion\} onChanged=\{wishlistChanged\} \/>/);
+    });
+
+    it('примерка перечитывается и по счётчику', () => {
+        expect(read(page)).toMatch(/setTimeout\(load, 200\);[\s\S]*?\}, \[load, wishlistVersion\]\);/);
+    });
+
+    it.each(['afterFix', 'saveAdhocAsWishlist'])('примерка сообщает о смене — %s', (name) => {
+        expect(handlerBody(page, name)).toMatch(/wishlistChanged\(\)/);
+    });
+
+    it('«Что с капиталом» после записи сообщает странице, а не перечитывает только себя', () => {
+        const src = read(block);
+        expect(src).toMatch(/const changed = onChanged \?\? refetch;/);
+        expect(src).not.toMatch(/\brefetch\(\)/);
+        expect(src).toContain('onCreated={changed}');
+    });
+
+    it('«Что с капиталом» перечитывается по счётчику страницы', () => {
+        expect(read(block)).toMatch(/useWishlistSimulation\(36, refreshSignal\)/);
+        expect(read('./useWishlistSimulation.ts')).toMatch(/\}, \[tick, horizonMonths, refreshSignal\]\);/);
     });
 });
