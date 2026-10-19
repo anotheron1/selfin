@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { canRecordFact, latestAllowedIso, SERVER_TIME_ZONE, todayIso } from './factDate';
+import { canRecordFact, latestAllowedIso, SERVER_TIME_ZONE, serverTodayIso, todayIso } from './factDate';
 
 describe('canRecordFact (ANO-155)', () => {
     const TODAY = '2026-09-15';
@@ -85,6 +85,20 @@ describe('latestAllowedIso — не позже сегодня ни по мест
             expect(compose).toContain(`TZ: ${SERVER_TIME_ZONE}`);
             expect(compose).not.toMatch(/TZ: \$\{TZ/);
         }
+    });
+});
+
+describe('serverTodayIso — сегодня по календарю сервера в любом поясе (ревью Codex на #187)', () => {
+    // Даты, которые ставит сам сервер, — дни визита (ANO-102) — идут по Москве; перерыв считается от них же.
+    const tz = process.env.TZ;
+    afterAll(() => { process.env.TZ = tz; });
+    const at = (zone: string, iso: string) => { process.env.TZ = zone; return serverTodayIso(new Date(iso)); };
+
+    it('в Екатеринбурге в 01:00 — ещё вчера: в Москве 23:00', () => {
+        expect(at('Asia/Yekaterinburg', '2026-10-17T20:00:00Z')).toBe('2026-10-17');
+    });
+    it('в Калининграде в 23:30 — уже завтра: в Москве 00:30', () => {
+        expect(at('Europe/Kaliningrad', '2026-10-17T21:30:00Z')).toBe('2026-10-18');
     });
 });
 

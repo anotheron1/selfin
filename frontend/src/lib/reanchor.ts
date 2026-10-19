@@ -1,4 +1,5 @@
 import { fmtDayMonth, fmtRub } from './format';
+import { todayIso } from './factDate';
 import type { Account } from '../types/api';
 
 /**
@@ -33,17 +34,31 @@ export function buildAgeHint(checkpointDate: string | null, todayIso: string): s
     return `остаток обновлялся ${age} дн. назад`;
 }
 
+/** ISO-дата, сдвинутая на {@code days} дней, — местной арифметикой, без UTC. */
+const shiftIso = (iso: string, days: number) => {
+    const d = parseIso(iso);
+    d.setDate(d.getDate() + days);
+    return todayIso(d);
+};
+
 /**
  * Строка о перерыве (ANO-102, вариант А владельца): прошлый визит больше недели назад. За перерыв продукт о тратах
- * не знает, и одно число в шторке остатка проще разбора пропущенного. Дата — прошлый визит: после него записей нет
- * по определению; «после», а не «с» — в сам день визита записи могли быть. Без упрёка и без счётчика дней
- * (правило 12). Первый визит и остаток, сверенный сегодня, — строки нет.
+ * не знает, и одно число в шторке остатка проще разбора пропущенного. Без упрёка и без счётчика дней (правило 12).
+ *
+ * Дни — между прошлым визитом и сегодня: в них записей нет по определению, и запись сегодня строку неправдой не
+ * делает (ревью Codex на #187). Сегодня — по календарю сервера: дни визита ставит он. Остаток сверен после прошлого
+ * визита — строки нет: предложение исполнено, и это сравнение двух дат от пояса не зависит. Первый визит — строки нет.
+ *
+ * @param serverToday сегодня по календарю сервера — {@code serverTodayIso}
  */
-export function buildBreakHint(lastVisit: string | null, checkpointDate: string | null, todayIso: string): string | null {
-    if (!lastVisit || checkpointDate === todayIso) return null;
-    const gap = Math.round((parseIso(todayIso).getTime() - parseIso(lastVisit).getTime()) / MS_PER_DAY);
+export function buildBreakHint(lastVisit: string | null, checkpointDate: string | null, serverToday: string): string | null {
+    if (!lastVisit || (checkpointDate != null && checkpointDate > lastVisit)) return null;
+    const gap = Math.round((parseIso(serverToday).getTime() - parseIso(lastVisit).getTime()) / MS_PER_DAY);
     if (gap <= BREAK_AFTER_DAYS) return null;
-    return `После ${fmtDayMonth(lastVisit)} записей нет — обновить остаток?`;
+    const from = shiftIso(lastVisit, 1);
+    const to = shiftIso(serverToday, -1);
+    const fromText = from.slice(0, 7) === to.slice(0, 7) ? String(parseIso(from).getDate()) : fmtDayMonth(from);
+    return `С ${fromText} по ${fmtDayMonth(to)} записей нет — обновить остаток?`;
 }
 
 /**

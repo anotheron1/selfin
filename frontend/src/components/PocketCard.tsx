@@ -8,6 +8,7 @@ import { noExpectationsNote } from '../lib/noExpectationsNote';
 import { buildGapMode, FREE_LABEL } from '../lib/gapMode';
 import { buildBreakdownView, type BreakdownRow } from '../lib/breakdownRows';
 import { buildAgeHint, buildBreakHint } from '../lib/reanchor';
+import { serverTodayIso } from '../lib/factDate';
 import ReanchorSheet from './pocket/ReanchorSheet';
 import NzSheet from './pocket/NzSheet';
 import HelpDialog from './HelpDialog';
@@ -189,7 +190,9 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                 const t = new Date();
                                 const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
                                 // ANO-102: после перерыва — строка о нём вместо давности остатка: обе ведут в шторку.
-                                const hint = buildBreakHint(lastVisit, data.checkpointDate, todayIso)
+                                // Перерыв — по календарю сервера: дни визита ставит он (ревью Codex на #187).
+                                const serverToday = serverTodayIso(t);
+                                const hint = buildBreakHint(lastVisit, data.checkpointDate, serverToday)
                                     ?? buildAgeHint(data.checkpointDate, todayIso);
                                 return hint && (
                                     <button onClick={() => setShowReanchor(true)}

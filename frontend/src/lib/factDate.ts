@@ -28,16 +28,24 @@ export function todayIso(now: Date): string {
 export const SERVER_TIME_ZONE = 'Europe/Moscow';
 
 /**
+ * Сегодня по календарю сервера. Им считаются даты, которые сервер ставит сам: дни визита (ANO-102) — перерыв
+ * от них, по местной дате он сдвигался бы на день около полуночи (ревью Codex на #187).
+ */
+export function serverTodayIso(now: Date): string {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: SERVER_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now);
+    const part = (type: string) => parts.find((p) => p.type === type)?.value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+/**
  * Предел для даты, которую сервер проверяет «не позже сегодня»: сегодня по местным часам, но не позже, чем
  * по часам сервера. В Москве это просто сегодня. Восточнее после местной полуночи местная дата для сервера
  * ещё завтрашняя — он отверг бы её, а форма промолчала бы (ревью Codex на #177). Пояс человека — эпик ANO-135.
  */
 export function latestAllowedIso(now: Date): string {
-    const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: SERVER_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(now);
-    const part = (type: string) => parts.find((p) => p.type === type)?.value;
-    const server = `${part('year')}-${part('month')}-${part('day')}`;
+    const server = serverTodayIso(now);
     const local = todayIso(now);
     return local < server ? local : server;
 }
