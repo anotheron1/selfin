@@ -52,13 +52,16 @@ export function deleteFailure(err: unknown, kind: Deletable): string {
  *
  * Копилку с деньгами сменой статуса сервер не удаляет: её удаляют на своём экране, где спрашивают,
  * что с деньгами (`WishlistArtifactService`). Такой экран — «Цели» (ANO-198); строка говорит, где.
+ *
+ * @param to куда переводили: «Отложить» или «Вернуть в обсуждение» (ANO-226) — отказ тот же, глагол свой
  */
-export function dismissFailure(err: unknown, kind: Deletable): string {
+export function dismissFailure(err: unknown, kind: Deletable, to: 'DISMISSED' | 'OPEN' = 'DISMISSED'): string {
     const status = (err as { status?: unknown } | null | undefined)?.status;
     if (status !== 409) return WRITE_FAILED;
+    const [failed, without] = to === 'OPEN' ? ['Не вернулось', 'вернётся'] : ['Не отложилось', 'отложится'];
     return kind === 'EVENT'
-        ? 'Не отложилось: по созданному плану уже есть факт, и его не удалить. Без галочки — отложится, план останется.'
-        : 'Не отложилось: в созданной копилке лежат деньги. Без галочки — отложится, а копилку можно '
+        ? `${failed}: по созданному плану уже есть факт, и его не удалить. Без галочки — ${without}, план останется.`
+        : `${failed}: в созданной копилке лежат деньги. Без галочки — ${without}, а копилку можно `
             + 'удалить на «Целях»: там спросят, что с ними.';
 }
 
