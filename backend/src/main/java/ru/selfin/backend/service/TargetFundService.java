@@ -129,6 +129,7 @@ public class TargetFundService {
         TargetFund fund = fundRepository.findById(id)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        CreditTerms before = CreditTerms.of(fund);
         // Р2-Б (ревью Codex на #138): кредит, ставший накоплением, — уже не кредит; его график
         // снимается до смены вида. Потом правило не опознать: график ищется у копилок-кредитов.
         if (fund.getPurchaseType() == FundPurchaseType.CREDIT
@@ -169,7 +170,19 @@ public class TargetFundService {
         if (fund.getAccountId() == null) {
             applyStatusByBalance(fund);
         }
-        return toDto(fundRepository.save(fund));
+        TargetFundDto saved = toDto(fundRepository.save(fund));
+        rescheduleIfTermsChanged(fund, before);
+        return saved;
+    }
+
+    /**
+     * График зафиксированного кредита следует его условиям (ANO-225): правка суммы, даты покупки,
+     * ставки или срока переставляет действующий график — в редакторе копилок и из «Что с капиталом».
+     * Раньше платежи оставались по прежним условиям, а обход был «вернуть в обсуждение — поправить —
+     * зафиксировать». У копилки не кредита графика нет: {@code reschedule} его ищет только у кредитов.
+     */
+    private void rescheduleIfTermsChanged(TargetFund fund, CreditTerms before) {
+        if (before.changedIn(fund)) creditPayments.reschedule(fund);
     }
 
     /**
@@ -419,6 +432,7 @@ public class TargetFundService {
         TargetFund fund = fundRepository.findById(id)
                 .filter(f -> !f.isDeleted() && f.getWishlistStatus() != null)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund (wishlist)", id));
+        CreditTerms before = CreditTerms.of(fund);
         fund.setTargetAmount(dto.targetAmount());
         if (dto.targetDate() != null) fund.setTargetDate(dto.targetDate());
         if (dto.creditRate() != null) fund.setCreditRate(dto.creditRate());
@@ -427,6 +441,7 @@ public class TargetFundService {
             applyStatusByBalance(fund);
         }
         fundRepository.save(fund);
+        rescheduleIfTermsChanged(fund, before);
     }
 
     /**
@@ -768,5 +783,26 @@ public class TargetFundService {
 
         long monthsLeft = remaining.divide(avgMonthly, 0, RoundingMode.CEILING).longValue();
         return today.plusMonths(monthsLeft);
+    }
+
+    /**
+     * Условия кредита, от которых зависит его график (ANO-225). Суммы — по значению: 12 и 12.00 — одна
+     * ставка, иначе правка имени переставила бы график и стёрла поправленные вручную будущие платежи.
+     */
+    private record CreditTerms(BigDecimal amount, LocalDate purchase, BigDecimal rate, Integer term) {
+
+        static CreditTerms of(TargetFund fund) {
+            return new CreditTerms(fund.getTargetAmount(), fund.getTargetDate(),
+                    fund.getCreditRate(), fund.getCreditTermMonths());
+        }
+
+        boolean changedIn(TargetFund fund) {
+            return differ(amount, fund.getTargetAmount()) || !Objects.equals(purchase, fund.getTargetDate())
+                    || differ(rate, fund.getCreditRate()) || !Objects.equals(term, fund.getCreditTermMonths());
+        }
+
+        private static boolean differ(BigDecimal a, BigDecimal b) {
+            return a == null || b == null ? a != b : a.compareTo(b) != 0;
+        }
     }
 }

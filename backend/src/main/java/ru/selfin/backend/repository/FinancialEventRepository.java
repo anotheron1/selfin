@@ -200,6 +200,17 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
            "  AND e.status = 'EXECUTED'")
     Optional<LocalDate> findMaxExecutedDateByRule(@Param("ruleId") UUID ruleId);
 
+    /**
+     * Последний платёж правила, внесённый хотя бы частично: исполненный или с живым фактом (ANO-225,
+     * ревью Codex на #185). Частично внесённый остаётся в плане, а снятый унёс бы с собой зачёт факта.
+     */
+    @Query("SELECT MAX(e.date) FROM FinancialEvent e " +
+           "WHERE e.recurringRule.id = :ruleId " +
+           "  AND e.deleted = false " +
+           "  AND (e.status = 'EXECUTED' OR EXISTS (SELECT f.id FROM FinancialEvent f " +
+           "       WHERE f.parentEventId = e.id AND f.deleted = false))")
+    Optional<LocalDate> findLastPaidDateByRule(@Param("ruleId") UUID ruleId);
+
     @Query("SELECT e FROM FinancialEvent e " +
            "WHERE e.recurringRule.id = :ruleId " +
            "  AND e.date = :date " +

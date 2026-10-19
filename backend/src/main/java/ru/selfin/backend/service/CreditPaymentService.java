@@ -42,22 +42,32 @@ public class CreditPaymentService {
      * покупки тем же днём, последний — через срок кредита. Стоявший график сначала снимается: двух
      * у копилки не бывает.
      *
+     * <p>Ставится остаток графика (ANO-225): первый платёж — не раньше сегодняшнего дня (правило не
+     * начинается в прошлом, I3) и после последнего внесённого, хотя бы частично, платежа прежнего
+     * графика. До него прежний график не трогается: частично внесённый, снятый, унёс бы зачёт своего
+     * факта, а новый платёж на ту же дату требовал бы всю сумму (ревью Codex на #185). Прошедшие
+     * платежи — история. Все платежи в прошлом — ставить нечего. У фиксации покупка в будущем, и
+     * график, как раньше, — весь срок.
+     *
      * <p>Платёж — аннуитет {@link SandboxLayout#monthlyPmt}, единственная формула PMT в проекте. Раньше
      * он брался из {@code computeCreditDelta} с горизонтом «срок + 1 месяц» — и у покупки за этим
      * горизонтом или в прошлом выходил нулём.
      *
-     * @return id правила
+     * @return id правила; {@code null}, если все платежи кредита в прошлом
      * @throws ResponseStatusException 400 без ставки, срока или даты покупки
      */
     @Transactional
     public UUID schedule(TargetFund credit) {
         requireCreditParams(credit);
-        unschedule(credit.getId());
+        LocalDate from = resumeFrom(credit.getId());
+        unscheduleFrom(credit.getId(), from);
         int term = credit.getCreditTermMonths();
         LocalDate purchase = credit.getTargetDate();
+        LocalDate first = firstPaymentFrom(purchase, from);
+        LocalDate last = purchase.plusMonths(term);
+        if (first.isAfter(last)) return null;
         BigDecimal pmt = SandboxLayout.monthlyPmt(credit.getTargetAmount(), credit.getCreditRate(), term);
-        var cfg = new RecurringConfigDto(RecurringFrequency.MONTHLY, purchase.getDayOfMonth(), null,
-                purchase.plusMonths(1), purchase.plusMonths(term));
+        var cfg = new RecurringConfigDto(RecurringFrequency.MONTHLY, purchase.getDayOfMonth(), null, first, last);
         // ANO-188: у платежа по кредиту сумма и дата известны заранее — это бронь, как ипотека.
         // С «Ожиданием» пропущенный платёж выпадал из резерва (findOverdueMandatoryExpenses — только брони).
         return recurringRuleService.createFromDto(creditCategory(), EventType.EXPENSE, pmt, Priority.HIGH,
@@ -70,13 +80,54 @@ public class CreditPaymentService {
      */
     @Transactional
     public void unschedule(UUID fundId) {
-        LocalDate today = LocalDate.now(clock);
+        unscheduleFrom(fundId, LocalDate.now(clock));
+    }
+
+    private void unscheduleFrom(UUID fundId, LocalDate from) {
         for (UUID ruleId : eventRepository.findCreditPaymentRuleIds(fundId)) {
             eventRepository
                     .findFirstByRecurringRuleIdAndDeletedFalseAndStatusAndDateGreaterThanEqualOrderByDateAsc(
-                            ruleId, EventStatus.PLANNED, today)
+                            ruleId, EventStatus.PLANNED, from)
                     .ifPresent(first -> recurringRuleService.deleteScope(first, ScopeEnum.FOLLOWING));
         }
+    }
+
+    /**
+     * Переставляет действующий график по нынешним условиям кредита (ANO-225): правка суммы, даты
+     * покупки, ставки или срока. Действующий — с незаплаченным платежом не раньше сегодняшнего дня.
+     * График, снятый при отказе, и закончившийся правка условий не возвращает, а кредиту, зафиксированному
+     * без графика, не заводит: без графика его зафиксировали явно.
+     */
+    @Transactional
+    public void reschedule(TargetFund credit) {
+        LocalDate today = LocalDate.now(clock);
+        boolean active = eventRepository.findCreditPaymentRuleIds(credit.getId()).stream()
+                .anyMatch(ruleId -> eventRepository
+                        .findFirstByRecurringRuleIdAndDeletedFalseAndStatusAndDateGreaterThanEqualOrderByDateAsc(
+                                ruleId, EventStatus.PLANNED, today)
+                        .isPresent());
+        if (active) schedule(credit);
+    }
+
+    /**
+     * С какого дня ставить остаток графика: не раньше сегодня (I3) и после последнего внесённого,
+     * хотя бы частично, платежа прежнего графика — внесённый заранее остаётся, и новый график поверх
+     * него задвоил бы месяц (ANO-225).
+     */
+    private LocalDate resumeFrom(UUID fundId) {
+        LocalDate from = LocalDate.now(clock);
+        for (UUID ruleId : eventRepository.findCreditPaymentRuleIds(fundId)) {
+            LocalDate paid = eventRepository.findLastPaidDateByRule(ruleId).orElse(null);
+            if (paid != null && !paid.isBefore(from)) from = paid.plusDays(1);
+        }
+        return from;
+    }
+
+    /** Первый платёж не раньше {@code from}: через k ≥ 1 месяцев после покупки, тем же днём. */
+    static LocalDate firstPaymentFrom(LocalDate purchase, LocalDate from) {
+        int months = 1;
+        while (purchase.plusMonths(months).isBefore(from)) months++;
+        return purchase.plusMonths(months);
     }
 
     /** Ставка, срок и дата покупки — 400 до любой записи, как в диалоге «Что с капиталом». */

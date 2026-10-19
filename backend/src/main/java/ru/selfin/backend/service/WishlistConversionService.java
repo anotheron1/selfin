@@ -307,6 +307,10 @@ public class WishlistConversionService {
                 src.setPurchaseType(FundPurchaseType.CREDIT);
                 if (Boolean.TRUE.equals(req.createRecurringPayments())) {
                     recurringRuleId = creditPayments.schedule(src);
+                } else {
+                    // ANO-225: галочка «Создать график платежей» стоит по умолчанию — снять её у уже
+                    // зафиксированного кредита значит отказаться от графика; прежний снимается.
+                    creditPayments.unschedule(src.getId());
                 }
             }
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,

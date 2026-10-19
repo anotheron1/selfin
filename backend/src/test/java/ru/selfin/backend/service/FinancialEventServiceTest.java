@@ -1138,6 +1138,26 @@ class FinancialEventServiceTest {
         assertThat(plan.getTargetFundId()).isNull();
     }
 
+    @Test
+    @DisplayName("Ревью Codex на #185: платёж графика кредита, ставший доходом, ссылку на кредит теряет")
+    void update_creditPaymentBecomesIncome_dropsFund() {
+        // Ссылку держит только расход, оставшийся расходом: запросы графика тип строки не смотрят,
+        // и доход со ссылкой снимался бы вместе с кредитом.
+        UUID id = UUID.randomUUID();
+        Category cat = category();
+        FinancialEvent payment = aPlan(id, cat, EventStatus.PLANNED);
+        payment.setTargetFundId(UUID.randomUUID());
+        when(eventRepository.findById(id)).thenReturn(Optional.of(payment));
+        when(categoryRepository.findById(cat.getId())).thenReturn(Optional.of(cat));
+        when(eventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.update(id, ScopeEnum.THIS, new FinancialEventCreateDto(
+                payment.getDate(), cat.getId(), EventType.INCOME, new BigDecimal("5000"),
+                Priority.HIGH, null, null, null, null));
+
+        assertThat(payment.getTargetFundId()).isNull();
+    }
+
     /** Строка с экрана «Хотелки», как на стенде: категория «Хотелки» с характером по умолчанию «Ожидание». */
     private FinancialEvent aWishlistRow(UUID id, WishlistStatus status) {
         Category wishlist = Category.builder()
