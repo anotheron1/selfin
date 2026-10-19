@@ -60,6 +60,7 @@ class VisitDaysIT {
     @AfterEach
     void cleanDb() {
         jdbc.update("DELETE FROM visit_days");
+        jdbc.update("DELETE FROM categories WHERE user_id IN (SELECT id FROM users WHERE external_id = 'old-consent')");
         jdbc.update("DELETE FROM users WHERE external_id IN ('old-consent', 'fresh-consent')");
     }
 
@@ -109,6 +110,11 @@ class VisitDaysIT {
 
         mvc.perform(get("/api/v1/categories").with(oidcLogin().idToken(t -> t.subject("old-consent"))))
                 .andExpect(status().isOk());
+        // И запись: «записывал» пишется своим запросом, условие в нём своё.
+        mvc.perform(post("/api/v1/categories").with(oidcLogin().idToken(t -> t.subject("old-consent")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Проба прежней редакции\",\"type\":\"EXPENSE\"}"))
+                .andExpect(status().is2xxSuccessful());
         mvc.perform(get("/api/v1/categories").with(oidcLogin().idToken(t -> t.subject("fresh-consent"))))
                 .andExpect(status().isOk());
 
