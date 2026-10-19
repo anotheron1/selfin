@@ -71,6 +71,12 @@ describe('строка о перерыве в «Свободно» (ANO-102)', (
     it('перерыв — по календарю сервера: день визита ставит сервер (ревью Codex на #187)', () => {
         expect(src).toMatch(/const serverToday = serverTodayIso\(/);
     });
+    it('вкладка, оставленная открытой, по возвращении в другой день перечитывает /me и карточку (ревью Codex на #187)', () => {
+        // Телефон возвращает приложение из фона без перезагрузки: без этого строка о перерыве не появилась бы
+        // ровно у того, кто вернулся.
+        expect(src).toMatch(/addEventListener\('visibilitychange', resume\)/);
+        expect(src).toMatch(/const resume = \(\) => \{[\s\S]{0,300}today === shownOn\.current[\s\S]{0,200}fetchMe\(\)[\s\S]{0,200}load\(\)/);
+    });
     it('день прошлого визита — из /me', () => {
         expect(src).toMatch(/fetchMe\(\)[\s\S]{0,80}lastVisit/);
     });

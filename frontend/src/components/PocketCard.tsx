@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HelpCircle, Pencil, Wallet, FlaskConical } from 'lucide-react';
 import { fetchMe, fetchPocket } from '../api';
@@ -87,6 +87,22 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     }, [scope]);
     useEffect(() => { load(); }, [load]);
     useEffect(() => { if (refreshSignal) load(); }, [refreshSignal, load]);
+
+    // ANO-102: телефон возвращает приложение из фона без перезагрузки. Вернувшись в другой день по календарю
+    // сервера, карточка перечитывает день прошлого визита и себя — иначе строки о перерыве не было бы ровно у того,
+    // кто вернулся (ревью Codex на #187). В тот же день перечитывать нечего.
+    const shownOn = useRef(serverTodayIso(new Date()));
+    useEffect(() => {
+        const resume = () => {
+            const today = serverTodayIso(new Date());
+            if (document.visibilityState !== 'visible' || today === shownOn.current) return;
+            shownOn.current = today;
+            fetchMe().then(me => setLastVisit(me.lastVisit)).catch(() => setLastVisit(null));
+            load();
+        };
+        document.addEventListener('visibilitychange', resume);
+        return () => document.removeEventListener('visibilitychange', resume);
+    }, [load]);
 
     // ANO-100: когда деньги кончаются в пределах срока, у карточки свой режим — про даты.
     // ANO-92: тот же режим, когда денег хватает, но план задевает НЗ.
