@@ -4,6 +4,7 @@
 //
 //   node tools/delete-person.mjs --username <имя> | --sub <id Keycloak> [--ours-only] [--remove-scripts-client]
 //   node tools/delete-person.mjs --replay <журнал>   повтор удалений после восстановления из копии
+//   node tools/delete-person.mjs --prune             только чистка журнала владельца — раз в сутки из Планировщика
 //
 // Сначала наши строки — одной транзакцией, в порядке tools/person-tables.json, строка users последней; потом учётная
 // запись Keycloak. Общей транзакции у двух систем нет: повторный запуск доделывает начатое. В конце проверяются оба
@@ -59,10 +60,11 @@ export function deletionSql({ userId, kcId, journal = true }, tables = PERSON_TA
 export const journalLine = ({ at, issuer, kcId, userId }) => JSON.stringify({ at, issuer, sub: kcId, userId: userId ?? null });
 
 /**
- * Сколько дней журнал помнит удалённого: столько живёт самая старая копия, из которой он мог бы вернуться (копии —
- * не дольше 30 дней). Дальше номер учётной записи ни с чем не связан, и журнал его забывает (ревью Codex на #175).
+ * Сколько дней журнал помнит удалённого — тот же срок, что у журнала на сервере (`deploy/backup/backup`). Копии живут
+ * меньше 29 дней, а восстанавливают только из копии не старше 28 (`deploy/RESTORE.md`): каждое удаление после неё
+ * журнал ещё помнит. При чистке раз в сутки запись живёт меньше 30 дней, как обещают тексты (ANO-234).
  */
-export const JOURNAL_DAYS = 30;
+export const JOURNAL_DAYS = 29;
 
 /** Запись журнала, если строка — запись: объект с реалмом, sub и временем. Иначе — null. */
 function entryOf(line) {
@@ -163,7 +165,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = process.argv.slice(2);
   const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
   const oursOnly = args.includes('--ours-only');
-  if (option('--replay')) {
+  if (args.includes('--prune')) {
+    // Без сервера и Keycloak (ANO-234): у машины владельца нет доступа к хранилищу, срок — фиксированный.
+    keepJournal(JOURNAL);
+    console.log(`журнал владельца ${JOURNAL}: записи старше ${JOURNAL_DAYS} дней убраны`);
+  } else if (option('--replay')) {
     try {
       const file = option('--replay');
       const { subs, malformed } = journalEntries(readFileSync(file, 'utf8').split('\n'), await realmIssuer(KC_ADMIN));

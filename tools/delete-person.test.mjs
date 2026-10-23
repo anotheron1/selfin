@@ -1,11 +1,13 @@
 // node --test tools/delete-person.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
-  deletionSql, journalEntries, journalLine, keepJournal, prunedJournal, tableSetProblems, PERSON_TABLES,
+  deletionSql, journalEntries, journalLine, keepJournal, prunedJournal, tableSetProblems, JOURNAL_DAYS, PERSON_TABLES,
 } from './delete-person.mjs';
 
 const SOURCE = readFileSync(new URL('./delete-person.mjs', import.meta.url), 'utf8');
@@ -80,11 +82,44 @@ test('битая строка журнала не пропускается мо�
   assert.deepEqual(journalEntries(lines, server), { subs: [KC], malformed: [2, 3, 4] });
 });
 
-test('журнал владельца забывает записи старше 30 дней: копий с этим человеком уже нет (ревью Codex на #175)', () => {
+test('журнал владельца забывает записи старше 29 дней: при чистке раз в сутки запись живёт меньше 30 (ANO-234)', () => {
   const now = new Date('2026-11-30T12:00:00Z');
   const entry = (at) => JSON.stringify({ at, issuer: 'x', sub: KC, userId: ID });
-  const lines = [entry('2026-10-30T11:00:00Z'), entry('2026-10-31T13:00:00Z'), '', '{"обрыв', entry('2026-11-29T00:00:00Z')];
-  assert.deepEqual(prunedJournal(lines, now), [entry('2026-10-31T13:00:00Z'), '{"обрыв', entry('2026-11-29T00:00:00Z')]);
+  // 1.11 11:00 — 29 дней и час, 1.11 13:00 — 28 дней и 23 часа.
+  const lines = [entry('2026-11-01T11:00:00Z'), entry('2026-11-01T13:00:00Z'), '', '{"обрыв', entry('2026-11-29T00:00:00Z')];
+  assert.deepEqual(prunedJournal(lines, now), [entry('2026-11-01T13:00:00Z'), '{"обрыв', entry('2026-11-29T00:00:00Z')]);
+});
+
+test('--prune чистит только файл владельца, без сервера и Keycloak: её раз в сутки запускает Планировщик (ANO-234)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'selfin-prune-'));
+  const file = join(dir, 'selfin-deletions.jsonl');
+  const line = (days, sub) => journalLine({ at: new Date(Date.now() - days * 86_400_000).toISOString(), issuer: 'x', kcId: sub, userId: null });
+  const [old, fresh] = [line(30, KC), line(1, ID)];
+  writeFileSync(file, `${old}\n${fresh}\n`);
+  // Keycloak — по адресу, где никого нет: команда, полезшая к серверу, упала бы.
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./delete-person.mjs', import.meta.url)), '--prune'],
+    { env: { ...process.env, SELFIN_DELETIONS: file, SELFIN_KC_ADMIN: 'http://127.0.0.1:9/auth' }, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(readFileSync(file, 'utf8'), `${fresh}\n`);
+});
+
+test('ночная копия: сначала уходят копии старше 28 дней, потом записи журнала старше 29 — в том же прогоне (ANO-234)', () => {
+  // Сроки фиксированные, порядок держит set -e: не удалились старые копии — журнал не чистится. Так копия, снятая до
+  // удаления, уходит не позже записи о нём, а запись живёт меньше 30 дней.
+  const script = readFileSync(new URL('../deploy/backup/backup', import.meta.url), 'utf8');
+  const at = (text) => {
+    const i = script.indexOf(text);
+    assert.ok(i >= 0, `в скрипте нет: ${text}`);
+    return i;
+  };
+  const upload = at('rclone copy');
+  const copies = at('rclone delete --min-age 28d');
+  const journal = at(`DELETE FROM ops.deletions WHERE deleted_at < now() - interval '${JOURNAL_DAYS} days'`);
+  assert.ok(upload < copies && copies < journal, 'выгрузка, удаление старых копий, чистка журнала — по порядку');
+  assert.ok(journal < at('SELFIN_BACKUP_PING_URL'), 'отметка об успехе — после чистки журнала');
+  assert.equal(script.split('DELETE FROM ops.deletions').length, 2, 'журнал на сервере чистится в одном месте');
+  assert.ok(script.startsWith('#!/bin/sh') && script.includes('set -eu'), 'упала команда — дальше скрипт не идёт');
+  assert.equal(JOURNAL_DAYS, 29, 'файл владельца — тот же срок, что журнал на сервере');
 });
 
 test('набор таблиц: совпал — проблем нет, расхождение — названо в обе стороны', () => {
