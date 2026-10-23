@@ -4,6 +4,7 @@
 //
 //   node tools/delete-person.mjs --username <имя> | --sub <id Keycloak> [--ours-only] [--remove-scripts-client]
 //   node tools/delete-person.mjs --replay <журнал>   повтор удалений после восстановления из копии
+//   node tools/delete-person.mjs --prune             только чистка журнала владельца — раз в сутки из Планировщика
 //
 // Сначала наши строки — одной транзакцией, в порядке tools/person-tables.json, строка users последней; потом учётная
 // запись Keycloak. Общей транзакции у двух систем нет: повторный запуск доделывает начатое. В конце проверяются оба
@@ -16,7 +17,7 @@
 // каждую ночную копию, — а у владельца дописывается файл SELFIN_DELETIONS (по умолчанию ~/selfin-deletions.jsonl):
 // удаление после последней копии есть только в нём. Восстановили сервер из копии — --replay с этим файлом.
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -59,10 +60,11 @@ export function deletionSql({ userId, kcId, journal = true }, tables = PERSON_TA
 export const journalLine = ({ at, issuer, kcId, userId }) => JSON.stringify({ at, issuer, sub: kcId, userId: userId ?? null });
 
 /**
- * Сколько дней журнал помнит удалённого: столько живёт самая старая копия, из которой он мог бы вернуться (копии —
- * не дольше 30 дней). Дальше номер учётной записи ни с чем не связан, и журнал его забывает (ревью Codex на #175).
+ * Сколько дней журнал помнит удалённого — тот же срок, что у журнала на сервере (`deploy/backup/backup`). Копии живут
+ * меньше 29 дней, а восстанавливают только из копии не старше 28 (`deploy/RESTORE.md`): каждое удаление после неё
+ * журнал ещё помнит. При чистке раз в сутки запись живёт меньше 30 дней, как обещают тексты (ANO-234).
  */
-export const JOURNAL_DAYS = 30;
+export const JOURNAL_DAYS = 29;
 
 /** Запись журнала, если строка — запись: объект с реалмом, sub и временем. Иначе — null. */
 function entryOf(line) {
@@ -100,15 +102,48 @@ export function prunedJournal(lines, now, days = JOURNAL_DAYS) {
   });
 }
 
+/** Сколько ждать замка журнала: другой процесс держит его миллисекунды. */
+const LOCK_WAIT_MS = 10_000;
+
+/**
+ * Чтение и замена журнала — под замком, файлом рядом (ревью Codex на #189). Плановая чистка, удаление, повтор и
+ * проверка — разные процессы: без замка один заменил бы файл снимком, прочитанным до записи другого, и запись удаления
+ * пропала бы. Замок от упавшего процесса сам не снимается: не зная, что процесс умер, снимать его нельзя.
+ */
+function withJournalLock(file, work) {
+  const lock = `${file}.lock`;
+  const until = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      closeSync(openSync(lock, 'wx'));
+      break;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      if (Date.now() > until) throw new Error(`журнал занят: ${lock}; если никто в него не пишет — удали этот файл`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try {
+    return work();
+  } finally {
+    rmSync(lock, { force: true });
+  }
+}
+
 /**
  * Переписывает журнал владельца: старые записи — вон, новые — в конец. Целиком во временный файл рядом, на диск — и
  * переименованием поверх: оборванная запись не теряет прежних строк (ревью Codex на #175).
  */
 export function keepJournal(file, added = []) {
-  const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : [];
-  const temp = `${file}.tmp`;
-  writeFileSync(temp, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''), { flush: true });
-  renameSync(temp, file);
+  withJournalLock(file, () => {
+    // Пропавший журнал без новых записей пустым не заводится: проверка восстановления ловит отсутствие журнала, а
+    // пустой приняла бы — и удалённые из пропавшего вернулись бы из копии (ревью Codex на #189).
+    if (!existsSync(file) && added.length === 0) return;
+    const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : [];
+    const temp = `${file}.tmp`;
+    writeFileSync(temp, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''), { flush: true });
+    renameSync(temp, file);
+  });
 }
 
 /** Чем набор таблиц схемы расходится со списком удаления. */
@@ -163,7 +198,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = process.argv.slice(2);
   const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
   const oursOnly = args.includes('--ours-only');
-  if (option('--replay')) {
+  if (args.includes('--prune')) {
+    // Без сервера и Keycloak (ANO-234): у машины владельца нет доступа к хранилищу, срок — фиксированный.
+    if (!existsSync(JOURNAL)) {
+      console.error(`журнала удалений нет: ${JOURNAL} — удалений ещё не было, заведи пустой; пропал — пустым не заменяй ` +
+        '(deploy/RESTORE.md, «Журнал удалений у тебя»)');
+      process.exitCode = 1;
+    } else {
+      keepJournal(JOURNAL);
+      console.log(`журнал владельца ${JOURNAL}: записи старше ${JOURNAL_DAYS} дней убраны`);
+    }
+  } else if (option('--replay')) {
     try {
       const file = option('--replay');
       const { subs, malformed } = journalEntries(readFileSync(file, 'utf8').split('\n'), await realmIssuer(KC_ADMIN));

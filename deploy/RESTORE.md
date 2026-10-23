@@ -8,10 +8,10 @@
 
 ```bash
 ssh <сервер> 'cd selfin/deploy && docker compose exec -T backup ls /backups'          # на сервере — 7 дней
-ssh <сервер> 'cd selfin/deploy && docker compose exec -T backup sh -c "rclone lsf store:\$SELFIN_BACKUP_BUCKET"'   # в хранилище — 30
+ssh <сервер> 'cd selfin/deploy && docker compose exec -T backup sh -c "rclone lsf store:\$SELFIN_BACKUP_BUCKET"'   # в хранилище — 28
 ```
 
-Каталог копии — время в UTC, например `2026-10-19T0030Z`.
+Каталог копии — время в UTC, например `2026-10-19T0030Z`. Бери самую свежую и **не старше 28 дней**: журнал удалений помнит удаления 29 дней, и человек, удалённый после более старой копии, вернулся бы из неё (ANO-234).
 
 ## 2. Забрать и прочитать манифест
 
@@ -57,4 +57,18 @@ KC_ADMIN_PASSWORD=<пароль администратора Keycloak> node tool
 rm selfin.sql.age keycloak.sql.age manifest.txt.age manifest.txt
 ```
 
-Копии у себя — вторым экземпляром и не дольше 30 дней: тексты обещают удаление данных в течение 30 дней.
+Копии у себя — вторым экземпляром и не дольше 28 дней: тексты обещают удаление данных в течение 30 дней, а журнал удалений помнит удаления 29.
+
+## Журнал удалений у тебя — раз в сутки
+
+Файл `~/selfin-deletions.jsonl` забывает удаления старше 29 дней — так обещают тексты. Сам он чистится только при удалении, повторе и проверке, поэтому раз в сутки его чистит задача Планировщика Windows. Завести её один раз — в PowerShell из клона репозитория. Если удалений ещё не было, сначала заведи пустой журнал: без файла задача падает.
+
+```powershell
+if (-not (Test-Path "$HOME\selfin-deletions.jsonl")) { New-Item -ItemType File "$HOME\selfin-deletions.jsonl" }
+$action = New-ScheduledTaskAction -Execute 'node' -Argument 'tools\delete-person.mjs --prune' -WorkingDirectory (Get-Location)
+Register-ScheduledTask -TaskName 'Selfin — журнал удалений' -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 10:00) -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable)
+```
+
+`-StartWhenAvailable` — «запустить при пропуске»: компьютер был выключен — задача отработает при включении. Команде не нужны ни сервер, ни Keycloak.
+
+Пропал журнал — задача падает с сообщением «журнала удалений нет». **Пустой на его место не заводи:** проверка восстановления ловит отсутствие журнала, а пустой приняла бы — и удалённые после копии вернулись бы. Пока сервер жив, те же удаления лежат в `ops.deletions` на сервере: журнал собирается по ним.
