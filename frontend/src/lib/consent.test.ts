@@ -72,6 +72,15 @@ describe('согласие: тексты', () => {
         }
     });
 
+    it('дни визита названы и в политике, и в согласии: какие данные и зачем (ANO-102)', () => {
+        const consentText = legal.slice(legal.indexOf('export function ConsentText'));
+        const policy = legal.slice(0, legal.indexOf('export function ConsentText'));
+        expect(policy).toContain('дни, когда человек открывал сервис');
+        expect(policy).toContain('как часто сервисом пользуются');
+        expect(consentText).toContain('дни, когда я открывал сервис');
+        expect(consentText).toContain('подсказка после перерыва');
+    });
+
     it('копии названы честно и в политике, и в согласии: каждую ночь, ключ только у оператора, удаление и из копий (шаг 5)', () => {
         // Каждый документ — по отдельности: фраза, найденная в одном, не должна прикрывать её отсутствие в другом.
         const consentText = legal.slice(legal.indexOf('export function ConsentText'));
@@ -84,6 +93,6 @@ describe('согласие: тексты', () => {
             'из резервных копий тоже']) {
             expect(consentText).toContain(point);
         }
-        expect(CONSENT_VERSION).toBe('2026-10-18.2');
+        expect(CONSENT_VERSION).toBe('2026-10-19');
     });
 });

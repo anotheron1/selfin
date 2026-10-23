@@ -41,6 +41,7 @@ public class ConsentController {
     private final OwnerService owners;
     private final Clock clock;
 
+    @WritesData(false)
     @PostMapping
     public ResponseEntity<Void> accept(@RequestBody ConsentRequest body, Authentication authentication,
                                        HttpServletRequest request) {

@@ -25,11 +25,13 @@ public class WishlistController {
         return simulationService.getSimulation(safe);
     }
 
+    @WritesData(false)
     @PostMapping("/simulation/recompute")
     public RecomputeResponseDto recompute(@Valid @RequestBody RecomputeRequestDto req) {
         return simulationService.recomputeItemDelta(req);
     }
 
+    @WritesData
     @PostMapping("/items/{itemId}/convert")
     public ConvertWishlistResponseDto convert(
             @PathVariable UUID itemId,
@@ -41,6 +43,7 @@ public class WishlistController {
      * «Зафиксировать» из окна примерки: переносит подкрученные параметры в план
      * и переводит источник в FIXED одной транзакцией (ANO-34 §1).
      */
+    @WritesData
     @PostMapping("/items/{itemId}/fix")
     public ConvertWishlistResponseDto fix(
             @PathVariable UUID itemId,

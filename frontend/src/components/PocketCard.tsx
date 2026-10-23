@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HelpCircle, Pencil, Wallet, FlaskConical } from 'lucide-react';
-import { fetchPocket } from '../api';
+import { fetchMe, fetchPocket } from '../api';
 import { fmtRub as fmtC } from '../lib/format';
 import { balanceWord, buildPocketPhrase } from '../lib/pocketPhrase';
 import { noExpectationsNote } from '../lib/noExpectationsNote';
 import { buildGapMode, FREE_LABEL } from '../lib/gapMode';
 import { buildBreakdownView, type BreakdownRow } from '../lib/breakdownRows';
-import { buildAgeHint } from '../lib/reanchor';
+import { buildAgeHint, buildBreakHint } from '../lib/reanchor';
+import { serverTodayIso } from '../lib/factDate';
 import ReanchorSheet from './pocket/ReanchorSheet';
 import NzSheet from './pocket/NzSheet';
 import HelpDialog from './HelpDialog';
@@ -74,6 +75,9 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     const [showReanchor, setShowReanchor] = useState(false);
     const [showNz, setShowNz] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
+    // ANO-102: день прошлого визита — для строки о перерыве; не пришёл — строки нет.
+    const [lastVisit, setLastVisit] = useState<string | null>(null);
+    useEffect(() => { fetchMe().then(me => setLastVisit(me.lastVisit)).catch(() => setLastVisit(null)); }, []);
 
     const load = useCallback(() => {
         fetchPocket(scope)
@@ -83,6 +87,22 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     }, [scope]);
     useEffect(() => { load(); }, [load]);
     useEffect(() => { if (refreshSignal) load(); }, [refreshSignal, load]);
+
+    // ANO-102: телефон возвращает приложение из фона без перезагрузки. Вернувшись в другой день по календарю
+    // сервера, карточка перечитывает день прошлого визита и себя — иначе строки о перерыве не было бы ровно у того,
+    // кто вернулся (ревью Codex на #187). В тот же день перечитывать нечего.
+    const shownOn = useRef(serverTodayIso(new Date()));
+    useEffect(() => {
+        const resume = () => {
+            const today = serverTodayIso(new Date());
+            if (document.visibilityState !== 'visible' || today === shownOn.current) return;
+            shownOn.current = today;
+            fetchMe().then(me => setLastVisit(me.lastVisit)).catch(() => setLastVisit(null));
+            load();
+        };
+        document.addEventListener('visibilitychange', resume);
+        return () => document.removeEventListener('visibilitychange', resume);
+    }, [load]);
 
     // ANO-100: когда деньги кончаются в пределах срока, у карточки свой режим — про даты.
     // ANO-92: тот же режим, когда денег хватает, но план задевает НЗ.
@@ -185,7 +205,11 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             {(() => {
                                 const t = new Date();
                                 const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-                                const hint = buildAgeHint(data.checkpointDate, todayIso);
+                                // ANO-102: после перерыва — строка о нём вместо давности остатка: обе ведут в шторку.
+                                // Перерыв — по календарю сервера: дни визита ставит он (ревью Codex на #187).
+                                const serverToday = serverTodayIso(t);
+                                const hint = buildBreakHint(lastVisit, data.checkpointDate, serverToday)
+                                    ?? buildAgeHint(data.checkpointDate, todayIso);
                                 return hint && (
                                     <button onClick={() => setShowReanchor(true)}
                                         className="text-[11px] text-white/50 hover:text-white/80 transition-colors text-left">

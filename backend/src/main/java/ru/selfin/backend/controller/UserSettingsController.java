@@ -19,6 +19,7 @@ public class UserSettingsController {
         return service.getWishlistSettings();
     }
 
+    @WritesData
     @PutMapping("/wishlist")
     public WishlistThresholdsDto update(@Valid @RequestBody WishlistThresholdsDto dto) {
         return service.updateWishlistSettings(dto);
@@ -29,6 +30,7 @@ public class UserSettingsController {
         return service.getPocketSettings();
     }
 
+    @WritesData
     @PutMapping("/pocket")
     public PocketSettingsDto updatePocket(@RequestBody PocketSettingsDto dto) {
         return service.updatePocketSettings(dto);

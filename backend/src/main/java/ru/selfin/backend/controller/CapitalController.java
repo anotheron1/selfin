@@ -29,6 +29,7 @@ public class CapitalController {
         return service.list(kind, includeArchived);
     }
 
+    @WritesData
     @PostMapping("/items")
     @ResponseStatus(HttpStatus.CREATED)
     public CapitalItemDto create(@Valid @RequestBody CapitalItemCreateDto dto) {
@@ -40,11 +41,13 @@ public class CapitalController {
         return service.get(id);
     }
 
+    @WritesData
     @PutMapping("/items/{id}")
     public CapitalItemDto update(@PathVariable UUID id, @Valid @RequestBody CapitalItemUpdateDto dto) {
         return service.update(id, dto);
     }
 
+    @WritesData
     @DeleteMapping("/items/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
@@ -58,6 +61,7 @@ public class CapitalController {
         return service.getHistory(itemId);
     }
 
+    @WritesData
     @PostMapping("/items/{itemId}/revaluations")
     @ResponseStatus(HttpStatus.CREATED)
     public CapitalRevaluationDto addRevaluation(@PathVariable UUID itemId,
@@ -65,12 +69,14 @@ public class CapitalController {
         return service.addRevaluation(itemId, dto);
     }
 
+    @WritesData
     @PutMapping("/revaluations/{id}")
     public CapitalRevaluationDto updateRevaluation(@PathVariable UUID id,
                                                    @Valid @RequestBody CapitalRevaluationUpdateDto dto) {
         return service.updateRevaluation(id, dto);
     }
 
+    @WritesData
     @DeleteMapping("/revaluations/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteRevaluation(@PathVariable UUID id) {
