@@ -1,8 +1,8 @@
 // node --test tools/delete-person.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +101,25 @@ test('--prune чистит только файл владельца, без се
     { env: { ...process.env, SELFIN_DELETIONS: file, SELFIN_KC_ADMIN: 'http://127.0.0.1:9/auth' }, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   assert.equal(readFileSync(file, 'utf8'), `${fresh}\n`);
+});
+
+test('журнал правится под замком: плановая чистка ждёт, пока пишет удаление, и не затирает его запись (ревью Codex на #189)', async () => {
+  // Без замка чистка прочла бы журнал до записи удаления и заменила бы файл старым снимком — удаления нет нигде.
+  const dir = mkdtempSync(join(tmpdir(), 'selfin-lock-'));
+  const file = join(dir, 'selfin-deletions.jsonl');
+  const line = (days, sub) => journalLine({ at: new Date(Date.now() - days * 86_400_000).toISOString(), issuer: 'x', kcId: sub, userId: null });
+  const [old, fresh] = [line(30, KC), line(0, ID)];
+  writeFileSync(file, `${old}\n`);
+  writeFileSync(`${file}.lock`, ''); // замок держит удаление
+  const prune = spawn(process.execPath, [fileURLToPath(new URL('./delete-person.mjs', import.meta.url)), '--prune'],
+    { env: { ...process.env, SELFIN_DELETIONS: file, SELFIN_KC_ADMIN: 'http://127.0.0.1:9/auth' } });
+  const exited = new Promise((resolve) => prune.on('exit', resolve));
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.equal(prune.exitCode, null, 'чистка ждёт замка');
+  writeFileSync(file, `${old}\n${fresh}\n`); // удаление дописало запись
+  rmSync(`${file}.lock`); // и отпустило замок
+  assert.equal(await exited, 0);
+  assert.equal(readFileSync(file, 'utf8'), `${fresh}\n`, 'запись удаления цела, старая убрана');
 });
 
 test('ночная копия: сначала уходят копии старше 28 дней, потом записи журнала старше 29 — в том же прогоне (ANO-234)', () => {

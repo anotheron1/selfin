@@ -17,7 +17,7 @@
 // каждую ночную копию, — а у владельца дописывается файл SELFIN_DELETIONS (по умолчанию ~/selfin-deletions.jsonl):
 // удаление после последней копии есть только в нём. Восстановили сервер из копии — --replay с этим файлом.
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -102,15 +102,45 @@ export function prunedJournal(lines, now, days = JOURNAL_DAYS) {
   });
 }
 
+/** Сколько ждать замка журнала: другой процесс держит его миллисекунды. */
+const LOCK_WAIT_MS = 10_000;
+
+/**
+ * Чтение и замена журнала — под замком, файлом рядом (ревью Codex на #189). Плановая чистка, удаление, повтор и
+ * проверка — разные процессы: без замка один заменил бы файл снимком, прочитанным до записи другого, и запись удаления
+ * пропала бы. Замок от упавшего процесса сам не снимается: не зная, что процесс умер, снимать его нельзя.
+ */
+function withJournalLock(file, work) {
+  const lock = `${file}.lock`;
+  const until = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      closeSync(openSync(lock, 'wx'));
+      break;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      if (Date.now() > until) throw new Error(`журнал занят: ${lock}; если никто в него не пишет — удали этот файл`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try {
+    return work();
+  } finally {
+    rmSync(lock, { force: true });
+  }
+}
+
 /**
  * Переписывает журнал владельца: старые записи — вон, новые — в конец. Целиком во временный файл рядом, на диск — и
  * переименованием поверх: оборванная запись не теряет прежних строк (ревью Codex на #175).
  */
 export function keepJournal(file, added = []) {
-  const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : [];
-  const temp = `${file}.tmp`;
-  writeFileSync(temp, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''), { flush: true });
-  renameSync(temp, file);
+  withJournalLock(file, () => {
+    const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : [];
+    const temp = `${file}.tmp`;
+    writeFileSync(temp, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''), { flush: true });
+    renameSync(temp, file);
+  });
 }
 
 /** Чем набор таблиц схемы расходится со списком удаления. */
