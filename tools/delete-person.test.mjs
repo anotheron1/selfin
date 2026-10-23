@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +101,18 @@ test('--prune чистит только файл владельца, без се
     { env: { ...process.env, SELFIN_DELETIONS: file, SELFIN_KC_ADMIN: 'http://127.0.0.1:9/auth' }, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   assert.equal(readFileSync(file, 'utf8'), `${fresh}\n`);
+});
+
+test('пропавший журнал чистка не заводит пустым: проверка восстановления ловит его отсутствие, а пустой приняла бы (ревью Codex на #189)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'selfin-missing-'));
+  const file = join(dir, 'selfin-deletions.jsonl');
+  keepJournal(file);
+  assert.equal(existsSync(file), false, 'без новых записей файла не появилось');
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./delete-person.mjs', import.meta.url)), '--prune'],
+    { env: { ...process.env, SELFIN_DELETIONS: file, SELFIN_KC_ADMIN: 'http://127.0.0.1:9/auth' }, encoding: 'utf8' });
+  assert.equal(run.status, 1, 'пропавший журнал — ошибка задачи, а не молчаливый успех');
+  assert.match(run.stderr, /журнала удалений нет/);
+  assert.equal(existsSync(file), false, 'и --prune файла не завела');
 });
 
 test('журнал правится под замком: плановая чистка ждёт, пока пишет удаление, и не затирает его запись (ревью Codex на #189)', async () => {

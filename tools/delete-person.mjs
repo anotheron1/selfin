@@ -136,6 +136,9 @@ function withJournalLock(file, work) {
  */
 export function keepJournal(file, added = []) {
   withJournalLock(file, () => {
+    // Пропавший журнал без новых записей пустым не заводится: проверка восстановления ловит отсутствие журнала, а
+    // пустой приняла бы — и удалённые из пропавшего вернулись бы из копии (ревью Codex на #189).
+    if (!existsSync(file) && added.length === 0) return;
     const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : [];
     const temp = `${file}.tmp`;
     writeFileSync(temp, [...prunedJournal(lines, Date.now()), ...added].map((line) => `${line}\n`).join(''), { flush: true });
@@ -197,8 +200,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const oursOnly = args.includes('--ours-only');
   if (args.includes('--prune')) {
     // Без сервера и Keycloak (ANO-234): у машины владельца нет доступа к хранилищу, срок — фиксированный.
-    keepJournal(JOURNAL);
-    console.log(`журнал владельца ${JOURNAL}: записи старше ${JOURNAL_DAYS} дней убраны`);
+    if (!existsSync(JOURNAL)) {
+      console.error(`журнала удалений нет: ${JOURNAL} — удалений ещё не было, заведи пустой; пропал — пустым не заменяй ` +
+        '(deploy/RESTORE.md, «Журнал удалений у тебя»)');
+      process.exitCode = 1;
+    } else {
+      keepJournal(JOURNAL);
+      console.log(`журнал владельца ${JOURNAL}: записи старше ${JOURNAL_DAYS} дней убраны`);
+    }
   } else if (option('--replay')) {
     try {
       const file = option('--replay');

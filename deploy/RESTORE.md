@@ -61,11 +61,14 @@ rm selfin.sql.age keycloak.sql.age manifest.txt.age manifest.txt
 
 ## Журнал удалений у тебя — раз в сутки
 
-Файл `~/selfin-deletions.jsonl` забывает удаления старше 29 дней — так обещают тексты. Сам он чистится только при удалении, повторе и проверке, поэтому раз в сутки его чистит задача Планировщика Windows. Завести её один раз — в PowerShell из клона репозитория:
+Файл `~/selfin-deletions.jsonl` забывает удаления старше 29 дней — так обещают тексты. Сам он чистится только при удалении, повторе и проверке, поэтому раз в сутки его чистит задача Планировщика Windows. Завести её один раз — в PowerShell из клона репозитория. Если удалений ещё не было, сначала заведи пустой журнал: без файла задача падает.
 
 ```powershell
+if (-not (Test-Path "$HOME\selfin-deletions.jsonl")) { New-Item -ItemType File "$HOME\selfin-deletions.jsonl" }
 $action = New-ScheduledTaskAction -Execute 'node' -Argument 'tools\delete-person.mjs --prune' -WorkingDirectory (Get-Location)
 Register-ScheduledTask -TaskName 'Selfin — журнал удалений' -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 10:00) -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable)
 ```
 
 `-StartWhenAvailable` — «запустить при пропуске»: компьютер был выключен — задача отработает при включении. Команде не нужны ни сервер, ни Keycloak.
+
+Пропал журнал — задача падает с сообщением «журнала удалений нет». **Пустой на его место не заводи:** проверка восстановления ловит отсутствие журнала, а пустой приняла бы — и удалённые после копии вернулись бы. Пока сервер жив, те же удаления лежат в `ops.deletions` на сервере: журнал собирается по ним.
