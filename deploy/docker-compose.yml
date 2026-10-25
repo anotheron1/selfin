@@ -109,9 +109,10 @@ services:
     depends_on:
       - keycloak-db
 
-  # Копия обеих баз каждую ночь в 03:30: зашифрована открытым ключом владельца, выгружена во внешнее хранилище,
-  # отметка об успехе — на SELFIN_BACKUP_PING_URL (шаг 5). Сейчас — docker compose exec backup backup;
-  # восстановление — RESTORE.md. Хранилище — любое S3-совместимое, настройка rclone — переменными ниже.
+  # Копия обеих баз каждую ночь в 03:30 (шаг 5). Режим — SELFIN_BACKUP_MODE: local — только на сервере, открытым
+  # текстом, 7 дней (решение владельца 24.10, ANO-243); external — зашифрована открытым ключом владельца и выгружена во
+  # внешнее хранилище, переменные хранилища ниже — для него (ANO-239). Отметка об успехе — на SELFIN_BACKUP_PING_URL,
+  # если задан. Вручную — docker compose run --rm -T backup backup; восстановление — RESTORE.md.
   backup:
     build: ./backup
     restart: unless-stopped
@@ -120,6 +121,8 @@ services:
       TZ: Europe/Moscow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      # local — копии только на сервере, открытым текстом; external — шифрование и хранилище (ANO-239). Пусто — ошибка.
+      SELFIN_BACKUP_MODE: ${SELFIN_BACKUP_MODE:-}
       SELFIN_BACKUP_AGE_RECIPIENT: ${SELFIN_BACKUP_AGE_RECIPIENT}
       SELFIN_BACKUP_BUCKET: ${SELFIN_BACKUP_BUCKET}
       SELFIN_BACKUP_PING_URL: ${SELFIN_BACKUP_PING_URL:-}

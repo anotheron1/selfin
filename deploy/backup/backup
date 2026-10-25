@@ -1,34 +1,68 @@
 #!/bin/sh
-# Копия обеих баз (шаг 5 плана спринта 6, спека docs/superpowers/specs/2026-10-18-backups-design.md).
-# Сначала наша база, потом Keycloak — одна точка восстановления: учётная запись Keycloak появляется раньше нашей
-# строки. Каждый файл шифруется открытым ключом владельца потоком — открытого текста на диске нет. Потом выгрузка во
-# внешнее хранилище, уборка старых копий и отметка об успехе. Упала любая команда — копии нет, отметки нет.
+# Копия обеих баз (шаг 5 плана спринта 6, спека docs/superpowers/specs/2026-10-18-backups-design.md; режимы — ANO-243,
+# спека 2026-10-25-backups-local-mode-design.md). Сначала наша база, потом Keycloak — одна точка восстановления:
+# учётная запись Keycloak появляется раньше нашей строки. Упала любая команда — копии нет, отметки нет.
+#
+# Режим — явно, SELFIN_BACKUP_MODE:
+#   local    — только на сервере, открытым текстом (решение владельца 24.10): тексты обещают 7 дней;
+#   external — каждый файл шифруется открытым ключом владельца потоком и уходит во внешнее хранилище (ANO-239).
+# Без режима — ошибка: открытый текст сам собой не появится, даже если однажды забудут ключ.
 set -eu -o pipefail
 
-stamp=$(date -u +%Y-%m-%dT%H%MZ)
-dir="/backups/$stamp"
-mkdir -p "$dir"
-enc() { age -r "$SELFIN_BACKUP_AGE_RECIPIENT" -o "$dir/$1.age"; }
+mode=${SELFIN_BACKUP_MODE:-}
+case "$mode" in
+  local|external) ;;
+  *) echo "SELFIN_BACKUP_MODE — local или external, а не «$mode»: копии нет" >&2; exit 2 ;;
+esac
+
+# Каталог копий — переменной только ради теста (tools/backup.test.mjs); в контейнере — том /backups.
+root=${SELFIN_BACKUPS:-/backups}
 ours() { PGPASSWORD="$POSTGRES_PASSWORD" "$@" -h db -U admin -d selfin; }
 keycloak() { PGPASSWORD="$KC_DB_PASSWORD" "$@" -h keycloak-db -U keycloak -d keycloak; }
+# Журнал удалений — после копий: копия не переживает запись об удалении, иначе восстановление из неё вернуло бы
+# человека (ANO-234, спека 2026-10-23-journal-retention-design.md). Запись живёт меньше 30 дней.
+journal() { ours psql -XAtq -v ON_ERROR_STOP=1 -c "DELETE FROM ops.deletions WHERE deleted_at < now() - interval '29 days'"; }
 
-ours pg_dump --clean --if-exists | enc selfin.sql
-keycloak pg_dump --clean --if-exists | enc keycloak.sql
+if [ "$mode" = local ]; then
+  # Уборка — до копии: не снялась копия — старое всё равно уходит. Тексты обещают 7 дней, уборка — раз в сутки, поэтому
+  # порог — 6 суток, и в минутах: -mtime округляет возраст вниз, и копия пережила бы лишние сутки.
+  find "$root" -mindepth 1 -maxdepth 1 -type d -mmin +$((6 * 24 * 60)) -exec rm -rf {} +
+  journal
+fi
+
+stamp=$(date -u +%Y-%m-%dT%H%M%SZ)
+dir="$root/$stamp"
+# Готовую копию не трогаем: повтор в ту же секунду отказывает, а не перезаписывает (ревью Codex на #195). Пишем во
+# временный скрытый каталог и переименовываем, когда снято всё: в каталоге копий видны только целые копии, а упавшая
+# оставляет скрытый .part — его уберёт уборка. Каталог .part занимает одна копия: mkdir без -p атомарен, и вторая,
+# запущенная в ту же секунду (ночная и update.sh), отказывает, а не пишет в чужие файлы (второй круг Codex на #195).
+[ ! -e "$dir" ] || { echo "копия $stamp уже есть — не перезаписываю" >&2; exit 1; }
+part="$root/.$stamp.part"
+mkdir "$part" 2>/dev/null || { echo "копия $stamp уже снимается — вторую не запускаю" >&2; exit 1; }
+if [ "$mode" = local ]; then
+  save() { cat > "$part/$1"; }
+else
+  save() { age -r "$SELFIN_BACKUP_AGE_RECIPIENT" -o "$part/$1.age"; }
+fi
+
+ours pg_dump --clean --if-exists | save selfin.sql
+keycloak pg_dump --clean --if-exists | save keycloak.sql
 # ponytail: манифест — отдельным снимком после дампа; запись между ними даст расхождение в проверке. В 03:30 писать
 # некому; станет мешать — дамп и манифест из одного снимка (pg_export_snapshot).
 {
   printf 'backend %s\n' "$(curl -fsS -m 10 http://backend:8080/api/v1/version || echo unknown)"
   ours psql -XAtq -v ON_ERROR_STOP=1 -f /usr/local/share/selfin/manifest.sql
-} | enc manifest.txt
+} | save manifest.txt
+mv "$part" "$dir"
 
-rclone copy "$dir" "store:$SELFIN_BACKUP_BUCKET/$stamp"
-# Сроки — не настройка: тексты обещают, что за 30 дней удалённый уходит и из копий, и из журнала удалений (ANO-234,
-# спека docs/superpowers/specs/2026-10-23-journal-retention-design.md). Сначала копии — старше 28 дней, на сервере —
-# старше 7, — потом журнал — старше 29: копия, снятая до удаления, уходит не позже записи о нём, иначе восстановление из
-# неё вернуло бы человека. Порядок держит set -e: не удалились копии — журнал не чистится. Чистка раз в сутки: копия
-# живёт меньше 29 дней, запись — меньше 30. Правило хранилища «старше 28 дней» — запасное, когда сервера нет.
-find /backups -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
-rclone delete --min-age 28d --rmdirs "store:$SELFIN_BACKUP_BUCKET"
-ours psql -XAtq -v ON_ERROR_STOP=1 -c "DELETE FROM ops.deletions WHERE deleted_at < now() - interval '29 days'"
+if [ "$mode" = external ]; then
+  rclone copy "$dir" "store:$SELFIN_BACKUP_BUCKET/$stamp"
+  # Сроки — не настройка: тексты обещают, что за 30 дней удалённый уходит и из копий, и из журнала удалений (ANO-234).
+  # Сначала копии — старше 28 дней, на сервере — старше 7, — потом журнал — старше 29. Порядок держит set -e: не
+  # удалились копии — журнал не чистится. Правило хранилища «старше 28 дней» — запасное, когда сервера нет.
+  find "$root" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
+  rclone delete --min-age 28d --rmdirs "store:$SELFIN_BACKUP_BUCKET"
+  journal
+fi
 [ -z "${SELFIN_BACKUP_PING_URL:-}" ] || curl -fsS -m 10 --retry 3 -o /dev/null "$SELFIN_BACKUP_PING_URL"
-echo "копия $stamp: обе базы и манифест выгружены"
+echo "копия $stamp ($mode): обе базы и манифест сохранены"
