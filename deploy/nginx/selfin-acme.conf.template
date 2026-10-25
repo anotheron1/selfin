@@ -1,0 +1,21 @@
+# Дверь selfin у друга, шаг 1 из 2 (ANO-242): только порт 80 — проверка Let's Encrypt и переход на https.
+# Ложится нашим единственным файлом — /etc/nginx/conf.d/selfin.conf; файлы друга не трогаем (решение владельца 24.10).
+# Меняются только имя и порт — переменные nginx envsubst не трогает, если назвать ему свои:
+#
+#   install -d /var/www/selfin-acme
+#   SELFIN_SERVER_NAME=<имя> envsubst '${SELFIN_SERVER_NAME}' < selfin-acme.conf.template > /etc/nginx/conf.d/selfin.conf
+#   nginx -t && systemctl reload nginx
+#   certbot certonly --webroot -w /var/www/selfin-acme -d <имя> --deploy-hook "nginx -t && systemctl reload nginx"
+#
+# После сертификата — шаг 2: тот же файл из selfin.conf.template. Спека: docs/superpowers/specs/2026-10-25-nginx-door-design.md
+server {
+    listen 80;
+    server_name ${SELFIN_SERVER_NAME};
+
+    # Проверка Let's Encrypt: certbot кладёт код в эту папку, nginx отдаёт его по http.
+    location ^~ /.well-known/acme-challenge/ { root /var/www/selfin-acme; }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}

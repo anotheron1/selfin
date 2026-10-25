@@ -11,5 +11,7 @@ RUN npm run build
 FROM nginx:stable-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Ошибка в конфиге роняет сборку образа (CI «Образ фронта собирается»), а не контейнер на сервере (ANO-242).
+RUN nginx -t
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

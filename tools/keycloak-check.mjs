@@ -61,6 +61,14 @@ check(to.get('scope') === 'openid profile', `просим openid и profile, б�
 check(to.get('redirect_uri') === `${REALM}/broker/telegram/endpoint`, `возврат — ${to.get('redirect_uri')}`);
 check(Boolean(to.get('client_id')), `Client ID бота задан — ${to.get('client_id') ? 'да' : 'пусто: нет TELEGRAM_CLIENT_ID в .env'}`);
 
+// Снаружи закрыто (ANO-242): консоли Keycloak и его корень — 404 по адресу экрана, и в других написаниях: nginx
+// сверяет адрес после раскодирования и склейки слешей. В шаге 3 это проверяли руками, теперь — каждый прогон.
+for (const path of ['/auth/admin/', '/auth/realms/master/', '/auth/realms/selfin/account/', '/auth/',
+  '/auth//admin/', '/auth/%61dmin/']) {
+  const closed = await fetch(`${APP}${path}`, { redirect: 'manual' }).catch((e) => ({ status: e.cause?.code ?? e.message }));
+  check(closed.status === 404, `снаружи закрыто: ${path} — ${closed.status} (ANO-242)`);
+}
+
 // ── Вход в selfin через наш сервер (ANO-195) ─────────────────────────────────────────────────
 // Тестовый человек — только свой Keycloak: на сервере он открыл бы вход в обход Telegram (ревью Codex на #171).
 if (!ownIssuer(issuer)) {

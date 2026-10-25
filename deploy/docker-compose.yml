@@ -1,5 +1,6 @@
-# Сервер selfin (ANO-197, шаг 3 плана спринта 6): HTTPS через Caddy, приложение на «/», Keycloak под «/auth».
-# Спека: docs/superpowers/specs/2026-10-17-server-compose-design.md
+# Сервер selfin (ANO-197, шаг 3 плана спринта 6): приложение на «/», Keycloak под «/auth». HTTPS и сертификат — у nginx
+# друга, наш файл двери — deploy/nginx/ (ANO-242); закрытое снаружи держит nginx экранов (frontend/nginx.conf).
+# Спеки: docs/superpowers/specs/2026-10-17-server-compose-design.md, 2026-10-25-nginx-door-design.md
 #
 #   cd deploy && cp .env.example .env    # заполнить .env — пароли и ключи вводит владелец, в репозиторий они не попадают
 #   docker compose pull && docker compose up -d
@@ -19,27 +20,14 @@ x-logging: &logging
     max-file: "3"
 
 services:
-  caddy:
-    image: caddy:2.10.2-alpine
-    restart: unless-stopped
-    logging: *logging
-    ports:
-      - "${SELFIN_HTTP_PORT:-80}:80"
-      - "${SELFIN_HTTPS_PORT:-443}:443"
-    environment:
-      SELFIN_DOMAIN: ${SELFIN_DOMAIN}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - frontend
-      - keycloak
-
   frontend:
     image: ghcr.io/anotheron1/selfin-frontend:${SELFIN_TAG:-latest}
     restart: unless-stopped
     logging: *logging
+    # Снаружи — только через дверь у друга (deploy/nginx/): nginx экранов слушает лишь на самом сервере.
+    # Опубликованный порт Docker обходит брандмауэр, поэтому — 127.0.0.1, а не все адреса.
+    ports:
+      - "127.0.0.1:${SELFIN_HTTP_PORT:-8280}:80"
 
   backend:
     image: ghcr.io/anotheron1/selfin-backend:${SELFIN_TAG:-latest}
@@ -150,6 +138,4 @@ services:
 volumes:
   db_data:
   keycloak_data:
-  caddy_data:
-  caddy_config:
   backups:
