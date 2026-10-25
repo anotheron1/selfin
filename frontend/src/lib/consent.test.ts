@@ -81,18 +81,27 @@ describe('согласие: тексты', () => {
         expect(consentText).toContain('подсказка после перерыва');
     });
 
-    it('копии названы честно и в политике, и в согласии: каждую ночь, ключ только у оператора, удаление и из копий (шаг 5)', () => {
+    it('копии названы честно и в политике, и в согласии: каждую ночь, на том же сервере, 7 дней, без шифрования (ANO-241)', () => {
         // Каждый документ — по отдельности: фраза, найденная в одном, не должна прикрывать её отсутствие в другом.
-        const consentText = legal.slice(legal.indexOf('export function ConsentText'));
-        const policy = legal.slice(0, legal.indexOf('export function ConsentText'));
-        for (const point of ['Резервная копия делается каждую', 'ключом, который есть только у оператора',
-            'во внешнем хранилище', 'из резервных копий данные уходят', 'хранится в журнале удалений']) {
+        // Пробелы и переносы схлопнуты, как их схлопывает экран: фраза в исходнике может лечь на две строки.
+        const flat = (text: string) => text.replace(/\s+/g, ' ');
+        const consentText = flat(legal.slice(legal.indexOf('export function ConsentText')));
+        const policy = flat(legal.slice(0, legal.indexOf('export function ConsentText')));
+        for (const point of ['Резервная копия делается каждую ночь и хранится на том же сервере 7 дней',
+            'Она не шифруется', 'Резервные копии хранятся 7 дней', 'из резервных копий данные уходят не позже чем через 7 дней',
+            'хранится в журнале удалений']) {
             expect(policy).toContain(point);
         }
-        for (const point of ['Резервная копия каждую ночь уходит во внешнее хранилище', 'только у оператора',
+        for (const point of ['Там же каждую ночь делается резервная копия', 'хранится 7 дней и не шифруется',
             'из резервных копий тоже']) {
             expect(consentText).toContain(point);
         }
-        expect(CONSENT_VERSION).toBe('2026-10-19');
+        // Шифрования и внешнего хранилища на запуске нет (решение 24.10, ANO-239) — обещать их нельзя ни в одном документе.
+        for (const gone of ['внешн', 'зашифрован', 'ключом']) {
+            expect(policy).not.toContain(gone);
+            expect(consentText).not.toContain(gone);
+        }
+        expect(policy).toContain('Редакция от 25 октября 2026 года');
+        expect(CONSENT_VERSION).toBe('2026-10-25');
     });
 });

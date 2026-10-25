@@ -4,7 +4,7 @@
  * Версия текста согласия — дата редакции. Экран отправляет её с галочкой, сервер сверяет со своей: согласие на другой
  * текст не записывается. Та же — в `Consent.java` и `tools/keycloak-token.mjs`; сверяет `consent.test.ts`.
  */
-export const CONSENT_VERSION = '2026-10-19';
+export const CONSENT_VERSION = '2026-10-25';
 
 /** Код ответа сервера: вошедшему, которого он без согласия не заводит, — 403 с этим кодом. */
 export const CONSENT_REQUIRED = 'CONSENT_REQUIRED';
