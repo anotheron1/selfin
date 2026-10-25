@@ -16,14 +16,14 @@ ssh <сервер> 'cd /opt/selfin/deploy && docker compose exec -T backup ls /b
 ssh <сервер> 'cd /opt/selfin/deploy && docker compose exec -T backup sh -c "rclone lsf store:\$SELFIN_BACKUP_BUCKET"'   # external: в хранилище — 28
 ```
 
-Каталог копии — время в UTC, например `2026-10-19T0030Z`. Бери самую свежую. Для `external` — **не старше 28 дней**: журнал удалений помнит удаления 29 дней, и человек, удалённый после более старой копии, вернулся бы из неё (ANO-234). Копиям `local` меньше 7 дней — они все годятся.
+Каталог копии — время в UTC с секундами, например `2026-10-19T003000Z`. Бери самую свежую. Для `external` — **не старше 28 дней**: журнал удалений помнит удаления 29 дней, и человек, удалённый после более старой копии, вернулся бы из неё (ANO-234). Копиям `local` меньше 7 дней — они все годятся.
 
 ## 2. Забрать и прочитать манифест
 
 `local` — файлы на сервере открытым текстом, себе нужен только манифест:
 
 ```bash
-STAMP=2026-10-19T0030Z
+STAMP=2026-10-19T003000Z
 ssh <сервер> "cd /opt/selfin/deploy && docker compose exec -T backup cat /backups/$STAMP/manifest.txt" > manifest.txt
 head -1 manifest.txt
 ```
@@ -31,7 +31,7 @@ head -1 manifest.txt
 `external` — все три файла себе и расшифровать манифест:
 
 ```bash
-STAMP=2026-10-19T0030Z
+STAMP=2026-10-19T003000Z
 for f in selfin.sql keycloak.sql manifest.txt; do
   ssh <сервер> "cd /opt/selfin/deploy && docker compose exec -T backup cat /backups/$STAMP/$f.age" > $f.age
 done

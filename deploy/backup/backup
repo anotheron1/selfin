@@ -30,13 +30,18 @@ if [ "$mode" = local ]; then
   journal
 fi
 
-stamp=$(date -u +%Y-%m-%dT%H%MZ)
+stamp=$(date -u +%Y-%m-%dT%H%M%SZ)
 dir="$root/$stamp"
-mkdir -p "$dir"
+# Готовую копию не трогаем: повтор в ту же секунду отказывает, а не перезаписывает (ревью Codex на #195). Пишем во
+# временный скрытый каталог и переименовываем, когда снято всё: в каталоге копий видны только целые копии, а упавшая
+# оставляет скрытый .part — его уберёт уборка.
+[ ! -e "$dir" ] || { echo "копия $stamp уже есть — не перезаписываю" >&2; exit 1; }
+part="$root/.$stamp.part"
+mkdir -p "$part"
 if [ "$mode" = local ]; then
-  save() { cat > "$dir/$1"; }
+  save() { cat > "$part/$1"; }
 else
-  save() { age -r "$SELFIN_BACKUP_AGE_RECIPIENT" -o "$dir/$1.age"; }
+  save() { age -r "$SELFIN_BACKUP_AGE_RECIPIENT" -o "$part/$1.age"; }
 fi
 
 ours pg_dump --clean --if-exists | save selfin.sql
@@ -47,6 +52,7 @@ keycloak pg_dump --clean --if-exists | save keycloak.sql
   printf 'backend %s\n' "$(curl -fsS -m 10 http://backend:8080/api/v1/version || echo unknown)"
   ours psql -XAtq -v ON_ERROR_STOP=1 -f /usr/local/share/selfin/manifest.sql
 } | save manifest.txt
+mv "$part" "$dir"
 
 if [ "$mode" = external ]; then
   rclone copy "$dir" "store:$SELFIN_BACKUP_BUCKET/$stamp"

@@ -14,13 +14,13 @@ const SCRIPT = fileURLToPath(new URL('../deploy/backup/backup', import.meta.url)
 const unix = (path) => path.replaceAll('\\', '/');
 const DAY = 24 * 60 * 60;
 
-function backup(mode, { dumpFails = false, old = [], ping = '' } = {}) {
-  const root = unix(mkdtempSync(join(tmpdir(), 'selfin-backup-')));
+function backup(mode, { dumpFails = false, old = [], ping = '', stamp = '', root: again = '' } = {}) {
+  const root = again || unix(mkdtempSync(join(tmpdir(), 'selfin-backup-')));
   const bin = `${root}/bin`;
   const backups = `${root}/backups`;
   const log = `${root}/calls.log`;
-  mkdirSync(bin);
-  mkdirSync(backups);
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(backups, { recursive: true });
   const stub = (name, body) => {
     writeFileSync(`${bin}/${name}`, `#!/bin/sh\necho "${name} $*" >> "${log}"\n${body}\n`);
     chmodSync(`${bin}/${name}`, 0o755);
@@ -30,6 +30,7 @@ function backup(mode, { dumpFails = false, old = [], ping = '' } = {}) {
   stub('age', 'out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done; cat > "$out"');
   stub('rclone', '');
   stub('curl', 'echo \'{"commit":"abc"}\'');
+  if (stamp) stub('date', `echo ${stamp}`);
   for (const [name, days] of old) {
     mkdirSync(`${backups}/${name}`);
     const at = Date.now() / 1000 - days * DAY;
@@ -45,10 +46,11 @@ function backup(mode, { dumpFails = false, old = [], ping = '' } = {}) {
   if (ping) env.SELFIN_BACKUP_PING_URL = ping;
   const run = spawnSync('bash', [SCRIPT], { env, encoding: 'utf8' });
   const calls = existsSync(log) ? readFileSync(log, 'utf8') : '';
-  const copies = readdirSync(backups).filter((name) => !old.some(([o]) => o === name));
+  // Видимые копии: скрытый .part — недоснятая копия, список копий её не показывает.
+  const copies = readdirSync(backups).filter((name) => !name.startsWith('.') && !old.some(([o]) => o === name));
   const files = copies.length === 1 ? readdirSync(`${backups}/${copies[0]}`).sort() : [];
   const read = (file) => readFileSync(`${backups}/${copies[0]}/${file}`, 'utf8');
-  return { run, calls, backups, copies, files, read };
+  return { run, calls, root, backups, copies, files, read };
 }
 
 test('без режима — ошибка, ни одной команды и ни одной копии: открытый текст сам собой не появится', () => {
@@ -81,10 +83,22 @@ test('local: копии старше шести суток уходят, мла�
 });
 
 test('local: уборка — до копии: дамп упал, а старые копии и журнал всё равно убраны', () => {
-  const { run, calls, backups } = backup('local', { dumpFails: true, old: [['week', 6.5]] });
+  const { run, calls, backups, copies } = backup('local', { dumpFails: true, old: [['week', 6.5]] });
   assert.notEqual(run.status, 0);
   assert.equal(existsSync(`${backups}/week`), false);
   assert.match(calls, /DELETE FROM ops\.deletions/);
+  assert.deepEqual(copies, [], 'упавшая копия не оставляет видимого каталога: «бери самую свежую» не наткнётся на обрывок');
+});
+
+test('копия с тем же временем не трогает готовую: повтор в ту же секунду отказывает, а не перезаписывает (ревью Codex на #195)', () => {
+  const first = backup('local', { stamp: '2026-10-25T120000Z' });
+  assert.equal(first.run.status, 0, first.run.stderr);
+  const before = first.read('selfin.sql');
+  assert.match(before, /-- дамп/);
+  const again = backup('local', { stamp: '2026-10-25T120000Z', dumpFails: true, root: first.root });
+  assert.notEqual(again.run.status, 0);
+  assert.match(again.run.stderr, /уже есть/);
+  assert.equal(first.read('selfin.sql'), before, 'готовая копия цела');
 });
 
 test('external: как в шаге 5 — каждый файл шифруется, копия выгружается, хранилище убирается по 28 дням', () => {
