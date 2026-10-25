@@ -134,20 +134,13 @@ test('журнал правится под замком: плановая чис
   assert.equal(readFileSync(file, 'utf8'), `${fresh}\n`, 'запись удаления цела, старая убрана');
 });
 
-test('ночная копия: сначала уходят копии старше 28 дней, потом записи журнала старше 29 — в том же прогоне (ANO-234)', () => {
+test('ночная копия: журнал на сервере — тот же срок, что у файла владельца, и чистится в одном месте (ANO-234)', () => {
   // Сроки фиксированные, порядок держит set -e: не удалились старые копии — журнал не чистится. Так копия, снятая до
-  // удаления, уходит не позже записи о нём, а запись живёт меньше 30 дней.
+  // удаления, уходит не позже записи о нём, а запись живёт меньше 30 дней. Сам порядок команд в обоих режимах копии
+  // проверяет запуск скрипта — tools/backup.test.mjs (ANO-243).
   const script = readFileSync(new URL('../deploy/backup/backup', import.meta.url), 'utf8');
-  const at = (text) => {
-    const i = script.indexOf(text);
-    assert.ok(i >= 0, `в скрипте нет: ${text}`);
-    return i;
-  };
-  const upload = at('rclone copy');
-  const copies = at('rclone delete --min-age 28d');
-  const journal = at(`DELETE FROM ops.deletions WHERE deleted_at < now() - interval '${JOURNAL_DAYS} days'`);
-  assert.ok(upload < copies && copies < journal, 'выгрузка, удаление старых копий, чистка журнала — по порядку');
-  assert.ok(journal < at('SELFIN_BACKUP_PING_URL'), 'отметка об успехе — после чистки журнала');
+  assert.ok(script.includes(`DELETE FROM ops.deletions WHERE deleted_at < now() - interval '${JOURNAL_DAYS} days'`),
+    `журнал на сервере — ${JOURNAL_DAYS} дней, как файл владельца`);
   assert.equal(script.split('DELETE FROM ops.deletions').length, 2, 'журнал на сервере чистится в одном месте');
   assert.ok(script.startsWith('#!/bin/sh') && script.includes('set -eu'), 'упала команда — дальше скрипт не идёт');
   assert.equal(JOURNAL_DAYS, 29, 'файл владельца — тот же срок, что журнал на сервере');

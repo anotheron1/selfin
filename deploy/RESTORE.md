@@ -1,30 +1,45 @@
 # Восстановление из копии
 
-Шаг 5 плана спринта 6, спека `docs/superpowers/specs/2026-10-18-backups-design.md`. Ключ на сервер не попадает: расшифровка — на твоём компьютере, на сервер идёт поток. Команды — из корня репозитория на твоём компьютере; `<сервер>` — вход по SSH, на сервере клон лежит в `~/selfin`.
+Шаг 5 плана спринта 6, спека `docs/superpowers/specs/2026-10-18-backups-design.md`; режимы копий — ANO-243, спека `2026-10-25-backups-local-mode-design.md`. Команды — из корня репозитория на твоём компьютере; `<сервер>` — вход по SSH, на сервере клон лежит в `/opt/selfin`.
 
-Нужно: секретный ключ копий (`selfin-backup.key`), твой журнал удалений (`~/selfin-deletions.jsonl`), туннель к консоли Keycloak (`ssh -L 8180:127.0.0.1:8180 <сервер>`). Без журнала проверка не сойдётся: удаление после копии есть только в нём. Если ты никого не удалял — создай пустой: `touch ~/selfin-deletions.jsonl`.
+Режим — `SELFIN_BACKUP_MODE` в `.env` сервера:
+
+* **`local`** — на запуске (решение владельца 24.10): копии лежат на самом сервере открытым текстом, до 7 дней. Умрёт сервер — умрут и они; копии вне сервера — ANO-239.
+* **`external`** — включает ANO-239: копии зашифрованы открытым ключом и лежат ещё и во внешнем хранилище, 28 дней. Ключ на сервер не попадает: расшифровка — на твоём компьютере, на сервер идёт поток.
+
+Нужно: твой журнал удалений (`~/selfin-deletions.jsonl`), туннель к консоли Keycloak (`ssh -L 8180:127.0.0.1:8180 <сервер>`); для `external` — ещё секретный ключ копий (`selfin-backup.key`) и `age` (`winget install --id FiloSottile.age -e`). Без журнала проверка не сойдётся: удаление после копии есть только в нём. Если ты никого не удалял — создай пустой: `touch ~/selfin-deletions.jsonl`.
 
 ## 1. Какую копию
 
 ```bash
-ssh <сервер> 'cd selfin/deploy && docker compose exec -T backup ls /backups'          # на сервере — 7 дней
-ssh <сервер> 'cd selfin/deploy && docker compose exec -T backup sh -c "rclone lsf store:\$SELFIN_BACKUP_BUCKET"'   # в хранилище — 28
+ssh <сервер> 'cd /opt/selfin/deploy && docker compose exec -T backup ls /backups'          # на сервере: до 7 дней
+ssh <сервер> 'cd /opt/selfin/deploy && docker compose exec -T backup sh -c "rclone lsf store:\$SELFIN_BACKUP_BUCKET"'   # external: в хранилище — 28
 ```
 
-Каталог копии — время в UTC, например `2026-10-19T0030Z`. Бери самую свежую и **не старше 28 дней**: журнал удалений помнит удаления 29 дней, и человек, удалённый после более старой копии, вернулся бы из неё (ANO-234).
+Каталог копии — время в UTC, например `2026-10-19T0030Z`. Бери самую свежую. Для `external` — **не старше 28 дней**: журнал удалений помнит удаления 29 дней, и человек, удалённый после более старой копии, вернулся бы из неё (ANO-234). Копиям `local` меньше 7 дней — они все годятся.
 
 ## 2. Забрать и прочитать манифест
+
+`local` — файлы на сервере открытым текстом, себе нужен только манифест:
+
+```bash
+STAMP=2026-10-19T0030Z
+ssh <сервер> "cd /opt/selfin/deploy && docker compose exec -T backup cat /backups/$STAMP/manifest.txt" > manifest.txt
+head -1 manifest.txt
+```
+
+`external` — все три файла себе и расшифровать манифест:
 
 ```bash
 STAMP=2026-10-19T0030Z
 for f in selfin.sql keycloak.sql manifest.txt; do
-  ssh <сервер> "cd selfin/deploy && docker compose exec -T backup cat /backups/$STAMP/$f.age" > $f.age
+  ssh <сервер> "cd /opt/selfin/deploy && docker compose exec -T backup cat /backups/$STAMP/$f.age" > $f.age
 done
 age -d -i selfin-backup.key manifest.txt.age > manifest.txt
 head -1 manifest.txt
 ```
 
-Сервера нет — те же файлы из хранилища: `rclone copy <хранилище>:<корзина>/$STAMP .` на своём компьютере.
+Сервера нет — для `external` те же файлы из хранилища: `rclone copy <хранилище>:<корзина>/$STAMP .` на своём компьютере. У `local` вне сервера копий нет.
 
 Первая строка — образ бэка при копии. Восстанавливай тем же: `SELFIN_TAG=sha-<коммит>` в `.env` сервера — иначе миграции поменяют таблицы, и проверка разойдётся с копией.
 
@@ -34,11 +49,21 @@ head -1 manifest.txt
 
 ## 4. Восстановить обе базы
 
+`local` — копия уже на сервере, восстановление прямо там:
+
 ```bash
-ssh <сервер> 'cd selfin/deploy && docker compose stop backend keycloak'
-age -d -i selfin-backup.key selfin.sql.age   | ssh <сервер> 'cd selfin/deploy && docker compose exec -T backup restore selfin'
-age -d -i selfin-backup.key keycloak.sql.age | ssh <сервер> 'cd selfin/deploy && docker compose exec -T backup restore keycloak'
-ssh <сервер> 'cd selfin/deploy && docker compose start keycloak backend'
+ssh <сервер> 'cd /opt/selfin/deploy && docker compose stop backend keycloak'
+ssh <сервер> "cd /opt/selfin/deploy && docker compose exec -T backup sh -c 'restore selfin < /backups/$STAMP/selfin.sql && restore keycloak < /backups/$STAMP/keycloak.sql'"
+ssh <сервер> 'cd /opt/selfin/deploy && docker compose start keycloak backend'
+```
+
+`external` — расшифровка у тебя, на сервер идёт поток:
+
+```bash
+ssh <сервер> 'cd /opt/selfin/deploy && docker compose stop backend keycloak'
+age -d -i selfin-backup.key selfin.sql.age   | ssh <сервер> 'cd /opt/selfin/deploy && docker compose exec -T backup restore selfin'
+age -d -i selfin-backup.key keycloak.sql.age | ssh <сервер> 'cd /opt/selfin/deploy && docker compose exec -T backup restore keycloak'
+ssh <сервер> 'cd /opt/selfin/deploy && docker compose start keycloak backend'
 ```
 
 ## 5. Проверить и повторить удаления
@@ -54,10 +79,11 @@ KC_ADMIN_PASSWORD=<пароль администратора Keycloak> node tool
 ## 6. Убрать за собой
 
 ```bash
-rm selfin.sql.age keycloak.sql.age manifest.txt.age manifest.txt
+rm manifest.txt                                                # local
+rm selfin.sql.age keycloak.sql.age manifest.txt.age manifest.txt   # external
 ```
 
-Копии у себя — вторым экземпляром и не дольше 28 дней: тексты обещают удаление данных в течение 30 дней, а журнал удалений помнит удаления 29.
+Копии `external` у себя — вторым экземпляром и не дольше 28 дней: тексты обещают удаление данных в течение 30 дней, а журнал удалений помнит удаления 29. Копий `local` у себя не держи вовсе: тексты обещают, что копии живут 7 дней и только на сервере.
 
 ## Журнал удалений у тебя — раз в сутки
 
