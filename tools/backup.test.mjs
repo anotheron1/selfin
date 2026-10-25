@@ -101,6 +101,18 @@ test('копия с тем же временем не трогает готов�
   assert.equal(first.read('selfin.sql'), before, 'готовая копия цела');
 });
 
+test('две копии в одну секунду: временный каталог занимает одна, вторая отказывает и чужих файлов не трогает (второй круг Codex на #195)', () => {
+  const root = unix(mkdtempSync(join(tmpdir(), 'selfin-backup-')));
+  const busy = `${root}/backups/.2026-10-25T120000Z.part`;
+  mkdirSync(busy, { recursive: true });
+  writeFileSync(`${busy}/selfin.sql`, '-- снимается первой копией');
+  const second = backup('local', { stamp: '2026-10-25T120000Z', root });
+  assert.notEqual(second.run.status, 0);
+  assert.match(second.run.stderr, /уже снимается/);
+  assert.equal(readFileSync(`${busy}/selfin.sql`, 'utf8'), '-- снимается первой копией');
+  assert.doesNotMatch(second.calls, /^pg_dump /m);
+});
+
 test('external: как в шаге 5 — каждый файл шифруется, копия выгружается, хранилище убирается по 28 дням', () => {
   const { run, calls, files } = backup('external');
   assert.equal(run.status, 0, run.stderr);
