@@ -1,0 +1,44 @@
+# Дверь selfin у друга, шаг 2 из 2 (ANO-242): порт 80 как в шаге 1 и порт 443 — сертификат и передача внутрь.
+# Тот же наш файл — /etc/nginx/conf.d/selfin.conf, когда сертификат уже выпущен (шаг 1 — selfin-acme.conf.template):
+#
+#   SELFIN_SERVER_NAME=<имя> SELFIN_HTTP_PORT=8280 envsubst '${SELFIN_SERVER_NAME} ${SELFIN_HTTP_PORT}' \
+#       < selfin.conf.template > /etc/nginx/conf.d/selfin.conf
+#   nginx -t && systemctl reload nginx
+#
+# Дальше дверь ничего не решает: закрытое снаружи держит nginx экранов (frontend/nginx.conf). Продлевает сертификат
+# таймер certbot друга, перечитывает его хук «nginx -t && systemctl reload nginx» из шага 1.
+# Спека: docs/superpowers/specs/2026-10-25-nginx-door-design.md
+server {
+    listen 80;
+    server_name ${SELFIN_SERVER_NAME};
+
+    location ^~ /.well-known/acme-challenge/ { root /var/www/selfin-acme; }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name ${SELFIN_SERVER_NAME};
+
+    ssl_certificate     /etc/letsencrypt/live/${SELFIN_SERVER_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${SELFIN_SERVER_NAME}/privkey.pem;
+
+    # Те же предел тела и тайм-ауты, что у nginx экранов: в цепочке действует самый маленький и самый короткий.
+    client_max_body_size 1m;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 60s;
+    proxy_send_timeout 60s;
+
+    location / {
+        proxy_pass http://127.0.0.1:${SELFIN_HTTP_PORT};
+        # Host — с портом, каким его набрал браузер: от него приложение строит адрес возврата из Keycloak.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Первое звено клиентскому заголовку не верит: адрес клиента перезаписывается, а не дописывается —
+        # иначе клиент впишет слева любой IP, и Keycloak ему поверит (Keycloak, reverse proxy).
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
