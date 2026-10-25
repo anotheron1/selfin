@@ -13,7 +13,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { scriptsToken } from './keycloak-token.mjs';
-import { KC, api, removeScriptsClient, secondPerson, sql } from './second-person.mjs';
+import { KC_ADMIN, api, removeScriptsClient, secondPerson, sql } from './second-person.mjs';
 import { deletePerson, PERSON_TABLES } from './delete-person.mjs';
 
 /** Ответы, где встретились чужие id: [вызов, ['таблица id', …]]. */
@@ -206,7 +206,9 @@ async function main(args) {
   let person;
   try {
     const victimSub = option('--victim-sub');
-    const victimToken = victimSub ? null : await scriptsToken(KC);
+    // Токен тестового человека — через адрес администратора, как в keycloak-check: на серверной сборке реалм master
+    // по публичному адресу закрыт (ANO-242), и вход администратора там отвечает 404 (репетиция 6.4).
+    const victimToken = victimSub ? null : await scriptsToken(KC_ADMIN);
     const victim = victimSub
       ? sql(`SELECT id FROM users WHERE external_id = '${ID.test(victimSub) ? victimSub : ''}'`)[0]
       : JSON.parse((await api(victimToken, 'GET', '/me')).text).id;
