@@ -87,7 +87,9 @@ const keep = (cookies, response) => {
   return response;
 };
 const sent = (cookies) => [...cookies].map(([name, value]) => `${name}=${value}`).join('; ');
-const go = (url, cookies, init = {}) => fetch(url, { redirect: 'manual', ...init, headers: { ...init.headers, cookie: sent(cookies) } })
+// Адрес из ответа нашего сервера бывает относительным — выход без сеанса Keycloak отдаёт «/login» (ANO-244): он — от
+// адреса экрана, иначе проверка падала, не дописав итог.
+const go = (url, cookies, init = {}) => fetch(new URL(url, APP), { redirect: 'manual', ...init, headers: { ...init.headers, cookie: sent(cookies) } })
   .then((response) => keep(cookies, response));
 // Галочка экрана входа (ANO-196): POST с CSRF кладёт отметку в сеанс, и только с ней наш адрес входа ведёт в Keycloak.
 // Cookie XSRF-TOKEN выписывает любой ответ сервера; после выхода она стёрта — тогда сначала коммит сборки.
@@ -110,7 +112,7 @@ check(unticked.status === 302 && new URL(unticked.headers.get('location') ?? 'ht
 check((await consent(jar.app)).status === 204, 'галочка согласия принята — 204 (ANO-196)');
 
 const start = await go(`${APP}/oauth2/authorization/keycloak`, jar.app);
-const toKeycloak = new URL(start.headers.get('location') ?? 'https://invalid/');
+const toKeycloak = new URL(start.headers.get('location') ?? 'https://invalid/', APP);
 check(toKeycloak.href.startsWith(`${REALM}/protocol/openid-connect/auth?`), `вход уводит в Keycloak — ${start.status}`);
 check(toKeycloak.searchParams.get('client_id') === 'selfin', `клиент — ${toKeycloak.searchParams.get('client_id')}`);
 check(toKeycloak.searchParams.get('code_challenge_method') === 'S256', `PKCE S256 — ${toKeycloak.searchParams.get('code_challenge_method')}`);
@@ -161,7 +163,7 @@ check(robot === person, `Bearer скриптов — тот же человек,
 // Кнопка экрана входа несёт провайдера: Keycloak уводит прямо к Telegram, своей страницы не показывает.
 const fresh = { app: new Map(), kc: new Map() };
 await consent(fresh.app);
-let hop = new URL((await go(`${APP}/oauth2/authorization/keycloak?provider=telegram`, fresh.app)).headers.get('location') ?? 'https://invalid/');
+let hop = new URL((await go(`${APP}/oauth2/authorization/keycloak?provider=telegram`, fresh.app)).headers.get('location') ?? 'https://invalid/', APP);
 check(hop.searchParams.get('kc_idp_hint') === 'telegram', `кнопка экрана входа — с подсказкой Telegram: ${hop.searchParams.get('kc_idp_hint')}`);
 for (let i = 0; i < 3 && hop.origin === new URL(KC).origin; i++) {
   hop = new URL((await go(hop, fresh.kc)).headers.get('location') ?? 'https://invalid/', hop);
@@ -181,7 +183,7 @@ check(ended.headers.get('location') === `${APP}/login`, `Keycloak погасил
 check((await go(`${APP}/api/v1/me`, jar.app)).status === 401, 'наш сеанс погашен — API 401');
 await consent(jar.app);
 const again = await go(`${APP}/oauth2/authorization/keycloak`, jar.app);
-const againForm = await go(new URL(again.headers.get('location') ?? 'https://invalid/'), jar.kc);
+const againForm = await go(new URL(again.headers.get('location') ?? 'https://invalid/', APP), jar.kc);
 check(/id="kc-form-login"/.test(await againForm.text()), 'новый вход снова спрашивает пароль — сеанс Keycloak погашен');
 
 console.log(problems.length ? `Итог: не сходится — ${problems.length}` : 'Итог: сходится');
