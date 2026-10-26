@@ -89,7 +89,7 @@ services:
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KC_DB_PASSWORD}
-      # Публичный адрес — от него адрес возврата из Telegram (Allowed URLs бота) и издатель токенов.
+      # Публичный адрес — от него адрес возврата из Telegram (Redirect URIs бота) и издатель токенов.
       KC_HOSTNAME: ${SELFIN_PUBLIC_URL}/auth
       KC_HOSTNAME_ADMIN: http://127.0.0.1:${SELFIN_KC_ADMIN_PORT:-8180}/auth
       KC_HTTP_RELATIVE_PATH: /auth
