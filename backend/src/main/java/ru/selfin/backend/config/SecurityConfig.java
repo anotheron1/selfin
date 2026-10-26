@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientProperties;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientPropertiesMapper;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.servlet.JwkSetUriJwtDecoderBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -17,11 +18,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.client.oidc.authentication.OidcIdTokenDecoderFactory;
+import org.springframework.security.oauth2.client.oidc.authentication.OidcIdTokenValidator;
 import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInitiatedLogoutSuccessHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -29,7 +33,13 @@ import org.springframework.security.oauth2.client.registration.InMemoryClientReg
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtDecoderFactory;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
@@ -38,6 +48,8 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.client.RestOperations;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
 import ru.selfin.backend.service.Consent;
 import ru.selfin.backend.service.ConsentRequiredException;
@@ -47,6 +59,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Вход (ANO-195), вариант Б: сервер держит токены, у браузера — только cookie сеанса.
@@ -142,6 +155,53 @@ public class SecurityConfig {
             }
             chain.doFilter(request, response);
         }
+    }
+
+    /**
+     * Сколько ждать ключи реалма (ANO-244). Библиотека по умолчанию ждёт их полсекунды, и первый вход после старта бэка
+     * падал, если Keycloak ещё холодный: перезагрузка сервера, перезапуск Keycloak. С запасом холодный успевает
+     * ответить, а мёртвый — отказ через пять секунд, а не вечное ожидание.
+     */
+    static final Duration KEYS_CONNECT = Duration.ofSeconds(2);
+    static final Duration KEYS_READ = Duration.ofSeconds(5);
+
+    /** Bearer: декодер собирает Boot со своими проверками — издатель, аудитория, срок; здесь — только клиент ключей. */
+    @Bean
+    JwkSetUriJwtDecoderBuilderCustomizer bearerKeysWithMargin() {
+        RestOperations keys = keysClient(KEYS_CONNECT, KEYS_READ);
+        return builder -> builder.restOperations(keys);
+    }
+
+    /**
+     * Вход через браузер: ID token проверяет декодер из этой фабрики — её берёт {@code oauth2Login}. У
+     * {@link OidcIdTokenDecoderFactory} клиента не задать, поэтому декодер — тот же, что строит она: RS256, срок и
+     * проверки OIDC, типы утверждений, — только с клиентом ключей.
+     */
+    @Bean
+    JwtDecoderFactory<ClientRegistration> idTokenDecoders() {
+        return idTokenDecodersWith(keysClient(KEYS_CONNECT, KEYS_READ));
+    }
+
+    /** Декодер — один на регистрацию, как у оригинала: ключи кэшируются в нём, а не запрашиваются на каждый вход. */
+    static JwtDecoderFactory<ClientRegistration> idTokenDecodersWith(RestOperations keys) {
+        Map<String, JwtDecoder> decoders = new ConcurrentHashMap<>();
+        return registration -> decoders.computeIfAbsent(registration.getRegistrationId(), id -> {
+            NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(registration.getProviderDetails().getJwkSetUri())
+                    .jwsAlgorithm(SignatureAlgorithm.RS256)
+                    .restOperations(keys)
+                    .build();
+            decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                    new JwtTimestampValidator(), new OidcIdTokenValidator(registration)));
+            decoder.setClaimSetConverter(OidcIdTokenDecoderFactory.createDefaultClaimTypeConverter());
+            return decoder;
+        });
+    }
+
+    static RestOperations keysClient(Duration connect, Duration read) {
+        SimpleClientHttpRequestFactory requests = new SimpleClientHttpRequestFactory();
+        requests.setConnectTimeout(connect);
+        requests.setReadTimeout(read);
+        return new RestTemplate(requests);
     }
 
     /**
