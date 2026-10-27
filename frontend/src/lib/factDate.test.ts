@@ -110,9 +110,10 @@ describe('экраны берут «сегодня» одним способом
     // вчерашнее число и не давали выбрать сегодняшнее (ANO-220). Сторож читает исходник:
     // поведенческого теста на это нет — компонентных тестов в проекте нет.
     const forms = [
-        ['../components/Fab.tsx', 'todayIso('], ['../components/FactCreateSheet.tsx', 'todayIso('],
+        ['../components/Fab.tsx', 'latestAllowedIso('], ['../components/FactCreateSheet.tsx', 'latestAllowedIso('],
         ['../components/CapitalSheet.tsx', 'latestAllowedIso('], ['../pages/Settings.tsx', 'latestAllowedIso('],
         ['../components/CapitalTrajectoryChart.tsx', 'todayIso('],
+        ['../components/pocket/ReanchorSheet.tsx', 'latestAllowedIso('], ['../pages/Budget.tsx', 'latestAllowedIso('],
     ];
 
     it.each(forms)('%s не берёт дату из toISOString()', (file, helper) => {
@@ -121,9 +122,26 @@ describe('экраны берут «сегодня» одним способом
         expect(src).toContain(helper);
     });
 
-    // Даты листа капитала и сверки остатка сервер проверяет @PastOrPresent: местная дата восточнее Москвы
-    // ночью для него будущая (ревью Codex на #177).
-    it.each(['../components/CapitalSheet.tsx', '../pages/Settings.tsx'])('%s — не позже даты сервера, а не просто местная дата', (file) => {
-        expect(readFileSync(new URL(file, import.meta.url), 'utf8')).not.toMatch(/\btodayIso\(/);
+    // Даты листа капитала, сверки остатка и факта сервер проверяет @PastOrPresent: местная дата восточнее Москвы
+    // ночью для него будущая (ревью Codex на #177). Формы факта и сверка на карточке брали её до ANO-235;
+    // сверка собирала её вручную — getFullYear() та же местная дата.
+    it.each([
+        '../components/CapitalSheet.tsx', '../pages/Settings.tsx',
+        '../components/Fab.tsx', '../components/FactCreateSheet.tsx', '../components/pocket/ReanchorSheet.tsx',
+    ])('%s — не позже даты сервера, а не просто местная дата', (file) => {
+        const src = readFileSync(new URL(file, import.meta.url), 'utf8');
+        expect(src).not.toMatch(/\btodayIso\(/);
+        expect(src).not.toMatch(/getFullYear\(\)/);
+    });
+
+    // ANO-235: у журнала два «сегодня». Подпись дня — местная дата: человек живёт по своим часам. Кружок быстрой
+    // записи и «Записать» — не позже даты сервера: факт местным «сегодня» восточнее Москвы ночью он отверг бы.
+    it('журнал: «сегодня» у дня — местная дата, кружок и «Записать» — не позже даты сервера', () => {
+        const src = readFileSync(new URL('../pages/Budget.tsx', import.meta.url), 'utf8');
+        expect(src).toMatch(/const today = todayIso\(now\);/);
+        expect(src).toMatch(/const allowedToday = latestAllowedIso\(now\);/);
+        expect(src).toMatch(/\{day === today && \(/);
+        expect(src).toMatch(/quickClose\(event, allowedToday, anchorDate\)/);
+        expect(src).toMatch(/canRecordFact\(event\.date, allowedToday\)/);
     });
 });

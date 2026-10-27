@@ -6,7 +6,7 @@ import { compareByRecency, byRecencyDesc } from '../lib/eventOrder';
 import { dayLabel, expectationCards, expectationsSummary, factLinkLabel, mainListEvents } from '../lib/journalSections';
 import { anchorDateOf, quickClose, type QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
-import { canRecordFact, todayIso } from '../lib/factDate';
+import { canRecordFact, latestAllowedIso, todayIso } from '../lib/factDate';
 import { ruPlural } from '../lib/plural';
 import { PRIORITY_DOT_CONFIG, characterLocked } from '../lib/priority';
 import { factAmountText } from '../lib/factSign';
@@ -117,7 +117,10 @@ function quickCloseLabel(d: QuickClose, income: boolean): string {
 
 export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const now = new Date();
+    // ANO-235: два «сегодня». Подпись дня — местная дата: человек живёт по своим часам. Кружок быстрой записи и
+    // «Записать» — не позже даты сервера: факт местным «сегодня» восточнее Москвы ночью он отверг бы (@PastOrPresent).
     const today = todayIso(now);
+    const allowedToday = latestAllowedIso(now);
     const [year, setYear] = useState(now.getFullYear());
     const [month, setMonth] = useState(now.getMonth());
     const [events, setEvents] = useState<FinancialEvent[]>([]);
@@ -410,7 +413,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                 : isFundTransfer
                                                                     ? 'hsl(var(--primary))'
                                                                     : isExecuted ? 'var(--color-text-muted)' : 'var(--color-text)';
-                                                            const decision = isPlan ? quickClose(event, today, anchorDate) : NO_CIRCLE;
+                                                            const decision = isPlan ? quickClose(event, allowedToday, anchorDate) : NO_CIRCLE;
                                                             const linkLabel = isFact ? factLinkLabel(event, plansById) : null;
                                                             // Старый путь записи факта прямо в план (ANO-25) — тоже факт.
                                                             const planFact = event.linkedFactsAmount ?? event.factAmount;
@@ -497,7 +500,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                                     }}>
                                                                                         факт {fmt(planFact)}
                                                                                     </span>
-                                                                                ) : decision.kind !== 'done' && event.date != null && canRecordFact(event.date, today) ? (
+                                                                                ) : decision.kind !== 'done' && event.date != null && canRecordFact(event.date, allowedToday) ? (
                                                                                     // Будущей строке «нет факта» не говорит ничего: факта там быть не может.
                                                                                     <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
                                                                                         нет факта

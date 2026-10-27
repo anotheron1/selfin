@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { createLinkedFact } from '../api';
 import { AttemptKeys } from '../lib/attemptKey';
 import { PRIORITY_DOT_CONFIG, PRIORITY_FIELD_LABEL, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
-import { canRecordFact, todayIso } from '../lib/factDate';
+import { canRecordFact, latestAllowedIso } from '../lib/factDate';
 import { fundMovementMessage } from '../lib/fundMovement';
 import type { FactCreateDto, Priority } from '../types/api';
 
@@ -33,7 +33,8 @@ export default function FactCreateSheet({
     hint, defaultAmount, requireDate, onEditPlan, editPlanLabel = 'изменить план',
 }: Props) {
     // ANO-155: местная дата, не UTC — toISOString() ночью уводил умолчание на день назад.
-    const today = todayIso(new Date());
+    // ANO-235: и не позже даты сервера — восточнее Москвы ночью местное «сегодня» для него завтра.
+    const today = latestAllowedIso(new Date());
     const initialDate = requireDate ? '' : today;
     const initialAmount = defaultAmount != null ? String(defaultAmount) : '';
     const [date, setDate] = useState(initialDate);
@@ -64,7 +65,7 @@ export default function FactCreateSheet({
         } else {
             // Ревью #45: сброс обязан класть ту же дату, что и умолчание, — иначе
             // повторное открытие ставило UTC-дату мимо границы `max`, которая местная.
-            setDate(requireDate ? '' : todayIso(new Date()));
+            setDate(requireDate ? '' : latestAllowedIso(new Date()));
             setAmount(initialAmount);
             setDescription('');
             setPriority(planPriority);

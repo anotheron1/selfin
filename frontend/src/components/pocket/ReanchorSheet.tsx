@@ -5,6 +5,7 @@ import { createCheckpoint, fetchAccounts } from '../../api';
 import type { Account } from '../../types/api';
 import { buildDriftPreview, buildMirrorLabel, checkpointAgeDays, mirrorBalance } from '../../lib/reanchor';
 import { writeFailure } from '../../lib/writeFailure';
+import { latestAllowedIso } from '../../lib/factDate';
 
 /**
  * Жест ре-якоря (ANO-15 §3): одно поле суммы, дата всегда «сегодня»
@@ -42,11 +43,12 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
     // двух разных величин и назвать её дрейфом.
     const mirror = mirrorBalance(accounts, accountId, currentBalance, checkpointDate != null);
 
-    const t = new Date();
-    const todayIso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    // ANO-235: дата сверки — не позже даты сервера. Собранная вручную местная дата восточнее Москвы ночью для него
+    // завтрашняя: сверка получала 400 (@PastOrPresent).
+    const today = latestAllowedIso(new Date());
     // ANO-33: остаток можно ввести выражением («50000+12000» с двух счетов)
     const entered = amount.trim() === '' ? null : amountValue(amount);
-    const ageDays = checkpointAgeDays(checkpointDate, todayIso);
+    const ageDays = checkpointAgeDays(checkpointDate, today);
     const driftLine = mirror == null ? null : buildDriftPreview(entered, mirror, ageDays);
     // ANO-123: дрейф — мера учёта, а не приговор. Красный на минусе говорил бы «ты не записал»
     // (правила 5, 12): тревога в корпусе прикреплена к процессу учёта, а не к нехватке денег.
@@ -58,7 +60,7 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
         setSaving(true);
         setError(null);
         try {
-            await createCheckpoint({ date: todayIso, amount: entered, accountId: accountId || undefined });
+            await createCheckpoint({ date: today, amount: entered, accountId: accountId || undefined });
             onOpenChange(false);
             onSuccess();
         } catch (err) {
