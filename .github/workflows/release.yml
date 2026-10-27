@@ -1,0 +1,39 @@
+name: Выкатить на сервер
+
+# Кнопка выкатки (ANO-246): ветка release — то, что работает на сервере. Кнопка двигает её только вперёд, к коммиту
+# из main, когда опубликованы оба образа, и ждёт, пока сервер ответит этим коммитом (tools/release.mjs). Сервер забирает
+# версию сам — deploy/release.sh по таймеру: ключей к серверу у GitHub нет.
+# Спека: docs/superpowers/specs/2026-10-27-release-button-design.md
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Коммит из main; пусто — последний
+        required: false
+        type: string
+
+permissions:
+  contents: write   # двигать ветку release
+
+# Две выкатки разом не идут: вторая ждёт первую.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Выкатить
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # main и release целиком: кнопка сверяет, что коммит из main и release идёт вперёд
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: release → коммит, сервер забирает сам
+        # Коммит — через переменную, не подстановкой в команду: подстановка исполнила бы чужой текст.
+        run: node tools/release.mjs "$COMMIT"
+        env:
+          COMMIT: ${{ inputs.commit }}
+          SELFIN_PUBLIC_URL: ${{ secrets.SELFIN_PUBLIC_URL }}

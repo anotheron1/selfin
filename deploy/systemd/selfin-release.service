@@ -1,0 +1,11 @@
+# Выкатка кнопкой (ANO-246): один проход deploy/release.sh — сервер сам переходит на коммит ветки release.
+# Ставится в /etc/systemd/system/ вместе с selfin-release.timer. Вручную — systemctl start selfin-release, журнал —
+# journalctl -u selfin-release. Спека: docs/superpowers/specs/2026-10-27-release-button-design.md
+[Unit]
+Description=Selfin: выкатка с ветки release
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/selfin/deploy/release.sh

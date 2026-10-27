@@ -1,0 +1,10 @@
+# Раз в 2 минуты после конца прошлого прохода: два прохода разом таймер не запускает (ANO-246).
+[Unit]
+Description=Selfin: смотреть ветку release раз в 2 минуты
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+
+[Install]
+WantedBy=timers.target

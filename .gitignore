@@ -14,3 +14,5 @@ AGENTS.md
 
 # Секреты входа и стенда (Client Secret бота Telegram и т.п.) — только локально, в историю им нельзя (ANO-143).
 .env
+# Коммит, который не встал на сервере (deploy/release.sh, ANO-246): живёт только на сервере.
+deploy/.release-failed
