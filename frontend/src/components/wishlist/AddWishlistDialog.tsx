@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { AmountInput, amountValue } from '../ui/amount-input';
 import { createWishlistItem, createFund, setFundWishlistStatus } from '../../api';
+import { writeFailure } from '../../lib/writeFailure';
 import type { WishlistKind } from '../../types/api';
 
 interface Props {
@@ -69,7 +70,8 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
     const canSubmit = name.trim() !== '' && !Number.isNaN(amountNum) && amountNum > 0 && targetDate !== ''
         && (kind !== 'CREDIT' || (rate.trim() !== '' && term.trim() !== ''));
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
         if (!canSubmit) return;
         setSaving(true);
         setError(null);
@@ -117,7 +119,8 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
             onClose();
         } catch (e) {
             // Покрывает обе фазы. Если упал PATCH — сущность осиротела (терпимо), created оставлен → ретрай пропустит POST.
-            setError(e instanceof Error ? e.message : 'Не удалось создать. Попробуйте ещё раз.');
+            // ANO-245: текст сервера — по-английски; повтор безопасен — созданное второй раз не создаётся.
+            setError(writeFailure(e));
             onCreated(); // refetch, чтобы подтянуть актуальное состояние
         } finally {
             setSaving(false);
@@ -132,6 +135,8 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
                 <DialogHeader>
                     <DialogTitle>Новая хотелка</DialogTitle>
                 </DialogHeader>
+                {/* ANO-245: форма — чтобы браузер держал границы сервера; кнопка вне формы пускала ставку 0 и срок 500. */}
+                <form onSubmit={handleSubmit}>
                 <div className="space-y-3 py-2">
                     <div className="flex gap-2">
                         {kinds.map(k => (
@@ -175,6 +180,7 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
                                 <Input
                                     type="number"
                                     min="0.01"
+                                    max="99.99"
                                     step="0.01"
                                     placeholder="напр. 18.5"
                                     value={rate}
@@ -186,6 +192,7 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
                                 <Input
                                     type="number"
                                     min="1"
+                                    max="360"
                                     step="1"
                                     placeholder="напр. 36"
                                     value={term}
@@ -198,11 +205,12 @@ export default function AddWishlistDialog({ open, onClose, onCreated }: Props) {
                     {error && <p className="text-sm text-destructive">{error}</p>}
                 </div>
                 <DialogFooter>
-                    <Button variant="ghost" onClick={onClose}>Отмена</Button>
-                    <Button onClick={handleSubmit} disabled={!canSubmit || saving}>
+                    <Button type="button" variant="ghost" onClick={onClose}>Отмена</Button>
+                    <Button type="submit" disabled={!canSubmit || saving}>
                         {saving ? 'Создаём...' : 'Создать'}
                     </Button>
                 </DialogFooter>
+                </form>
             </DialogContent>
         </Dialog>
     );

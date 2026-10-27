@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { createCheckpoint, fetchAccounts } from '../../api';
 import type { Account } from '../../types/api';
 import { buildDriftPreview, buildMirrorLabel, checkpointAgeDays, mirrorBalance } from '../../lib/reanchor';
+import { writeFailure } from '../../lib/writeFailure';
 
 /**
  * Жест ре-якоря (ANO-15 §3): одно поле суммы, дата всегда «сегодня»
@@ -61,7 +62,7 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
             onOpenChange(false);
             onSuccess();
         } catch (err) {
-            setError((err as Error).message);
+            setError(writeFailure(err));   // ANO-245: текст сервера — по-английски
         } finally {
             setSaving(false);
         }

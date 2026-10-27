@@ -3,6 +3,7 @@ import { fetchEvents, fetchPocket } from '../api';
 import type { FinancialEvent, PocketResponse } from '../types/api';
 import { AlertTriangle, Info } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
 import PocketCard from '../components/PocketCard';
 import PocketTrajectoryChart from '../components/pocket/PocketTrajectoryChart';
 import UpcomingList from '../components/dashboard/UpcomingList';
@@ -26,16 +27,17 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
     const [watchdog, setWatchdog] = useState<PocketResponse | null>(null);
     const [watchdogFailed, setWatchdogFailed] = useState(false);
     const [todayEvents, setTodayEvents] = useState<FinancialEvent[]>([]);
-    const [error, setError] = useState<string | null>(null);
+    const [loadFailed, setLoadFailed] = useState(false);
     /** ANO-119: просьба к PocketCard перечитать кармашек — после записи факта из списка. */
     const [pocketReload, setPocketReload] = useState(0);
 
     const loadAll = useCallback(() => {
         // ANO-119: события месяца больше не нужны — блок «план/факт» уехал на «Аналитику»,
         // а список «осталось потратить» приходит вместе с кармашком, одним ответом.
+        setLoadFailed(false);
         fetchEvents(todayStr, todayStr)
             .then(setTodayEvents)
-            .catch(e => setError(e.message));
+            .catch(() => setLoadFailed(true));
 
         fetchPocket('SECOND_INCOME')
             .then(wd => { setWatchdog(wd); setWatchdogFailed(false); })
@@ -50,8 +52,12 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refreshSignal]);
 
-    if (error) return (
-        <div className="p-6 text-center" style={{ color: 'var(--color-danger)' }}>Ошибка: {error}</div>
+    // ANO-245: как в «Стратегии» — что случилось и что сделать; «Ошибка: Failed to fetch» не говорил ни того, ни другого.
+    if (loadFailed) return (
+        <div className="p-6 text-center">
+            <p className="text-sm mb-3">Не удалось загрузить дашборд</p>
+            <Button onClick={() => loadAll()} size="sm">Повторить</Button>
+        </div>
     );
 
     const incomeToday = todayEvents.filter(e => e.type === 'INCOME');

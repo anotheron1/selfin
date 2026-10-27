@@ -8,7 +8,8 @@ import type { Account, AccountCreateDto, CapitalItem, Category } from '../../typ
 import AccountCard from './AccountCard';
 import AccountForm from './AccountForm';
 import CapitalLiabilityHint from './CapitalLiabilityHint';
-import { copy } from './accountsCopy';
+import { accountDeleteFailure, accountFormProblem, accountWriteFailure, copy } from './accountsCopy';
+import { writeFailure } from '../../lib/writeFailure';
 
 /**
  * Секция «Счета» в Настройках (спека §5.3). Живёт именно там, а не в нижней навигации:
@@ -37,27 +38,32 @@ export default function AccountsSection({ accounts, categories, onChanged, showT
         showToast(msg);
     };
 
+    // ANO-245: текст сервера на экран не идёт — он по-английски. То, что сервер отверг бы, форма говорит до отправки.
     const handleCreate = async (dto: AccountCreateDto) => {
         setFormError(null);
+        const problem = accountFormProblem(dto, null);
+        if (problem) { setFormError(problem); return; }
         try {
             await createAccount(dto);
             setCreating(false);
             await afterChange(copy.created);
             if (dto.kind === 'CREDIT') await offerCapitalCleanup(dto.name);
         } catch (e) {
-            setFormError((e as Error).message);
+            setFormError(writeFailure(e));
         }
     };
 
     const handleUpdate = async (dto: AccountCreateDto) => {
         if (!editing) return;
         setFormError(null);
+        const problem = accountFormProblem(dto, editing);
+        if (problem) { setFormError(problem); return; }
         try {
             await updateAccount(editing.id, dto);
             setEditing(null);
             await afterChange(copy.updated);
         } catch (e) {
-            setFormError((e as Error).message);
+            setFormError(accountWriteFailure(e, dto, editing));
         }
     };
 
@@ -68,7 +74,7 @@ export default function AccountsSection({ accounts, categories, onChanged, showT
             await deleteAccount(a.id);
             await afterChange(copy.deleted);
         } catch (e) {
-            showToast((e as Error).message);
+            showToast(accountDeleteFailure(e));
         }
     };
 
@@ -77,7 +83,7 @@ export default function AccountsSection({ accounts, categories, onChanged, showT
             await makeAccountDefault(a.id);
             await afterChange(copy.defaultChanged);
         } catch (e) {
-            showToast((e as Error).message);
+            showToast(writeFailure(e));
         }
     };
 
@@ -91,7 +97,7 @@ export default function AccountsSection({ accounts, categories, onChanged, showT
             });
             await afterChange(copy.floorRaised);
         } catch (e) {
-            showToast((e as Error).message);
+            showToast(writeFailure(e));
         }
     };
 
@@ -121,7 +127,7 @@ export default function AccountsSection({ accounts, categories, onChanged, showT
             await onChanged();
             showToast(copy.capitalHintArchived);
         } catch (e) {
-            showToast((e as Error).message);
+            showToast(writeFailure(e));
         } finally {
             setArchivingId(null);
         }

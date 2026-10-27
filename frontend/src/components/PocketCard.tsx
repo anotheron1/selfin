@@ -70,7 +70,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
     const navigate = useNavigate();
     const [scope, setScope] = useState<string | undefined>(undefined);
     const [data, setData] = useState<PocketResponse | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [loadFailed, setLoadFailed] = useState(false);
     const [showWhy, setShowWhy] = useState(false);
     const [showReanchor, setShowReanchor] = useState(false);
     const [showNz, setShowNz] = useState(false);
@@ -81,8 +81,8 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
 
     const load = useCallback(() => {
         fetchPocket(scope)
-            .then(p => { setData(p); setError(null); onData?.(p, scope); })
-            .catch((e: Error) => setError(e.message));
+            .then(p => { setData(p); setLoadFailed(false); onData?.(p, scope); })
+            .catch(() => setLoadFailed(true));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scope]);
     useEffect(() => { load(); }, [load]);
@@ -123,8 +123,14 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                         </button>
                     </div>
 
-                    {error && <p className="text-sm text-white/80 mt-1">Ошибка: {error}</p>}
-                    {!data && !error && <p className="text-sm text-white/60 mt-1 animate-pulse">Загрузка…</p>}
+                    {/* ANO-245: «Ошибка: Failed to fetch» не говорил, что случилось и что сделать. */}
+                    {loadFailed && (
+                        <p className="text-sm text-white/80 mt-1">
+                            Не удалось загрузить свободные деньги{' '}
+                            <button onClick={() => load()} className="underline text-white">Повторить</button>
+                        </p>
+                    )}
+                    {!data && !loadFailed && <p className="text-sm text-white/60 mt-1 animate-pulse">Загрузка…</p>}
 
                     {data && (
                         <>

@@ -107,9 +107,9 @@ describe('riskZones', () => {
         // С нулём остаток ниже настоящего НЗ был бы зелёным, а шапка сказала бы «НЗ не задан».
         const block = readFileSync(new URL('../sandbox/CapitalWhatIf.tsx', import.meta.url), 'utf8');
         expect(block).toMatch(/const \[nzLoaded, setNzLoaded\] = useState<number \| null>\(null\);/);
-        expect(block).toMatch(/\.catch\(\(e: Error\) => setNzError\(e\.message\)\)/);
-        expect(block).toContain('{(isLoading || (waitsNz && !nzError)) && (');
-        expect(block).toContain('{waitsNz && nzError && (');
+        expect(block).toMatch(/\.catch\(\(\) => setNzFailed\(true\)\)/);
+        expect(block).toContain('{(isLoading || (waitsNz && !nzFailed)) && (');
+        expect(block).toContain('{waitsNz && nzFailed && (');
         expect(block).toContain('hasBaseline && nzLoaded != null && (');
     });
     it('capital below threshold is red', () => {

@@ -3,6 +3,7 @@ import { updateWishlistSettings } from '../../api';
 import type { WishlistThresholds } from '../../types/api';
 import { AmountInput, amountValue } from '../ui/amount-input';
 import { nzZoneText } from './wishlistUtils';
+import { writeFailure } from '../../lib/writeFailure';
 
 interface Props {
     value: WishlistThresholds;
@@ -50,7 +51,7 @@ export default function WishlistThresholdsHeader({ value, nz, onChange }: Props)
             onChange(next);
             setSaveError(null);
             updateWishlistSettings(next).catch(e => {
-                setSaveError(e instanceof Error ? e.message : 'Не удалось сохранить настройки');
+                setSaveError(writeFailure(e));   // ANO-245: текст сервера — по-английски
             });
         }, DEBOUNCE_MS);
         return () => {

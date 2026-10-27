@@ -13,12 +13,13 @@ export function useStrategyTimeline(params?: {
 }): {
     data: StrategyTimelineDto | null;
     isLoading: boolean;
-    error: string | null;
+    /** Не загрузилось. Текста ошибки наружу нет: он по-английски (ANO-245). */
+    failed: boolean;
     refetch: () => void;
 } {
     const [data, setData] = useState<StrategyTimelineDto | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [failed, setFailed] = useState(false);
     const [tick, setTick] = useState(0);
 
     const refetch = useCallback(() => setTick(t => t + 1), []);
@@ -26,15 +27,15 @@ export function useStrategyTimeline(params?: {
     useEffect(() => {
         let cancelled = false;
         setIsLoading(true);
-        setError(null);
+        setFailed(false);
         fetchStrategyTimeline(params)
             .then(d => {
                 if (cancelled) return;
                 setData(d);
             })
-            .catch(e => {
+            .catch(() => {
                 if (cancelled) return;
-                setError(e instanceof Error ? e.message : String(e));
+                setFailed(true);
             })
             .finally(() => {
                 if (cancelled) return;
@@ -44,5 +45,5 @@ export function useStrategyTimeline(params?: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tick, params?.horizonMonths, params?.withBreakdown]);
 
-    return { data, isLoading, error, refetch };
+    return { data, isLoading, failed, refetch };
 }

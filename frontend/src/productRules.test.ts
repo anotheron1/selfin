@@ -70,8 +70,9 @@ const DEBTS: { file: string; stem: string; count: number; task: string }[] = [
 /** Не нарушения: слово словаря, которое здесь значит другое. Каждое — с причиной. */
 const ALLOWED: { file: string; stem: string; count: number; why: string }[] = [
     {
-        file: 'frontend/src/components/accounts/accountsCopy.ts', stem: 'лимит', count: 1,
-        why: 'кредитный лимит банка — свойство карты, а не потолок трат, который человек назначает себе',
+        file: 'frontend/src/components/accounts/accountsCopy.ts', stem: 'лимит', count: 2,
+        why: 'кредитный лимит банка — свойство карты, а не потолок трат, который человек назначает себе; '
+            + 'второй раз — планка не выше него (ANO-245)',
     },
 ];
 
