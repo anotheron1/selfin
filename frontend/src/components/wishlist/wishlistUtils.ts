@@ -1,5 +1,5 @@
 import type { EventWishlistParams, FundWishlistParams, MonthDelta, WishlistItem, WishlistKind } from '../../types/api';
-import { fmtRub } from '../strategy/strategyChartUtils';
+import { fmtRub, fmtYearMonthFull } from '../strategy/strategyChartUtils';
 
 export interface BaselinePoint { account: number; capital: number; }
 export interface ActiveItem { active: boolean; delta: MonthDelta[]; }
@@ -147,6 +147,35 @@ export function nzZoneText(nz: number): string {
     return nz > 0
         ? `Жёлтым — месяцы, где остаток ниже НЗ, ${fmtRub(nz)}`
         : 'НЗ не задан, жёлтым ничего не отмечено. Задать — в «Настройках»';
+}
+
+/** Месяцев от текущего до месяца даты; прошедший — меньше нуля. */
+function monthsFrom(currentMonth: string, date: string): number {
+    const [cy, cm] = currentMonth.split('-').map(Number);
+    const [ty, tm] = date.slice(0, 7).split('-').map(Number);
+    return (ty - cy) * 12 + (tm - cm);
+}
+
+/**
+ * Подпись срока у «Когда» (ANO-213). Ползунок ходит с будущего месяца (1..36), и подпись брала то же зажатое
+ * смещение: у прошедшего месяца и у текущего стояло «через 1 мес». «Прошёл» — о месяце, а не о человеке (правило 12).
+ */
+export function whenLabel(targetDate: string, currentMonth: string): string {
+    const n = monthsFrom(currentMonth, targetDate);
+    const month = fmtYearMonthFull(targetDate.slice(0, 7));
+    if (n < 0) return `${month} (прошёл)`;
+    if (n === 0) return `${month} (этот месяц)`;
+    return `${month} (через ${n} мес)`;
+}
+
+/**
+ * Хотелка раньше следующего месяца в расчёт не входит: «Что с капиталом» считает с него (`monthIndexOf` на
+ * сервере). Карточка об этом молчала, а чекбокс и платёж выглядели действующими (ANO-213).
+ */
+export function whenOutsideNote(targetDate: string, currentMonth: string): string | null {
+    return monthsFrom(currentMonth, targetDate) < 1
+        ? 'В расчёт не входит: «Что с капиталом» считает со следующего месяца. Подвинь «Когда», чтобы примерить.'
+        : null;
 }
 
 function worse(a: RiskLevel, b: RiskLevel): RiskLevel {

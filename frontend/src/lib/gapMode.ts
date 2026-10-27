@@ -20,7 +20,7 @@ export interface GapMode {
     /** Что будет с доходом; null, когда срок не заякорен доходом. */
     subline: string | null;
     moveHeader: string;
-    /** До трёх строк «Кафе — 900 ₽ → не хватит 2 785 ₽» или «… → из НЗ 1 500 ₽», крупные первыми. */
+    /** До трёх строк «Кафе · 25.09 — 900 ₽ → не хватит 2 785 ₽» или «… → из НЗ 1 500 ₽», крупные первыми. */
     movable: string[];
 }
 
@@ -101,7 +101,8 @@ export function buildGapMode(p: PocketResponse): GapMode | null {
             const outcome = after > 0
                 ? (nz ? `из НЗ ${fmtC(after)}` : `не хватит ${fmtC(after)}`)
                 : (nz ? 'НЗ цел' : 'разрыва не будет');
-            return `${label} — ${fmtC(u.amount)} → ${outcome}`;
+            // ANO-213: дата — у двух строк с одним именем («Бензин» 05.10 и 12.10) иначе не понять, какую двигать.
+            return `${label} · ${fmtD(u.date)} — ${fmtC(u.amount)} → ${outcome}`;
         });
 
     return {
