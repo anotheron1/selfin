@@ -1,6 +1,8 @@
 // Скрипт сервера (deploy/release.sh, ANO-246): сервер сам переходит на коммит ветки release. Заглушки: git пишет в
 // журнал и держит «checkout» в файле, curl отвечает версией «работающих контейнеров», update.sh поднимает тот коммит,
 // что выкачан, — или не поднимает, если тест сломал версию. Запуск — bash, как у копий: на сервере скрипт идёт под sh.
+// Скрипт запускается копией вне выкачанного дерева, как на сервере (/usr/local/lib/selfin): возврат на старый коммит
+// может убрать deploy/release.sh из дерева (ревью Codex на #202), а таймер должен работать и дальше.
 // Спека: docs/superpowers/specs/2026-10-27-release-button-design.md
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,24 +16,34 @@ const SCRIPT = fileURLToPath(new URL('../deploy/release.sh', import.meta.url));
 const unix = (path) => path.replaceAll('\\', '/');
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
+const C = 'c'.repeat(40);
 
 /**
  * Мир сервера: `running` — чем отвечает версия (null — сервер не отвечает), `release` — коммит ветки (null — ветки нет),
  * `failed` — что лежит в .release-failed, `broken` — коммиты, которые update.sh «поднимает», а они не отвечают,
- * `migrations` — между версиями есть миграции, `updateFails` — update.sh падает (копия не снялась).
+ * `migrations` — между версиями есть миграции, `updateFails` — update.sh падает (копия не снялась), `old` — коммиты
+ * старше скрипта: их checkout убирает deploy/release.sh из дерева. Остальные коммиты кладут в дерево свою версию
+ * скрипта — с пометкой «# версия <7 знаков>».
  */
-function server({ running = A, release = B, failed = null, broken = [], migrations = false, updateFails = false,
-  env = `SELFIN_TAG=sha-${A.slice(0, 7)}\n`, hijack = false, slowCurl = false } = {}) {
+function world({ running = A, release = B, failed = null, broken = [], migrations = false, updateFails = false,
+  env = `SELFIN_TAG=sha-${A.slice(0, 7)}\n`, hijack = false, slowCurl = false, old = [], cpBreaks = false } = {}) {
   const root = unix(mkdtempSync(join(tmpdir(), 'selfin-release-')));
   const bin = `${root}/bin`;
   const deploy = `${root}/repo/deploy`;
+  const runnerDir = `${root}/runner`;
+  const runner = `${runnerDir}/release.sh`;
+  const tree = `${deploy}/release.sh`;
   const log = `${root}/calls.log`;
-  mkdirSync(bin, { recursive: true });
-  mkdirSync(deploy, { recursive: true });
+  for (const dir of [bin, deploy, runnerDir]) mkdirSync(dir, { recursive: true });
   const stub = (path, body) => {
     writeFileSync(path, `#!/bin/sh\n${body}\n`);
     chmodSync(path, 0o755);
   };
+  const source = readFileSync(SCRIPT, 'utf8');
+  writeFileSync(runner, source);
+  chmodSync(runner, 0o755);
+  writeFileSync(tree, source);
+  writeFileSync(`${root}/source`, source);
   writeFileSync(`${deploy}/.env`, env);
   if (running) writeFileSync(`${root}/running`, running);
   if (release) writeFileSync(`${root}/release`, release);
@@ -39,9 +51,9 @@ function server({ running = A, release = B, failed = null, broken = [], migratio
   if (migrations) writeFileSync(`${root}/migrations`, '');
   if (updateFails) writeFileSync(`${root}/update-fails`, '');
   for (const sha of broken) writeFileSync(`${root}/broken-${sha}`, '');
-  // Скрипт запускается копией в каталоге deploy: checkout в тесте может подменить её на ходу, как git на сервере.
-  const script = `${deploy}/release.sh`;
-  writeFileSync(script, readFileSync(SCRIPT, 'utf8'));
+  for (const sha of old) writeFileSync(`${root}/old-${sha}`, '');
+  // Подмена — прямо в запущенном файле и длиннее самого скрипта: где бы оболочка ни читала дальше, прочтёт подменённое.
+  const overwrite = `i=0; while [ $i -lt 600 ]; do echo 'echo HIJACK'; i=$((i + 1)); done > "${runner}"`;
   stub(`${bin}/git`, `
 [ "$1" = -C ] && shift 2
 echo "git $*" >> "${log}"
@@ -49,7 +61,8 @@ case "$1" in
   ls-remote) [ -f "${root}/release" ] && printf '%s\\trefs/heads/release\\n' "$(cat "${root}/release")"; exit 0 ;;
   fetch) exit 0 ;;
   checkout) for a; do sha=$a; done; echo "$sha" > "${root}/head"
-    ${hijack ? `i=0; while [ $i -lt 600 ]; do echo 'echo HIJACK'; i=$((i + 1)); done > "${script}"` : ''}
+    if [ -f "${root}/old-$sha" ]; then rm -f "${tree}"; else { cat "${root}/source"; printf '\\n# версия %.7s\\n' "$sha"; } > "${tree}"; fi
+    ${hijack ? overwrite : ''}
     exit 0 ;;
   diff) [ -f "${root}/migrations" ] && exit 1; exit 0 ;;
 esac
@@ -65,6 +78,8 @@ loud=; for a; do case "$a" in --*) ;; -*S*) loud=1 ;; esac; done
 [ -f "${root}/running" ] || { ${slowCurl ? tick(5) : ':'}; [ -z "$loud" ] || echo "curl: (7) Failed to connect" >&2; exit 7; }
 printf '{"commit":"%s"}' "$(cat "${root}/running")"`);
   stub(`${bin}/sleep`, `echo "sleep $*" >> "${log}"; ${tick('$1')}`);
+  // Копирование, оборванное на середине (кончился диск, пропало питание): полфайла — и ошибка.
+  if (cpBreaks) stub(`${bin}/cp`, 'head -c 200 "$1" > "$2"; exit 1');
   stub(`${deploy}/update.sh`, `
 tag=$(sed -n 's/^SELFIN_TAG=//p' .env)
 echo "update.sh $tag" >> "${log}"
@@ -73,18 +88,36 @@ head=$(cat "${root}/head")
 [ "sha-$(printf '%.7s' "$head")" = "$tag" ] || { echo "update.sh: тег $tag, а выкачан $head" >> "${log}"; exit 1; }
 if [ -f "${root}/broken-$head" ]; then rm -f "${root}/running"; else echo "$head" > "${root}/running"; fi`);
   const shellEnv = { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, SELFIN_DEPLOY: deploy };
-  const run = spawnSync('bash', [script], { env: shellEnv, encoding: 'utf8' });
   const read = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null);
-  const calls = read(log) ?? '';
-  const result = {
-    run, calls, root,
-    env: read(`${deploy}/.env`),
-    failed: read(`${deploy}/.release-failed`)?.trim() ?? null,
-    running: read(`${root}/running`)?.trim() ?? null,
-    updates: calls.split('\n').filter((l) => l.startsWith('update.sh ')),
+  return {
+    // Таймер зовёт скрипт по его месту; здесь — относительным путём из его каталога: скрипт обязан найти себя сам.
+    run() {
+      writeFileSync(log, '');
+      const run = spawnSync('bash', ['./release.sh'], { cwd: runnerDir, env: shellEnv, encoding: 'utf8' });
+      const calls = read(log) ?? '';
+      return {
+        run, calls,
+        env: read(`${deploy}/.env`),
+        failed: read(`${deploy}/.release-failed`)?.trim() ?? null,
+        running: read(`${root}/running`)?.trim() ?? null,
+        updates: calls.split('\n').filter((l) => l.startsWith('update.sh ')),
+        runner: read(runner),
+        tree: read(tree),
+      };
+    },
+    release: (sha) => writeFileSync(`${root}/release`, sha),
+    done: () => rmSync(root, { recursive: true, force: true }),
   };
-  rmSync(root, { recursive: true, force: true });
-  return result;
+}
+
+/** Один проход скрипта в свежем мире. */
+function server(options) {
+  const w = world(options);
+  try {
+    return w.run();
+  } finally {
+    w.done();
+  }
 }
 
 test('ветки release ещё нет — ждёт кнопку: выход без ошибки, ни выкачки, ни обновления', () => {
@@ -110,13 +143,27 @@ test('коммит release уже не вставал — второй раз н
 });
 
 test('сдвиг release — выкачка, тег в .env, update.sh, новая версия ответила: готово, прежний провал забыт', () => {
-  const s = server({ failed: 'c'.repeat(40) });
+  const s = server({ failed: C });
   assert.equal(s.run.status, 0, s.run.stderr);
   assert.match(s.calls, new RegExp(`^git fetch -q origin release\\ngit checkout -q --detach ${B}\\nupdate\\.sh sha-bbbbbbb$`, 'm'));
   assert.match(s.env, /^SELFIN_TAG=sha-bbbbbbb$/m);
   assert.equal(s.running, B);
   assert.equal(s.failed, null);
   assert.match(s.run.stdout, /сервер на b{40}/);
+});
+
+test('удачная выкатка — скрипт заменяет себя версией из выкачанного дерева', () => {
+  const s = server();
+  assert.equal(s.run.status, 0, s.run.stderr);
+  assert.match(s.runner, /# версия bbbbbbb\n$/);
+});
+
+test('копирование себя оборвалось — прежний скрипт цел: следующий проход таймера не наткнётся на полфайла', () => {
+  const s = server({ cpBreaks: true });
+  assert.equal(s.run.status, 0, s.run.stderr);
+  assert.equal(s.running, B, 'выкатка встала');
+  assert.equal(s.runner, readFileSync(SCRIPT, 'utf8'));
+  assert.match(s.run.stderr, /себя не обновил/);
 });
 
 test('новая не ответила, миграций между версиями нет — запомнена и сервер вернулся на прежнюю', () => {
@@ -128,6 +175,26 @@ test('новая не ответила, миграций между версия
   assert.match(s.env, /^SELFIN_TAG=sha-aaaaaaa$/m);
   assert.equal(s.running, A);
   assert.match(s.run.stdout, /вернулся на a{40}/);
+});
+
+// Ревью Codex на #202 (P1): первая выкатка с 1cf6753 — коммита, где скрипта ещё нет. Возврат на него убрал бы скрипт
+// из дерева, и таймер дальше звал бы несуществующий файл: исправленный коммит кнопкой было бы уже не выкатить.
+test('возврат на коммит без скрипта не ломает таймер: скрипт вне дерева цел, и следующая выкатка идёт', () => {
+  const w = world({ broken: [B], old: [A] });
+  try {
+    const first = w.run();
+    assert.notEqual(first.run.status, 0);
+    assert.match(first.run.stdout, /вернулся на a{40}/);
+    assert.equal(first.tree, null, 'дерево — на коммите без скрипта');
+    assert.doesNotMatch(first.runner ?? '', /# версия/, 'не вставшая версия скрипт не заменила');
+    w.release(C);
+    const second = w.run();
+    assert.equal(second.run.status, 0, second.run.stderr + second.run.stdout);
+    assert.equal(second.running, C);
+    assert.match(second.runner, /# версия ccccccc\n$/);
+  } finally {
+    w.done();
+  }
 });
 
 test('новая не ответила, между версиями миграции — назад не идёт: старый код может не сойтись с новой схемой', () => {
@@ -186,8 +253,8 @@ test('версия — через nginx экранов на 127.0.0.1, порт 
   assert.match(plain.calls, /^curl .*http:\/\/127\.0\.0\.1:8280\/api\/v1\/version$/m);
 });
 
-// Подмена — в том же файле и длиннее самого скрипта: где бы оболочка ни читала дальше, она прочтёт подменённое.
-test('checkout подменяет файл скрипта на ходу — оболочка доигрывает прочитанное, чужого не исполняет', () => {
+// Запущенный файл переписывают на месте — например, установка через cp поверх, пока таймер работает.
+test('запущенный скрипт переписали на ходу — оболочка доигрывает прочитанное, чужого не исполняет', () => {
   const s = server({ hijack: true });
   assert.equal(s.run.status, 0, s.run.stderr + s.run.stdout);
   assert.doesNotMatch(s.run.stdout, /HIJACK/);
