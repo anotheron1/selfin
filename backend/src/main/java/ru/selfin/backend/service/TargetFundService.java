@@ -84,7 +84,7 @@ public class TargetFundService {
      * @return DTO обзора фондов
      */
     public FundsOverviewDto getOverview() {
-        List<TargetFundDto> fundDtos = fundRepository.findAllByDeletedFalseOrderByPriorityAsc().stream()
+        List<TargetFundDto> fundDtos = fundRepository.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc().stream()
                 .filter(f -> !POCKET_NAME.equals(f.getName()))
                 .map(this::toDto)
                 .toList();
@@ -261,7 +261,7 @@ public class TargetFundService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "A goal needs a tracked balance: turn balance tracking on for this account first");
         }
-        fundRepository.findAllByDeletedFalseOrderByPriorityAsc().stream()
+        fundRepository.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc().stream()
                 .filter(f -> accountId.equals(f.getAccountId()))
                 .filter(f -> !f.getId().equals(selfId))
                 .findAny()

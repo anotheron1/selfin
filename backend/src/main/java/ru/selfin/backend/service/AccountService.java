@@ -108,7 +108,7 @@ public class AccountService {
         // (fundBalanceAt на удалённом счёте даёт ноль), а кармашек начал бы резервировать
         // взносы на всю цель заново. Восстановить прежнее число неоткуда: собственный баланс
         // такой копилки давно нулевой. Поэтому 409, а не тихое обнуление (ревью чанка 3).
-        fundRepository.findAllByDeletedFalseOrderByPriorityAsc().stream()
+        fundRepository.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc().stream()
                 .filter(f -> id.equals(f.getAccountId()))
                 .findAny()
                 .ifPresent(f -> {
