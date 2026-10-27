@@ -10,8 +10,10 @@
 **Выкатку — на время восстановления остановить** (ANO-246), до шага 4: таймер, и дождаться прохода, если он уже идёт. Остановленный таймер прошедший проход не гасит: тот доиграет — дождётся новой версии и, может быть, вернёт прежнюю через `update.sh` прямо посреди восстановления (ревью Codex на #202). Проход не обрывать: оборванные `git checkout` или `docker compose` оставят недоделанное.
 
 ```bash
-ssh <сервер> 'systemctl stop selfin-release.timer; while systemctl is-active -q selfin-release.service; do sleep 5; done; echo "выкатка не идёт"'
+ssh <сервер> 'systemctl stop selfin-release.timer; until systemctl show -p ActiveState --value selfin-release.service | grep -qxE "inactive|failed"; do sleep 5; done; echo "выкатка не идёт"'
 ```
+
+Ждём именно `inactive` или `failed`: служба одноразовая (`Type=oneshot`), и пока проход идёт, она не `active`, а `activating` — `systemctl is-active` ответил бы «не работает» посреди прохода (третий круг Codex на #202).
 
 Проход идёт до 12 минут: обновление, 5 минут ожидания, возврат. Дольше — завис, тогда `systemctl stop selfin-release.service`. После шага 5 — `systemctl start selfin-release.timer`. Включённый таймер переведёт сервер на `release`, если та впереди восстановленной версии: миграции пройдут по восстановленным данным, как при обычном обновлении. Коммит из `.release-failed` он не тронет.
 
