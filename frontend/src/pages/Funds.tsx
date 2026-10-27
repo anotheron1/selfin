@@ -2,9 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { fetchFunds, createFund, updateFund, deleteFund, transferToFund, fetchAccounts } from '../api';
 import { confirmQuestion, needsConfirmation, transferFreeLine } from '../lib/transferConfirm';
-import { asksWhereMoney, deleteTogether } from '../lib/writeFailure';
+import { asksWhereMoney, deleteTogether, writeFailure } from '../lib/writeFailure';
 import FundMoneyQuestion from '../components/FundMoneyQuestion';
-import { NO_TRANSFER, fundAccountHint } from '../lib/fundAccount';
+import { NO_TRANSFER, accountChoices, fundAccountHint } from '../lib/fundAccount';
 import type { Account, FundMoney, FundsOverview, TargetFund, PocketResponse } from '../types/api';
 import { Plus, ArrowDownToLine, Pencil, Trash2 } from 'lucide-react';
 import PocketCard from '../components/PocketCard';
@@ -32,9 +32,16 @@ import type { PurchaseType } from '../types/api';
  *
  * <p>Подсказка говорит, что станет с накопленным (ANO-164): у листа правки она знает, была ли копилка
  * на счёте и лежат ли в ней деньги. Слова — `lib/fundAccount.ts`, те же, что на карточке.
+ *
+ * <p>Счёт, где лежит другая копилка, виден, но недоступен (ANO-203): раньше сервер отвечал на него 409
+ * по-английски. Какие счета годятся — `accountChoices`.
  */
-function FundAccountPicker({ accounts, value, onChange, wasLinked = false, holdsOwnMoney = false }: {
+function FundAccountPicker({ accounts, funds, selfId, value, onChange, wasLinked = false, holdsOwnMoney = false }: {
     accounts: Account[];
+    /** Копилки: по ним видно, какой счёт уже занят. */
+    funds: TargetFund[];
+    /** Своя копилка в листе правки — свой счёт ей не занят. */
+    selfId?: string;
     value: string;
     onChange: (v: string) => void;
     /** Копилка была на счёте до правки. */
@@ -42,13 +49,10 @@ function FundAccountPicker({ accounts, value, onChange, wasLinked = false, holds
     /** В копилке лежат деньги. */
     holdsOwnMoney?: boolean;
 }) {
-    // Кредитка и конверт без слежения отсеиваются: на кредитке «накоплено» показало бы
-    // неизрасходованный лимит, а у конверта остаток не подтверждён ничем. Бэкенд обе
-    // привязки отвергает 400 — не предлагаем то, что заведомо не сохранится.
-    const eligible = accounts.filter(a => a.trackBalance && a.kind !== 'CREDIT');
+    const choices = accountChoices(accounts, funds, selfId);
     // Один подходящий счёт — это основная карта: цель поверх неё означала бы «вся моя
     // наличность и есть эта цель», выбирать там нечего.
-    if (eligible.length <= 1) return null;
+    if (choices.length <= 1) return null;
     return (
         <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Деньги лежат на счёте</label>
@@ -58,8 +62,8 @@ function FundAccountPicker({ accounts, value, onChange, wasLinked = false, holds
                 </SelectTrigger>
                 <SelectContent>
                     <SelectItem value="NONE">Виртуальный конверт</SelectItem>
-                    {eligible.map(a => (
-                        <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                    {choices.map(c => (
+                        <SelectItem key={c.id} value={c.id} disabled={c.taken}>{c.label}</SelectItem>
                     ))}
                 </SelectContent>
             </Select>
@@ -72,8 +76,9 @@ function FundAccountPicker({ accounts, value, onChange, wasLinked = false, holds
 
 // ─── Диалог создания фонда ───────────────────────────────────────────────────
 
-function CreateFundModal({ accounts, onClose, onSuccess }: {
+function CreateFundModal({ accounts, funds, onClose, onSuccess }: {
     accounts: Account[];
+    funds: TargetFund[];
     onClose: () => void;
     onSuccess: () => void;
 }) {
@@ -112,7 +117,8 @@ function CreateFundModal({ accounts, onClose, onSuccess }: {
             onSuccess();
             onClose();
         } catch (err) {
-            setError((err as Error).message);
+            // ANO-203: текст сервера — по-английски; экран говорит, что знает наверняка.
+            setError(writeFailure(err));
         } finally { setLoading(false); }
     };
 
@@ -176,7 +182,7 @@ function CreateFundModal({ accounts, onClose, onSuccess }: {
                             />
                         </>
                     )}
-                    <FundAccountPicker accounts={accounts} value={accountId} onChange={setAccountId} />
+                    <FundAccountPicker accounts={accounts} funds={funds} value={accountId} onChange={setAccountId} />
                     {error && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
                     <Button
                         type="submit"
@@ -208,6 +214,8 @@ function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
 }) {
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
+    /** Отказ перевода словами экрана; лист остаётся открытым, сумма — на месте (ANO-205). */
+    const [failure, setFailure] = useState<string | null>(null);
     // ANO-192, ревью #104: попытка живёт, пока лист открыт — повтор после сбоя тот же.
     const [attempts] = useState(() => new AttemptKeys());
     const freeLine = transferFreeLine(pocket);
@@ -219,6 +227,7 @@ function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
         // бэкенд, у которого есть и якоря, и факты; здесь остаётся только «сумма введена».
         if (!num || num <= 0) return;
         setLoading(true);
+        setFailure(null);
         try {
             try {
                 await transferToFund(attempts, fund.id, num, undefined, scope);
@@ -232,6 +241,9 @@ function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
             }
             onSuccess();
             onClose();
+        } catch (err) {
+            // ANO-205: раньше лист молчал — кнопка снова активна, и ни слова, записалось ли.
+            setFailure(writeFailure(err));
         } finally { setLoading(false); }
     };
 
@@ -249,6 +261,7 @@ function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
                         value={amount}
                         onChange={setAmount}
                     />
+                    {failure && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{failure}</p>}
                     <Button
                         type="submit"
                         className="w-full"
@@ -263,9 +276,10 @@ function TransferModal({ fund, pocket, scope, onClose, onSuccess }: {
 
 // ─── Диалог редактирования фонда ─────────────────────────────────────────────
 
-function EditFundModal({ fund, accounts, onClose, onSuccess }: {
+function EditFundModal({ fund, accounts, funds, onClose, onSuccess }: {
     fund: TargetFund;
     accounts: Account[];
+    funds: TargetFund[];
     onClose: () => void;
     onSuccess: () => void;
 }) {
@@ -307,7 +321,8 @@ function EditFundModal({ fund, accounts, onClose, onSuccess }: {
             onSuccess();
             onClose();
         } catch (err) {
-            setError((err as Error).message);
+            // ANO-203: текст сервера — по-английски; экран говорит, что знает наверняка.
+            setError(writeFailure(err));
         } finally { setLoading(false); }
     };
 
@@ -396,7 +411,7 @@ function EditFundModal({ fund, accounts, onClose, onSuccess }: {
                             />
                         </>
                     )}
-                    <FundAccountPicker accounts={accounts} value={accountId} onChange={setAccountId}
+                    <FundAccountPicker accounts={accounts} funds={funds} selfId={fund.id} value={accountId} onChange={setAccountId}
                         wasLinked={fund.accountId != null} holdsOwnMoney={fund.currentBalance !== 0} />
                     {error && <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>}
                     <Button
@@ -521,7 +536,7 @@ function FundCard({ fund, accountName, onTransfer, onEdit }: {
 
 export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
     const [data, setData] = useState<FundsOverview | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [loadFailed, setLoadFailed] = useState(false);
     const [showCreate, setShowCreate] = useState(false);
     const [transferFund, setTransferFund] = useState<TargetFund | null>(null);
     const [editFund, setEditFund] = useState<TargetFund | null>(null);
@@ -534,8 +549,8 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
     const [accounts, setAccounts] = useState<Account[]>([]);
 
     const load = useCallback(() => {
-        setError(null);
-        return fetchFunds().then(setData).catch((err: Error) => setError(err.message));
+        setLoadFailed(false);
+        return fetchFunds().then(setData).catch(() => setLoadFailed(true));
     }, []);
     useEffect(() => { load(); }, [load]);
     // Счета нужны, только чтобы предложить копилке лечь на реальный счёт (§3.3) и
@@ -548,7 +563,13 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refreshSignal]);
 
-    if (error) return <div className="p-6 text-center text-sm" style={{ color: 'var(--color-danger, #ef4444)' }}>Ошибка: {error}</div>;
+    // ANO-203: как в «Стратегии» — что случилось и что сделать; «Ошибка: Failed to fetch» не говорил ни того, ни другого.
+    if (loadFailed) return (
+        <div className="p-6 text-center">
+            <p className="text-sm mb-3">Не удалось загрузить цели</p>
+            <Button onClick={() => load()} size="sm">Повторить</Button>
+        </div>
+    );
     if (!data) return <div className="p-6 text-center animate-pulse" style={{ color: 'var(--color-text-muted)' }}>Загрузка...</div>;
 
 
@@ -599,6 +620,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
             {showCreate && (
                 <CreateFundModal
                     accounts={accounts}
+                    funds={data.funds}
                     onClose={() => setShowCreate(false)}
                     onSuccess={() => { setShowCreate(false); load(); }}
                 />
@@ -618,6 +640,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
                 <EditFundModal
                     fund={editFund}
                     accounts={accounts}
+                    funds={data.funds}
                     onClose={() => setEditFund(null)}
                     // ANO-198: удаление с «Вернуть в свободные» двигает свободные деньги, а правка цели
                     // и срока — взносы в копилку. Карточка наверху перечитывается, как после «Пополнить».

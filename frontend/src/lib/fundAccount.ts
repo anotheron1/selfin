@@ -8,6 +8,8 @@
  * свободны, а капитал от привязки не меняется. До Р10-А замер 29.09 давал капитал −1 000.
  */
 
+import type { Account, TargetFund } from '../types/api';
+
 export const ON_ACCOUNT = 'Накопленное берётся с остатка счёта.';
 
 /** Почему у копилки на счёте нет «Пополнить» — и что делать вместо. Та же строка на карточке. */
@@ -34,4 +36,37 @@ export function fundAccountHint(p: { linked: boolean; wasLinked: boolean; holdsO
     return p.wasLinked
         ? [ENVELOPE, 'Накопленное снова покажет только то, что в неё переводили.']
         : [ENVELOPE];
+}
+
+export interface AccountChoice {
+    id: string;
+    label: string;
+    /** На счёте лежит другая копилка — выбрать нельзя. */
+    taken: boolean;
+}
+
+/**
+ * Счета в выборе — только те, что сервер примет (ANO-203, как диалог конверсии после ANO-141).
+ *
+ * Кредитка и счёт без слежения отсеиваются: на кредитке «накоплено» показало бы неизрасходованный
+ * лимит, а остаток счёта без слежения не подтверждён ничем — сервер обе привязки отвергает 400.
+ * Счёт, где уже лежит другая копилка, виден, но недоступен: сервер ответил бы 409, а приписка
+ * говорит, чей он. Своя копилка в листе правки свой счёт не блокирует.
+ *
+ * @param funds  копилки — тот же список, по которому проверяет сервер (`TargetFundService`)
+ * @param selfId своя копилка в листе правки; у новой — нет
+ */
+export function accountChoices(
+    accounts: Pick<Account, 'id' | 'name' | 'kind' | 'trackBalance'>[],
+    funds: Pick<TargetFund, 'id' | 'name' | 'accountId'>[],
+    selfId?: string,
+): AccountChoice[] {
+    return accounts
+        .filter(a => a.trackBalance && a.kind !== 'CREDIT')
+        .map(a => {
+            const holder = funds.find(f => f.accountId === a.id && f.id !== selfId);
+            return holder
+                ? { id: a.id, label: `${a.name} — здесь копилка «${holder.name}»`, taken: true }
+                : { id: a.id, label: a.name, taken: false };
+        });
 }
