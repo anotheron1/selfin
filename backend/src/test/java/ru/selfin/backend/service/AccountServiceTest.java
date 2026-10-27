@@ -289,7 +289,7 @@ class AccountServiceTest {
     void delete_accountHoldingAFund_rejectedWithConflict() {
         Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
         when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(
                 TargetFund.builder().id(UUID.randomUUID()).name("На квартиру")
                         .accountId(deposit.getId()).build()));
 

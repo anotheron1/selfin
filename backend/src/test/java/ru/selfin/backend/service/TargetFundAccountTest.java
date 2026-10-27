@@ -107,7 +107,7 @@ class TargetFundAccountTest {
         // не сработает, тест увидит 7 000, а не 300 000.
         TargetFund f = fund(deposit.getId(), "7000");
 
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(f));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(f));
         when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
         when(checkpointRepo.findLatestForAccountAt(deposit.getId(), today))
                 .thenReturn(Optional.of(checkpoint(deposit, today.minusDays(4), "300000")));
@@ -124,7 +124,7 @@ class TargetFundAccountTest {
         Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
         TargetFund f = fund(deposit.getId(), "7000");
 
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(f));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(f));
         when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
         when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
 
@@ -135,7 +135,7 @@ class TargetFundAccountTest {
     @DisplayName("Виртуальный конверт (без accountId) по-прежнему держит собственный баланс")
     void envelopeFund_keepsItsOwnBalance() {
         TargetFund f = fund(null, "7000");
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(f));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(f));
 
         assertThat(service.getOverview().funds().get(0).currentBalance()).isEqualByComparingTo("7000");
         // счёт для конверта не запрашивается вовсе
@@ -148,7 +148,7 @@ class TargetFundAccountTest {
         TargetFund deferred = fund(null, "0");
         deferred.setWishlistStatus(WishlistStatus.DISMISSED);
         TargetFund plain = fund(null, "0");
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(deferred, plain));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(deferred, plain));
 
         List<TargetFundDto> out = service.getOverview().funds();
 
@@ -180,7 +180,7 @@ class TargetFundAccountTest {
 
     /** Дата «в нынешнем темпе» на карточке копилки. */
     private LocalDate paceDate(LocalDate today, TargetFund f, FundTransaction... moves) {
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(f));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(f));
         when(txRepo.findByFundIdAndDeletedFalse(f.getId())).thenReturn(List.of(moves));
         return serviceOn(today).getOverview().funds().get(0).estimatedCompletionDate();
     }
@@ -280,7 +280,7 @@ class TargetFundAccountTest {
         Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
         TargetFund existing = fund(deposit.getId(), "0");
         when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(existing));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(existing));
 
         assertThatThrownBy(() -> service.create(new TargetFundCreateDto("Вторая цель",
                 new BigDecimal("100000"), null, null, null, null, null, deposit.getId())))
@@ -401,7 +401,7 @@ class TargetFundAccountTest {
 
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
         when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
-        when(fundRepo.findAllByDeletedFalseOrderByPriorityAsc()).thenReturn(List.of(f));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(f));
         when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.update(f.getId(), new TargetFundCreateDto("Другое имя",

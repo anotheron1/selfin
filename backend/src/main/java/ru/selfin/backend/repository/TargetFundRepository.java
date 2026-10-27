@@ -8,7 +8,12 @@ import java.util.List;
 import java.util.UUID;
 
 public interface TargetFundRepository extends JpaRepository<TargetFund, UUID> {
-    List<TargetFund> findAllByDeletedFalseOrderByPriorityAsc();
+    /**
+     * Порядок списка «Целей» и быстрого ввода «В копилку»: приоритет, потом время заведения, потом id (ANO-202).
+     * Приоритет у всех копилок один (100), и при равенстве Postgres отдавал строки в порядке хранения: копилка после
+     * пополнения уезжала в конец.
+     */
+    List<TargetFund> findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc();
 
     // --- Wishlist ---
 
