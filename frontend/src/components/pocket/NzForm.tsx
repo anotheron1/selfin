@@ -59,7 +59,7 @@ export default function NzForm({ initial, onSaved, autoFocus }: {
                 style={inputStyle}
             />
             {error && (
-                <p className="text-sm" style={{ color: 'var(--color-danger)' }}>Ошибка: {error}</p>
+                <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>
             )}
             <button type="submit"
                 disabled={saving || value == null}

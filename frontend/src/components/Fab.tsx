@@ -8,7 +8,7 @@ import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import RecurringFields from './RecurringFields';
-import { canRecordFact, todayIso } from '../lib/factDate';
+import { canRecordFact, latestAllowedIso } from '../lib/factDate';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
 import { ON_ACCOUNT_NOTE, canSubmitQuickAdd, quickAddAction, transferFundChoice } from '../lib/quickAdd';
 import { writeFailure } from '../lib/writeFailure';
@@ -24,7 +24,8 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
     // toISOString() даёт дату по UTC: восточнее Гринвича она вечером отстаёт на день
     // (форма предлагала вчера), западнее — ночью опережает, и тогда собственное
     // умолчание формы читалось как будущее, а поле факта исчезало до правки даты руками.
-    const today = todayIso(new Date());
+    // ANO-235: не позже даты сервера — восточнее Москвы ночью местное «сегодня» для него завтра, и факт получал 400.
+    const today = latestAllowedIso(new Date());
     const [form, setForm] = useState<Partial<FinancialEventCreateDto>>({
         date: today,
         type: 'EXPENSE',
