@@ -18,6 +18,7 @@ const OTHER = 'c'.repeat(40);
 /**
  * Подделка мира кнопки. `ancestors` — пары «предок потомок»; `release` — где ветка сейчас (null — её нет);
  * `published` — какие образы есть; `versions` — чем отвечает сервер на каждый вопрос, последний ответ повторяется.
+ * Первый вопрос — до сдвига release: кнопка сверяет, что сервер не впереди выбранного коммита.
  */
 function world({ head = NEW, ancestors = [[OLD, NEW], [NEW, NEW], [OLD, OLD]], inMain = [OLD, NEW], release: at = OLD,
   published = (ref) => ref.endsWith(':sha-bbbbbbb'), versions = [NEW] } = {}) {
@@ -59,15 +60,16 @@ test('коммит не из main — отказ, release не двигаетс�
   assert.deepEqual(w.pushes(), []);
 });
 
+// Сервер здесь на выбранном коммите (новая не встала, он вернулся) — отказывает именно проверка release, а не сервера.
 test('release уже дальше выбранного коммита — назад кнопка не ходит', async () => {
-  const w = world({ release: NEW, ancestors: [[OLD, NEW]] });
-  await assert.rejects(run(w, OLD), /назад/);
+  const w = world({ release: NEW, ancestors: [[OLD, NEW]], versions: [OLD] });
+  await assert.rejects(run(w, OLD), /release уже на bbbbbbb.*назад/s);
   assert.deepEqual(w.pushes(), []);
 });
 
 test('release на соседней ветке истории, не предок коммита — тоже отказ', async () => {
   const w = world({ release: OTHER, ancestors: [[OLD, NEW]], inMain: [OLD, NEW, OTHER] });
-  await assert.rejects(run(w, NEW), /назад/);
+  await assert.rejects(run(w, NEW), /release уже на ccccccc.*назад/s);
   assert.deepEqual(w.pushes(), []);
 });
 
@@ -77,8 +79,14 @@ test('нет хоть одного образа — «подожди публи�
   assert.deepEqual(w.pushes(), []);
 });
 
+test('сервер уже дальше выбранного коммита — назад кнопка не ходит, даже пока ветки release нет', async () => {
+  const w = world({ release: null, versions: [NEW], ancestors: [[OLD, NEW]] });
+  await assert.rejects(run(w, OLD), /сервер уже на bbbbbbb.*назад/s);
+  assert.deepEqual(w.pushes(), []);
+});
+
 test('оба образа есть — release вперёд на коммит, кнопка ждёт, пока сервер ответит им', async () => {
-  const w = world({ versions: [OLD, OLD, NEW] });
+  const w = world({ versions: [OLD, OLD, OLD, NEW] });
   assert.equal(await run(w), NEW);
   assert.deepEqual(w.pushes(), [`push origin ${NEW}:refs/heads/release`]);
   assert.deepEqual(w.sleeps, [15_000, 15_000]);
@@ -120,7 +128,7 @@ test('сервер не перешёл за отведённое время — 
 });
 
 test('сервер в перезапуске не отвечает — это ещё не провал, кнопка ждёт дальше', async () => {
-  const w = world({ versions: [null, null, NEW] });
+  const w = world({ versions: [null, null, null, NEW] });
   assert.equal(await run(w), NEW);
 });
 

@@ -21,7 +21,7 @@ const B = 'b'.repeat(40);
  * `migrations` — между версиями есть миграции, `updateFails` — update.sh падает (копия не снялась).
  */
 function server({ running = A, release = B, failed = null, broken = [], migrations = false, updateFails = false,
-  env = `SELFIN_TAG=sha-${A.slice(0, 7)}\n`, hijack = false } = {}) {
+  env = `SELFIN_TAG=sha-${A.slice(0, 7)}\n`, hijack = false, slowCurl = false } = {}) {
   const root = unix(mkdtempSync(join(tmpdir(), 'selfin-release-')));
   const bin = `${root}/bin`;
   const deploy = `${root}/repo/deploy`;
@@ -54,8 +54,17 @@ case "$1" in
   diff) [ -f "${root}/migrations" ] && exit 1; exit 0 ;;
 esac
 exit 3`);
-  stub(`${bin}/curl`, `echo "curl $*" >> "${log}"; [ -f "${root}/running" ] || exit 7; printf '{"commit":"%s"}' "$(cat "${root}/running")"`);
-  stub(`${bin}/sleep`, `echo "sleep $*" >> "${log}"`);
+  // Часы — поддельные: их двигают sleep и «медленный» curl. Пока бэка нет, nginx экранов ждёт его 5 секунд на каждую
+  // попытку (proxy_connect_timeout) — slowCurl так и отвечает.
+  writeFileSync(`${root}/clock`, '0');
+  const tick = (by) => `echo $(( $(cat "${root}/clock") + ${by} )) > "${root}/clock"`;
+  stub(`${bin}/date`, `echo $(( 1000000 + $(cat "${root}/clock") ))`);
+  // С -S настоящий curl печатает ошибку на каждую неудачную попытку — заглушка тоже.
+  stub(`${bin}/curl`, `echo "curl $*" >> "${log}"
+loud=; for a; do case "$a" in --*) ;; -*S*) loud=1 ;; esac; done
+[ -f "${root}/running" ] || { ${slowCurl ? tick(5) : ':'}; [ -z "$loud" ] || echo "curl: (7) Failed to connect" >&2; exit 7; }
+printf '{"commit":"%s"}' "$(cat "${root}/running")"`);
+  stub(`${bin}/sleep`, `echo "sleep $*" >> "${log}"; ${tick('$1')}`);
   stub(`${deploy}/update.sh`, `
 tag=$(sed -n 's/^SELFIN_TAG=//p' .env)
 echo "update.sh $tag" >> "${log}"
@@ -148,6 +157,18 @@ test('сервер не отвечал до выкатки — новая не �
 test('новой версии ждёт 5 минут — 60 раз по 5 секунд, потом сдаётся', () => {
   const s = server({ broken: [B], migrations: true });
   assert.equal(s.calls.split('\n').filter((l) => l === 'sleep 5').length, 60);
+});
+
+// Репетиция 27.10: 60 попыток со сломанным бэком шли 578 секунд — каждая ждала nginx ещё 5 секунд.
+test('пока бэка нет, nginx тянет каждую попытку — ожидание всё равно 5 минут по часам, а не по числу попыток', () => {
+  const s = server({ broken: [B], migrations: true, slowCurl: true });
+  assert.equal(s.calls.split('\n').filter((l) => l === 'sleep 5').length, 30);
+});
+
+test('пока новая версия не отвечает, ошибки curl журнал не засоряют — в нём только итог', () => {
+  const s = server({ broken: [B], migrations: true });
+  assert.doesNotMatch(s.run.stdout + s.run.stderr, /curl: \(/);
+  assert.match(s.run.stdout, /за 5 минут сервер не ответил версией b{40}/);
 });
 
 test('в .env нет SELFIN_TAG — ошибка до выкачки: правке негде записать тег', () => {

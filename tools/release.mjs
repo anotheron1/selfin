@@ -44,6 +44,13 @@ export async function release({ commit, git, published, serverVersion, sleep, lo
     throw new Error(`release уже на ${current.slice(0, 7)}, а ${short} не впереди неё: назад кнопка не ходит — откат делает `
       + 'сервер сам, если новая версия не встала, или копия (deploy/RESTORE.md)');
   }
+  // Сервер мог уйти вперёд release — первая кнопка или ручное обновление: сверяем и с ним (сухой прогон 27.10 пустил бы
+  // d49d31e на сервер с 1cf6753, пока ветки release не было). Не отвечает — сверять не с чем, выкатка его и поднимет.
+  const running = await serverVersion();
+  if (running && running !== target && git(['merge-base', '--is-ancestor', target, running]).ok) {
+    throw new Error(`сервер уже на ${running.slice(0, 7)}, а ${short} старше: назад кнопка не ходит — откат делает `
+      + 'сервер сам, если новая версия не встала, или копия (deploy/RESTORE.md)');
+  }
   // Пара latest разъезжается, когда одна из двух публикаций упала (ревью Codex на #171): проверяем оба тега коммита.
   for (const image of IMAGES) {
     if (!published(`${image}:sha-${short}`)) {
