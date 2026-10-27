@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ENVELOPE, NO_TRANSFER, ON_ACCOUNT, fundAccountHint } from './fundAccount';
+import { ENVELOPE, NO_TRANSFER, ON_ACCOUNT, accountChoices, fundAccountHint } from './fundAccount';
+import type { Account } from '../types/api';
 
 /**
  * ANO-164, ANO-174. Следствие привязки копилки к счёту не проговаривалось: карточка копилки на
@@ -43,6 +44,42 @@ describe('слова копилки на счёте (ANO-164, ANO-174)', () => {
     });
 });
 
+/**
+ * ANO-203. Выбор счёта предлагал и счёт, где уже лежит другая копилка, — сервер отвечал 409 «Account already holds the
+ * goal», и форма показывала это по-английски. На стенде 26.10 так два счёта из трёх. Предлагаем только то, что сервер
+ * примет, как диалог конверсии после ANO-141; счёт с чужой копилкой — виден, но недоступен, с припиской.
+ */
+describe('выбор счёта: счёт с другой копилкой виден, но недоступен (ANO-203)', () => {
+    type Choosable = Pick<Account, 'id' | 'name' | 'kind' | 'trackBalance'>;
+    const account = (id: string, name: string, more: Partial<Choosable> = {}): Choosable =>
+        ({ id, name, kind: 'DEBIT', trackBalance: true, ...more });
+    const fund = (id: string, name: string, accountId: string | null) => ({ id, name, accountId });
+    const accounts = [account('card', 'Основная карта'), account('deposit', 'Вклад сбер')];
+
+    it('счёт, где лежит другая копилка, — с припиской «здесь копилка» и недоступен', () => {
+        expect(accountChoices(accounts, [fund('f1', 'уке', 'deposit')])).toEqual([
+            { id: 'card', label: 'Основная карта', taken: false },
+            { id: 'deposit', label: 'Вклад сбер — здесь копилка «уке»', taken: true },
+        ]);
+    });
+
+    it('в форме правки своя копилка свой счёт не блокирует', () => {
+        expect(accountChoices(accounts, [fund('f1', 'уке', 'deposit')], 'f1')).toEqual([
+            { id: 'card', label: 'Основная карта', taken: false },
+            { id: 'deposit', label: 'Вклад сбер', taken: false },
+        ]);
+    });
+
+    it('копилка-конверт счёт не занимает', () => {
+        expect(accountChoices(accounts, [fund('f1', 'Отпуск', null)]).every(c => !c.taken)).toBe(true);
+    });
+
+    it('кредитка и счёт без слежения в выбор не идут — как раньше', () => {
+        const all = [...accounts, account('cc', 'Платинум', { kind: 'CREDIT' }), account('cash', 'Бензин', { trackBalance: false })];
+        expect(accountChoices(all, []).map(c => c.id)).toEqual(['card', 'deposit']);
+    });
+});
+
 describe('карточка и выбор счёта берут слова из lib/fundAccount.ts (сторож по исходнику)', () => {
     // Компонентных тестов во фронте нет; убрать строку с карточки — правка в одну строку.
     const PAGE = '../pages/Funds.tsx';
@@ -59,6 +96,6 @@ describe('карточка и выбор счёта берут слова из l
 
     it('лист правки передаёт, была ли копилка на счёте и лежат ли в ней деньги (ANO-164)', () => {
         expect(read(PAGE)).toMatch(
-            /<FundAccountPicker accounts=\{accounts\} value=\{accountId\} onChange=\{setAccountId\}\s*wasLinked=\{fund\.accountId != null\} holdsOwnMoney=\{fund\.currentBalance !== 0\} \/>/);
+            /<FundAccountPicker accounts=\{accounts\} funds=\{funds\} selfId=\{fund\.id\} value=\{accountId\} onChange=\{setAccountId\}\s*wasLinked=\{fund\.accountId != null\} holdsOwnMoney=\{fund\.currentBalance !== 0\} \/>/);
     });
 });
