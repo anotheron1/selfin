@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
     effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams, dismissQuestion,
-    recomputeBasis, effectiveContribution, nzZoneText,
+    recomputeBasis, effectiveContribution, nzZoneText, whenLabel, whenOutsideNote,
 } from './wishlistUtils';
 import { fmtRub } from '../strategy/strategyChartUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
@@ -676,5 +676,39 @@ describe('два блока «Хотелок» видят смены друг д
     it('«Что с капиталом» перечитывается по счётчику страницы', () => {
         expect(read(block)).toMatch(/useWishlistSimulation\(36, refreshSignal\)/);
         expect(read('./useWishlistSimulation.ts')).toMatch(/\}, \[tick, horizonMonths, refreshSignal\]\);/);
+    });
+});
+
+/**
+ * ANO-213. Ползунок «Когда» ходит с будущего месяца (1..36), и подпись брала то же зажатое смещение: у хотелки
+ * с прошедшим месяцем и у текущего стояло «через 1 мес». А «Что с капиталом» считает со следующего месяца
+ * (`monthIndexOf` на сервере), так что такие хотелки в расчёт не входят — карточка об этом молчала.
+ */
+describe('подпись «Когда» (ANO-213)', () => {
+    const now = '2026-10';
+
+    it('прошедший месяц — «прошёл», текущий — «этот месяц»', () => {
+        expect(whenLabel('2026-09-15', now)).toBe('Сентябрь 2026 (прошёл)');
+        expect(whenLabel('2026-10-01', now)).toBe('Октябрь 2026 (этот месяц)');
+    });
+
+    it('дальше — «через N мес», и за краем ползунка тоже честно', () => {
+        expect(whenLabel('2026-11-01', now)).toBe('Ноябрь 2026 (через 1 мес)');
+        expect(whenLabel('2030-02-01', now)).toBe('Февраль 2030 (через 40 мес)');
+    });
+
+    it('прошедший и текущий месяц в расчёт не входят — строка говорит, что сделать; со следующего — молчит', () => {
+        const note = 'В расчёт не входит: «Что с капиталом» считает со следующего месяца. Подвинь «Когда», чтобы примерить.';
+        expect(whenOutsideNote('2026-09-15', now)).toBe(note);
+        expect(whenOutsideNote('2026-10-01', now)).toBe(note);
+        expect(whenOutsideNote('2026-11-01', now)).toBeNull();
+    });
+
+    it('карточка берёт подпись и строку отсюда (сторож по исходнику)', () => {
+        const card = readFileSync(new URL('./WishlistItemCard.tsx', import.meta.url), 'utf8');
+        expect(card).toMatch(/hasDate\s*\?\s*whenLabel\(targetDate, currentMonth\)/);
+        expect(card).toMatch(/const outsideNote = hasDate \? whenOutsideNote\(targetDate, currentMonth\) : null;/);
+        expect(card).toMatch(/\{outsideNote && \(/);
+        expect(card).not.toMatch(/\(через \$\{offset\} мес\)/);
     });
 });

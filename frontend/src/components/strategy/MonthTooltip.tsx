@@ -88,7 +88,7 @@ export default function MonthTooltip({ active, payload, currentMonth }: Props) {
                 className="mt-2 text-[11px] hover:underline"
                 style={{ color: 'var(--color-accent)' }}
             >
-                Открыть Budget этого месяца →
+                Открыть журнал этого месяца →
             </button>
         </div>
     );

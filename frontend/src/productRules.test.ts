@@ -26,8 +26,8 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 type Rule = 1 | 2 | 5 | 12 | 13;
 
-/** Основы слов, сравнение без учёта регистра. */
-const DICTIONARY: { rule: Rule; stem: string; why: string }[] = [
+/** Основы слов, сравнение без учёта регистра — кроме помеченных `caseSensitive`. */
+const DICTIONARY: { rule: Rule; stem: string; why: string; caseSensitive?: true }[] = [
     { rule: 1, stem: 'лимит', why: 'назначаемый потолок' },
     { rule: 1, stem: 'бюджет', why: 'бюджет — это потолок, а план — прогноз' },
     { rule: 1, stem: 'превыш', why: 'приговор за превышение потолка' },
@@ -59,6 +59,10 @@ const DICTIONARY: { rule: Rule; stem: string; why: string }[] = [
     // честнее «отложить»: «отклонить» звучит окончательно. Одно действие — одно имя.
     { rule: 13, stem: 'отклонит', why: 'одно действие — одно имя: «Отложить» (ANO-107)' },
     { rule: 13, stem: 'отклонено', why: 'раздел отложенных — «Отложено» (ANO-107)' },
+    // ANO-213: английские имена на экране — наши, не пользователей. С учётом регистра: путь `/budget` и вид счёта
+    // `CASH` — тоже строки, но не слова экрана; «Budget» с заглавной и строчное «cash» стояли только в подписях.
+    { rule: 13, stem: 'Budget', caseSensitive: true, why: 'экран называется «Журнал» — имя из навигации' },
+    { rule: 13, stem: 'cash', caseSensitive: true, why: 'по-русски — «деньги», как строка «Деньги на счетах, вкладах и в копилках»' },
 ];
 
 /** Сегодняшние нарушения. Каждое — со своей задачей; число — сколько строк с этой основой в файле. */
@@ -190,7 +194,7 @@ const STRINGS: Found[] = [
 
 type Hit = Found & { rule: Rule; stem: string };
 const HITS: Hit[] = STRINGS.flatMap((s) => DICTIONARY
-    .filter((d) => s.text.toLowerCase().includes(d.stem))
+    .filter((d) => (d.caseSensitive ? s.text : s.text.toLowerCase()).includes(d.stem))
     .map((d) => ({ ...s, rule: d.rule, stem: d.stem })));
 
 const counted = new Map<string, Hit[]>();
@@ -222,6 +226,13 @@ describe('словарь правил продукта на строках ин�
         const texts = STRINGS.map((s) => s.text);
         expect(texts.some((t) => t.includes('startDate and endDate are required'))).toBe(true); // FinancialEventController
         expect(texts.some((t) => t.includes('Управление фондами накоплений'))).toBe(false);     // @Tag в TargetFundController
+    });
+
+    it('основы с учётом регистра не ловят путь /budget и вид счёта CASH — строки, но не слова экрана (ANO-213)', () => {
+        const texts = STRINGS.map((s) => s.text);
+        expect(texts).toContain('/budget');
+        expect(texts).toContain('CASH');
+        expect(HITS.filter((h) => h.text === '/budget' || h.text === 'CASH')).toEqual([]);
     });
 
     it('каждое слово словаря на экране — либо долг с задачей, либо разрешение с причиной', () => {

@@ -94,7 +94,7 @@ function CustomTooltip({ active, payload }: TooltipProps) {
         <div className="rounded p-2 text-xs" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
             <div className="font-medium">{shortDate(p.date)}</div>
             <div>{fmt(p.capital)}</div>
-            <div className="opacity-70 mt-1">cash {fmtCompact(p.liquid)} + активы {fmtCompact(p.assets)} − долги {fmtCompact(p.liabilities)}</div>
+            <div className="opacity-70 mt-1">деньги {fmtCompact(p.liquid)} + активы {fmtCompact(p.assets)} − долги {fmtCompact(p.liabilities)}</div>
             {p.deltaFromPrev != null && (
                 <div className="mt-1" style={{ color: p.deltaFromPrev >= 0 ? 'var(--color-success, #7ec699)' : 'var(--color-danger, #e88a8a)' }}>
                     {deltaSign}{fmtCompact(p.deltaFromPrev)} от прошлой точки

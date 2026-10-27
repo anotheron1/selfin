@@ -4,9 +4,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import WishlistRiskBadge from './WishlistRiskBadge';
-import { calcPMT, recomputeBasis, type RiskLevel } from './wishlistUtils';
+import { calcPMT, recomputeBasis, whenLabel, whenOutsideNote, type RiskLevel } from './wishlistUtils';
 import type { WishlistItem, WishlistStatus } from '../../types/api';
-import { fmtRub, fmtYearMonthFull } from '../strategy/strategyChartUtils';
+import { fmtRub } from '../strategy/strategyChartUtils';
 
 /** Параметры пересчёта delta на бэке (смена суммы/даты/кредитных параметров). */
 export interface RecomputeRequest {
@@ -100,6 +100,7 @@ export default function WishlistItemCard(props: Props) {
     const targetDate = dateOverride ?? item.targetDate
         ?? `${addMonths(currentMonth, MIN_OFFSET)}-01`;
     const offset = offsetOf(targetDate, currentMonth);
+    const outsideNote = hasDate ? whenOutsideNote(targetDate, currentMonth) : null;
 
     const isCredit = item.kind === 'CREDIT';
     const [showCreditParams, setShowCreditParams] = useState(false);
@@ -217,7 +218,7 @@ export default function WishlistItemCard(props: Props) {
                     <span style={{ color: 'var(--color-text-muted)' }}>Когда</span>
                     <span className="font-medium">
                         {hasDate
-                            ? `${fmtYearMonthFull(targetDate.slice(0, 7))} (через ${offset} мес)`
+                            ? whenLabel(targetDate, currentMonth)
                             : 'срок не задан'}
                     </span>
                 </div>
@@ -233,6 +234,9 @@ export default function WishlistItemCard(props: Props) {
                     }}
                     className="w-full h-2 rounded-full cursor-pointer accent-[hsl(var(--primary))]"
                 />
+                {outsideNote && (
+                    <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{outsideNote}</p>
+                )}
             </div>
 
             {/* PMT / contribution */}
