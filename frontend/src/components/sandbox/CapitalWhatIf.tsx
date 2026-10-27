@@ -42,7 +42,7 @@ interface Props {
  */
 export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
     const sim = useWishlistSimulation(36, refreshSignal);
-    const { data, isLoading, error, refetch, activeMap, overrideMap, composed, futureMonths, actions } = sim;
+    const { data, isLoading, failed, refetch, activeMap, overrideMap, composed, futureMonths, actions } = sim;
     /** После записи — через страницу: она поднимет счётчик, и перечитаются оба блока (ANO-209). */
     const changed = onChanged ?? refetch;
     /** Номера пересчётов по строкам: опоздавший ответ не применяется (ANO-105). */
@@ -59,12 +59,12 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
     // блок грузится; отказ ручки — ошибка с «Повторить». Пришедший раньше НЗ при сбое
     // перечитывания остаётся: это настоящее число, а не догадка.
     const [nzLoaded, setNzLoaded] = useState<number | null>(null);
-    const [nzError, setNzError] = useState<string | null>(null);
+    const [nzFailed, setNzFailed] = useState(false);
     const loadNz = useCallback(() => {
-        setNzError(null);
+        setNzFailed(false);
         fetchPocketSettings()
             .then(s => setNzLoaded(s.bufferAmount))
-            .catch((e: Error) => setNzError(e.message));
+            .catch(() => setNzFailed(true));   // ANO-245: без текста сервера — он по-английски
     }, []);
     useEffect(loadNz, [data, loadNz]);
     /** НЗ для расчёта зон; на экран зоны попадают только с пришедшим НЗ. */
@@ -327,7 +327,7 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
     const currentMonth = data?.baseline.currentMonth ?? '';
     const hasBaseline = !!data && data.baseline.points.length > 0;
     /** Данные есть, а НЗ ещё не пришёл: зоны без него не рисуем (ревью Codex на #134). */
-    const waitsNz = !!data && !isLoading && !error && hasBaseline && nzLoaded == null;
+    const waitsNz = !!data && !isLoading && !failed && hasBaseline && nzLoaded == null;
     /** Что уйдёт в запись при фиксации — подкрученное поверх записанного (ANO-139). */
     const fixView = fixItem && fixPatch(fixItem, overrideMap[fixItem.id]);
 
@@ -337,7 +337,7 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
                 Приблизительно, по месяцам: влияние включённого набора на счёт, капитал и долги.
             </p>
 
-            {(isLoading || (waitsNz && !nzError)) && (
+            {(isLoading || (waitsNz && !nzFailed)) && (
                 <>
                     <div className="rounded-lg h-[88px] animate-pulse" style={{ background: 'var(--color-surface)' }} />
                     <div className="rounded-lg h-[280px] animate-pulse" style={{ background: 'var(--color-surface)' }} />
@@ -345,25 +345,23 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
                 </>
             )}
 
-            {error && (
+            {failed && (
                 <div className="rounded-lg p-4 text-center"
                      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                     <p className="text-sm mb-3">Не удалось загрузить страницу хотелок</p>
-                    <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>{error}</p>
                     <Button onClick={refetch} size="sm">Повторить</Button>
                 </div>
             )}
 
-            {waitsNz && nzError && (
+            {waitsNz && nzFailed && (
                 <div className="rounded-lg p-4 text-center"
                      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                     <p className="text-sm mb-3">Не удалось загрузить НЗ — без него жёлтые месяцы не посчитать</p>
-                    <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>{nzError}</p>
                     <Button onClick={loadNz} size="sm">Повторить</Button>
                 </div>
             )}
 
-            {data && !isLoading && !error && !hasBaseline && (
+            {data && !isLoading && !failed && !hasBaseline && (
                 <div className="rounded-lg p-6 text-center"
                      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                     <p className="text-sm">
@@ -372,7 +370,7 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
                 </div>
             )}
 
-            {data && !isLoading && !error && hasBaseline && nzLoaded != null && (
+            {data && !isLoading && !failed && hasBaseline && nzLoaded != null && (
                 <>
                     {/* key меняется один раз на переходе pending→loaded порогов сервера: форсирует
                         корректный одноразовый (ре)монтаж шапки с серверными значениями, даже если

@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { fmtYearMonthFull } from '../components/strategy/strategyChartUtils';
 
 export default function Strategy() {
-    const { data: timeline, isLoading, error, refetch } = useStrategyTimeline();
+    const { data: timeline, isLoading, failed, refetch } = useStrategyTimeline();
 
     return (
         <div className="px-3 pt-3 pb-6 space-y-3">
@@ -27,23 +27,22 @@ export default function Strategy() {
                 </>
             )}
 
-            {error && (
+            {failed && (
                 <div className="rounded-lg p-4 text-center"
                      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                     <p className="text-sm mb-3">Не удалось загрузить стратегию</p>
-                    <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>{error}</p>
                     <Button onClick={refetch} size="sm">Повторить</Button>
                 </div>
             )}
 
-            {timeline && !isLoading && !error && timeline.points.length === 0 && (
+            {timeline && !isLoading && !failed && timeline.points.length === 0 && (
                 <div className="rounded-lg p-6 text-center"
                      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                     <p className="text-sm">Здесь появится остаток по месяцам, когда вы начнёте записывать события и снимки баланса.</p>
                 </div>
             )}
 
-            {timeline && !isLoading && !error && timeline.points.length > 0 && (
+            {timeline && !isLoading && !failed && timeline.points.length > 0 && (
                 <>
                     <CashflowChartCard timeline={timeline} />
                     <CapitalTrajectoryCard timeline={timeline} />

@@ -10,6 +10,7 @@ import type {
 } from '../types/api';
 import { fmtRub } from '../lib/format';
 import { pocketResult } from '../lib/gapMode';
+import { LOAD_FAILED, writeFailure } from '../lib/writeFailure';
 import {
     defaultTryOn, realizationScope, refKey, sameRef,
 } from '../lib/sandboxMath';
@@ -32,12 +33,6 @@ const SCOPES: { key: string | undefined; label: string }[] = [
 /** Зафиксировано = решение принято: элемент в реальном плане, тумблер заперт. */
 function isFixed(item: SandboxItem): boolean {
     return item.wishlistStatus === 'FIXED';
-}
-
-/** Человеческая часть ошибки: без «API error: 400 /pocket/sandbox — » в лицо. */
-function reason(e: Error): string {
-    const i = e.message.indexOf(' — ');
-    return i >= 0 ? e.message.slice(i + 3) : e.message;
 }
 
 export default function Wishlist() {
@@ -63,7 +58,7 @@ export default function Wishlist() {
     useEffect(() => {
         fetchMe()
             .then(me => { setOwner(me.id); setState(loadSandbox(me.id)); })
-            .catch((e: Error) => setError(reason(e)));
+            .catch(() => setError(LOAD_FAILED));
     }, []);
     useEffect(() => { if (owner) saveSandbox(owner, state); }, [owner, state]);
 
@@ -101,7 +96,7 @@ export default function Wishlist() {
                 // капиталом» ниже) — тогда он уже в baseline и его нельзя слать в tryOn.
                 setState(s => { const n = reconcile(s, r.items); return differs(s, n) ? n : s; });
             })
-            .catch((e: Error) => {
+            .catch(() => {
                 // Возможная причина 400 — протухший ref в черновике (элемент удалён/
                 // сконвертирован на другой странице). Берём ЧИСТЫЙ baseline (без tryOn —
                 // по refs он упасть не может), показываем актуальный список и вычищаем
@@ -114,10 +109,11 @@ export default function Wishlist() {
                         setState(s => { const n = reconcile(s, clean.items); return differs(s, n) ? n : s; });
                         // Заметка живёт до следующего действия пользователя, а не до
                         // следующего успешного запроса — иначе гасла бы через 200 мс (ANO-30).
-                        setNotice(`Примерка сброшена: ${reason(e)}`);
+                        // ANO-245: без текста сервера — он по-английски («tryOn.date обязательна…»).
+                        setNotice('Примерка сброшена — попробуйте ещё раз');
                         setError(null);
                     })
-                    .catch(() => setError(e.message));
+                    .catch(() => setError(LOAD_FAILED));
             });
     }, [request, effectiveScope]);
 
@@ -189,7 +185,7 @@ export default function Wishlist() {
      * Сбой изменения статуса виден пользователю. Черновик при этом НЕ чистим:
      * элемент не изменился, и молчаливая чистка выглядела бы как «кнопка сработала».
      */
-    const failed = (e: Error) => setError(reason(e));
+    const failed = (e: unknown) => setError(writeFailure(e));
 
     /**
      * «Вернуть в обсуждение»: FIXED → OPEN. Единственный выход из запертого состояния —
@@ -274,7 +270,7 @@ export default function Wishlist() {
             {error && (
                 <div className="rounded-lg p-4 text-sm text-center"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                    Ошибка примерки: {error}
+                    {error}
                 </div>
             )}
 

@@ -16,15 +16,16 @@ interface Props {
 
 export default function Capital({ refreshSignal }: Props) {
     const [summary, setSummary] = useState<CapitalSummary | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [loadFailed, setLoadFailed] = useState(false);
     const [sheetMode, setSheetMode] = useState<CapitalSheetMode | null>(null);
     const [theoryOpen, setTheoryOpen] = useState(false);
     const [refreshTick, setRefreshTick] = useState(0);
 
     const reload = useCallback(() => {
+        setLoadFailed(false);
         fetchCapitalSummary()
             .then(setSummary)
-            .catch(e => setError(String(e)));
+            .catch(() => setLoadFailed(true));
     }, []);
 
     useEffect(() => { reload(); }, [reload, refreshSignal, refreshTick]);
@@ -33,7 +34,13 @@ export default function Capital({ refreshSignal }: Props) {
     const openCreate = (kind: CapitalItemKind) => setSheetMode({ type: 'create', kind });
     const openView = (item: CapitalItem) => setSheetMode({ type: 'view', itemId: item.id });
 
-    if (error) return <div className="p-4 text-sm text-red-400">Ошибка: {error}</div>;
+    // ANO-245: «Ошибка: Error: API error: …» — текст сервера по-английски; что сделать, не говорил.
+    if (loadFailed) return (
+        <div className="p-6 text-center">
+            <p className="text-sm mb-3">Не удалось загрузить капитал</p>
+            <Button onClick={() => reload()} size="sm">Повторить</Button>
+        </div>
+    );
     if (!summary) return <div className="p-4 text-sm" style={{ color: 'var(--color-text-muted)' }}>Загрузка…</div>;
 
     const isEmpty = capitalIsEmpty(summary);

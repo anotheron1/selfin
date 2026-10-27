@@ -50,7 +50,8 @@ export interface WishlistSimulationActions {
 export interface UseWishlistSimulationResult {
     data: WishlistSimulationDto | null;
     isLoading: boolean;
-    error: string | null;
+    /** Не загрузилось. Текста ошибки наружу нет: он по-английски (ANO-245). */
+    failed: boolean;
     refetch: () => void;
     activeMap: Record<string, boolean>;
     overrideMap: Record<string, ItemOverride>;
@@ -73,7 +74,7 @@ export interface UseWishlistSimulationResult {
 export function useWishlistSimulation(horizonMonths = 36, refreshSignal = 0): UseWishlistSimulationResult {
     const [data, setData] = useState<WishlistSimulationDto | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [failed, setFailed] = useState(false);
     const [tick, setTick] = useState(0);
 
     const [activeMap, setActiveMap] = useState<Record<string, boolean>>({});
@@ -84,7 +85,7 @@ export function useWishlistSimulation(horizonMonths = 36, refreshSignal = 0): Us
     useEffect(() => {
         let cancelled = false;
         setIsLoading(true);
-        setError(null);
+        setFailed(false);
         fetchWishlistSimulation(horizonMonths)
             .then(d => {
                 if (cancelled) return;
@@ -92,9 +93,9 @@ export function useWishlistSimulation(horizonMonths = 36, refreshSignal = 0): Us
                 setActiveMap(defaultActiveMap(d.items));
                 setOverrideMap({});
             })
-            .catch(e => {
+            .catch(() => {
                 if (cancelled) return;
-                setError(e instanceof Error ? e.message : String(e));
+                setFailed(true);
             })
             .finally(() => {
                 if (cancelled) return;
@@ -161,7 +162,7 @@ export function useWishlistSimulation(horizonMonths = 36, refreshSignal = 0): Us
     return {
         data,
         isLoading,
-        error,
+        failed,
         refetch,
         activeMap,
         overrideMap,

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { AmountInput, amountValue } from '../ui/amount-input';
 import { updatePocketSettings } from '../../api';
 import { NZ_MEANING } from '../../lib/help';
+import { writeFailure } from '../../lib/writeFailure';
 
 const inputStyle = {
     background: 'var(--color-surface-2)',
@@ -37,7 +38,7 @@ export default function NzForm({ initial, onSaved, autoFocus }: {
             await updatePocketSettings({ bufferAmount: value });
             onSaved(value);
         } catch (err) {
-            setError((err as Error).message);
+            setError(writeFailure(err));   // ANO-245: текст сервера — по-английски
         } finally {
             setSaving(false);
         }
