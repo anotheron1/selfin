@@ -1,0 +1,15 @@
+# Выкатка кнопкой (ANO-246): один проход скрипта выкатки — сервер сам переходит на коммит ветки release.
+# Скрипт — копия вне выкачанного дерева: возврат на старый коммит может убрать deploy/release.sh из дерева (ревью Codex
+# на #202), а таймер должен работать и дальше; новую версию себя копия берёт сама после вставшей выкатки.
+# Установка: install -D -m 755 /opt/selfin/deploy/release.sh /usr/local/lib/selfin/release.sh, этот файл и
+# selfin-release.timer — в /etc/systemd/system/. Вручную — systemctl start selfin-release, журнал —
+# journalctl -u selfin-release. Спека: docs/superpowers/specs/2026-10-27-release-button-design.md
+[Unit]
+Description=Selfin: выкатка с ветки release
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=SELFIN_DEPLOY=/opt/selfin/deploy
+ExecStart=/usr/local/lib/selfin/release.sh

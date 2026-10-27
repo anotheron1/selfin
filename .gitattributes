@@ -2,3 +2,4 @@
 # «#!/bin/sh\r», и контейнер копий не запустил бы ни одной команды (шаг 5 плана спринта 6).
 deploy/backup/** text eol=lf
 deploy/*.sh text eol=lf
+deploy/systemd/** text eol=lf
