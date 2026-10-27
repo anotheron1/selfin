@@ -259,6 +259,29 @@ class PocketEngineTest {
     }
 
     @Test
+    @DisplayName("ANO-232: строки впереди с одной датой — в одном порядке при любом порядке входа; синтетика — по имени")
+    void upcoming_sameDateRows_comeInOneOrder() {
+        // Строки впереди приходят из выборки без ORDER BY: одинаковые даты шли в порядке хранения и менялись местами
+        // от чужих записей. Порядок — дата, потом id, а у взносов кармашка id нет — их имя.
+        LocalDate day = TODAY.plusDays(2);
+        EventSnapshot first = planWithId(UUID.fromString("00000000-0000-0000-0000-000000000001"), EventType.EXPENSE, day, 1_000);
+        EventSnapshot second = planWithId(UUID.fromString("00000000-0000-0000-0000-000000000002"), EventType.EXPENSE, day, 2_000);
+        EventSnapshot fundB = contribution(day, 300, "Копилка Б");
+        EventSnapshot fundA = contribution(day, 400, "Копилка А");
+        EventSnapshot today = planNamed(EventType.EXPENSE, TODAY, 500, "сегодня");
+
+        List<BigDecimal> forward = amounts(base().events(today, first, second, fundB, fundA).build());
+        List<BigDecimal> backward = amounts(base().events(fundA, fundB, second, first, today).build());
+
+        assertThat(forward).containsExactly(dec(500), dec(1_000), dec(2_000), dec(400), dec(300));
+        assertThat(backward).isEqualTo(forward);
+    }
+
+    private static List<BigDecimal> amounts(PocketInput in) {
+        return PocketEngine.calculate(in).upcoming().stream().map(PocketResultDto.UpcomingItem::amount).toList();
+    }
+
+    @Test
     @DisplayName("ANO-119: в список идёт непогашенный остаток плана, а не полная сумма")
     void upcoming_partiallySettledPlan_showsRemainder() {
         UUID planId = UUID.randomUUID();
