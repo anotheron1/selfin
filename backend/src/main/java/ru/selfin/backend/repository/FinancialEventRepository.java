@@ -257,7 +257,10 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
               SELECT 1 FROM FinancialEvent f
               WHERE f.parentEventId = e.id AND f.deleted = false
           )
+        ORDER BY e.date, e.id
         """)
+    // ANO-232: порядок — дата, потом id. Без ORDER BY Postgres отдавал строки в порядке хранения, и просрочка на
+    // главном экране и имена в её расшифровке менялись местами от чужих записей.
     List<FinancialEvent> findOverdueMandatoryExpenses(@Param("after") LocalDate after,
                                                       @Param("today") LocalDate today);
 

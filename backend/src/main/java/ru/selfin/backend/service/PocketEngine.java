@@ -37,6 +37,14 @@ public final class PocketEngine {
 
     private static final DateTimeFormatter DD_MM = DateTimeFormatter.ofPattern("dd.MM");
     private static final DateTimeFormatter DD_MM_YYYY = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+    /**
+     * ANO-232: порядок строк впереди — дата, потом id, а у взносов кармашка id нет — их имя. Строки приходят из выборки
+     * без ORDER BY, и одинаковые даты шли в порядке хранения: меняли места от чужих записей.
+     */
+    private static final java.util.Comparator<EventSnapshot> AHEAD_ORDER = java.util.Comparator
+            .comparing(EventSnapshot::date)
+            .thenComparing(EventSnapshot::id, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+            .thenComparing(EventSnapshot::description, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()));
 
     /** Минимальное окно календаря (спека §3.9, ANO-24): короткий горизонт получает информационный хвост. */
     public static final int MIN_CALENDAR_DAYS = 7;
@@ -107,6 +115,7 @@ public final class PocketEngine {
         futurePending(in, settled, in.horizonEnd())
                 .filter(e -> e.type() != EventType.INCOME)
                 .forEach(ahead::add);
+        ahead.sort(AHEAD_ORDER);
         ahead.forEach(e -> upcoming.add(upcomingOf(e, remainderOf(e, settled), false)));
         // Ожидание — расход в плане человека с характером «Ожидание». Перевод в копилку и
         // синтетика носят этот характер не по выбору человека: переводу форма ставит его
