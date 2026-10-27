@@ -108,7 +108,7 @@ export default function ReanchorSheet({ open, onOpenChange, currentBalance, chec
                         <p className="text-sm" style={{ color: driftColor }}>{driftLine}</p>
                     )}
                     {error && (
-                        <p className="text-sm" style={{ color: 'var(--color-danger)' }}>Ошибка: {error}</p>
+                        <p className="text-sm" style={{ color: 'var(--color-danger)' }}>{error}</p>
                     )}
                     <p className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
                         Якорится на сегодня: операции этого дня уже внутри числа из банка.

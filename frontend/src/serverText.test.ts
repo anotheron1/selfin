@@ -43,6 +43,12 @@ describe('текст ошибки на экран не идёт (ANO-245)', () =
         expect(hits).toEqual([]);
     });
 
+    it('фраза отказа — без приставки «Ошибка:»: «Ошибка: Не записалось…» — два раза об одном (ANO-235)', () => {
+        const hits = files.flatMap((f) => f.text.split('\n').flatMap((line, i) =>
+            />\s*Ошибка[^<]*\{/.test(line) ? [`${f.file}:${i + 1}  ${line.trim()}`] : []));
+        expect(hits).toEqual([]);
+    });
+
     it('исключения живые: файл есть, `.message` в нём есть', () => {
         for (const a of ALLOWED) expect(read(a.file), a.file).toMatch(/\.message\b/);
     });
