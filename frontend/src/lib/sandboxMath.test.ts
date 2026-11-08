@@ -106,4 +106,12 @@ describe('примерка с прошедшей датой (ANO-236)', () => {
         expect(row).toMatch(/\{moved && enabled && !locked && \(/);
         expect(row).toMatch(/disabled=\{needsDate \|\| moved != null\}/);
     });
+
+    it('срок «до реализации» — из тех же подставленных дат, что уходят в запрос (ревью Codex на #211)', () => {
+        // По исходным датам срок с прошедшей хотелкой уходил в прошлое, а с ещё одной на 15.11 кончался раньше
+        // 1 декабря — и подставленный отток в расчёт не попадал.
+        const page = readFileSync(new URL('../pages/Wishlist.tsx', import.meta.url), 'utf8');
+        expect(page).toMatch(/\.\.\.state\.enabled\.map\(t => \(t\.date \? tryOnDate\(t\.date, today\) : t\.date\)\)/);
+        expect(realizationScope(['2026-09-01', '2026-11-15'].map(d => tryOnDate(d, '2026-11-08')))).toBe('DATE:2026-12-01');
+    });
 });

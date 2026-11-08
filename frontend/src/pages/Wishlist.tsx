@@ -63,14 +63,19 @@ export default function Wishlist() {
     }, []);
     useEffect(() => { if (owner) saveSandbox(owner, state); }, [owner, state]);
 
-    // Скоуп «до реализации»: max дата включённых датированных элементов (§7).
+    // ANO-236: хотелка с прошедшей датой примеряется на 1-е следующего месяца — сервер ждёт строго будущую.
+    // В черновике дата остаётся своя: подставленную «Зафиксировать» молча не запишет (SandboxItemRow).
+    const today = serverTodayIso(new Date());
+
+    // Скоуп «до реализации»: max дата включённых датированных элементов (§7) — тех же подставленных, что уходят
+    // в запрос: по исходным он с прошедшей хотелкой уходил в прошлое (ревью Codex на #211).
     const realization = useMemo(() => {
         const dates = [
-            ...state.enabled.map(t => t.date),
+            ...state.enabled.map(t => (t.date ? tryOnDate(t.date, today) : t.date)),
             ...state.adhoc.map(t => t.date),
         ];
         return realizationScope(dates);
-    }, [state.enabled, state.adhoc]);
+    }, [state.enabled, state.adhoc, today]);
 
     const effectiveScope = scope === '__REALIZATION__' ? (realization ?? undefined) : scope;
 
@@ -82,9 +87,6 @@ export default function Wishlist() {
 
     // tryOn = включённые (незафиксированные) + ad-hoc. exclude не используется:
     // зафиксированное заперто и живёт в baseline, выключать его примеркой нельзя.
-    // ANO-236: хотелка с прошедшей датой примеряется на 1-е следующего месяца — сервер ждёт строго будущую.
-    // В черновике дата остаётся своя: подставленную «Зафиксировать» молча не запишет (SandboxItemRow).
-    const today = serverTodayIso(new Date());
     const request = useMemo<SandboxRequest>(() => ({
         scope: effectiveScope,
         tryOn: [   // без даты не шлём
