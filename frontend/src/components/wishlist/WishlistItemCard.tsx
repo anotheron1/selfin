@@ -288,7 +288,17 @@ export default function WishlistItemCard(props: Props) {
             {statusError && (
                 <p className="text-xs text-right" style={{ color: 'var(--color-warning)' }}>{statusError}</p>
             )}
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-4">
+                {/* ANO-237: спека модуля 29.05 (§66) обещает переход «в любой момент». С созданным планом или
+                    копилкой обработчик спрашивает, как у «Отложить» (ANO-226); без созданного — сразу. */}
+                {item.status === 'FIXED' && (
+                    <button
+                        onClick={() => onStatusChange('OPEN')}
+                        className="text-xs underline"
+                        style={{ color: 'var(--color-text-muted)' }}>
+                        Вернуть в обсуждение
+                    </button>
+                )}
                 <button
                     onClick={() => onStatusChange('DISMISSED')}
                     className="text-xs underline"
