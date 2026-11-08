@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Check, Lock, RotateCcw, X, SlidersHorizontal } from 'lucide-react';
 import type { SandboxItem, SandboxTryOn } from '../../types/api';
 import { fmtRub } from '../../lib/format';
-import { monthlyFor } from '../../lib/sandboxMath';
+import { monthlyFor, movedTryOnNote, tryOnDate } from '../../lib/sandboxMath';
 
 /**
  * Строка окна примерки (ANO-16 §7, модель уточнена в ANO-30).
@@ -14,7 +14,7 @@ import { monthlyFor } from '../../lib/sandboxMath';
  *   заперты, выход — «вернуть в обсуждение».
  */
 export default function SandboxItemRow({
-    item, enabled, locked, params, onToggle, onParamsChange, onFix, onUnfix, onDismiss,
+    item, enabled, locked, params, today, onToggle, onParamsChange, onFix, onUnfix, onDismiss,
 }: {
     item: SandboxItem;
     enabled: boolean;
@@ -22,6 +22,8 @@ export default function SandboxItemRow({
     locked: boolean;
     /** Текущие параметры примерки (когда enabled и не locked). */
     params: SandboxTryOn | null;
+    /** Сегодня по календарю сервера: прошедшую дату примерка подставляет (ANO-236). */
+    today: string;
     onToggle: (next: boolean) => void;
     onParamsChange: (next: SandboxTryOn) => void;
     onFix: () => void;
@@ -33,6 +35,9 @@ export default function SandboxItemRow({
 
     const amount = params?.amount ?? item.amount ?? 0;
     const date = params?.date ?? item.date ?? '';
+    // ANO-236: прошедшую дату примерка подставляет на 1-е следующего месяца. Зафиксировать её молча нельзя —
+    // кнопка ждёт дату в параметрах, как у хотелки без срока: план получает то, что выбрали, а не подставленное.
+    const moved = date ? movedTryOnNote(date, today) : null;
     const stretch = params?.stretchMonths ?? item.stretchMonthsDefault ?? 0;
     const max = item.stretchMonthsMax ?? 0;
 
@@ -113,6 +118,11 @@ export default function SandboxItemRow({
                     Укажите дату — без неё примерку не посчитать.
                 </p>
             )}
+            {moved && enabled && !locked && (
+                <p className="text-[11px] mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                    {moved}. Чтобы зафиксировать, поставь дату в параметрах.
+                </p>
+            )}
 
             {open && (
                 <div className="mt-2.5 pt-2.5 space-y-2.5"
@@ -158,7 +168,7 @@ export default function SandboxItemRow({
                         ) : enabled ? (
                             // «Зафиксировать» появляется только у включённого в примерку —
                             // так видно, что это следующий шаг ПОСЛЕ примерки, а не её часть.
-                            <button onClick={onFix} disabled={needsDate}
+                            <button onClick={onFix} disabled={needsDate || moved != null}
                                 className="flex-1 flex items-center justify-center gap-1 text-xs py-1.5 rounded-lg disabled:opacity-40"
                                 style={{ background: 'var(--color-accent)', color: 'white' }}>
                                 <Check size={13} /> Зафиксировать в плане

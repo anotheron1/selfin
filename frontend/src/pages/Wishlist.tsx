@@ -11,8 +11,9 @@ import type {
 import { fmtRub } from '../lib/format';
 import { pocketResult } from '../lib/gapMode';
 import { LOAD_FAILED, writeFailure } from '../lib/writeFailure';
+import { serverTodayIso } from '../lib/factDate';
 import {
-    defaultTryOn, realizationScope, refKey, sameRef,
+    defaultTryOn, realizationScope, refKey, sameRef, tryOnDate,
 } from '../lib/sandboxMath';
 import {
     emptyState, loadSandbox, saveSandbox, forgetRef, reconcile, differs, type SandboxState,
@@ -81,11 +82,17 @@ export default function Wishlist() {
 
     // tryOn = включённые (незафиксированные) + ad-hoc. exclude не используется:
     // зафиксированное заперто и живёт в baseline, выключать его примеркой нельзя.
+    // ANO-236: хотелка с прошедшей датой примеряется на 1-е следующего месяца — сервер ждёт строго будущую.
+    // В черновике дата остаётся своя: подставленную «Зафиксировать» молча не запишет (SandboxItemRow).
+    const today = serverTodayIso(new Date());
     const request = useMemo<SandboxRequest>(() => ({
         scope: effectiveScope,
-        tryOn: [...state.enabled, ...state.adhoc].filter(t => t.date), // без даты не шлём
+        tryOn: [   // без даты не шлём
+            ...state.enabled.filter(t => t.date).map(t => ({ ...t, date: tryOnDate(t.date, today) })),
+            ...state.adhoc.filter(t => t.date),
+        ],
         exclude: [],
-    }), [effectiveScope, state]);
+    }), [effectiveScope, state, today]);
 
     const load = useCallback(() => {
         postPocketSandbox(request)
@@ -345,6 +352,7 @@ export default function Wishlist() {
                         enabled={isToggled(item)}
                         locked={isFixed(item)}
                         params={enabledParams(item.ref)}
+                        today={today}
                         onToggle={next => toggle(item, next)}
                         onParamsChange={next => changeParams(item, next)}
                         onFix={() => fix(item)}
