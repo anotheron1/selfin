@@ -156,13 +156,18 @@ class WishlistCountedOnceIT {
     }
 
     @Test
-    @DisplayName("ANO-142: у сконвертированной хотелки-копилки дельты нет — покупку несёт копилка из конверсии")
-    void simulation_convertedFund_noDelta() throws Exception {
-        UUID src = createWishlistFund("Хотелка-копилка ANO-142");
-        UUID saved = convert(src, "SAVINGS", "FUND");
+    @DisplayName("ANO-223: хотелка-копилка фиксируется на месте — копилок столько же, покупку несёт она сама, один раз")
+    void convertFund_fixesInPlace_countedOnce() throws Exception {
+        // До ANO-223 конверсия заводила копию: на «Целях» две карточки с одним именем, а дельта (ANO-142) — у копии.
+        UUID src = createWishlistFund("Хотелка-копилка ANO-223");
+        int fundsBefore = fundsCount();
 
-        assertThat(simulationItem(src).get("delta")).as("исходная: второй раз посчитала бы покупку").isEmpty();
-        assertThat(simulationItem(saved).get("delta")).as("копилка из конверсии — со своей дельтой").isNotEmpty();
+        JsonNode resp = convertResponse(src, "SAVINGS", "FUND");
+
+        assertThat(resp.get("convertedTo").isNull()).as("копии нет — и ссылки на неё").isTrue();
+        assertThat(fundsCount()).as("копилок столько же: двойника на «Целях» нет").isEqualTo(fundsBefore);
+        assertThat(simulationItem(src).get("status").asText()).isEqualTo("FIXED");
+        assertThat(simulationItem(src).get("delta")).as("покупку несёт сама копилка").isNotEmpty();
     }
 
     // ── API, как им пользуется фронт ────────────────────────────────────────
@@ -206,13 +211,24 @@ class WishlistCountedOnceIT {
     }
 
     private UUID convert(UUID id, String sourceKind, String target) throws Exception {
+        return UUID.fromString(convertResponse(id, sourceKind, target).get("convertedTo").get("id").asText());
+    }
+
+    private JsonNode convertResponse(UUID id, String sourceKind, String target) throws Exception {
         String json = mockMvc.perform(post("/api/v1/wishlist/items/{id}/convert", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "sourceKind", sourceKind, "target", target))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        return UUID.fromString(objectMapper.readTree(json).get("convertedTo").get("id").asText());
+        return objectMapper.readTree(json);
+    }
+
+    private int fundsCount() throws Exception {
+        String json = mockMvc.perform(get("/api/v1/funds"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(json).get("funds").size();
     }
 
     private JsonNode strategyPoint() throws Exception {

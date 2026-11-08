@@ -282,12 +282,16 @@ public class WishlistConversionService {
                 artifactKind = "PLAN_EVENT";
             }
             case "FUND" -> {
-                TargetFund saved = fundRepository.save(buildSavingsFund(
-                        src.getName(), src.getTargetAmount(),
-                        req.fundTargetDate() != null ? req.fundTargetDate() : src.getTargetDate()));
-                src.setConvertedToFundId(saved.getId());
-                convertedTo = new WishlistItemDto.ConvertedToDto("FUND", saved.getId());
+                // ANO-223, решение владельца 26.10: копилка фиксируется на месте — как «Кредит» ниже (Р2-Б) и как
+                // «Зафиксировать» в примерке (fixFund). Копия заводила на «Целях» вторую карточку с тем же именем,
+                // со своими деньгами и взносами. Параметры примерки «Что с капиталом» пишет до конверсии.
+                if (req.fundTargetDate() != null) src.setTargetDate(req.fundTargetDate());
+                convertedTo = null;
                 artifactKind = "FUND";
+                // Копия заводилась накоплением; на месте вид меняется у самой копилки, а график кредита, если был,
+                // снимается: копить и платить по кредиту за одну покупку разом нельзя.
+                src.setPurchaseType(FundPurchaseType.SAVINGS);
+                creditPayments.unschedule(src.getId());
             }
             case "FUND_WITH_CREDIT" -> {
                 if (src.getCreditRate() == null
