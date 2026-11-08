@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
-    monthlyFor, monthsFor, refKey, sameRef, realizationScope, defaultTryOn,
+    monthlyFor, monthsFor, refKey, sameRef, realizationScope, defaultTryOn, tryOnDate, movedTryOnNote,
 } from './sandboxMath';
 import type { SandboxItem } from '../types/api';
 
@@ -67,5 +68,50 @@ describe('sandboxMath: defaultTryOn', () => {
         const t = defaultTryOn(item);
         expect(t.date).toBe('');
         expect(t.stretchMonths).toBe(0);
+    });
+});
+
+/**
+ * ANO-236. Хотелка с прошедшей датой не примерялась: строка слала дату как есть, сервер отвечал 400 «tryOn.date
+ * обязательна и строго в будущем», и примерка сбрасывалась. Теперь — на 1-е число следующего месяца, с пометкой,
+ * как карточка «Что с капиталом» подставляет срок хотелке без срока (ANO-29). Правило 5: ответ на устаревших данных.
+ */
+describe('примерка с прошедшей датой (ANO-236)', () => {
+    const today = '2026-10-27';
+
+    it('прошедшая дата и сегодняшняя — на 1-е число следующего месяца: сервер ждёт строго будущую', () => {
+        expect(tryOnDate('2026-09-01', today)).toBe('2026-11-01');
+        expect(tryOnDate('2026-10-27', today)).toBe('2026-11-01');
+        expect(tryOnDate('2026-11-15', '2026-12-10')).toBe('2027-01-01');
+    });
+
+    it('будущая дата — как есть', () => {
+        expect(tryOnDate('2026-10-28', today)).toBe('2026-10-28');
+        expect(tryOnDate('2027-09-06', today)).toBe('2027-09-06');
+    });
+
+    it('пометка — о дате, а не о человеке; у будущей даты её нет', () => {
+        expect(movedTryOnNote('2026-09-01', today)).toBe('Дата прошла — примеряю на 1 ноября');
+        expect(movedTryOnNote('2026-10-27', today)).toBe('Дата сегодня — примеряю на 1 ноября');
+        expect(movedTryOnNote('2026-10-28', today)).toBeNull();
+    });
+
+    it('страница шлёт подставленную дату только у хотелок; строка показывает пометку и не фиксирует молча (сторож)', () => {
+        const page = readFileSync(new URL('../pages/Wishlist.tsx', import.meta.url), 'utf8');
+        expect(page).toMatch(/state\.enabled\.filter\(t => t\.date\)\.map\(t => \(\{ \.\.\.t, date: tryOnDate\(t\.date, today\) \}\)\)/);
+        expect(page).toMatch(/const today = serverTodayIso\(new Date\(\)\);/);
+        expect(page).toMatch(/today=\{today\}/);
+        const row = readFileSync(new URL('../components/sandbox/SandboxItemRow.tsx', import.meta.url), 'utf8');
+        expect(row).toMatch(/const moved = date \? movedTryOnNote\(date, today\) : null;/);
+        expect(row).toMatch(/\{moved && enabled && !locked && \(/);
+        expect(row).toMatch(/disabled=\{needsDate \|\| moved != null\}/);
+    });
+
+    it('срок «до реализации» — из тех же подставленных дат, что уходят в запрос (ревью Codex на #211)', () => {
+        // По исходным датам срок с прошедшей хотелкой уходил в прошлое, а с ещё одной на 15.11 кончался раньше
+        // 1 декабря — и подставленный отток в расчёт не попадал.
+        const page = readFileSync(new URL('../pages/Wishlist.tsx', import.meta.url), 'utf8');
+        expect(page).toMatch(/\.\.\.state\.enabled\.map\(t => \(t\.date \? tryOnDate\(t\.date, today\) : t\.date\)\)/);
+        expect(realizationScope(['2026-09-01', '2026-11-15'].map(d => tryOnDate(d, '2026-11-08')))).toBe('DATE:2026-12-01');
     });
 });

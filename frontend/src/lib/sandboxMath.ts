@@ -1,4 +1,5 @@
 import type { SandboxItem, SandboxRef, SandboxTryOn } from '../types/api';
+import { fmtDayMonth } from './format';
 
 /**
  * Производные для ползунка растяжки и скоуп-чипа. НИКАКИХ правил движка —
@@ -42,6 +43,29 @@ export function realizationScope(dates: (string | null | undefined)[]): string |
 // Дата цели при фиксации растянутой примерки (§8) считается на СЕРВЕРЕ —
 // SandboxLayout.stretchTargetDate. Клиентская копия убрана вместе с ANO-34 §1:
 // два независимых правила разъехались бы, а движок всё равно верит только своему.
+
+/** 1-е число месяца после месяца даты. */
+function firstOfNextMonth(iso: string): string {
+    const [y, m] = iso.split('-').map(Number);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+}
+
+/**
+ * Дата, на которую хотелку примеряют (ANO-236). Сервер ждёт строго будущую («tryOn.date обязательна и строго
+ * в будущем»), а у хотелки срок мог пройти — тогда 1-е число следующего месяца, как карточка «Что с капиталом»
+ * подставляет срок хотелке без срока (ANO-29). Правило 5: ответ на устаревших данных, а не отказ.
+ *
+ * @param today сегодня по календарю сервера — по нему он судит «в будущем»
+ */
+export function tryOnDate(date: string, today: string): string {
+    return date > today ? date : firstOfNextMonth(today);
+}
+
+/** Пометка у строки, если дату подставили: о дате, а не о человеке (правило 12). */
+export function movedTryOnNote(date: string, today: string): string | null {
+    if (date > today) return null;
+    return `${date === today ? 'Дата сегодня' : 'Дата прошла'} — примеряю на ${fmtDayMonth(tryOnDate(date, today))}`;
+}
 
 /** Дефолтный tryOn для item (из серверных дефолтов §4). */
 export function defaultTryOn(item: SandboxItem): SandboxTryOn {
