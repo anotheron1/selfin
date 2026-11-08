@@ -289,9 +289,11 @@ public class WishlistConversionService {
                 convertedTo = null;
                 artifactKind = "FUND";
                 // Копия заводилась накоплением; на месте вид меняется у самой копилки, а график кредита, если был,
-                // снимается: копить и платить по кредиту за одну покупку разом нельзя.
-                src.setPurchaseType(FundPurchaseType.SAVINGS);
+                // снимается: копить и платить по кредиту за одну покупку разом нельзя. Снимается ДО смены вида, как
+                // в TargetFundService.update: правило ищется у копилок-кредитов, а смену вида Hibernate сбросит
+                // в базу перед этим запросом — и правило не найдётся (ревью Codex на #213).
                 creditPayments.unschedule(src.getId());
+                src.setPurchaseType(FundPurchaseType.SAVINGS);
             }
             case "FUND_WITH_CREDIT" -> {
                 if (src.getCreditRate() == null
