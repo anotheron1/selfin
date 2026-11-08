@@ -222,6 +222,47 @@ class WishlistConversionServiceTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("ANO-223: «Копилка» у хотелки-копилки фиксирует её на месте — копии и ссылки конверсии нет")
+    void convert_fundSourceToFund_fixesInPlace() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder().id(id).name("цукцку")
+                .purchaseType(FundPurchaseType.SAVINGS).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("131231")).targetDate(LocalDate.now().plusMonths(3)).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        when(fundRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        var resp = service.convertItem(id, new ConvertWishlistRequestDto("SAVINGS", "FUND", false));
+
+        // Копия заводила на «Целях» вторую карточку с тем же именем: деньги и взносы у неё свои.
+        assertThat(src.getWishlistStatus()).isEqualTo(WishlistStatus.FIXED);
+        assertThat(src.getConvertedToFundId()).as("копии нет").isNull();
+        assertThat(resp.convertedTo()).isNull();
+        verify(fundRepo).save(src);
+        verify(fundRepo, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("ANO-223: «Копилка» у хотелки-кредита — та же копилка становится накоплением, будущие платежи сняты")
+    void convert_creditSourceToFund_becomesSavingsInPlace() {
+        UUID id = UUID.randomUUID();
+        TargetFund src = TargetFund.builder().id(id).name("Машина")
+                .purchaseType(FundPurchaseType.CREDIT).wishlistStatus(WishlistStatus.OPEN)
+                .targetAmount(new BigDecimal("2000000")).targetDate(LocalDate.now().plusMonths(2))
+                .creditRate(new BigDecimal("16.5")).creditTermMonths(60).build();
+        when(fundRepo.findById(id)).thenReturn(Optional.of(src));
+        when(fundRepo.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.convertItem(id, new ConvertWishlistRequestDto("CREDIT", "FUND", false));
+
+        // Копия заводилась накоплением (buildSavingsFund); на месте вид меняется у самой копилки, как у
+        // «Кредита» наоборот, а график, если был, снимается — копить и платить по кредиту разом нельзя.
+        assertThat(src.getPurchaseType()).isEqualTo(FundPurchaseType.SAVINGS);
+        assertThat(src.getConvertedToFundId()).as("копии нет").isNull();
+        verify(eventRepo).findCreditPaymentRuleIds(id);
+        verify(fundRepo, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
     @org.junit.jupiter.api.DisplayName("ANO-188: платёж по кредиту — бронь: сумма и дата известны заранее, пропущенный держится в резерве")
     void convert_creditWithRecurring_paymentRuleIsBooking() {
         UUID id = UUID.randomUUID();

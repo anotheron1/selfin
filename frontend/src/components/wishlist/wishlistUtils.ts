@@ -247,6 +247,19 @@ const TERM_MAX = 360;
 /** Задано ли число. NaN и бесконечность в JSON уходят пустыми — для сервера их нет. */
 const given = (v: number | null | undefined): v is number => Number.isFinite(v);
 
+/**
+ * Подпись пункта в диалоге фиксации. У хотелки-копилки и хотелки-кредита «Копилка» фиксирует ту же копилку на месте
+ * (ANO-223) — пункт говорит это, как у «Кредита» «график ставится на эту же копилку» (Р2-Б, ANO-40). У хотелки-события
+ * «Копилка» заводит новую — это не двойник.
+ */
+export function conversionLabel(target: ConvertTarget, kind: WishlistKind): string {
+    switch (target) {
+        case 'PLAN_EVENT': return 'Плановое событие';
+        case 'FUND': return kind === 'WISHLIST' ? 'Копилка' : 'Копилка (эта же)';
+        case 'FUND_WITH_CREDIT': return 'Кредит (график платежей)';
+    }
+}
+
 /** Прежняя цель по умолчанию — по виду хотелки. */
 const PREFERRED: Record<WishlistKind, ConvertTarget> = {
     WISHLIST: 'PLAN_EVENT',

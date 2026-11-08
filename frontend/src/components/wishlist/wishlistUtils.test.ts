@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {
     composeTimeline, scaleDelta, riskZones, calcPMT, canConfirmConversion, fixPatch, defaultActiveMap,
     effectiveDelta, conversionChoice, recurringPaymentsFor, dismissedNotice, trialParams, dismissQuestion,
-    recomputeBasis, effectiveContribution, nzZoneText, whenLabel, whenOutsideNote,
+    recomputeBasis, effectiveContribution, nzZoneText, whenLabel, whenOutsideNote, conversionLabel,
 } from './wishlistUtils';
 import { fmtRub } from '../strategy/strategyChartUtils';
 import type { MonthDelta, WishlistItem } from '../../types/api';
@@ -202,7 +202,8 @@ describe('график платежей — только у «Кредита» (
         // Правило 13: одна вещь — одно имя; «график платежей» говорят банки.
         expect(dialog()).toContain('Создать график платежей');
         // Р2-Б (ANO-40): копилка больше не заводится — график ставится на ту же; слово «копилка» обманывало.
-        expect(dialog()).toContain("'Кредит (график платежей)'");
+        // Подписи пунктов с ANO-223 — в conversionLabel.
+        expect(conversionLabel('FUND_WITH_CREDIT', 'CREDIT')).toBe('Кредит (график платежей)');
         expect(dialog()).not.toContain('копилка + график');
         expect(dialog()).not.toMatch(/\(recurring\)/);
     });
@@ -729,5 +730,29 @@ describe('«Вернуть в обсуждение» у зафиксирован
     it('с созданным — вопрос ANO-226, без — сразу: обработчик спрашивает и для возврата', () => {
         expect(read('../sandbox/CapitalWhatIf.tsx'))
             .toMatch(/\(status === 'DISMISSED' \|\| status === 'OPEN'\) && dismissQuestion\(item\)/);
+    });
+});
+
+/**
+ * ANO-223. «Копилка» в диалоге фиксации у хотелки-копилки заводила вторую копилку с тем же именем. Теперь сервер
+ * фиксирует её на месте, и пункт говорит это: «Копилка (эта же)» — как у «Кредита» «график ставится на эту же
+ * копилку». У хотелки-события «Копилка» по-прежнему заводит новую — это не двойник.
+ */
+describe('пункт «Копилка» в диалоге фиксации (ANO-223)', () => {
+    it('у хотелки-копилки и хотелки-кредита — «эта же», у хотелки-события — новая', () => {
+        expect(conversionLabel('FUND', 'SAVINGS')).toBe('Копилка (эта же)');
+        expect(conversionLabel('FUND', 'CREDIT')).toBe('Копилка (эта же)');
+        expect(conversionLabel('FUND', 'WISHLIST')).toBe('Копилка');
+    });
+
+    it('остальные пункты — прежние', () => {
+        expect(conversionLabel('PLAN_EVENT', 'SAVINGS')).toBe('Плановое событие');
+        expect(conversionLabel('FUND_WITH_CREDIT', 'CREDIT')).toBe('Кредит (график платежей)');
+    });
+
+    it('диалог берёт подписи отсюда (сторож по исходнику)', () => {
+        const dialog = readFileSync(new URL('./FixWishlistDialog.tsx', import.meta.url), 'utf8');
+        expect(dialog).toMatch(/\{conversionLabel\(t, item\.kind\)\}/);
+        expect(dialog).not.toMatch(/TARGET_LABEL/);
     });
 });

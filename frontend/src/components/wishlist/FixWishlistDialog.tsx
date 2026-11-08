@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import type { WishlistItem } from '../../types/api';
-import { canConfirmConversion, conversionChoice, recurringPaymentsFor, type ConvertTarget } from './wishlistUtils';
+import { canConfirmConversion, conversionChoice, conversionLabel, recurringPaymentsFor, type ConvertTarget } from './wishlistUtils';
 
 export type { ConvertTarget };
 
@@ -21,13 +21,6 @@ interface Props {
     /** Зафиксировать без конверсии (статус FIXED, артефакт не создаётся). */
     onFixWithoutConversion: () => void;
 }
-
-const TARGET_LABEL: Record<ConvertTarget, string> = {
-    PLAN_EVENT: 'Плановое событие',
-    FUND: 'Копилка',
-    // Р2-Б (ANO-40): график ставится на эту же копилку — новой не заводится.
-    FUND_WITH_CREDIT: 'Кредит (график платежей)',
-};
 
 /**
  * Диалог фиксации хотелки: выбор цели конверсии — только той, что примет сервер (ANO-141),
@@ -74,7 +67,7 @@ export default function FixWishlistDialog({ open, item, busy, error, onClose, on
                                 checked={target === t}
                                 onChange={() => setTarget(t)}
                             />
-                            {TARGET_LABEL[t]}
+                            {conversionLabel(t, item.kind)}
                         </label>
                     ))}
                     {target === 'PLAN_EVENT' && (

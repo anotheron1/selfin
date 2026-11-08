@@ -187,6 +187,33 @@ class CreditPaymentsIT {
     }
 
     @Test
+    @DisplayName("ANO-223: «Копилка (эта же)» у кредита с графиком — копилка становится накоплением, будущие платежи сняты")
+    void dialogFund_onScheduledCredit_unschedulesBeforeBecomingSavings() throws Exception {
+        // Ревью Codex на #213: правило графика ищется у копилок-кредитов (findCreditPaymentRuleIds), а смену вида
+        // Hibernate сбрасывает в базу перед этим запросом. Сменить вид раньше снятия — и правило не найдётся: будущие
+        // платежи кредита остались бы в плане рядом с накоплением. Моки этого не видят — только настоящая база.
+        TargetFund c = credit(WishlistStatus.OPEN, purchase);
+        mockMvc.perform(post("/api/v1/wishlist/items/" + c.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceKind":"CREDIT","target":"FUND_WITH_CREDIT","createRecurringPayments":true}"""))
+                .andExpect(status().isOk());
+        assertThat(livePayments(c.getId())).hasSize(12);
+
+        mockMvc.perform(post("/api/v1/wishlist/items/" + c.getId() + "/convert")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceKind":"CREDIT","target":"FUND"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.convertedTo").isEmpty());
+
+        TargetFund after = fundRepository.findById(c.getId()).orElseThrow();
+        assertThat(after.getPurchaseType()).isEqualTo(FundPurchaseType.SAVINGS);
+        assertThat(fundRepository.count()).as("копии нет").isEqualTo(1);
+        assertThat(livePayments(c.getId())).as("будущих платежей кредита в плане нет").isEmpty();
+    }
+
+    @Test
     @DisplayName("Р2-Б: диалог «Кредит» без галочки «Создать график платежей» — фиксация без графика")
     void dialogCredit_withoutPayments_noSchedule() throws Exception {
         TargetFund c = credit(WishlistStatus.OPEN, purchase);
