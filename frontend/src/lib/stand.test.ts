@@ -19,7 +19,7 @@ const BUTTON = 'Войти без Telegram';
 const NOTE = 'Только на стенде';
 const OWN = ['127.0.0.1', 'localhost', '[::1]'];
 /** Сервер и адреса, похожие на «свои»: имя с localhost в начале, адрес этой машины внутри чужого имени, пусто. */
-const FOREIGN = ['selfin.duckdns.org', 'localhost.example.com', '127.0.0.1.nip.io', 'notlocalhost', ''];
+const FOREIGN = ['selfin.example.org', 'localhost.example.com', '127.0.0.1.nip.io', 'notlocalhost', ''];
 
 /** Экран входа, каким его покажет страница с этим адресом. */
 function screenAt(hostname: string): string {
