@@ -35,7 +35,10 @@ describe('согласие: проводка экрана', () => {
     it('без галочки кнопка Telegram неактивна; галочка уходит на сервер до перехода на вход', () => {
         const signIn = source('../pages/SignIn.tsx');
         expect(signIn).toMatch(/disabled=\{!agreed/);
-        expect(signIn).toMatch(/await giveConsent\(\);\s*window\.location\.assign\(SIGN_IN_WITH_TELEGRAM\)/);
+        // Адрес перехода — параметром: тем же путём идёт кнопка стенда (stand.test.ts). Адрес сверяется вместе с
+        // подписью кнопки — иначе перепутанные адреса двух кнопок сторож бы пропустил.
+        expect(signIn).toMatch(/onClick=\{\(\) => signIn\(SIGN_IN_WITH_TELEGRAM\)\}>Войти через Telegram</);
+        expect(signIn).toMatch(/await giveConsent\(\);\s*window\.location\.assign\(to\)/);
     });
 
     it('на 403 «нужно согласие» клиент уводит на экран входа', () => {

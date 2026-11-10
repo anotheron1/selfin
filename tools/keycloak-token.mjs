@@ -16,6 +16,9 @@
 // теряет вошедших людей. Чего нет — заводит, что есть — не трогает; клиента скриптов — перезаписывает, чтобы
 // его настройка доходила и до старых стендов.
 //
+// Там же включает регистрацию на странице Keycloak (спека 2026-11-10-stand-sign-in-design.md): на стенде новый
+// человек заводится с нуля руками — кнопка «Войти без Telegram» экрана входа, потом «Регистрация».
+//
 // Админ Keycloak — admin / KC_ADMIN_PASSWORD (без него — admin), секрет клиента selfin — SELFIN_CLIENT_SECRET
 // (без него — selfin-dev-secret), как в docker-compose.test.yml.
 
@@ -46,9 +49,13 @@ export async function realmIssuer(keycloak) {
 
 const form = (fields) => ({ method: 'POST', body: new URLSearchParams(fields) });
 
-async function json(response, what) {
+async function ok(response, what) {
   if (!response.ok) throw new Error(`${what}: ${response.status} ${await response.text()}`);
-  return response.json();
+  return response;
+}
+
+async function json(response, what) {
+  return (await ok(response, what)).json();
 }
 
 /** Токен администратора Keycloak — из реалма master. */
@@ -81,7 +88,17 @@ export async function ensureScriptsClient(keycloak, admin) {
   });
 }
 
-/** Заводит недостающее в реалме и выдаёт токен скриптов — токен тестового человека. */
+/**
+ * Регистрация на странице Keycloak — одним полем: остальные настройки реалма такой PUT не меняет (замер 10.11, 107
+ * ключей верхнего уровня). Файл реалма целиком не отправляем: реалм стенда правился через Admin API и с файлом расходится.
+ */
+const allowRegistration = async (kc, admin) => ok(await fetch(`${kc}/admin/realms/selfin`, {
+  method: 'PUT',
+  headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ registrationAllowed: true }),
+}), 'регистрация в реалме selfin');
+
+/** Заводит недостающее в реалме, включает регистрацию и выдаёт токен скриптов — токен тестового человека. */
 export async function scriptsToken(keycloak = 'http://127.0.0.1:8180') {
   const kc = keycloak.replace(/\/$/, '');
   const issuer = await realmIssuer(kc);
@@ -102,6 +119,7 @@ export async function scriptsToken(keycloak = 'http://127.0.0.1:8180') {
     }],
   });
   await ensureScriptsClient(kc, admin);
+  await allowRegistration(kc, admin);
 
   const token = await json(await fetch(`${kc}/realms/selfin/protocol/openid-connect/token`, form({
     grant_type: 'password', client_id: SCRIPTS.clientId, client_secret: SCRIPTS.secret,

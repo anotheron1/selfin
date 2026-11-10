@@ -6,7 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ownIssuer } from './keycloak-token.mjs';
+import { createServer } from 'node:http';
+import { ownIssuer, scriptsToken } from './keycloak-token.mjs';
 
 const realm = JSON.parse(readFileSync(new URL('../keycloak/selfin-realm.json', import.meta.url), 'utf8'));
 const telegram = realm.identityProviders?.find((p) => p.alias === 'telegram');
@@ -113,4 +114,58 @@ test('тестового человека заводят только в сво�
     'https://localhost:8443/auth/realms/selfin', 'http://[::1]:8180/realms/selfin']) assert.ok(ownIssuer(own), own);
   for (const server of ['https://selfin.duckdns.org/auth/realms/selfin', 'https://localhost.example.com/auth/realms/selfin',
     'https://127.0.0.1.nip.io/auth/realms/selfin']) assert.ok(!ownIssuer(server), server);
+});
+
+// Вход на стенде без Telegram (спека 2026-11-10-stand-sign-in-design.md). Файл реалма идёт и на сервер
+// (deploy/docker-compose.yml), поэтому регистрацию на странице Keycloak включает на стенде инструмент, а не файл.
+test('регистрации и людей в файле нет: файл идёт на сервер, а там вход — только через Telegram', () => {
+  assert.ok([undefined, false].includes(realm.registrationAllowed), `registrationAllowed — ${realm.registrationAllowed}`);
+  assert.deepEqual(realm.users ?? [], [], 'людей в файле нет');
+});
+
+/** Подставной Keycloak: называет издателя реалма selfin, на остальное отвечает успехом и запоминает запросы. */
+async function fakeKeycloak(issuerAt) {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    requests.push({ method: request.method, path: request.url, body });
+    const reply = (status, answer) => {
+      response.writeHead(status, { 'Content-Type': 'application/json' });
+      response.end(answer === undefined ? '' : JSON.stringify(answer));
+    };
+    if (request.url.endsWith('/.well-known/openid-configuration')) return reply(200, { issuer: issuerAt(address()) });
+    // Токен — латиницей: он уходит в заголовок Authorization следующих запросов.
+    if (request.url.endsWith('/protocol/openid-connect/token')) return reply(200, { access_token: 'token' });
+    return request.method === 'PUT' ? reply(204) : reply(200, {});
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = () => `http://127.0.0.1:${server.address().port}`;
+  return {
+    address: address(),
+    requests,
+    close: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }),
+  };
+}
+
+test('в своём Keycloak инструмент включает регистрацию — одним полем: остальные настройки реалма не трогает', async () => {
+  const keycloak = await fakeKeycloak((address) => `${address}/realms/selfin`);
+  try {
+    await scriptsToken(keycloak.address);
+    assert.deepEqual(keycloak.requests.filter((r) => r.method === 'PUT').map((r) => [r.path, JSON.parse(r.body)]),
+      [['/admin/realms/selfin', { registrationAllowed: true }]]);
+  } finally {
+    await keycloak.close();
+  }
+});
+
+test('в чужом Keycloak инструмент не заводит ничего — ни тестового человека, ни регистрации: после издателя ни одного запроса', async () => {
+  const keycloak = await fakeKeycloak(() => 'https://selfin.example/auth/realms/selfin');
+  try {
+    await assert.rejects(scriptsToken(keycloak.address), /не на этой машине/);
+    assert.deepEqual(keycloak.requests.map((r) => `${r.method} ${r.path}`),
+      ['GET /realms/selfin/.well-known/openid-configuration']);
+  } finally {
+    await keycloak.close();
+  }
 });

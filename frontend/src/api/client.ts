@@ -13,6 +13,11 @@ const SIGN_IN_SCREEN = '/login';
  * превращает в `kc_idp_hint` — Keycloak сразу уводит к Telegram, без своей страницы (ANO-152).
  */
 export const SIGN_IN_WITH_TELEGRAM = '/oauth2/authorization/keycloak?provider=telegram';
+/**
+ * Тот же вход без `provider`: подсказки нет, и Keycloak показывает свою страницу — форму имени и пароля и, где она
+ * включена, регистрацию. Кнопка с этим адресом — только на стенде (`lib/stand.ts`): на сервере по паролю входить некому.
+ */
+export const SIGN_IN_ON_STAND = '/oauth2/authorization/keycloak';
 
 /**
  * CSRF-токен для изменяющего запроса: сервер кладёт его в cookie `XSRF-TOKEN`, фронт возвращает
