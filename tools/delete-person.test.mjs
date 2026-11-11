@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
   deletionSql, journalEntries, journalLine, keepJournal, prunedJournal, tableSetProblems, JOURNAL_DAYS, PERSON_TABLES,
 } from './delete-person.mjs';
+import { findUser } from './second-person.mjs';
 
 const SOURCE = readFileSync(new URL('./delete-person.mjs', import.meta.url), 'utf8');
 
@@ -50,6 +51,18 @@ test('в SQL идёт только id, не произвольная строк�
 
 test('синтетического владельца не удаляет: это история владельца, на стенде — копия', () => {
   assert.throws(() => deletionSql({ userId: '00000000-0000-0000-0000-000000000001', kcId: KC }), /синтетическ/);
+});
+
+test('пустое имя — отказ до Keycloak: на пустое имя он отдаёт всех, и удалился бы первый человек реалма (11.11)', async () => {
+  const calls = [];
+  const saved = globalThis.fetch;
+  globalThis.fetch = async (...args) => { calls.push(args); throw new Error('Keycloak звать не должен'); };
+  try {
+    for (const name of ['', '  ', undefined]) await assert.rejects(findUser('admin', name), /имя пустое/);
+  } finally {
+    globalThis.fetch = saved;
+  }
+  assert.equal(calls.length, 0);
 });
 
 test('строка журнала владельца — когда, чей реалм, sub и наш id (шаг 5)', () => {

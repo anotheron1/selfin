@@ -44,6 +44,8 @@ export async function api(token, method, path, body) {
 
 /** Учётная запись Keycloak по имени — или undefined. */
 export async function findUser(admin, username) {
+  // Keycloak на пустое имя отдаёт всех, и первым взялся бы чужой человек (11.11 так удалён человек стенда).
+  if (!username?.trim()) throw new Error('имя пустое — укажи имя человека или --sub');
   const response = await adminCall(admin, 'GET', `/users?username=${encodeURIComponent(username)}&exact=true`);
   if (!response.ok) throw new Error(`поиск ${username} в Keycloak: ${response.status} ${await response.text()}`);
   return (await response.json())[0];
