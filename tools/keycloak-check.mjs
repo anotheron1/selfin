@@ -71,7 +71,11 @@ for (const path of ['/auth/admin/', '/auth/realms/master/', '/auth/realms/selfin
 
 // ── Вход в selfin через наш сервер (ANO-195) ─────────────────────────────────────────────────
 // Тестовый человек — только свой Keycloak: на сервере он открыл бы вход в обход Telegram (ревью Codex на #171).
+// Регистрация на странице входа — тоже только в своём (спека 2026-11-10-stand-sign-in-design.md): файл реалма её не
+// включает, но реалм сервера живёт в базе Keycloak — вживую его видно только отсюда.
+const REGISTRATION = /login-actions\/registration/;
 if (!ownIssuer(issuer)) {
+  check(!REGISTRATION.test(html), 'чужой Keycloak: регистрации на странице входа нет — вход только через Telegram');
   console.log(`вход тестовым человеком пропущен: ${issuer} — Keycloak не на этой машине, ничего не заведено`);
   console.log(problems.length ? `Итог: не сходится — ${problems.length}` : 'Итог: до входа сходится');
   process.exit(problems.length ? 1 : 0);
@@ -119,8 +123,10 @@ check(toKeycloak.searchParams.get('code_challenge_method') === 'S256', `PKCE S25
 check(toKeycloak.searchParams.get('redirect_uri') === `${APP}/login/oauth2/code/keycloak`, `возврат — ${toKeycloak.searchParams.get('redirect_uri')}`);
 
 const form = await go(toKeycloak, jar.kc);
-const action = (await form.text()).match(/<form[^>]*id="kc-form-login"[^>]*action="([^"]+)"/)?.[1]?.replaceAll('&amp;', '&');
+const formHtml = await form.text();
+const action = formHtml.match(/<form[^>]*id="kc-form-login"[^>]*action="([^"]+)"/)?.[1]?.replaceAll('&amp;', '&');
 check(Boolean(action), `у Keycloak форма пароля — ${form.status}`);
+check(REGISTRATION.test(formHtml), 'свой Keycloak: страница входа предлагает регистрацию — новый человек с нуля');
 const back = await go(action, jar.kc, {
   method: 'POST',
   headers: { 'content-type': 'application/x-www-form-urlencoded' },

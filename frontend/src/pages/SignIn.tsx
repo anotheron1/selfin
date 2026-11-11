@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { giveConsent, SIGN_IN_WITH_TELEGRAM } from '../api/client';
+import { giveConsent, SIGN_IN_ON_STAND, SIGN_IN_WITH_TELEGRAM } from '../api/client';
 import { Button } from '../components/ui/button';
+import { isOwnMachine } from '../lib/stand';
 
 const muted = { color: 'var(--color-text-muted)' };
 
@@ -12,18 +13,23 @@ const muted = { color: 'var(--color-text-muted)' };
  * Согласие (ANO-196): без галочки кнопка неактивна — без красных надписей (правило 12). Галочка уходит на сервер до
  * Keycloak, и только с ней сервер пускает дальше. Ставится при каждом входе: до входа сервер не знает, кто пришёл.
  * Сюда же уводит 403 «нужно согласие» — вошедшему, которого сервер ещё не завёл.
+ *
+ * Стенд (спека 2026-11-10-stand-sign-in-design.md): с адреса этой машины экран показывает ещё «Войти без Telegram» — тот
+ * же путь с галочкой, но без подсказки провайдера: страница Keycloak с формой имени и пароля и регистрацией. На сервере
+ * кнопки нет — его экран открыт с публичного имени.
  */
 export default function SignIn() {
     const [agreed, setAgreed] = useState(false);
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState(false);
+    const stand = isOwnMachine(globalThis.location?.hostname ?? '');
 
-    const signIn = async () => {
+    const signIn = async (to: string) => {
         setBusy(true);
         setFailed(false);
         try {
             await giveConsent();
-            window.location.assign(SIGN_IN_WITH_TELEGRAM);
+            window.location.assign(to);
         } catch {
             setFailed(true);
             setBusy(false);
@@ -42,9 +48,15 @@ export default function SignIn() {
                         <a href="/consent" target="_blank" rel="noopener" className="underline">обработку персональных данных</a>
                     </span>
                 </label>
-                <Button className="w-full" disabled={!agreed || busy} onClick={signIn}>Войти через Telegram</Button>
+                <Button className="w-full" disabled={!agreed || busy} onClick={() => signIn(SIGN_IN_WITH_TELEGRAM)}>Войти через Telegram</Button>
                 <Button variant="outline" className="w-full" disabled>Яндекс ID — скоро</Button>
                 <Button variant="outline" className="w-full" disabled>VK ID — скоро</Button>
+                {stand && (
+                    <>
+                        <Button variant="outline" className="w-full" disabled={!agreed || busy} onClick={() => signIn(SIGN_IN_ON_STAND)}>Войти без Telegram</Button>
+                        <p className="text-xs text-center" style={muted}>Только на стенде: тестовый человек или регистрация нового.</p>
+                    </>
+                )}
                 {failed && <p className="text-xs text-center" style={muted}>Не получилось — обновите страницу и попробуйте ещё раз.</p>}
             </div>
             <p className="text-xs text-center max-w-xs" style={muted}>
