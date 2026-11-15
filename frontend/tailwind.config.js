@@ -1,3 +1,5 @@
+import { sfTheme } from "./src/ds/theme"
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
@@ -41,12 +43,19 @@ export default {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
         },
+        ...sfTheme.colors,
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        ...sfTheme.borderRadius,
       },
+      // Дизайн-система Selfin (src/ds): классы с приставкой sf, старые экраны их не используют.
+      fontFamily: sfTheme.fontFamily,
+      fontSize: sfTheme.fontSize,
+      boxShadow: sfTheme.boxShadow,
+      spacing: sfTheme.spacing,
     },
   },
   plugins: [require("tailwindcss-animate")],
