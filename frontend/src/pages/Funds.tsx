@@ -575,7 +575,7 @@ export default function Funds({ refreshSignal }: { refreshSignal?: number }) {
 
     return (
         <>
-            <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
+            <ScrollArea>
             <div className="px-4 py-6 space-y-5">
                 {/* Кармашек — единый расчёт из GET /pocket (ANO-12) */}
                 <PocketCard onData={(p, s) => { setPocket(p); setPocketScope(s); }}

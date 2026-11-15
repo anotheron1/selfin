@@ -45,7 +45,7 @@ export default function ExpectationCards({ cards, onLine }: Props) {
                         {card.lines.map((line) => (
                             <button key={line.id} type="button" onClick={() => onLine(line.event)}
                                 title="Записать факт"
-                                className="text-xs px-2.5 min-h-8 rounded-full hover:bg-white/5"
+                                className="text-xs px-2.5 min-h-8 rounded-full hover:bg-black/[.04]"
                                 style={{
                                     border: '1px solid var(--color-border)',
                                     color: line.recorded ? 'var(--color-text-muted)' : 'var(--color-text)',

@@ -42,7 +42,7 @@ export default function CashflowChart({ points, currentMonth, showFan, showNetto
                         type="monotone"
                         dataKey="balanceRange"
                         stroke="none"
-                        fill="rgba(108, 99, 255, 0.12)"
+                        fill="rgba(47, 107, 85, 0.12)"
                         isAnimationActive={false}
                     />
                 )}
@@ -70,7 +70,7 @@ export default function CashflowChart({ points, currentMonth, showFan, showNetto
                 <Line
                     type="monotone"
                     dataKey="balance"
-                    stroke="#6c63ff"
+                    stroke="#2F6B55"
                     strokeWidth={2}
                     dot={false}
                     isAnimationActive={false}

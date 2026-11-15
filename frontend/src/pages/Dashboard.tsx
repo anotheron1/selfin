@@ -68,7 +68,7 @@ export default function Dashboard({ refreshSignal }: { refreshSignal?: number })
         buildWatchdogAlert(watchdog, pocket?.horizon.endDate ?? null), pocket);
 
     return (
-        <div className="overflow-y-auto overflow-x-hidden scrollbar-none" style={{ height: 'calc(100dvh - var(--nav-height))' }}>
+        <div>
         <div className="pl-4 pr-5 py-6 space-y-5">
             {/* Hero: кармашек — единый ответ из GET /pocket (ANO-12/13).
                 Старые «Текущий баланс» + зарплатные горизонты DashboardService удалены:

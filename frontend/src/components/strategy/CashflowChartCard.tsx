@@ -18,8 +18,8 @@ export default function CashflowChartCard({ timeline }: Props) {
             <ChartLegendToggles
                 title="Денежный поток"
                 toggles={[
-                    { id: 'balance', label: 'Остаток', color: '#6c63ff', shape: 'dot', active: true },
-                    { id: 'fan', label: 'Диапазон', color: '#6c63ff', shape: 'dot',
+                    { id: 'balance', label: 'Остаток', color: '#2F6B55', shape: 'dot', active: true },
+                    { id: 'fan', label: 'Диапазон', color: '#2F6B55', shape: 'dot',
                       active: showFan && timeline.fanEnabled,
                       onToggle: timeline.fanEnabled ? () => setShowFan(v => !v) : undefined },
                     { id: 'netto', label: 'Нетто-потоки', color: '#22c55e', shape: 'bar',

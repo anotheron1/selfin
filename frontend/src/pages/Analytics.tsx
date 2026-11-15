@@ -52,7 +52,7 @@ export default function Analytics() {
     };
 
     return (
-        <div className="flex flex-col h-[calc(100dvh-var(--nav-height))]">
+        <div className="flex flex-col">
             {/* Period selector */}
             <div className="flex gap-2 px-4 pt-4 pb-2 shrink-0">
                 {(['1m', '3m', '6m', '12m'] as const).map(p => (

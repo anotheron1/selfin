@@ -193,7 +193,7 @@ export default function Settings() {
 
     return (
         <>
-        <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
+        <ScrollArea>
             <div className="pl-4 pr-5 py-6 space-y-6">
                 <h1 className="text-xl font-bold">Настройки</h1>
 
@@ -369,7 +369,8 @@ export default function Settings() {
                                 value={name}
                                 onChange={e => setName(e.target.value)}
                                 placeholder="Название категории"
-                                className="flex-1 rounded-lg px-3 py-2 text-sm"
+                                // w-0: своя ширина поля по умолчанию раздвигала «Настройки» до 448 px на 375 (ANO-231)
+                                className="w-0 flex-1 rounded-lg px-3 py-2 text-sm"
                                 style={inputStyle}
                             />
                             <select

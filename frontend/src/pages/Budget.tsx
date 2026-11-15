@@ -218,7 +218,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
 
     return (
         <>
-            <ScrollArea className="h-[calc(100dvh-var(--nav-height))]">
+            <ScrollArea>
             <div className="pl-4 pr-5 lg:px-8 py-6 space-y-4">
                 {/* Навигация по месяцу */}
                 <div className="flex items-center justify-between mb-2">
@@ -423,8 +423,8 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                                                     onClick={() => setSelectedEvent(event)}
                                                                     onMouseEnter={() => pfHandlers.handleMouseEnter(groupId)}
                                                                     onMouseLeave={() => pfHandlers.handleMouseLeave(groupId)}
-                                                                    className={`pl-3 pr-1.5 py-2.5 flex items-center justify-between gap-2.5 cursor-pointer hover:bg-white/5 transition-colors${isPlan ? ' pf-is-plan' : ''}${isFact ? ' pf-is-fact' : ''}${isLowPlanned ? ' opacity-60' : ''}`}
-                                                                    style={{ borderLeft: isPlan ? '3px solid rgba(255,255,255,0.12)' : '3px solid hsl(var(--primary))' }}>
+                                                                    className={`pl-3 pr-1.5 py-2.5 flex items-center justify-between gap-2.5 cursor-pointer hover:bg-black/[.04] transition-colors${isPlan ? ' pf-is-plan' : ''}${isFact ? ' pf-is-fact' : ''}${isLowPlanned ? ' opacity-60' : ''}`}
+                                                                    style={{ borderLeft: isPlan ? '3px solid rgba(38, 42, 34, 0.12)' : '3px solid hsl(var(--primary))' }}>
                                                                     <div className="flex-1 min-w-0">
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="font-medium text-sm truncate">{displayName}</span>

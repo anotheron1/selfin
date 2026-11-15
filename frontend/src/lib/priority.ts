@@ -33,5 +33,5 @@ export const priorityTitle = (p: Priority) => `${PRIORITY_DOT_CONFIG[p].name} �
 export const characterLocked = (event: { wishlistStatus?: WishlistStatus | null }): boolean =>
     event.wishlistStatus != null;
 
-/** Строка формы вместо выбора характера у запертой строки. Имя экрана — из навигации (BottomNav.tsx). */
-export const WISHLIST_CHARACTER_NOTE = 'Хотелка с экрана «Хотелки»: характер не меняется, решают о ней там';
+/** Строка формы вместо выбора характера у запертой строки. Имя экрана — из навигации (components/frame/sections.ts). */
+export const WISHLIST_CHARACTER_NOTE = 'Хотелка с экрана «Примерить покупку»: характер не меняется, решают о ней там';

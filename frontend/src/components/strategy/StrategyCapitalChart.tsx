@@ -24,10 +24,10 @@ export default function StrategyCapitalChart({ points, currentMonth, showAssets,
 
                 <Line type="monotone" dataKey="capital" stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
                 {showAssets && (
-                    <Line type="monotone" dataKey="assets" stroke="rgba(255,255,255,0.3)" strokeWidth={1} dot={false} isAnimationActive={false} />
+                    <Line type="monotone" dataKey="assets" stroke="rgba(38, 42, 34, 0.3)" strokeWidth={1} dot={false} isAnimationActive={false} />
                 )}
                 {showLiabilities && (
-                    <Line type="monotone" dataKey="liabilities" stroke="rgba(255,255,255,0.3)" strokeWidth={1} strokeDasharray="2 2" dot={false} isAnimationActive={false} />
+                    <Line type="monotone" dataKey="liabilities" stroke="rgba(38, 42, 34, 0.3)" strokeWidth={1} strokeDasharray="2 2" dot={false} isAnimationActive={false} />
                 )}
             </LineChart>
         </ResponsiveContainer>
