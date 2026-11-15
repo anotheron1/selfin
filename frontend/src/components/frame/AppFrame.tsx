@@ -95,7 +95,10 @@ export function FrameHeader({ pocket, onReanchor }: { pocket: PocketResponse | n
     );
 }
 
-/** Экраны внутри раздела, где их больше одного: «Журнал | Итоги месяца», «Цели | Примерить покупку | На годы вперёд». */
+/**
+ * Экраны внутри раздела, где их больше одного: «Журнал | Итоги месяца», «Цели | Примерить покупку | На годы вперёд».
+ * Стоит в колонке экрана (App.tsx, Main), чтобы на 1440 начинаться с края содержимого; на 390 три вкладки — кеглем 13.
+ */
 export function SectionTrack() {
     const path = useLocation().pathname;
     const section = sectionOf(path);
@@ -105,7 +108,7 @@ export function SectionTrack() {
             <NavTrack aria-label="Экраны раздела" className="w-max bg-sf-chip">
                 {section.screens.map(s => (
                     <Link key={s.to} to={s.to} aria-current={s.to === path ? 'page' : undefined}
-                        className={navTabVariants({ active: s.to === path })}>{s.label}</Link>
+                        className={cn(navTabVariants({ active: s.to === path }), 'px-3 text-sf-note sm:px-[18px] sm:text-sf-control')}>{s.label}</Link>
                 ))}
             </NavTrack>
         </div>
@@ -150,10 +153,7 @@ export default function AppFrame({ children, onAdd, refreshSignal }: {
                 </div>
             </div>
             <div className={cn('relative', header && '-mt-3.5 rounded-t-sf-page bg-sf-page')}>
-                <div className={WIDTH}>
-                    <SectionTrack />
-                    {children}
-                </div>
+                <div className={WIDTH}>{children}</div>
             </div>
             {pocket && (
                 <ReanchorSheet open={reanchor} onOpenChange={setReanchor}

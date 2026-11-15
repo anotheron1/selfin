@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 
-import AppFrame from './components/frame/AppFrame';
+import AppFrame, { SectionTrack } from './components/frame/AppFrame';
 import QuickAddModal from './components/Fab';
 import Analytics from './pages/Analytics';
 import Capital from './pages/Capital';
@@ -21,7 +21,7 @@ import Wishlist from './pages/Wishlist';
  */
 function Main({ children }: { children: React.ReactNode }) {
   const wide = useLocation().pathname === '/budget';
-  return <main className={wide ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto'}>{children}</main>;
+  return <main className={wide ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto'}><SectionTrack />{children}</main>;
 }
 
 /**
