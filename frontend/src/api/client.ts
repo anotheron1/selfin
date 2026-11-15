@@ -58,6 +58,12 @@ export class ApiError extends Error {
  * @returns десериализованный JSON-ответ
  * @throws ApiError при HTTP-статусе 4xx/5xx
  */
+/**
+ * Удачная запись — событие на window (срез 1, ревью Codex на #225): шапка с «Свободно» видна поверх любого экрана
+ * и перечитывает число после записи любым экраном. Чтение и отказ события не дают.
+ */
+export const CHANGED = 'selfin:changed';
+
 async function request<T>(path: string, options?: RequestInit & { extraHeaders?: Record<string, string> }): Promise<T> {
     const { extraHeaders, ...rest } = options ?? {};
     const res = await fetch(`${BASE_URL}${path}`, {
@@ -94,6 +100,7 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
         throw new ApiError(res.status, details,
             `API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
     }
+    if (rest.method && rest.method !== 'GET' && typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGED));
     // ANO-208: у успеха без тела нет и данных — у 204 и у 200 без тела одинаково. Ручки статуса
     // хотелки отвечают 200 без тела, и res.json() на нём падал: запись проходила, а экран писал
     // «Не записалось».

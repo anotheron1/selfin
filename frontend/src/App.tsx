@@ -44,7 +44,7 @@ function Screens() {
 
   return (
     <>
-      <AppFrame onAdd={() => setAdding(true)} refreshSignal={refreshKey}>
+      <AppFrame onAdd={() => setAdding(true)} onChanged={handleSuccess} refreshSignal={refreshKey}>
         <Main>
           <Routes>
             <Route path="/" element={<Dashboard refreshSignal={refreshKey} />} />

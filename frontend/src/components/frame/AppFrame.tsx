@@ -4,6 +4,7 @@ import { CreditCard, List, Plus, RefreshCw, Sun, Target, User } from 'lucide-rea
 import { buttonVariants, capsuleItemVariants, Capsule, iconButtonVariants, Mark, Money, navTabVariants, NavTrack, Tile } from '@/ds';
 import { cn } from '@/lib/utils';
 import { fetchPocket } from '../../api';
+import { CHANGED } from '../../api/client';
 import ReanchorSheet from '../pocket/ReanchorSheet';
 import type { PocketResponse } from '../../types/api';
 import { FAR, MID, TREES } from './miniLandscape';
@@ -126,9 +127,14 @@ function MiniLandscape() {
     );
 }
 
-export default function AppFrame({ children, onAdd, refreshSignal }: {
+export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: {
     children: React.ReactNode;
     onAdd: () => void;
+    /**
+     * Остаток обновлён из шапки — перечитать и экран (ревью Codex на #225): «Журнал» берёт из даты остатка границу
+     * быстрой записи, и со старой датой вчерашняя бронь закрылась бы вчерашним числом, уже вошедшим в новый остаток.
+     */
+    onChanged: () => void;
     /** Растёт после записи из «+» — шапка перечитывает число. */
     refreshSignal: number;
 }) {
@@ -138,8 +144,13 @@ export default function AppFrame({ children, onAdd, refreshSignal }: {
     const [reanchor, setReanchor] = useState(false);
 
     const load = useCallback(() => { fetchPocket().then(setPocket).catch(() => setPocket(null)); }, []);
-    // По каждому переходу: число могло измениться на другом экране — запись, перевод, правка плана.
+    // По каждому переходу и после любой удачной записи любым экраном (CHANGED): журнал, копилка, НЗ меняют число.
     useEffect(() => { if (header) load(); }, [header, path, refreshSignal, load]);
+    useEffect(() => {
+        if (!header) return;
+        window.addEventListener(CHANGED, load);
+        return () => window.removeEventListener(CHANGED, load);
+    }, [header, load]);
 
     return (
         <div className="min-h-dvh bg-sf-page font-sf text-sf-ink" style={{ paddingBottom: 'var(--nav-height)' }}>
@@ -158,7 +169,7 @@ export default function AppFrame({ children, onAdd, refreshSignal }: {
             {pocket && (
                 <ReanchorSheet open={reanchor} onOpenChange={setReanchor}
                     currentBalance={pocket.currentBalance} checkpointDate={pocket.checkpointDate}
-                    onSuccess={load} />
+                    onSuccess={onChanged} />
             )}
         </div>
     );

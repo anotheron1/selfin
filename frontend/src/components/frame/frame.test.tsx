@@ -138,3 +138,16 @@ describe('шапка', () => {
         expect(html).toContain('aria-label="Профиль и настройки"');
     });
 });
+
+describe('после записи — свежие числа (ревью Codex на #225)', () => {
+    const read = async (path: string) => (await import('node:fs')).readFileSync(new URL(path, import.meta.url), 'utf8');
+
+    it('остаток из шапки перечитывает и экран — через общий сигнал обновления', async () => {
+        expect(await read('./AppFrame.tsx')).toMatch(/<ReanchorSheet[\s\S]*?onSuccess=\{onChanged\}/);
+        expect(await read('../../App.tsx')).toMatch(/<AppFrame .*onChanged=\{handleSuccess\}/);
+    });
+
+    it('шапка слушает удачные записи любого экрана', async () => {
+        expect(await read('./AppFrame.tsx')).toMatch(/window\.addEventListener\(CHANGED, load\)/);
+    });
+});
