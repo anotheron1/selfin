@@ -13,10 +13,8 @@ type Cat = Pick<Category, 'id' | 'name' | 'type' | 'isSystem'>;
 export const needsFirstEntry = (p: Pick<PocketResponse, 'checkpointDate' | 'upcoming'>): boolean =>
     p.checkpointDate == null && p.upcoming.length === 0;
 
-const positive = (raw: string) => {
-    const v = parseAmountExpression(raw).value;
-    return v != null && v > 0 ? v : null;
-};
+/** Сумма или выражение; ноль, минус и битое — null (`parseAmountExpression`). */
+const positive = (raw: string) => parseAmountExpression(raw).value;
 
 /** Вопрос 1: остаток. Ноль — тоже ответ: до зарплаты на карте бывает пусто. */
 export const balanceAnswer = (raw: string): number | null => (/^\s*0+\s*$/.test(raw) ? 0 : positive(raw));

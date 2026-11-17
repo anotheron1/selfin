@@ -120,7 +120,17 @@ describe('FirstEntryWrites — «Назад» правит, а не пишет �
         expect(s.live()).toEqual(['Аренда 25000']);
     });
 
-    it('ключ — на каждый ответ: две одинаковые строки платежа — две записи', async () => {
+    it('ключ — на каждый ответ: соседняя строка не стирает попытку потерянной', async () => {
+        const s = fakeServer();
+        const w = new FirstEntryWrites(s.api);
+        s.loseNext();
+        await expect(w.plan('pay:1', pay(25_000))).rejects.toThrow();
+        await w.plan('pay:2', pay(800, 'Связь'));
+        await w.plan('pay:1', pay(25_000));
+        expect(s.live()).toEqual(['Аренда 25000', 'Связь 800']);
+    });
+
+    it('две одинаковые строки платежа — две записи', async () => {
         const s = fakeServer();
         const w = new FirstEntryWrites(s.api);
         s.loseNext();
