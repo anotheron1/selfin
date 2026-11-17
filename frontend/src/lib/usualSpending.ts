@@ -13,7 +13,7 @@ export type UsualName = (typeof USUAL_CATEGORIES)[number];
 export function termIncome(p: PocketResponse): { date: string; id: string | null } | null {
     const end = p.trajectory.find(t => t.date === p.horizon.endDate);
     const inc = end?.items.find(i => i.type === 'INCOME');
-    return end && end.income > 0 && inc ? { date: end.date, id: inc.id } : null;
+    return end && inc ? { date: end.date, id: inc.id } : null;
 }
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

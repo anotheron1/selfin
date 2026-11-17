@@ -81,6 +81,14 @@ describe('buildGapMode (ANO-100)', () => {
         });
     });
 
+    it('у строки «Можно сдвинуть» — сама строка плана, имя и исход: «Сдвинуть» на «Сегодня» переносит её', () => {
+        const [row] = buildGapMode(owner())!.movable;
+        expect(row.item).toMatchObject({ date: '2026-09-24', amount: 1000, priority: 'MEDIUM' });
+        expect(row.item.id).not.toBeNull();
+        expect(row.label).toBe('Досуг');
+        expect(row.outcome).toBe(`не хватит ${fmtC(2685)}`);
+    });
+
     it('остаток ровно на уровне НЗ — режима нет: брать из НЗ нечего', () => {
         expect(buildGapMode(nz({
             pocket: 0,

@@ -24,6 +24,12 @@ describe('watchdogView — сторож разрыва и впритык', () =>
         expect(v.showSecond).toBe(true);
     });
 
+    it('разрыв по плану в пределах графика: плашка без «за краем» и без кнопки 2-го дохода', () => {
+        const v = watchdogView(watchdog({ date: '2026-11-20', balance: -2_000 }), pocket());
+        expect(v).toMatchObject({ kind: 'plate', tone: 'plan', showSecond: false, small: null });
+        if (v?.kind === 'plate') expect(sp(v.body)).toBe('По плану не хватит 2 000 ₽.');
+    });
+
     it('впритык в пределах графика — точка на дне с подписью, без плашки', () => {
         const v = watchdogView(watchdog({ date: '2026-12-10', balance: 2_300 }, { date: '2026-11-24', balance: -1_100 }), pocket());
         expect(v?.kind).toBe('dot');
