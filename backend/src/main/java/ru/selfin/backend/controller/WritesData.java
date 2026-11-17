@@ -16,6 +16,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface WritesData {
 
-    /** {@code false} — меняющая по методу, но данных человека не пишет: примерка, пересчёт, согласие до входа. */
+    /** {@code false} — меняющая по методу, но данных человека не пишет: примерка, пересчёт, согласие до входа, подсказки. */
     boolean value() default true;
 }

@@ -3,6 +3,7 @@ package ru.selfin.backend.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import ru.selfin.backend.dto.HintsSettingsDto;
 import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.dto.wishlist.WishlistThresholdsDto;
 import ru.selfin.backend.service.UserSettingsService;
@@ -34,5 +35,18 @@ public class UserSettingsController {
     @PutMapping("/pocket")
     public PocketSettingsDto updatePocket(@RequestBody PocketSettingsDto dto) {
         return service.updatePocketSettings(dto);
+    }
+
+    /** Подсказки первого дня (срез 2, п. 12): телефон и компьютер видят одно. */
+    @GetMapping("/hints")
+    public HintsSettingsDto getHints() {
+        return service.getHints();
+    }
+
+    /** Закрыть подсказку — не запись данных человека: день ввода не засчитывается (ANO-78). */
+    @WritesData(false)
+    @PutMapping("/hints")
+    public HintsSettingsDto updateHints(@RequestBody HintsSettingsDto dto) {
+        return service.updateHints(dto);
     }
 }
