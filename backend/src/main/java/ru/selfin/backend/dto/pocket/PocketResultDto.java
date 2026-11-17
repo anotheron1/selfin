@@ -79,7 +79,6 @@ public record PocketResultDto(
                 planHasExpectations);
     }
 
-    /** Копия с подставленными виновниками обоих минимумов (ANO-95) — имена знает сервис, а не движок. */
     /** Та же выдача с другой траекторией — сервис вписывает имена категорий в строки дней (ANO-98). */
     public PocketResultDto withTrajectory(List<TrajectoryPoint> named) {
         return new PocketResultDto(pocket, currentBalance, buffer, checkpointDate, horizon,
@@ -88,6 +87,7 @@ public record PocketResultDto(
                 planHasExpectations);
     }
 
+    /** Копия с подставленными виновниками обоих минимумов (ANO-95) — имена знает сервис, а не движок. */
     public PocketResultDto withMinPoints(MinPoint main, MinPoint withForecast) {
         return new PocketResultDto(pocket, currentBalance, buffer, checkpointDate, horizon,
                 main, breakdown, trajectory, wishlistCandidates, pocketAfterCreditRestore,
@@ -126,8 +126,6 @@ public record PocketResultDto(
      * @param balanceWithForecast вторая линия графика, «с обычными тратами»; {@code null}
      *                            в точках, где прогноз ещё не накоплен, и на всём горизонте,
      *                            если прогноза нет вовсе
-     */
-    /**
      * @param items ANO-98: строки, которые двигают остаток этого дня, — той же записью, что «осталось
      *              потратить», вместе с доходами; у сегодняшнего дня — и просрочка с {@code overdue}.
      *              Сумма доходов строк — {@code income}, расходов — {@code expense}; прогноз строкой не бывает.

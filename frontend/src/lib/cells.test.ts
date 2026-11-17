@@ -27,8 +27,8 @@ describe('buildCells — клетки по дням (Zh2-390b)', () => {
         expect(below?.level).toBe('water');
     });
 
-    it('отмечены «сегодня» и день самого низкого остатка', () => {
-        const m = buildCells(days('2026-11-09', [30, 10, 20]), '2026-11-11', '2026-11-10');
+    it('отмечены «сегодня» и день самого низкого остатка; хвост за сроком — без клеток', () => {
+        const m = buildCells(days('2026-11-09', [30, 10, 20, 5]), '2026-11-11', '2026-11-10');
         const [mon, tue, wed] = m.weeks[0].days;
         expect(mon?.today).toBe(true);
         expect(tue?.low).toBe(true);
