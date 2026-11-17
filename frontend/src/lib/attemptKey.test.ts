@@ -97,7 +97,7 @@ describe('ключ и память попыток — только там, гд�
         // позже получала её ключ, сервер возвращал прежнюю, и новая молча пропадала.
         const screens = /useState\(\(\) => new AttemptKeys\(\)\)|setAttempts\(new AttemptKeys\(\)\)/;
         const elsewhere = sources
-            .filter(f => f !== 'lib/quickCloseGuard.ts')
+            .filter(f => f !== 'lib/quickCloseGuard.ts' && f !== 'lib/firstEntryWrites.ts')
             .flatMap(f => read(f).split('\n').map((line, i) => ({ f, i, line })))
             .filter(({ line }) => line.includes('new AttemptKeys(') && !screens.test(line))
             .map(({ f, i }) => `${f}:${i + 1}`);
@@ -108,5 +108,6 @@ describe('ключ и память попыток — только там, гд�
         expect(read('components/Fab.tsx')).toContain('useState(() => new AttemptKeys())');
         expect(read('pages/Funds.tsx')).toContain('useState(() => new AttemptKeys())');
         expect(read('pages/Budget.tsx'), 'кружок — память сторожа журнала').toContain('createLinkedFact(guard.attempts, plan.id');
+        expect(read('pages/Start.tsx'), 'первый вход: память на ответ — у экрана').toContain('useState(() => new FirstEntryWrites())');
     });
 });

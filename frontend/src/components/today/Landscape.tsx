@@ -99,6 +99,32 @@ export function Landscape({ data, size, selectedDate, onDay, dashedSun = false, 
 }
 
 /**
+ * Платежи первого входа на обрывах (решение 48, S2-W2d, S2-W-1440): флажок на краю обрыва, на флажке — только сумма
+ * расходов дня. Имени нет: «подписи плашками — как грязь». Минус — дефис, как во всём приложении.
+ */
+export function PayFlags({ m, data }: { m: LandscapeModel; data: PocketResponse }) {
+    const [pole, fw, fh, fs] = m.w > 390 ? [34, 15, 10, 13] : [30, 13, 9, 12];
+    return (
+        <g data-layer="flags" pointerEvents="none">
+            {data.trajectory.map((t, i) => {
+                if (t.expense <= 0) return null;
+                const x = m.points[i].x;
+                const top = m.yOf(t.balance + t.expense) - pole;
+                return (
+                    <g key={t.date} data-flag={t.date}>
+                        <path d={`M${x},${top + pole} L${x},${top}`} stroke="var(--sf-ink)" strokeWidth="1.3" />
+                        <path d={`M${x},${top} L${x + fw},${top + fh / 2} L${x},${top + fh} Z`} fill="var(--sf-accent)" />
+                        <text x={x + fw + 4} y={top + fh / 2 + 4} fontSize={fs} fontWeight="600" fill="var(--sf-ink)">
+                            {`-${Math.round(t.expense).toLocaleString('ru-RU')}`}
+                        </text>
+                    </g>
+                );
+            })}
+        </g>
+    );
+}
+
+/**
  * Точка «впритык» у воды (S2-T3): по умолчанию — только точка на тёмном слое; нажатие показывает и прячет подпись
  * «может не хватить около N» (S2-T2). Дня нет на графике — рисовать нечего.
  */

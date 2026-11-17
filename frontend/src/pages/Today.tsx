@@ -16,6 +16,7 @@ import NzSheet from '../components/pocket/NzSheet';
 import ReanchorSheet from '../components/pocket/ReanchorSheet';
 import { Dialog, DialogContent, DialogTitle } from '../components/ui/dialog';
 import { buildCells } from '../lib/cells';
+import { needsFirstEntry } from '../lib/firstEntry';
 import { serverTodayIso } from '../lib/factDate';
 import { fmtDayShort } from '../lib/format';
 import { buildGapMode } from '../lib/gapMode';
@@ -102,12 +103,16 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
     const load = useCallback(() => {
         const read = guard.readStarted();
         fetchPocket(scope)
-            .then(p => { setData(p); setLoadFailed(false); guard.readSucceeded(read); guardChanged(); })
+            .then(p => {
+                // Ни сверки, ни строк впереди — первый вход (срез 2, п. 11): пустого «Сегодня» нет.
+                if (needsFirstEntry(p)) { navigate('/start', { replace: true }); return; }
+                setData(p); setLoadFailed(false); guard.readSucceeded(read); guardChanged();
+            })
             .catch(() => { setLoadFailed(true); guard.readFailed(read); guardChanged(); });
         fetchPocket('SECOND_INCOME')
             .then(w => { setWatchdog(w); setWatchdogFailed(false); })
             .catch(() => setWatchdogFailed(true));
-    }, [scope, guard]);
+    }, [scope, guard, navigate]);
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => { if (refreshSignal) load(); }, [refreshSignal, load]);
