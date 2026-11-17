@@ -26,6 +26,18 @@ export function dayLabel(iso: string): string {
     return `${DOW[new Date(y, m - 1, d).getDay()]} ${d}`;
 }
 
+/**
+ * `?date=` журнала — «Открыть день в журнале» с листа дня (срез 2, п. 8): месяц и год из даты, прокрутка к дню.
+ * Не дата или несуществующий день — null: журнал открывается как обычно, на текущем месяце.
+ */
+export function journalDate(param: string | null): { iso: string; year: number; month: number } | null {
+    if (!param || !/^\d{4}-\d{2}-\d{2}$/.test(param)) return null;
+    const [y, m, d] = param.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+    return { iso: param, year: y, month: m - 1 };
+}
+
 export interface ExpectationLine {
     id: string;
     label: string;

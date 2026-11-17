@@ -1,9 +1,8 @@
 import type { PocketResponse } from '../types/api';
-import { fmtRub } from './format';
 
 /**
  * Чистые хелперы календаря-близнеца (ANO-14 §3): вся тестируемая логика графика
- * живёт здесь, PocketTrajectoryChart только рендерит результаты.
+ * живёт здесь. С 17.11 (срез 2) график — только у примерки (SandboxChart); пейзаж «Сегодня» — lib/landscape.ts.
  */
 export type TrajPoint = PocketResponse['trajectory'][number];
 
@@ -16,7 +15,6 @@ export const fmtDayMonth = (iso: string) => {
     const [, m, d] = iso.split('-');
     return `${d}.${m}`;
 };
-const fmtD = fmtDayMonth;
 
 /** Домен Y всегда включает ноль (спека §3.2): расстояние до дна — главный сигнал. */
 export function computeDomain(balances: number[]): Domain {
@@ -24,28 +22,6 @@ export function computeDomain(balances: number[]): Domain {
     let max = Math.max(0, ...balances);
     if (max === min) max = min + 1;
     return { min, max };
-}
-
-/**
- * Ряд второй линии графика (ANO-80): «с обычными тратами».
- *
- * null, когда прогноза нет вовсе — рисовать нечего. Точки, где прогноз ещё не накоплен
- * (нулевой день траектории), берут основной баланс: подстановка нуля уронила бы линию
- * в пол на первом же дне и нарисовала бы обрыв, которого нет.
- */
-export function forecastSeries(trajectory: TrajPoint[]): number[] | null {
-    if (!trajectory.some(p => p.balanceWithForecast != null)) return null;
-    return trajectory.map(p => p.balanceWithForecast ?? p.balance);
-}
-
-/** Красная зона «разрыв» — только когда траектория реально уходит под ноль. */
-export function showDangerZone(domain: Domain): boolean {
-    return domain.min < 0;
-}
-
-/** Янтарная зона 0..буфер — только при настроенном буфере. */
-export function showBufferZone(buffer: number): boolean {
-    return buffer > 0;
 }
 
 /**
@@ -88,49 +64,4 @@ export function buildLinePoints(
     const { x, y } = makeScales(balances.length, domain, w, padX, top, floor);
     const round = (v: number) => Math.round(v * 10) / 10;
     return balances.map((b, i) => `${round(x(i))},${round(y(b))}`).join(' ');
-}
-
-/** Обрезка длинного виновника, чтобы аннотация не вылезала за viewBox. */
-const MAX_DRIVEN_BY = 24;
-const truncate = (s: string) =>
-    s.length > MAX_DRIVEN_BY ? s.slice(0, MAX_DRIVEN_BY - 1).trimEnd() + '…' : s;
-
-/** Аннотация минимума: «мин dd.MM · сумма · виновник», хвост опущен без drivenBy. */
-export function buildMinAnnotation(minPoint: PocketResponse['minPoint']): string {
-    const base = `мин ${fmtD(minPoint.date)} · ${fmtRub(minPoint.balance)}`;
-    return minPoint.drivenBy ? `${base} · ${truncate(minPoint.drivenBy)}` : base;
-}
-
-/** Брони с прошедшей датой, которые ядро вычло в точке «сегодня»: строка расшифровки, со знаком плюс. */
-export function overdueReserve(breakdown: PocketResponse['breakdown']): number {
-    const line = breakdown.find(l => l.type === 'OVERDUE_RESERVE');
-    return line ? -line.amount : 0;
-}
-
-/** Накопленное в копилках без счёта, которое ядро вычло в точке «сегодня»: строка расшифровки, со знаком плюс. */
-export function envelopeFunds(breakdown: PocketResponse['breakdown']): number {
-    const line = breakdown.find(l => l.type === 'ENVELOPE_FUNDS');
-    return line ? -line.amount : 0;
-}
-
-/**
- * Строка деталей выбранного дня: только ненулевые потоки, день 0 — «сегодня». Точка «сегодня» с
- * бронями прошедшей даты называет их словами (Р6, ANO-216): «остаток» рядом с суммой без подписи
- * спорил с «на счёте» карточки. Копилки без счёта — тоже (Р10-А, ANO-212): «на счёте» их держит,
- * а точка «сегодня» уже без них.
- */
-export function buildDayDetails(point: TrajPoint, isToday: boolean, overdue = 0, envelopes = 0): string {
-    if (isToday && (overdue > 0 || envelopes > 0)) {
-        const after = [overdue > 0 && 'броней', envelopes > 0 && 'копилок'].filter(Boolean).join(' и ');
-        let s = `сегодня · после ${after} ${fmtRub(point.balance)}`;
-        if (overdue > 0) s += ` · брони с прошедшей датой −${fmtRub(overdue)}`;
-        if (envelopes > 0) s += ` · уже в копилках −${fmtRub(envelopes)}`;
-        const todayPlan = point.expense - overdue;
-        if (todayPlan > 0) s += ` · по плану на сегодня −${fmtRub(todayPlan)}`;
-        return s;
-    }
-    let s = `${isToday ? 'сегодня' : fmtD(point.date)} · остаток ${fmtRub(point.balance)}`;
-    if (point.income > 0) s += ` · +${fmtRub(point.income)}`;
-    if (point.expense > 0) s += ` · −${fmtRub(point.expense)}`;
-    return s;
 }

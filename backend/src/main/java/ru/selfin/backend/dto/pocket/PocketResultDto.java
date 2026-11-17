@@ -79,6 +79,14 @@ public record PocketResultDto(
                 planHasExpectations);
     }
 
+    /** Та же выдача с другой траекторией — сервис вписывает имена категорий в строки дней (ANO-98). */
+    public PocketResultDto withTrajectory(List<TrajectoryPoint> named) {
+        return new PocketResultDto(pocket, currentBalance, buffer, checkpointDate, horizon,
+                minPoint, breakdown, named, wishlistCandidates, pocketAfterCreditRestore,
+                pocketWithDeposits, pocketWithForecast, minPointWithForecast, upcoming,
+                planHasExpectations);
+    }
+
     /** Копия с подставленными виновниками обоих минимумов (ANO-95) — имена знает сервис, а не движок. */
     public PocketResultDto withMinPoints(MinPoint main, MinPoint withForecast) {
         return new PocketResultDto(pocket, currentBalance, buffer, checkpointDate, horizon,
@@ -118,9 +126,19 @@ public record PocketResultDto(
      * @param balanceWithForecast вторая линия графика, «с обычными тратами»; {@code null}
      *                            в точках, где прогноз ещё не накоплен, и на всём горизонте,
      *                            если прогноза нет вовсе
+     * @param items ANO-98: строки, которые двигают остаток этого дня, — той же записью, что «осталось
+     *              потратить», вместе с доходами; у сегодняшнего дня — и просрочка с {@code overdue}.
+     *              Сумма доходов строк — {@code income}, расходов — {@code expense}; прогноз строкой не бывает.
      */
     public record TrajectoryPoint(LocalDate date, BigDecimal balance, BigDecimal income,
-                                  BigDecimal expense, BigDecimal balanceWithForecast) {}
+                                  BigDecimal expense, BigDecimal balanceWithForecast,
+                                  List<UpcomingItem> items) {
+
+        /** Та же точка с другими строками — имена категорий вписывает сервис. */
+        public TrajectoryPoint withItems(List<UpcomingItem> named) {
+            return new TrajectoryPoint(date, balance, income, expense, balanceWithForecast, named);
+        }
+    }
     public record BreakdownLine(BreakdownType type, String label, BigDecimal amount, List<String> details) {}
     public record WishlistCandidate(java.util.UUID id, String description,
                                     BigDecimal plannedAmount, LocalDate date, boolean fixed) {}

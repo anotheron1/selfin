@@ -216,7 +216,7 @@ describe('словарь правил продукта на строках ин�
         expect(FRONTEND.length).toBeGreaterThan(60);
         expect(BACKEND.length).toBeGreaterThan(40);
         const texts = STRINGS.map((s) => s.text);
-        expect(texts.some((t) => t.includes('раньше по плану'))).toBe(true);    // UpcomingList.tsx
+        expect(texts.some((t) => t.includes('Всё это уже оплачено?'))).toBe(true);    // today/WhyPlate.tsx
         expect(texts.some((t) => t.includes('Взносы в копилки'))).toBe(true);   // PocketEngine.java
     });
 

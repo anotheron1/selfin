@@ -216,6 +216,11 @@ export interface PocketResponse {
         date: string; balance: number; income: number; expense: number;
         /** Вторая линия графика (ANO-80); null — прогноза на этой точке ещё/вовсе нет. */
         balanceWithForecast: number | null;
+        /**
+         * Строки дня (ANO-98) — те же записи, что «осталось потратить», вместе с доходами; у сегодняшнего
+         * дня — и брони с прошедшей датой (`overdue`). Сумма строк — `income` и `expense` точки.
+         */
+        items: UpcomingItem[];
     }[];
     wishlistCandidates: {
         id: string; description: string | null;

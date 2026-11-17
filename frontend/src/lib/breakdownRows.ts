@@ -38,6 +38,10 @@ const NAMES_LIMIT = 4;
 
 /** Строка расшифровки с копилками без счёта (Р10-А, ANO-212); тем же именем её зовёт справка. */
 export const ENVELOPE_ROW = 'Уже в копилках';
+/** Имена строк, которые «Сегодня» узнаёт и показывает по-своему (срез 2: «На картах», раскрытие броней, «Вернуть на кредитку»). */
+export const BALANCE_ROW = 'На счёте';
+export const OVERDUE_ROW = 'Брони с прошедшей датой';
+export const CREDIT_ROW = 'Погасить карты до планки';
 
 /** Своё имя строки, если оно не пустое, иначе категория (ANO-101: пустое описание — не имя). */
 const nameOf = (u: UpcomingItem): string | null => u.description?.trim() || u.categoryName?.trim() || null;
@@ -77,7 +81,7 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
     for (const l of p.breakdown) {
         switch (l.type) {
             case 'STARTING_BALANCE':
-                calc.push(row('item', 'На счёте', fmtC(l.amount), checkpointDate
+                calc.push(row('item', BALANCE_ROW, fmtC(l.amount), checkpointDate
                     ? `по сверке ${fmtDayMonth(checkpointDate)} и тому, что записано после`
                     : 'по записанным операциям — сверки ещё не было'));
                 break;
@@ -90,7 +94,7 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
                 const overdue = p.upcoming.filter(u => u.overdue);
                 const names = overdue.map(nameOf).filter((n): n is string => n != null);
                 const head = `${payments(overdue.length)} ещё без факта`;
-                calc.push(row('item', 'Брони с прошедшей датой', signed(l.amount),
+                calc.push(row('item', OVERDUE_ROW, signed(l.amount),
                     names.length ? `${head}: ${listNames(names)}` : head));
                 break;
             }
@@ -148,7 +152,7 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
                 break;
             }
             case 'CREDIT_RESTORE':
-                caveats.push(row('caveat', 'Погасить карты до планки', fmtC(l.amount),
+                caveats.push(row('caveat', CREDIT_ROW, fmtC(l.amount),
                     'столько внести на карты, чтобы доступное дошло до планки из «Счетов»'));
                 break;
             case 'WISHLIST_INFO':

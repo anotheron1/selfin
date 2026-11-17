@@ -141,8 +141,14 @@ public final class PocketEngine {
         List<PocketResultDto.TrajectoryPoint> trajectory = new ArrayList<>();
         BigDecimal envelopes = in.envelopeFundsOrZero();
         BigDecimal running = currentBalance.subtract(envelopes).subtract(overdue).subtract(todayExpenses);
+        // ANO-98: строки дня 0 — те, что вычтены выше: просрочка и сегодняшний план.
+        List<PocketResultDto.UpcomingItem> todayItems = new ArrayList<>();
+        for (EventSnapshot e : in.overdueEvents()) {
+            if (e.plannedAmount() != null) todayItems.add(upcomingOf(e, e.plannedAmount(), true));
+        }
+        todayPending(in, settled).forEach(e -> todayItems.add(upcomingOf(e, remainderOf(e, settled), false)));
         trajectory.add(new PocketResultDto.TrajectoryPoint(
-                in.asOfDate(), running, BigDecimal.ZERO, overdue.add(todayExpenses), null));
+                in.asOfDate(), running, BigDecimal.ZERO, overdue.add(todayExpenses), null, todayItems));
 
         BigDecimal minBalance = running;
         LocalDate minDate = in.asOfDate();
@@ -175,9 +181,11 @@ public final class PocketEngine {
             BigDecimal dayTopExpenseAmount = BigDecimal.ZERO;
             String dayTopExpense = null;
             UUID dayTopExpenseId = null;
+            List<PocketResultDto.UpcomingItem> dayItems = new ArrayList<>();
             for (EventSnapshot e : futureByDay.getOrDefault(d, List.of())) {
                 // ANO-155: удерживается непогашенный остаток, а не полная плановая сумма.
                 BigDecimal amount = remainderOf(e, settled);
+                dayItems.add(upcomingOf(e, amount, false));
                 if (e.type() == EventType.INCOME) {
                     dayIncome = dayIncome.add(amount);
                     incomeCum = incomeCum.add(amount);
@@ -209,7 +217,7 @@ public final class PocketEngine {
                 runningForecast = runningForecast.subtract(dayForecast);
             }
             trajectory.add(new PocketResultDto.TrajectoryPoint(d, running, dayIncome, dayExpense,
-                    hasForecast ? runningForecast : null));
+                    hasForecast ? runningForecast : null, dayItems));
             // Минимум ищем ТОЛЬКО внутри горизонта — хвост информационный (§3.9)
             if (!d.isAfter(in.horizonEnd())) {
                 if (running.compareTo(minBalance) < 0) {

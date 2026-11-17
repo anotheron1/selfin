@@ -126,6 +126,27 @@ class PocketServiceTest {
     }
 
     @Test
+    @DisplayName("ANO-98: имена категорий — и у строк дня, включая доход, которого нет в «осталось потратить»")
+    void dayItems_getCategoryNames_includingIncome() {
+        var ipoteka = planIn("Ипотека", TODAY.plusDays(3), 23_600);
+        var salary = planIn("Зарплата", TODAY.plusDays(5), 75_000);
+        salary.setType(ru.selfin.backend.model.enums.EventType.INCOME);
+        incomeDates(LocalDate.of(2026, 3, 15));
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(ipoteka, salary));
+        // Имена — только по запрошенным id: доход в «осталось потратить» не входит, его id берётся из строк дня.
+        when(eventRepository.findAllById(argThat((Iterable<java.util.UUID> ids) ->
+                java.util.stream.StreamSupport.stream(ids.spliterator(), false).anyMatch(salary.getId()::equals))))
+                .thenReturn(List.of(ipoteka, salary));
+
+        PocketResultDto r = pocketService.getPocket(null, TODAY);
+
+        assertThat(r.trajectory().stream().flatMap(p -> p.items().stream()))
+                .extracting(PocketResultDto.UpcomingItem::categoryName)
+                .containsExactlyInAnyOrder("Ипотека", "Зарплата");
+    }
+
+    @Test
     @DisplayName("ANO-119: пустой список имён не запрашивает")
     void upcoming_empty_doesNotQueryNames() {
         incomeDates(LocalDate.of(2026, 3, 15));

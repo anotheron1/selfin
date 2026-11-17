@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FinancialEvent } from '../types/api';
 import {
-    expectationCards, expectationsSummary, factLinkLabel, isExpectationPlan, mainListEvents,
+    expectationCards, expectationsSummary, factLinkLabel, isExpectationPlan, journalDate, mainListEvents,
 } from './journalSections';
 
 const ev = (over: Partial<FinancialEvent> = {}): FinancialEvent => ({
@@ -106,5 +106,18 @@ describe('подпись связи факта с планом', () => {
             .toBe('→ план «Отпуск»');
         expect(factLinkLabel(fact({ parentEventId: 'aug' }), byId)).toBeNull();
         expect(factLinkLabel(fact({ parentEventId: null }), byId)).toBeNull();
+    });
+});
+
+describe('журнал на дату — ?date= (срез 2, п. 8)', () => {
+    it('дата — месяц и год журнала, месяц с нуля', () => {
+        expect(journalDate('2026-11-15')).toEqual({ iso: '2026-11-15', year: 2026, month: 10 });
+        expect(journalDate('2027-01-01')).toEqual({ iso: '2027-01-01', year: 2027, month: 0 });
+    });
+
+    it('не дата и несуществующий день — журнал как обычно', () => {
+        for (const bad of [null, '', '15.11.2026', '2026-11', '2026-02-30', '2026-13-01', '2026-11-15T00:00', '2026-11-5']) {
+            expect(journalDate(bad)).toBeNull();
+        }
     });
 });

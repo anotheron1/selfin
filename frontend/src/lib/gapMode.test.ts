@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fmtRub as fmtC } from './format';
-import { buildGapMode } from './gapMode';
+import { buildGapMode, type GapMode } from './gapMode';
 import type { PocketResponse, UpcomingItem } from '../types/api';
 
 type Row = Partial<UpcomingItem> & Pick<UpcomingItem, 'date' | 'amount'>;
@@ -24,11 +24,11 @@ function owner(overrides: Partial<PocketResponse> = {}): PocketResponse {
         minPointWithForecast: null,
         breakdown: [],
         trajectory: [
-            { date: '2026-09-24', balance: -3685, income: 0, expense: 1000, balanceWithForecast: null },
-            { date: '2026-09-25', balance: -3685, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-26', balance: -3685, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-27', balance: -3685, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-28', balance: 63315, income: 75000, expense: 8000, balanceWithForecast: null },
+            { date: '2026-09-24', balance: -3685, income: 0, expense: 1000, balanceWithForecast: null, items: [] },
+            { date: '2026-09-25', balance: -3685, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-26', balance: -3685, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-27', balance: -3685, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-28', balance: 63315, income: 75000, expense: 8000, balanceWithForecast: null, items: [] },
         ],
         wishlistCandidates: [],
         upcoming: [
@@ -54,26 +54,39 @@ function nz(overrides: Partial<PocketResponse> = {}): PocketResponse {
         buffer: 5000,
         minPoint: { date: '2026-09-24', balance: 3000, drivenBy: null },
         trajectory: [
-            { date: '2026-09-24', balance: 3000, income: 0, expense: 1000, balanceWithForecast: null },
-            { date: '2026-09-25', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-26', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-27', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-28', balance: 70000, income: 75000, expense: 8000, balanceWithForecast: null },
+            { date: '2026-09-24', balance: 3000, income: 0, expense: 1000, balanceWithForecast: null, items: [] },
+            { date: '2026-09-25', balance: 3000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-26', balance: 3000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-27', balance: 3000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-28', balance: 70000, income: 75000, expense: 8000, balanceWithForecast: null, items: [] },
         ],
         pocketAfterCreditRestore: null,
         ...overrides,
     });
 }
 
+/** «Можно сдвинуть» текстом, как их видят «Цели»: объект несёт ещё и саму строку для «Сдвинуть». */
+const asText = (g: GapMode | null) => g && { ...g, movable: g.movable.map(m => m.text) };
+
 describe('buildGapMode (ANO-100)', () => {
     it('случай владельца: сегодня не хватает, доход закроет, «Досуг» можно сдвинуть', () => {
-        expect(buildGapMode(owner())).toEqual({
+        expect(asText(buildGapMode(owner()))).toEqual({
             horizonLabel: 'до дохода 28.09',
             headline: `Сегодня по плану не хватает ${fmtC(3685)}`,
+            lead: 'Сегодня по плану не хватает',
+            shortfall: 3685,
             subline: `Доход 28.09 закроет разрыв, останется ${fmtC(63315)}.`,
             moveHeader: 'Можно сдвинуть на после 28.09:',
             movable: [`Досуг · 24.09 — ${fmtC(1000)} → не хватит ${fmtC(2685)}`],
         });
+    });
+
+    it('у строки «Можно сдвинуть» — сама строка плана, имя и исход: «Сдвинуть» на «Сегодня» переносит её', () => {
+        const [row] = buildGapMode(owner())!.movable;
+        expect(row.item).toMatchObject({ date: '2026-09-24', amount: 1000, priority: 'MEDIUM' });
+        expect(row.item.id).not.toBeNull();
+        expect(row.label).toBe('Досуг');
+        expect(row.outcome).toBe(`не хватит ${fmtC(2685)}`);
     });
 
     it('остаток ровно на уровне НЗ — режима нет: брать из НЗ нечего', () => {
@@ -106,7 +119,7 @@ describe('buildGapMode (ANO-100)', () => {
         const p = owner({
             horizon: { type: 'NEXT_INCOME', endDate: '2026-10-24', label: '30 дней вперёд (нет плановых доходов)', fallback: true },
         });
-        p.trajectory.push({ date: '2026-10-24', balance: 5000, income: 0, expense: 0, balanceWithForecast: null });
+        p.trajectory.push({ date: '2026-10-24', balance: 5000, income: 0, expense: 0, balanceWithForecast: null, items: [] });
         expect(buildGapMode(p)?.subline).toBeNull();
     });
 
@@ -124,28 +137,28 @@ describe('buildGapMode (ANO-100)', () => {
                 row({ date: '2026-09-25', amount: 6000, type: 'FUND_TRANSFER', description: 'В копилку: Отпуск' }),
             ],
         }));
-        expect(gap?.movable.map(m => m.split(' · ')[0])).toEqual(['Стрижка', 'Кафе']);
+        expect(gap?.movable.map(m => m.text.split(' · ')[0])).toEqual(['Стрижка', 'Кафе']);
     });
 
     it('не больше трёх строк, крупные первыми', () => {
         const gap = buildGapMode(owner({
             upcoming: [100, 700, 300, 500].map(a => row({ date: '2026-09-24', amount: a, categoryName: 'Трата ' + a })),
         }));
-        expect(gap?.movable.map(m => m.split(' · ')[0])).toEqual(['Трата 700', 'Трата 500', 'Трата 300']);
+        expect(gap?.movable.map(m => m.text.split(' · ')[0])).toEqual(['Трата 700', 'Трата 500', 'Трата 300']);
     });
 
     it('своё имя строки точнее категории: «Стрижка», а не «Услуги людские»', () => {
         const gap = buildGapMode(owner({
             upcoming: [row({ date: '2026-09-24', amount: 2000, categoryName: 'Услуги людские', description: 'Стрижка' })],
         }));
-        expect(gap?.movable[0]).toMatch(/^Стрижка · 24\.09 — /);
+        expect(gap?.movable[0].text).toMatch(/^Стрижка · 24\.09 — /);
     });
 
     it('сдвиг, закрывающий разрыв целиком, — «разрыва не будет»', () => {
         const gap = buildGapMode(owner({
             upcoming: [row({ date: '2026-09-24', amount: 5000, categoryName: 'Отпуск' })],
         }));
-        expect(gap?.movable).toEqual([`Отпуск · 24.09 — ${fmtC(5000)} → разрыва не будет`]);
+        expect(gap?.movable.map(m => m.text)).toEqual([`Отпуск · 24.09 — ${fmtC(5000)} → разрыва не будет`]);
     });
 
     it('две строки с одним именем различаются датой (ANO-213)', () => {
@@ -157,7 +170,7 @@ describe('buildGapMode (ANO-100)', () => {
                 row({ date: '2026-09-26', amount: 3300, categoryName: 'Бензин' }),
             ],
         }));
-        expect(gap?.movable.map(m => m.split(' — ')[0])).toEqual(['Бензин · 24.09', 'Бензин · 26.09']);
+        expect(gap?.movable.map(m => m.text.split(' — ')[0])).toEqual(['Бензин · 24.09', 'Бензин · 26.09']);
     });
 
     it('новый разрыв — худший день срока: сдвиг поднимает только дни от даты строки, хвост не в счёт', () => {
@@ -167,23 +180,25 @@ describe('buildGapMode (ANO-100)', () => {
         const p = owner({
             minPoint: { date: '2026-09-25', balance: -3000, drivenBy: null },
             trajectory: [
-                { date: '2026-09-24', balance: -2500, income: 0, expense: 0, balanceWithForecast: null },
-                { date: '2026-09-25', balance: -3000, income: 0, expense: 500, balanceWithForecast: null },
-                { date: '2026-09-28', balance: 60000, income: 63000, expense: 0, balanceWithForecast: null },
-                { date: '2026-10-03', balance: -9000, income: 0, expense: 69000, balanceWithForecast: null },
+                { date: '2026-09-24', balance: -2500, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+                { date: '2026-09-25', balance: -3000, income: 0, expense: 500, balanceWithForecast: null, items: [] },
+                { date: '2026-09-28', balance: 60000, income: 63000, expense: 0, balanceWithForecast: null, items: [] },
+                { date: '2026-10-03', balance: -9000, income: 0, expense: 69000, balanceWithForecast: null, items: [] },
             ],
             upcoming: [row({ date: '2026-09-25', amount: 2000, categoryName: 'Кафе' })],
         });
-        expect(buildGapMode(p)?.movable).toEqual([`Кафе · 25.09 — ${fmtC(2000)} → не хватит ${fmtC(2500)}`]);
+        expect(buildGapMode(p)?.movable.map(m => m.text)).toEqual([`Кафе · 25.09 — ${fmtC(2000)} → не хватит ${fmtC(2500)}`]);
     });
 });
 
 describe('buildGapMode: НЗ задет (ANO-92)', () => {
     it('денег хватает, но меньше НЗ: берём из НЗ, доход восстановит, «Досуг» можно сдвинуть', () => {
         // Сдвиг «Досуга» поднимает дни с 24 по 27.09 до 4 000 — из НЗ остаётся взять 1 000.
-        expect(buildGapMode(nz())).toEqual({
+        expect(asText(buildGapMode(nz()))).toEqual({
             horizonLabel: 'до дохода 28.09',
             headline: `Сегодня по плану придётся взять из НЗ ${fmtC(2000)}`,
+            lead: 'Сегодня по плану придётся взять из НЗ',
+            shortfall: 2000,
             subline: `Доход 28.09 восстановит НЗ, останется ${fmtC(70000)}.`,
             moveHeader: 'Можно сдвинуть на после 28.09:',
             movable: [`Досуг · 24.09 — ${fmtC(1000)} → из НЗ ${fmtC(1000)}`],
@@ -193,7 +208,7 @@ describe('buildGapMode: НЗ задет (ANO-92)', () => {
     it('нехватка важнее НЗ: остаток ниже нуля — счёт от нуля, НЗ число не меняет', () => {
         const gap = buildGapMode(owner({ pocket: -8685, buffer: 5000 }));
         expect(gap?.headline).toBe(`Сегодня по плану не хватает ${fmtC(3685)}`);
-        expect(gap?.movable).toEqual([`Досуг · 24.09 — ${fmtC(1000)} → не хватит ${fmtC(2685)}`]);
+        expect(gap?.movable.map(m => m.text)).toEqual([`Досуг · 24.09 — ${fmtC(1000)} → не хватит ${fmtC(2685)}`]);
     });
 
     it('узкий день впереди — дата словами', () => {
@@ -217,6 +232,6 @@ describe('buildGapMode: НЗ задет (ANO-92)', () => {
         const gap = buildGapMode(nz({
             upcoming: [row({ date: '2026-09-24', amount: 3000, categoryName: 'Отпуск' })],
         }));
-        expect(gap?.movable).toEqual([`Отпуск · 24.09 — ${fmtC(3000)} → НЗ цел`]);
+        expect(gap?.movable.map(m => m.text)).toEqual([`Отпуск · 24.09 — ${fmtC(3000)} → НЗ цел`]);
     });
 });
