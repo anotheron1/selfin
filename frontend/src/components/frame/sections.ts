@@ -1,4 +1,5 @@
 import { pocketResult } from '../../lib/gapMode';
+import { fmtDayShort } from '../../lib/format';
 import type { PocketResponse } from '../../types/api';
 
 /**
@@ -26,10 +27,7 @@ export const sectionOf = (path: string): Section | null =>
 /** На «Сегодня» число уже на карточке; раскрытая шапка там — срез 2. */
 export const showsHeader = (path: string) => path !== '/';
 
-const shortDate = (iso: string) => {
-    const [y, m, d] = iso.split('-').map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-};
+const shortDate = fmtDayShort;
 
 /** Строка шапки — те же слова и сумма без минуса, что у итога карточки (pocketResult), и конец срока. */
 export function headerLine(p: PocketResponse): { label: string; amount: number } {

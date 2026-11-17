@@ -8,6 +8,12 @@ export const fmtRub = (n: number): string => {
         .format(whole === 0 ? 0 : whole);
 };
 
+/** «25 нояб.» из ISO-строки, тоже без UTC-парсинга, — короткая дата лица «Ж2». */
+export const fmtDayShort = (iso: string): string => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+};
+
 /** «14 июля» из ISO-строки БЕЗ UTC-парсинга (new Date('YYYY-MM-DD') сдвигает день в западных TZ). */
 export const fmtDayMonth = (iso: string): string => {
     const [y, m, d] = iso.split('-').map(Number);
