@@ -13,6 +13,7 @@ function fakeServer() {
     const events: { id: string; key: string; dto: FinancialEventCreateDto; deleted: boolean }[] = [];
     const checkpoints: { id: string; dto: BalanceCheckpointCreateDto }[] = [];
     let lose = 0;
+    let hold: Promise<void> | null = null;
     const api = {
         createCheckpoint: async (dto: BalanceCheckpointCreateDto) => {
             log.push(`POST checkpoint ${dto.amount}`);
@@ -36,6 +37,7 @@ function fakeServer() {
                 log.push(`POST ${ev.id} повтор`);
             }
             await Promise.resolve();
+            if (hold) { const h = hold; hold = null; await h; }
             if (lose > 0) { lose--; throw new Error('ответ потерян'); }
             attempts.done('plan', key);
             return { id: ev.id } as never;
@@ -53,6 +55,8 @@ function fakeServer() {
         api, log, checkpoints,
         live: () => events.filter(e => !e.deleted).map(e => `${e.dto.description ?? e.dto.type} ${e.dto.plannedAmount}`),
         loseNext: () => { lose = 1; },
+        /** Ответ на следующую запись задерживается, пока не отпустят: сервер уже записал. */
+        holdNext: () => { let release = () => {}; hold = new Promise<void>(r => { release = r; }); return release; },
     };
 }
 
@@ -120,6 +124,25 @@ describe('FirstEntryWrites — «Назад» правит, а не пишет �
         expect(s.live()).toEqual(['Аренда 25000']);
     });
 
+    it('ответ потерялся, потом сумму поменяли — первая запись не висит (ревью Codex на #227)', async () => {
+        const s = fakeServer();
+        const w = new FirstEntryWrites(s.api);
+        s.loseNext();
+        await expect(w.plan('pay:1', pay(25_000))).rejects.toThrow('ответ потерян');
+        await w.plan('pay:1', pay(27_000));
+        expect(s.log).toEqual(['POST ev1 25000', 'POST ev1 повтор', 'DELETE ev1 ALL', 'POST ev2 27000']);
+        expect(s.live()).toEqual(['Аренда 27000']);
+    });
+
+    it('ответ потерялся, потом строку стёрли — записи нет', async () => {
+        const s = fakeServer();
+        const w = new FirstEntryWrites(s.api);
+        s.loseNext();
+        await expect(w.plan('pay:1', pay(25_000))).rejects.toThrow('ответ потерян');
+        await w.plan('pay:1', null);
+        expect(s.live()).toEqual([]);
+    });
+
     it('ключ — на каждый ответ: соседняя строка не стирает попытку потерянной', async () => {
         const s = fakeServer();
         const w = new FirstEntryWrites(s.api);
@@ -148,6 +171,19 @@ describe('FirstEntryWrites — «Назад» правит, а не пишет �
         await expect(w.plan('pay:1', pay(27_000))).rejects.toThrow('ответ потерян');
         await w.plan('pay:1', pay(27_000));
         expect(s.live()).toEqual(['Аренда 27000']);
+    });
+
+    it('правка, пока первая запись ждёт ответа, — по очереди: поздний ответ не возвращает удалённую', async () => {
+        const s = fakeServer();
+        const w = new FirstEntryWrites(s.api);
+        const release = s.holdNext();
+        const first = w.plan('pay:1', pay(25_000));
+        const second = w.plan('pay:1', pay(27_000));
+        await new Promise(r => setTimeout(r, 0));
+        release();
+        await Promise.all([first, second]);
+        await w.plan('pay:1', null);
+        expect(s.live()).toEqual([]);
     });
 
     it('сбой одной записи не останавливает следующие', async () => {

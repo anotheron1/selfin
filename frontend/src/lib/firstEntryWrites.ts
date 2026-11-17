@@ -25,6 +25,8 @@ type Api = {
 export class FirstEntryWrites {
     private readonly saved = new Map<string, { id: string; json: string; series: boolean }>();
     private readonly keys = new Map<string, AttemptKeys>();
+    /** Записи, на которые сервер ещё не ответил: запрос ушёл, ответа нет. */
+    private readonly unconfirmed = new Map<string, FinancialEventCreateDto>();
     private queue: Promise<unknown> = Promise.resolve();
 
     constructor(private readonly api: Api = { createCheckpoint, updateCheckpoint, createPlanWithFact, deleteEvent }) {}
@@ -51,9 +53,22 @@ export class FirstEntryWrites {
         });
     }
 
+    private async create(answer: string, dto: FinancialEventCreateDto) {
+        const keys = this.keys.get(answer) ?? new AttemptKeys();
+        this.keys.set(answer, keys);
+        this.unconfirmed.set(answer, dto);
+        const ev = await this.api.createPlanWithFact(keys, dto);
+        this.unconfirmed.delete(answer);
+        this.saved.set(answer, { id: ev.id, json: JSON.stringify(dto), series: dto.recurring != null });
+    }
+
     /** Ответ `answer` — строка плана: доход, строка платежа. `null` — ответа нет: записанная строка удаляется. */
     plan(answer: string, dto: FinancialEventCreateDto | null): Promise<boolean> {
         return this.run(async () => {
+            // Сервер мог записать, а ответ потерялся (ревью Codex на #227): сперва узнать id той записи тем же ключом.
+            // Иначе новая сумма завела бы вторую серию, а стёртая строка оставила бы первую в плане.
+            const lost = this.unconfirmed.get(answer);
+            if (lost) await this.create(answer, lost);
             const json = JSON.stringify(dto);
             const prev = this.saved.get(answer);
             if ((prev?.json ?? 'null') === json) return false;
@@ -63,12 +78,7 @@ export class FirstEntryWrites {
                     .catch(err => { if (!(err instanceof ApiError && err.status === 404)) throw err; });
                 this.saved.delete(answer);
             }
-            if (dto) {
-                const keys = this.keys.get(answer) ?? new AttemptKeys();
-                this.keys.set(answer, keys);
-                const ev = await this.api.createPlanWithFact(keys, dto);
-                this.saved.set(answer, { id: ev.id, json, series: dto.recurring != null });
-            }
+            if (dto) await this.create(answer, dto);
             return true;
         });
     }
