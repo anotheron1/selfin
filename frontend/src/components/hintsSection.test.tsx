@@ -29,6 +29,14 @@ describe('«Настройки» — строка «Подсказки» с пе
         expect(changes).toEqual([{ off: false, closed: [] }]);
     });
 
+    it('«Сегодня» и «Настройки» читают подсказки после записей в очереди, а не мимо неё (ревью Codex на #228)', () => {
+        for (const file of ['../pages/Today.tsx', './HintsSection.tsx']) {
+            const src = readFileSync(new URL(file, import.meta.url), 'utf8');
+            expect(src, file).toContain('loadHints()');
+            expect(src, file).not.toContain('fetchHintsSettings');
+        }
+    });
+
     it('стоит в «Настройках» — туда ведёт профиль', () => {
         // Экран читает сеть, статический рендер видит его пустым — сторож по исходнику.
         const settings = readFileSync(new URL('../pages/Settings.tsx', import.meta.url), 'utf8');

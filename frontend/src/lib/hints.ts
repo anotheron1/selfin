@@ -1,4 +1,4 @@
-import { updateHintsSettings } from '../api';
+import { fetchHintsSettings, updateHintsSettings } from '../api';
 import type { HintsSettings, PocketResponse } from '../types/api';
 import { listNames, plannedNames } from './breakdownRows';
 import { fmtDayShort } from './format';
@@ -61,3 +61,9 @@ export function saveHints(s: HintsSettings): Promise<void> {
     saving = saving.then(() => updateHintsSettings(s)).then(() => undefined, err => { console.error(err); });
     return saving;
 }
+
+/**
+ * Чтение — после записей в очереди (ревью Codex на #228): включил в «Настройках» и сразу ушёл на «Сегодня» — экран
+ * прочёл бы прежнее `off: true` раньше, чем запись дошла.
+ */
+export const loadHints = (): Promise<HintsSettings> => saving.then(() => fetchHintsSettings());

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronRight, CreditCard, LayoutGrid, Mountain, RefreshCw, ShoppingBag } from 'lucide-react';
 import { Button, Choices, Money, Plate, Tile } from '@/ds';
 import { cn } from '@/lib/utils';
-import { createLinkedFact, fetchHintsSettings, fetchMe, fetchPocket } from '../api';
+import { createLinkedFact, fetchMe, fetchPocket } from '../api';
 import { CHANGED } from '../api/client';
 import { profileLink } from '../components/frame/AppFrame';
 import { Cells } from '../components/today/Cells';
@@ -21,7 +21,7 @@ import { needsFirstEntry } from '../lib/firstEntry';
 import { serverTodayIso } from '../lib/factDate';
 import { fmtDayShort } from '../lib/format';
 import { buildGapMode } from '../lib/gapMode';
-import { firstDay, numberHint, PLUS_HINT, saveHints, SLOPE_HINT, type HintId } from '../lib/hints';
+import { firstDay, loadHints, numberHint, PLUS_HINT, saveHints, SLOPE_HINT, type HintId } from '../lib/hints';
 import { buildLandscape, type LandscapeModel } from '../lib/landscape';
 import type { QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
@@ -101,7 +101,7 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
     const [markFailed, setMarkFailed] = useState(false);
     // Подсказки первого дня (п. 12): закрытые и выключатель — на сервере; не пришли — подсказок нет.
     const [hints, setHints] = useState<HintsSettings | null>(null);
-    useEffect(() => { fetchHintsSettings().then(setHints).catch(() => setHints(null)); }, []);
+    useEffect(() => { loadHints().then(setHints).catch(() => setHints(null)); }, []);
     const changeHints = (next: HintsSettings) => { setHints(next); saveHints(next); };
 
     const scope = PERIODS.find(p => p.value === period)!.scope;

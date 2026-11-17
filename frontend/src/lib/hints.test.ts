@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { updateHintsSettings } from '../api';
-import { closeHint, firstDay, hideAllHints, numberHint, saveHints, switchHints } from './hints';
+import { fetchHintsSettings, updateHintsSettings } from '../api';
+import { closeHint, firstDay, hideAllHints, loadHints, numberHint, saveHints, switchHints } from './hints';
 import type { HintsSettings, PocketResponse, UpcomingItem } from '../types/api';
 
-vi.mock('../api', () => ({ updateHintsSettings: vi.fn() }));
+vi.mock('../api', () => ({ updateHintsSettings: vi.fn(), fetchHintsSettings: vi.fn() }));
 
 const item = (description: string, date = '2026-11-20', over: Partial<UpcomingItem> = {}): UpcomingItem => ({
     id: `e-${description}-${date}`, date, categoryName: 'Обязательные платежи', amount: 1_000, description,
@@ -91,6 +91,21 @@ describe('запись настроек подсказок', () => {
         fail(new Error('сеть'));
         await done;
         expect(put.mock.calls.map(c => c[0])).toEqual([first, second]);
+    });
+
+    it('чтение — после записей в очереди: включил в «Настройках», ушёл на «Сегодня» — видит включённое (ревью Codex)', async () => {
+        const put = vi.mocked(updateHintsSettings);
+        const get = vi.mocked(fetchHintsSettings);
+        let done!: () => void;
+        put.mockImplementationOnce(() => new Promise(resolve => { done = () => resolve(ON); }));
+        get.mockResolvedValueOnce(ON);
+        saveHints(ON);
+        const read = loadHints();
+        await new Promise(r => setTimeout(r));
+        expect(get).not.toHaveBeenCalled();
+        done();
+        expect(await read).toEqual(ON);
+        expect(get).toHaveBeenCalledTimes(1);
     });
 });
 

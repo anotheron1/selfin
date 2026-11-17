@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchHintsSettings } from '../api';
-import { saveHints, switchHints } from '../lib/hints';
+import { loadHints, saveHints, switchHints } from '../lib/hints';
 import type { HintsSettings } from '../types/api';
 
 /** Строка с переключателем; `settings` null — ещё не пришли, нажать нельзя. Включил — закрытые показываются снова. */
@@ -22,7 +21,7 @@ export function HintsRow({ settings, onChange }: { settings: HintsSettings | nul
  */
 export default function HintsSection() {
     const [hints, setHints] = useState<HintsSettings | null>(null);
-    useEffect(() => { fetchHintsSettings().then(setHints).catch(() => setHints(null)); }, []);
+    useEffect(() => { loadHints().then(setHints).catch(() => setHints(null)); }, []);
     const change = (next: HintsSettings) => { setHints(next); saveHints(next); };
     return (
         <div className="rounded-2xl px-5 py-3"
