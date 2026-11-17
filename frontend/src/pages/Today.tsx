@@ -39,6 +39,11 @@ type Period = (typeof PERIODS)[number]['value'];
 type View = 'land' | 'cells';
 
 const num = (n: number) => Math.round(n).toLocaleString('ru-RU');
+/**
+ * Ширина плитки: на телефоне — по содержимому. Поровну три плитки по 111 px не вмещают «459 900 ₽» (нужно 70 px из 68)
+ * и режут сумму многоточием; плитке «впритык» столько не нужно, лишнее достаётся суммам. На 1440 — поровну.
+ */
+const TILE_W = 'flex-auto lg:flex-1';
 const CELL_SCALE = ['var(--sf-cell-1)', 'var(--sf-cell-2)', 'var(--sf-cell-3)', 'var(--sf-cell-4)', 'var(--sf-cell-5)'];
 
 /** Кольцо самого низкого остатка — тот же знак, что на склоне. */
@@ -47,7 +52,7 @@ const LowRing = () => (
 );
 
 function Legend({ data, m, view }: { data: PocketResponse; m: LandscapeModel; view: View }) {
-    const sw = (bg: string, extra = '') => <span aria-hidden="true" className={cn('h-3 w-3 rounded-[3px]', extra)} style={{ background: bg }} />;
+    const sw = (bg: string, extra = '') => <span aria-hidden="true" className={cn('inline-block h-3 w-3 rounded-[3px]', extra)} style={{ background: bg }} />;
     const item = (key: string, mark: React.ReactNode, text: string) => <span key={key} className="flex items-center gap-1.5">{mark}{text}</span>;
     const items = view === 'cells'
         ? [
@@ -195,10 +200,10 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
                     {gap && <p className="mt-2.5 text-sf-note text-sf-muted">{drivenBy}{gap.subline}</p>}
                     <div className="mt-3.5 flex gap-2 lg:mt-5 lg:max-w-[660px] lg:gap-2.5">
                         {tiles.map(t => t.key === 'cards'
-                            ? <Tile key={t.key} className="flex-1" icon={<CreditCard strokeWidth={1.7} />} value={t.value}
+                            ? <Tile key={t.key} className={TILE_W} icon={<CreditCard strokeWidth={1.7} />} value={t.value}
                                 caption={<><RefreshCw strokeWidth={2.4} />{t.caption}</>} onClick={() => setSheet('reanchor')}
                                 aria-label={cardsTileLabel(data)} />
-                            : <Tile key={t.key} className={cn('flex-1', t.tight && 'bg-sf-plate')}
+                            : <Tile key={t.key} className={cn(TILE_W, t.tight && 'bg-sf-plate')}
                                 icon={t.key === 'usual' ? <ShoppingBag strokeWidth={1.7} /> : <LowRing />}
                                 value={<><span className="sr-only">{t.sr} </span>{t.value}</>} caption={t.caption} />)}
                     </div>
