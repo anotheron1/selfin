@@ -42,12 +42,23 @@ export const ENVELOPE_ROW = 'Уже в копилках';
 export const BALANCE_ROW = 'На счёте';
 export const OVERDUE_ROW = 'Брони с прошедшей датой';
 export const CREDIT_ROW = 'Погасить карты до планки';
+/** Начало имени строки расходов: «Ещё уйдёт сегодня», «Ещё уйдёт до 24 ноября». */
+export const PLANNED_ROW = 'Ещё уйдёт';
+export const CONTRIB_ROW = 'Взносы в копилки';
 
 /** Своё имя строки, если оно не пустое, иначе категория (ANO-101: пустое описание — не имя). */
 const nameOf = (u: UpcomingItem): string | null => u.description?.trim() || u.categoryName?.trim() || null;
 
+/**
+ * Строки, которые движок сложил в «Ещё уйдёт до …»: впереди, до самого низкого остатка, без синтетики — у взносов
+ * копилок своя строка. Их же называет подсказка у числа (срез 2, п. 12).
+ */
+export const plannedNames = (p: PocketResponse): string[] => p.upcoming
+    .filter(u => !u.overdue && u.id != null && u.date <= p.minPoint.date)
+    .map(nameOf).filter((n): n is string => n != null);
+
 /** «Ипотека, Продукты ×4, Стрижка»: одинаковые вместе, больше четырёх разных — «и ещё N». */
-function listNames(names: string[]): string {
+export function listNames(names: string[]): string {
     const groups = new Map<string, number>();
     for (const n of names) groups.set(n, (groups.get(n) ?? 0) + 1);
     const entries = [...groups.entries()];
@@ -99,18 +110,14 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
                 break;
             }
             case 'PLANNED_EXPENSES': {
-                // Те строки, что движок сложил в эту сумму: впереди, до узкого дня, без синтетики —
-                // у взносов копилок своя строка.
-                const names = p.upcoming
-                    .filter(u => !u.overdue && u.id != null && u.date <= minPoint.date)
-                    .map(nameOf).filter((n): n is string => n != null);
-                calc.push(row('item', isToday ? 'Ещё уйдёт сегодня' : `Ещё уйдёт до ${day}`, signed(l.amount),
+                const names = plannedNames(p);
+                calc.push(row('item', isToday ? `${PLANNED_ROW} сегодня` : `${PLANNED_ROW} до ${day}`, signed(l.amount),
                     names.length ? `по плану: ${listNames(names)}` : 'по плану'));
                 break;
             }
             case 'SAVINGS_CONTRIBUTIONS': {
                 const names = l.details.filter(d => d.trim());
-                calc.push(row('item', 'Взносы в копилки', signed(l.amount), names.length ? listNames(names) : null));
+                calc.push(row('item', CONTRIB_ROW, signed(l.amount), names.length ? listNames(names) : null));
                 break;
             }
             case 'PLANNED_INCOME':

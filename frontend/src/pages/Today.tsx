@@ -9,6 +9,7 @@ import { profileLink } from '../components/frame/AppFrame';
 import { Cells } from '../components/today/Cells';
 import { DaySheet } from '../components/today/DaySheet';
 import { MovePlate, WatchdogPlate } from '../components/today/GapPlate';
+import { DayHint } from '../components/today/HintBubble';
 import { Landscape, TightDot } from '../components/today/Landscape';
 import { UsualSpendingForm } from '../components/today/UsualSpendingForm';
 import { WhyPlate } from '../components/today/WhyPlate';
@@ -20,15 +21,15 @@ import { needsFirstEntry } from '../lib/firstEntry';
 import { serverTodayIso } from '../lib/factDate';
 import { fmtDayShort } from '../lib/format';
 import { buildGapMode } from '../lib/gapMode';
+import { firstDay, loadHints, numberHint, PLUS_HINT, saveHints, SLOPE_HINT, type HintId } from '../lib/hints';
 import { buildLandscape, type LandscapeModel } from '../lib/landscape';
-import { noExpectationsNote } from '../lib/noExpectationsNote';
 import type { QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { buildBreakHint } from '../lib/reanchor';
 import { watchdogView } from '../lib/tightPoint';
 import { buildWatchdogAlert, withoutSameGap } from '../lib/watchdogAlert';
 import { buildTodayTiles, cardsTileLabel } from '../lib/todayTiles';
-import type { PocketResponse, UpcomingItem } from '../types/api';
+import type { HintsSettings, PocketResponse, UpcomingItem } from '../types/api';
 
 /** Периоды — прежние (опись № 18); вид календаря следует за периодом, значки меняют его вручную. */
 const PERIODS = [
@@ -98,6 +99,10 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
     const [guard] = useState(() => new QuickCloseGuard());
     const [, guardChanged] = useReducer((n: number) => n + 1, 0);
     const [markFailed, setMarkFailed] = useState(false);
+    // Подсказки первого дня (п. 12): закрытые и выключатель — на сервере; не пришли — подсказок нет.
+    const [hints, setHints] = useState<HintsSettings | null>(null);
+    useEffect(() => { loadHints().then(setHints).catch(() => setHints(null)); }, []);
+    const changeHints = (next: HintsSettings) => { setHints(next); saveHints(next); };
 
     const scope = PERIODS.find(p => p.value === period)!.scope;
     const load = useCallback(() => {
@@ -173,7 +178,13 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
     const wideModel = buildLandscape(data, 'wide');
     const narrowModel = buildLandscape(data, 'narrow');
     const breakHint = buildBreakHint(lastVisit, data.checkpointDate, serverTodayIso(new Date()));
-    const noUsual = noExpectationsNote(data) != null;
+    // Плашка об обычных тратах — от числа, а не от выключателя подсказок (ANO-252).
+    const { hints: shown, noUsual } = firstDay(data, hints, view);
+    /** Пузырь подсказки на месте доски S2-P1 (390) или S2-P-1440. */
+    const bubble = (id: HintId, text: string, arrow: 'up' | 'down' | 'left', arrowClass: string, className: string) => (
+        <DayHint id={id} shown={shown} settings={hints} onChange={changeHints}
+            text={text} arrow={arrow} arrowClass={arrowClass} className={className} />
+    );
     const selected = day && data.trajectory.some(t => t.date === day) ? day : null;
     const dayX = selected ? (wideModel.points.find(p => p.date === selected)!.x / wideModel.w) * 100 : 50;
     const overlay = (m: LandscapeModel) => watch?.kind === 'dot'
@@ -198,16 +209,22 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
     return (
         <div>
             <section className="relative bg-[linear-gradient(180deg,var(--sf-sky-top)_0%,var(--sf-sky-mid)_52%,var(--sf-sky-bottom)_100%)]">
-                <div className="mx-auto flex max-w-[1180px] flex-col px-sf-gutter lg:pt-1">
+                <div className="relative mx-auto flex max-w-[1180px] flex-col px-sf-gutter lg:pt-1">
+                    {/* «+» на 1440 — «Записать» в полосе разделов над экраном: пузырь под ней, уголок вверх. */}
+                    {bubble('plus', PLUS_HINT, 'up', 'right-[84px]', 'hidden lg:block right-[calc(var(--sf-gutter)+20px)] top-2 w-[270px]')}
                     <div className="flex h-11 items-center justify-between">
                         <span className="text-sf-control text-sf-muted lg:text-sf-body">
                             {gap ? gap.lead : `Свободно до ${fmtDayShort(data.horizon.endDate)}`}
                         </span>
                         {profile}
                     </div>
-                    <Money value={num(gap ? gap.shortfall : data.pocket)} className="lg:text-[104px]" />
+                    <div className="relative flex self-start">
+                        <Money value={num(gap ? gap.shortfall : data.pocket)} className="lg:text-[104px]" />
+                        {bubble('number', numberHint(data), 'left', 'top-[30px]', 'hidden lg:block left-full top-[18px] ml-[68px] w-[280px]')}
+                    </div>
                     {gap && <p className="mt-2.5 text-sf-note text-sf-muted">{drivenBy}{gap.subline}</p>}
-                    <div className="mt-3.5 flex gap-2 lg:mt-5 lg:max-w-[660px] lg:gap-2.5">
+                    <div className="relative mt-3.5 flex gap-2 lg:mt-5 lg:max-w-[660px] lg:gap-2.5">
+                        {bubble('number', numberHint(data), 'up', 'left-7', 'left-0 top-full mt-2.5 w-[226px] lg:hidden')}
                         {tiles.map(t => t.key === 'cards'
                             ? <Tile key={t.key} className={TILE_W} icon={<CreditCard strokeWidth={1.7} />} value={t.value}
                                 caption={<><RefreshCw strokeWidth={2.4} />{t.caption}</>} onClick={() => setSheet('reanchor')}
@@ -227,11 +244,13 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
                 </div>
                 {view === 'land'
                     ? <>
-                        <div className="lg:hidden">
+                        <div className="relative lg:hidden">
                             <Landscape data={data} size="narrow" selectedDate={selected} onDay={setDay} overlay={overlay} />
+                            {bubble('slope', SLOPE_HINT, 'up', 'left-10', 'right-4 top-[46%] w-[210px]')}
                         </div>
                         <div className="relative hidden lg:block">
                             <Landscape data={data} size="wide" selectedDate={selected} onDay={setDay} overlay={overlay} />
+                            {bubble('slope', SLOPE_HINT, 'up', 'left-10', 'left-[36%] top-[57%] w-[280px]')}
                             {selected && <DaySheet data={data} date={selected} size="wide" xPct={dayX} onDate={setDay} onClose={() => setDay(null)} />}
                         </div>
                     </>
@@ -286,6 +305,8 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
                 </div>
             </section>
 
+            {/* «+» на телефоне — в капсуле снизу: пузырь над ней, уголок вниз. */}
+            {bubble('plus', PLUS_HINT, 'down', 'left-[112px]', 'fixed bottom-[92px] left-1/2 z-40 -ml-[118px] w-[236px] lg:hidden')}
             {selected && <DaySheet data={data} date={selected} size="narrow" onDate={setDay} onClose={() => setDay(null)} />}
             <ReanchorSheet open={sheet === 'reanchor'} onOpenChange={o => setSheet(o ? 'reanchor' : null)}
                 currentBalance={data.currentBalance} checkpointDate={data.checkpointDate} onSuccess={load} />
