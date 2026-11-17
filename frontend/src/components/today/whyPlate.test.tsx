@@ -132,6 +132,7 @@ describe('WhyPlate — пояснения из справки под строк�
     it('бронь без оплаты держится — под строкой расходов, только когда такая бронь есть', () => {
         const withOverdue = render(stand(), { initialOpen: true });
         expect(noteOf(withOverdue, 'Ещё уйдёт до 24 ноября')).toContain('по плану: Аренда; бронь без оплаты держится');
+        expect(withOverdue.split('держится').length - 1, 'только под строкой расходов').toBe(1);
 
         const none = stand({
             breakdown: [line('STARTING_BALANCE', 48_800), line('PLANNED_EXPENSES', -21_800),

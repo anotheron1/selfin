@@ -10,6 +10,7 @@ import ru.selfin.backend.repository.UserSettingsRepository;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -90,7 +91,7 @@ class UserSettingsServiceTest {
     void updateHints_strangeName_throws() {
         // Имя подсказки — короткое слово из кода экрана: в jsonb человека не пишется что угодно.
         for (List<String> closed : List.of(List.of("Склон"), List.of(""), List.of("x".repeat(33)),
-                Collections.nCopies(33, "number"))) {
+                Collections.nCopies(33, "number"), Arrays.asList("number", null))) {
             assertThatThrownBy(() -> service.updateHints(new HintsSettingsDto(false, closed)))
                     .as("%s", closed).isInstanceOf(ResponseStatusException.class);
         }

@@ -79,10 +79,9 @@ public class UserSettingsService {
                     try {
                         return objectMapper.readValue(s.getSettingsValue(), HintsSettingsDto.class);
                     } catch (Exception e) {
-                        return null;
+                        return null;   // не разобралась — умолчание, как у прочих ключей
                     }
                 })
-                .filter(h -> h.closed() != null)
                 .orElse(new HintsSettingsDto(false, List.of()));
     }
 

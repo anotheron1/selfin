@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { closeHint, firstDay, hideAllHints, numberHint, switchHints } from './hints';
+import { describe, expect, it, vi } from 'vitest';
+import { updateHintsSettings } from '../api';
+import { closeHint, firstDay, hideAllHints, numberHint, saveHints, switchHints } from './hints';
 import type { HintsSettings, PocketResponse, UpcomingItem } from '../types/api';
+
+vi.mock('../api', () => ({ updateHintsSettings: vi.fn() }));
 
 const item = (description: string, date = '2026-11-20', over: Partial<UpcomingItem> = {}): UpcomingItem => ({
     id: `e-${description}-${date}`, date, categoryName: 'Обязательные платежи', amount: 1_000, description,
@@ -70,6 +73,24 @@ describe('подсказки первого дня (срез 2, п. 12; S2-P1)',
 
     it('у склона — только на пейзаже: у клеток склона нет', () => {
         expect(firstDay(fresh(), ON, 'cells').hints).toEqual(['number', 'plus']);
+    });
+});
+
+describe('запись настроек подсказок', () => {
+    it('по очереди: ответ на раннюю не перетрёт позднюю; сбой не останавливает следующую', async () => {
+        const put = vi.mocked(updateHintsSettings);
+        let fail!: (e: Error) => void;
+        put.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }));
+        put.mockResolvedValueOnce(ON);
+        const first = closeHint(ON, 'number');
+        const second = closeHint(first, 'slope');
+        saveHints(first);
+        const done = saveHints(second);
+        await new Promise(r => setTimeout(r));
+        expect(put).toHaveBeenCalledTimes(1);
+        fail(new Error('сеть'));
+        await done;
+        expect(put.mock.calls.map(c => c[0])).toEqual([first, second]);
     });
 });
 

@@ -9,7 +9,7 @@ import { profileLink } from '../components/frame/AppFrame';
 import { Cells } from '../components/today/Cells';
 import { DaySheet } from '../components/today/DaySheet';
 import { MovePlate, WatchdogPlate } from '../components/today/GapPlate';
-import { HintBubble } from '../components/today/HintBubble';
+import { DayHint } from '../components/today/HintBubble';
 import { Landscape, TightDot } from '../components/today/Landscape';
 import { UsualSpendingForm } from '../components/today/UsualSpendingForm';
 import { WhyPlate } from '../components/today/WhyPlate';
@@ -21,7 +21,7 @@ import { needsFirstEntry } from '../lib/firstEntry';
 import { serverTodayIso } from '../lib/factDate';
 import { fmtDayShort } from '../lib/format';
 import { buildGapMode } from '../lib/gapMode';
-import { closeHint, firstDay, hideAllHints, numberHint, PLUS_HINT, saveHints, SLOPE_HINT, type HintId } from '../lib/hints';
+import { firstDay, numberHint, PLUS_HINT, saveHints, SLOPE_HINT, type HintId } from '../lib/hints';
 import { buildLandscape, type LandscapeModel } from '../lib/landscape';
 import type { QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
@@ -180,13 +180,11 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
     const breakHint = buildBreakHint(lastVisit, data.checkpointDate, serverTodayIso(new Date()));
     // Плашка об обычных тратах — от числа, а не от выключателя подсказок (ANO-252).
     const { hints: shown, noUsual } = firstDay(data, hints, view);
-    /** Пузырь подсказки на месте доски S2-P1 (390) или S2-P-1440; «Скрыть все» — у первой видимой. */
-    const bubble = (id: HintId, text: string, arrow: 'up' | 'down' | 'left', arrowClass: string, className: string) =>
-        hints && shown.includes(id) && (
-            <HintBubble text={text} arrow={arrow} arrowClass={arrowClass} className={className}
-                onClose={() => changeHints(closeHint(hints, id))}
-                onHideAll={shown[0] === id ? () => changeHints(hideAllHints(hints)) : undefined} />
-        );
+    /** Пузырь подсказки на месте доски S2-P1 (390) или S2-P-1440. */
+    const bubble = (id: HintId, text: string, arrow: 'up' | 'down' | 'left', arrowClass: string, className: string) => (
+        <DayHint id={id} shown={shown} settings={hints} onChange={changeHints}
+            text={text} arrow={arrow} arrowClass={arrowClass} className={className} />
+    );
     const selected = day && data.trajectory.some(t => t.date === day) ? day : null;
     const dayX = selected ? (wideModel.points.find(p => p.date === selected)!.x / wideModel.w) * 100 : 50;
     const overlay = (m: LandscapeModel) => watch?.kind === 'dot'
