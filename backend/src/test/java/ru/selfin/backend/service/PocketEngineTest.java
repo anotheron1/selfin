@@ -299,6 +299,23 @@ class PocketEngineTest {
     }
 
     @Test
+    @DisplayName("ANO-98: у строки будущего дня — непогашенный остаток плана, как в «осталось потратить»")
+    void dayItem_partiallySettledPlan_showsRemainder() {
+        UUID planId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 3, 10);
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(planWithId(planId, EventType.EXPENSE, day, 20_000),
+                        factFor(planId, EventType.EXPENSE, TODAY, 8_000))
+                .build();
+
+        PocketResultDto.TrajectoryPoint p = PocketEngine.calculate(in).trajectory().stream()
+                .filter(t -> t.date().equals(day)).findFirst().orElseThrow();
+
+        assertThat(p.items()).hasSize(1);
+        assertThat(p.items().get(0).amount()).as("8 000 уже ушли — в дне 12 000").isEqualByComparingTo(dec(12_000));
+    }
+
+    @Test
     @DisplayName("ANO-119: информационный хвост за горизонтом в список не идёт")
     void upcoming_stopsAtHorizon_notAtTrajectoryTail() {
         // Траектория тянется минимум на 7 дней (§3.9), даже когда горизонт ближе. Этот

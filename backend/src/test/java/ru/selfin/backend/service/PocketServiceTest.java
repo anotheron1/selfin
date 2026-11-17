@@ -134,7 +134,10 @@ class PocketServiceTest {
         incomeDates(LocalDate.of(2026, 3, 15));
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any()))
                 .thenReturn(List.of(ipoteka, salary));
-        when(eventRepository.findAllById(any())).thenReturn(List.of(ipoteka, salary));
+        // Имена — только по запрошенным id: доход в «осталось потратить» не входит, его id берётся из строк дня.
+        when(eventRepository.findAllById(argThat((Iterable<java.util.UUID> ids) ->
+                java.util.stream.StreamSupport.stream(ids.spliterator(), false).anyMatch(salary.getId()::equals))))
+                .thenReturn(List.of(ipoteka, salary));
 
         PocketResultDto r = pocketService.getPocket(null, TODAY);
 
