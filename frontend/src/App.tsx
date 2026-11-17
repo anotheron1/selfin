@@ -5,7 +5,6 @@ import AppFrame, { SectionTrack } from './components/frame/AppFrame';
 import QuickAddModal from './components/Fab';
 import Analytics from './pages/Analytics';
 import Capital from './pages/Capital';
-import Dashboard from './pages/Dashboard';
 import Budget from './pages/Budget';
 import Funds from './pages/Funds';
 import { ConsentText, Privacy } from './pages/Legal';
@@ -13,15 +12,18 @@ import Settings from './pages/Settings';
 import SignIn from './pages/SignIn';
 import Strategy from './pages/Strategy';
 import UpdateBanner from './components/UpdateBanner';
+import Today from './pages/Today';
 import Wishlist from './pages/Wishlist';
 
 /**
  * Журнал на широком экране — две колонки, основной список и ожидания (ANO-176), и в прежние
- * 672 px они не помещаются. Остальные экраны раскладываются под ширину в своих срезах.
+ * 672 px они не помещаются. «Сегодня» (срез 2) раскладывает ширину сам: небо и пейзаж — во всю ширину окна.
+ * Остальные экраны раскладываются под ширину в своих срезах.
  */
 function Main({ children }: { children: React.ReactNode }) {
-  const wide = useLocation().pathname === '/budget';
-  return <main className={wide ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto'}><SectionTrack />{children}</main>;
+  const path = useLocation().pathname;
+  const width = path === '/' ? undefined : path === '/budget' ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto';
+  return <main className={width}><SectionTrack />{children}</main>;
 }
 
 /**
@@ -47,7 +49,7 @@ function Screens() {
       <AppFrame onAdd={() => setAdding(true)} onChanged={handleSuccess} refreshSignal={refreshKey}>
         <Main>
           <Routes>
-            <Route path="/" element={<Dashboard refreshSignal={refreshKey} />} />
+            <Route path="/" element={<Today refreshSignal={refreshKey} />} />
             <Route path="/budget" element={<Budget refreshSignal={refreshKey} />} />
             <Route path="/funds" element={<Funds refreshSignal={refreshKey} />} />
             <Route path="/analytics" element={<Analytics />} />

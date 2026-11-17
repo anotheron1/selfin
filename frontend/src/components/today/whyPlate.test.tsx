@@ -52,6 +52,8 @@ describe('WhyPlate — «Из чего число»', () => {
         expect(html).toContain('data-bar="go"');
         expect(html).toContain('data-bar="free"');
         expect(rows(html)).toEqual([]);
+        expect(html).toContain('уйдёт по плану 31 800 ₽');
+        expect(html).toContain('свободно 17 000 ₽');
     });
 
     it('раскрыто: строки по порядку, итог, «Кроме этого», НЗ — последней строкой', () => {

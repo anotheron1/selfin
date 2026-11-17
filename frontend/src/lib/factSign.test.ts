@@ -34,12 +34,12 @@ describe('знак суммы факта — по направлению ден�
 });
 
 /**
- * Сторож по исходнику: три места берут знак факта у правила. Тестов компонентов во фронте нет,
- * а вернуть знак по типу строки — правка в одну строку, и тест правила её не заметит.
+ * Сторож по исходнику: оба места, где на экране сумма факта, берут знак у правила. Тестов компонентов во фронте
+ * нет, а вернуть знак по типу строки — правка в одну строку, и тест правила её не заметит. Третье место — блок
+ * «Сегодня» Дашборда — ушло в «Журнал» вместе с Дашбордом (срез 2, решение 28): на «Сегодня» фактов нет.
  */
 describe('знак факта на экране — только от правила (ANO-184)', () => {
     const budget = readFileSync(new URL('../pages/Budget.tsx', import.meta.url), 'utf8');
-    const dashboard = readFileSync(new URL('../pages/Dashboard.tsx', import.meta.url), 'utf8');
 
     it('журнал, строка факта', () => {
         expect(budget).toContain('factAmountText(event.type, event.factAmount, fmt)');
@@ -49,11 +49,5 @@ describe('знак факта на экране — только от прави
     it('журнал, «Последний факт»', () => {
         expect(budget).toContain('factAmountText(lastFact.type, lastFact.factAmount, fmt)');
         expect(budget).not.toContain('-{fmt(lastFact.factAmount)}');
-    });
-
-    it('дашборд, «Сегодня»: и доходы, и расходы с переводами', () => {
-        const calls = dashboard.match(/factAmountText\(e\.type, e\.factAmount \?\? e\.plannedAmount, fmtAmt\)/g) ?? [];
-        expect(calls).toHaveLength(2);
-        expect(dashboard).not.toMatch(/[-+]\{fmtAmt\(e\.factAmount \?\? e\.plannedAmount\)\}/);
     });
 });

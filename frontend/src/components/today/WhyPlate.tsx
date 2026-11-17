@@ -4,7 +4,7 @@ import { Button, plateVariants } from '@/ds';
 import { cn } from '@/lib/utils';
 import { BALANCE_ROW, buildBreakdownView, CREDIT_ROW, OVERDUE_ROW, type BreakdownRow } from '../../lib/breakdownRows';
 import { fmtDayShort, fmtRub } from '../../lib/format';
-import { pocketState } from '../../lib/gapMode';
+import { pocketResult, pocketState } from '../../lib/gapMode';
 import { ruPlural } from '../../lib/plural';
 import { quickClose, type QuickClose } from '../../lib/quickClose';
 import type { FinancialEvent, PocketResponse, UpcomingItem } from '../../types/api';
@@ -69,12 +69,14 @@ export interface OverdueMarking {
  * списком по месяцам с кружком «Отметить оплату» (решение 49, S2-O-B). На 1440 раскрыто сразу, «Кроме этого» —
  * своей колонкой справа (Zh2-1440-7t).
  */
-export function WhyPlate({ data, size, onNz, onReanchor, overdue, initialOpen, initialOverdueOpen = false }: {
+export function WhyPlate({ data, size, onNz, onReanchor, overdue, aside, initialOpen, initialOverdueOpen = false }: {
     data: PocketResponse;
     size: 'narrow' | 'wide';
     onNz: () => void;
     onReanchor: () => void;
     overdue: OverdueMarking;
+    /** На 1440 — над «Кроме этого» в правой колонке, а без неё — вместо неё (плашка «Обычных трат в плане нет», п. 10). */
+    aside?: React.ReactNode;
     initialOpen?: boolean;
     initialOverdueOpen?: boolean;
 }) {
@@ -82,6 +84,7 @@ export function WhyPlate({ data, size, onNz, onReanchor, overdue, initialOpen, i
     const [overdueOpen, setOverdueOpen] = useState(initialOverdueOpen);
     const view = buildBreakdownView(data);
     const ok = pocketState(data) === 'ok';
+    const result = pocketResult(data);
     const free = Math.max(data.pocket, 0);
     const go = Math.max(data.currentBalance - free, 0);
     const today = data.trajectory[0]?.date ?? '';
@@ -174,6 +177,13 @@ export function WhyPlate({ data, size, onNz, onReanchor, overdue, initialOpen, i
                 {go > 0 && <span style={{ flex: `${go} 1 0`, background: 'var(--sf-bar-go)' }} data-bar="go" />}
                 {free > 0 && <span style={{ flex: `${free} 1 0`, background: 'var(--sf-accent)' }} data-bar="free" />}
             </span>
+            {/* Свёрнуто — куски полосы названы числами (S2-R1, S2-P1); раскрыто — то же говорят строки. */}
+            {!open && (
+                <span className="mt-2 flex w-full justify-between gap-2 text-sf-label text-sf-muted">
+                    <span>уйдёт по плану {fmtRub(go)}</span>
+                    <span className="font-medium text-sf-ink">{result.label[0].toLowerCase()}{result.label.slice(1)} {fmtRub(result.amount)}</span>
+                </span>
+            )}
         </button>
     );
     const body = open && (
@@ -193,12 +203,15 @@ export function WhyPlate({ data, size, onNz, onReanchor, overdue, initialOpen, i
     return (
         <div className="grid grid-cols-2 items-start gap-6">
             <div className={cn(plateVariants(), 'flex flex-col rounded-[24px] px-[22px] pb-3 pt-4')}>{head}{body}</div>
-            {caveats.length > 0 && (
-                <div className="flex flex-col rounded-[24px] border border-sf-rule px-[22px] pb-3 pt-4">
-                    <span className="flex h-7 items-center text-sf-button font-semibold">Кроме этого — в число не входит</span>
-                    <div className="mt-1.5 flex flex-col">{caveatRows}</div>
-                </div>
-            )}
+            <div className="flex flex-col gap-6">
+                {aside}
+                {caveats.length > 0 && (
+                    <div className="flex flex-col rounded-[24px] border border-sf-rule px-[22px] pb-3 pt-4">
+                        <span className="flex h-7 items-center text-sf-button font-semibold">Кроме этого — в число не входит</span>
+                        <div className="mt-1.5 flex flex-col">{caveatRows}</div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

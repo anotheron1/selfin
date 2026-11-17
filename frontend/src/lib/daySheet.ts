@@ -1,4 +1,5 @@
 import type { PocketResponse, Priority, UpcomingItem } from '../types/api';
+import { ENVELOPE_ROW } from './breakdownRows';
 import { fmtDayShort, fmtRub } from './format';
 import { ruPlural } from './plural';
 import { PRIORITY_DOT_CONFIG } from './priority';
@@ -12,7 +13,8 @@ export type DayKind = 'bron' | 'ozh' | 'hot';
 
 export interface DayRow {
     key: string;
-    kind: DayKind;
+    /** null — не строка плана: деньги копилок без счёта, которые точка «сегодня» уже вычла. */
+    kind: DayKind | null;
     type: UpcomingItem['type'];
     name: string;
     sub: string;
@@ -56,13 +58,21 @@ export function buildDaySheet(p: PocketResponse, date: string): DayView | null {
     const i = p.trajectory.findIndex(t => t.date === date);
     if (i < 0) return null;
     const point = p.trajectory[i];
+    const rows = point.items.map(rowOf);
+    // Р10-А (ANO-212): «на картах» держит деньги копилок без счёта, а точка «сегодня» — уже без них. Без строки
+    // о них «к вечеру останется» расходилось бы с плиткой на сумму копилок; брони с прошедшей датой — уже строки.
+    const envelopes = -(p.breakdown?.find(l => l.type === 'ENVELOPE_FUNDS')?.amount ?? 0);
+    if (i === 0 && envelopes > 0) {
+        rows.unshift({ key: 'envelopes', kind: null, type: 'FUND_TRANSFER', name: ENVELOPE_ROW,
+            sub: 'на карте, но отложены на цели', amount: fmtRub(-envelopes) });
+    }
     const n = point.items.length;
     const lines = n === 0 ? 'Строк нет' : `${n} ${ruPlural(n, ['строка', 'строки', 'строк'])}`;
     return {
         date,
         title: weekdayTitle(date),
         summary: `${lines} · к вечеру останется ${fmtRub(point.balance)}`,
-        rows: point.items.map(rowOf),
+        rows,
         prev: p.trajectory[i - 1]?.date ?? null,
         next: p.trajectory[i + 1]?.date ?? null,
     };

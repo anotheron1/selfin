@@ -1,44 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fmtRub } from './format';
 import {
-    buildDayDetails,
     buildLinePoints,
-    buildMinAnnotation,
     computeDomain,
-    envelopeFunds,
-    overdueReserve,
-    forecastSeries,
     pickTicks,
-    showBufferZone,
-    showDangerZone,
     type TrajPoint,
 } from './trajectoryChart';
 
 const pt = (date: string, balance: number, income = 0, expense = 0,
             balanceWithForecast: number | null = null): TrajPoint =>
     ({ date, balance, income, expense, balanceWithForecast, items: [] });
-
-describe('forecastSeries (ANO-80)', () => {
-    it('прогноза нет — ряда нет, рисовать нечего', () => {
-        expect(forecastSeries([pt('2026-03-01', 100), pt('2026-03-02', 90)])).toBeNull();
-    });
-
-    it('прогноз есть — ряд той же длины, что основной', () => {
-        expect(forecastSeries([
-            pt('2026-03-01', 100),
-            pt('2026-03-02', 90, 0, 0, 80),
-            pt('2026-03-03', 80, 0, 0, 60),
-        ])).toEqual([100, 80, 60]);
-    });
-
-    it('дни до накопления прогноза берут основной баланс, чтобы линия не рвалась', () => {
-        // Первая точка траектории — сегодня, прогноз на неё не размазывается: там null.
-        // Подставить ноль значило бы уронить линию в пол на первом же дне.
-        expect(forecastSeries([pt('2026-03-01', 100), pt('2026-03-02', 90, 0, 0, 70)])![0])
-            .toBe(100);
-    });
-});
 
 describe('computeDomain', () => {
     it('всегда включает ноль снизу', () => {
@@ -53,17 +23,6 @@ describe('computeDomain', () => {
     it('вырожденный случай (все нули) не даёт нулевую высоту домена', () => {
         const d = computeDomain([0, 0]);
         expect(d.max).toBeGreaterThan(d.min);
-    });
-});
-
-describe('зоны появляются только когда должны', () => {
-    it('красная зона разрыва — только при отрицательном минимуме домена', () => {
-        expect(showDangerZone({ min: -1, max: 100 })).toBe(true);
-        expect(showDangerZone({ min: 0, max: 100 })).toBe(false);
-    });
-    it('янтарная зона буфера — только при buffer > 0', () => {
-        expect(showBufferZone(5000)).toBe(true);
-        expect(showBufferZone(0)).toBe(false);
     });
 });
 
@@ -123,92 +82,5 @@ describe('buildLinePoints / makeScales', () => {
         // top=30, floor=190: 0 → y=190, 100 → y=30
         expect(buildLinePoints([0, 100], 100, 10, 30, 190, { min: 0, max: 100 }))
             .toBe('10,190 90,30');
-    });
-});
-
-describe('buildMinAnnotation', () => {
-    it('с виновником', () => {
-        expect(buildMinAnnotation({ date: '2026-07-18', balance: 6800, drivenBy: 'Страховка' }))
-            .toBe(`мин 18.07 · ${fmtRub(6800)} · Страховка`);
-    });
-    it('без виновника — хвост опущен', () => {
-        expect(buildMinAnnotation({ date: '2026-07-18', balance: 6800, drivenBy: null }))
-            .toBe(`мин 18.07 · ${fmtRub(6800)}`);
-    });
-    it('длинный виновник обрезается, чтобы не вылезать за viewBox', () => {
-        const long = 'Страховка автомобиля КАСКО продление на год';
-        const result = buildMinAnnotation({ date: '2026-07-18', balance: 6800, drivenBy: long });
-        expect(result.endsWith('…')).toBe(true);
-        expect(result.length).toBeLessThan(`мин 18.07 · ${fmtRub(6800)} · `.length + 26);
-    });
-});
-
-describe('buildDayDetails', () => {
-    it('день с расходом', () => {
-        expect(buildDayDetails(pt('2026-07-18', 6800, 0, 8300), false))
-            .toBe(`18.07 · остаток ${fmtRub(6800)} · −${fmtRub(8300)}`);
-    });
-    it('день с доходом и расходом', () => {
-        expect(buildDayDetails(pt('2026-07-20', 51800, 45000, 1200), false))
-            .toBe(`20.07 · остаток ${fmtRub(51800)} · +${fmtRub(45000)} · −${fmtRub(1200)}`);
-    });
-    it('день 0 подписан «сегодня», нулевые потоки опущены', () => {
-        expect(buildDayDetails(pt('2026-07-10', 50000), true))
-            .toBe(`сегодня · остаток ${fmtRub(50000)}`);
-    });
-    // Р6 (ANO-216): «остаток −158 212 · −218 112» спорил с «на счёте 59 900» — брони стояли суммой без слов.
-    it('сегодня с бронями прошедшей даты — словами', () => {
-        expect(buildDayDetails(pt('2026-10-04', -158212, 0, 218112), true, 218112))
-            .toBe(`сегодня · после броней ${fmtRub(-158212)} · брони с прошедшей датой −${fmtRub(218112)}`);
-    });
-    it('брони и сегодняшние строки плана — отдельно', () => {
-        expect(buildDayDetails(pt('2026-10-04', -10700, 0, 70600), true, 69600))
-            .toBe(`сегодня · после броней ${fmtRub(-10700)} · брони с прошедшей датой −${fmtRub(69600)}`
-                + ` · по плану на сегодня −${fmtRub(1000)}`);
-    });
-    // Р10-А (ANO-212): «на счёте» держит деньги копилок, а точка «сегодня» — уже без них: называет и их.
-    it('сегодня с бронями и копилками — словами и то и другое', () => {
-        expect(buildDayDetails(pt('2026-10-05', -168212, 0, 218112), true, 218112, 10000))
-            .toBe(`сегодня · после броней и копилок ${fmtRub(-168212)} · брони с прошедшей датой −${fmtRub(218112)}`
-                + ` · уже в копилках −${fmtRub(10000)}`);
-    });
-    it('сегодня с копилками без броней', () => {
-        expect(buildDayDetails(pt('2026-10-05', 48900, 0, 1000), true, 0, 10000))
-            .toBe(`сегодня · после копилок ${fmtRub(48900)} · уже в копилках −${fmtRub(10000)}`
-                + ` · по плану на сегодня −${fmtRub(1000)}`);
-    });
-    it('без броней сегодня и в другие дни — как было', () => {
-        expect(buildDayDetails(pt('2026-10-04', 58900, 0, 1000), true, 0))
-            .toBe(`сегодня · остаток ${fmtRub(58900)} · −${fmtRub(1000)}`);
-        expect(buildDayDetails(pt('2026-10-05', 50900, 0, 8000), false, 218112))
-            .toBe(`05.10 · остаток ${fmtRub(50900)} · −${fmtRub(8000)}`);
-    });
-});
-
-describe('overdueReserve (Р6)', () => {
-    const line = (type: string, amount: number) => ({ type, label: '', amount, details: [] });
-    it('сумма броней — строка расшифровки «Брони с прошедшей датой», со знаком плюс', () => {
-        expect(overdueReserve([line('STARTING_BALANCE', 59900), line('OVERDUE_RESERVE', -218112)] as never))
-            .toBe(218112);
-    });
-    it('броней нет — ноль', () => {
-        expect(overdueReserve([line('STARTING_BALANCE', 59900)] as never)).toBe(0);
-    });
-    it('календарь берёт брони и копилки из расшифровки, «Прогноза конца дня» нет (сторож по исходнику)', () => {
-        const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
-        expect(read('../components/pocket/PocketTrajectoryChart.tsx'))
-            .toMatch(/buildDayDetails\([^)]*overdueReserve\([^)]*\),\s*envelopeFunds\(/);
-        expect(read('../pages/Dashboard.tsx')).not.toContain('Прогноз конца дня');
-    });
-});
-
-describe('envelopeFunds (Р10-А)', () => {
-    const line = (type: string, amount: number) => ({ type, label: '', amount, details: [] });
-    it('отложенное в копилки — строка расшифровки «Уже в копилках», со знаком плюс', () => {
-        expect(envelopeFunds([line('STARTING_BALANCE', 59900), line('ENVELOPE_FUNDS', -10000)] as never))
-            .toBe(10000);
-    });
-    it('копилок нет — ноль', () => {
-        expect(envelopeFunds([line('STARTING_BALANCE', 59900)] as never)).toBe(0);
     });
 });

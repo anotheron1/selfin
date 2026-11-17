@@ -23,7 +23,8 @@ const WIDTH = 'mx-auto w-full max-w-[1180px]';
 
 const num = (n: number) => Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ');
 
-const profileLink = (variant: 'plain' | 'tile', className?: string) => (
+/** Профиль → настройки (опись № 36); на «Сегодня» на телефоне — в строке «Свободно до …» (Zh2-390). */
+export const profileLink = (variant: 'plain' | 'tile', className?: string) => (
     <Link to="/settings" aria-label="Профиль и настройки" className={cn(iconButtonVariants({ variant }), '[&_svg]:size-5', className)}>
         <User strokeWidth={1.6} />
     </Link>
@@ -154,17 +155,18 @@ export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: 
 
     return (
         <div className="min-h-dvh bg-sf-page font-sf text-sf-ink" style={{ paddingBottom: 'var(--nav-height)' }}>
-            <div className="relative bg-[linear-gradient(180deg,var(--sf-sky-top)_0%,var(--sf-sky-mid)_52%,var(--sf-sky-bottom)_100%)]">
+            {/* На «Сегодня» небо со своим числом и пейзажем рисует экран (срез 2): здесь только полоса 1440 цветом верха неба. */}
+            <div className={cn('relative', header
+                ? 'bg-[linear-gradient(180deg,var(--sf-sky-top)_0%,var(--sf-sky-mid)_52%,var(--sf-sky-bottom)_100%)]'
+                : 'bg-[var(--sf-sky-top)]')}>
                 {header && <MiniLandscape />}
                 <div className={cn(WIDTH, 'relative px-sf-gutter', header && 'pb-3.5')}>
                     <FrameNav onAdd={onAdd} />
-                    {header
-                        ? <FrameHeader pocket={pocket} onReanchor={() => setReanchor(true)} />
-                        : <div className="flex h-[52px] items-center justify-end lg:hidden">{profileLink('plain', '-mr-2.5')}</div>}
+                    {header && <FrameHeader pocket={pocket} onReanchor={() => setReanchor(true)} />}
                 </div>
             </div>
             <div className={cn('relative', header && '-mt-3.5 rounded-t-sf-page bg-sf-page')}>
-                <div className={WIDTH}>{children}</div>
+                <div className={header ? WIDTH : undefined}>{children}</div>
             </div>
             {pocket && (
                 <ReanchorSheet open={reanchor} onOpenChange={setReanchor}

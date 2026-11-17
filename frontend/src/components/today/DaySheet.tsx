@@ -12,7 +12,9 @@ function Row({ r, wide }: { r: DayRow; wide: boolean }) {
     const Icon = ICON[r.type] ?? Receipt;
     return (
         <div className={cn('flex items-center gap-3 border-b border-sf-rule', wide ? 'min-h-[48px]' : 'min-h-[56px]')}>
-            <KindMark kind={r.kind} icon={<Icon strokeWidth={1.7} />} />
+            {r.kind
+                ? <KindMark kind={r.kind} icon={<Icon strokeWidth={1.7} />} />
+                : <span aria-hidden="true" className="inline-flex size-sf-control shrink-0 items-center justify-center rounded-sf-pill bg-sf-plate text-sf-muted [&_svg]:size-5"><Icon strokeWidth={1.7} /></span>}
             <span className="flex min-w-0 flex-1 flex-col">
                 <span className={cn('truncate', wide ? 'text-sf-control' : 'text-sf-body')}>{r.name}</span>
                 <span className="truncate text-sf-label text-sf-muted">{r.sub}</span>

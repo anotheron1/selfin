@@ -47,6 +47,18 @@ describe('buildDaySheet — лист дня', () => {
         expect(buildDaySheet(pocket, '2026-11-16')?.next).toBeNull();
     });
 
+    it('сегодня — и деньги копилок без счёта, которые точка уже вычла (Р10-А); в другие дни их нет', () => {
+        const p = {
+            ...pocket,
+            trajectory: [{ ...pocket.trajectory[0], items: [it_({ id: 'a', date: '2026-11-14' })] }, ...pocket.trajectory.slice(1)],
+            breakdown: [{ type: 'STARTING_BALANCE', amount: 31_900 }, { type: 'ENVELOPE_FUNDS', amount: -10_000 }],
+        } as unknown as PocketResponse;
+        const today = buildDaySheet(p, '2026-11-14')!;
+        expect(today.rows.map(r => [r.kind, r.name, r.sub, sp(r.amount)])[0]).toEqual([null, 'Уже в копилках', 'на карте, но отложены на цели', '-10 000 ₽']);
+        expect(sp(today.summary)).toBe('1 строка · к вечеру останется 21 100 ₽');
+        expect(buildDaySheet(p, '2026-11-15')!.rows.some(r => r.key === 'envelopes')).toBe(false);
+    });
+
     it('пустой день — «Строк нет»; дня нет на графике — листа нет', () => {
         expect(sp(buildDaySheet(pocket, '2026-11-16')!.summary)).toBe('Строк нет · к вечеру останется 19 900 ₽');
         expect(buildDaySheet(pocket, '2026-12-01')).toBeNull();

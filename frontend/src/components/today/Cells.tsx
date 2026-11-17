@@ -22,7 +22,7 @@ export function Cells({ data, size, onDay }: {
     const w = left + m.weeks.length * (cell + gap);
     const h = top + 7 * (cell + gap);
     return (
-        <svg viewBox={`0 0 ${w} ${h}`} className="block h-auto w-full max-w-full" role="img"
+        <svg viewBox={`0 0 ${w} ${h}`} width={w} className="block h-auto max-w-full" role="img"
             aria-label={`Остаток по дням клетками: самый низкий — ${fmtDayShort(data.minPoint.date)}`}>
             {WEEKDAYS.map((d, r) => d && (
                 <text key={r} x="0" y={top + r * (cell + gap) + cell * 0.72} fontSize="11" fill="var(--sf-muted)">{d}</text>
