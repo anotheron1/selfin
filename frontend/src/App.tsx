@@ -10,6 +10,7 @@ import Funds from './pages/Funds';
 import { ConsentText, Privacy } from './pages/Legal';
 import Settings from './pages/Settings';
 import SignIn from './pages/SignIn';
+import Start from './pages/Start';
 import Strategy from './pages/Strategy';
 import UpdateBanner from './components/UpdateBanner';
 import Today from './pages/Today';
@@ -28,10 +29,12 @@ function Main({ children }: { children: React.ReactNode }) {
 
 /**
  * Экран входа (ANO-152) и тексты политики и согласия (ANO-196) — сами по себе: без навигации и «+», им без входа
- * всё равно некуда вести. Тексты API не зовут — их читают до входа.
+ * всё равно некуда вести. Тексты API не зовут — их читают до входа. Первый вход (срез 2) — тоже без навигации:
+ * четыре вопроса, потом «Сегодня».
  */
 const STANDALONE: Record<string, () => React.ReactElement> = {
   '/login': () => <SignIn />,
+  '/start': () => <Start />,
   '/privacy': () => <Privacy />,
   '/consent': () => <ConsentText />,
 };
