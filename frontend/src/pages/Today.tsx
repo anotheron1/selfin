@@ -15,6 +15,7 @@ import { WhyPlate } from '../components/today/WhyPlate';
 import NzSheet from '../components/pocket/NzSheet';
 import ReanchorSheet from '../components/pocket/ReanchorSheet';
 import { Dialog, DialogContent, DialogTitle } from '../components/ui/dialog';
+import { buildCells } from '../lib/cells';
 import { serverTodayIso } from '../lib/factDate';
 import { fmtDayShort } from '../lib/format';
 import { buildGapMode } from '../lib/gapMode';
@@ -54,11 +55,14 @@ const LowRing = () => (
 function Legend({ data, m, view }: { data: PocketResponse; m: LandscapeModel; view: View }) {
     const sw = (bg: string, extra = '') => <span aria-hidden="true" className={cn('inline-block h-3 w-3 rounded-[3px]', extra)} style={{ background: bg }} />;
     const item = (key: string, mark: React.ReactNode, text: string) => <span key={key} className="flex items-center gap-1.5">{mark}{text}</span>;
+    // У клеток вода — только у остатка по плану; пейзаж считает и слой «с обычными».
+    const cellWater = view === 'cells' && buildCells(data.trajectory, data.horizon.endDate, data.minPoint.date)
+        .weeks.some(w => w.days.some(d => d?.level === 'water'));
     const items = view === 'cells'
         ? [
             <span key="scale" className="flex items-center gap-1.5">меньше{CELL_SCALE.map(c => <span key={c}>{sw(c)}</span>)}больше</span>,
             item('today', sw('transparent', 'border-[1.8px] border-sf-ink'), 'сегодня'),
-            m.water && item('water', sw('var(--sf-water)'), 'ниже нуля — вода'),
+            cellWater && item('water', sw('var(--sf-water)'), 'ниже нуля — вода'),
         ]
         : [
             item('slope', sw('var(--sf-slope)'), 'остаток'),
