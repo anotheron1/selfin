@@ -82,7 +82,7 @@ export function UsualSpendingForm({ data, onDone, onSkip, doneLabel = 'Гото�
                                     <select value={chosen[n] ?? ''} aria-label={`${n}: своя категория`}
                                         onChange={e => setChosen(c => ({ ...c, [n]: e.target.value }))}
                                         className="h-8 w-full min-w-0 rounded-sf-field bg-sf-plate px-2 font-sf text-sf-label text-sf-ink outline-none focus:shadow-[inset_0_0_0_2px_var(--sf-accent)]">
-                                        <option value="">Такой категории нет — выбери свою</option>
+                                        <option value="">Выбери свою</option>
                                         {usualChoices(categories ?? []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
                                 )}
