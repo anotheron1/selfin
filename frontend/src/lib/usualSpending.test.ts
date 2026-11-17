@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { termIncome, usualDtos } from './usualSpending';
+import { termIncome, usualCategoryId, usualChoices, usualDtos } from './usualSpending';
 import type { PocketResponse } from '../types/api';
 
 const cats = [
@@ -38,6 +38,38 @@ describe('usualDtos — обычные траты до дохода', () => {
 
     it('категории нет — отказ, а не трата без категории', () => {
         expect(() => usualDtos({ Транспорт: 500 }, cats.slice(0, 1), { date: '2026-11-25', monthly: false }, '2026-11-12')).toThrow('Транспорт');
+    });
+
+    it('своя категория вместо отсутствующей: «Транспорт» пишется в выбранное «Авто», «Продукты» — в свою', () => {
+        const own = [cats[0], { id: 'auto', name: 'Авто', type: 'EXPENSE' as const }];
+        const dtos = usualDtos({ Продукты: 6_000, Транспорт: 500 }, own, { date: '2026-11-25', monthly: false }, '2026-11-12',
+            { Транспорт: 'auto' });
+        expect(dtos.map(d => d.categoryId)).toEqual(['food', 'auto']);
+    });
+});
+
+describe('usualCategoryId — категория строки', () => {
+    const own = [{ id: 'food', name: 'Продукты', type: 'EXPENSE' as const }, { id: 'auto', name: 'Авто', type: 'EXPENSE' as const },
+        { id: 'inc', name: 'Транспорт', type: 'INCOME' as const }];
+
+    it('есть категория с именем строки — она, без выбора', () => {
+        expect(usualCategoryId('Продукты', own)).toBe('food');
+    });
+
+    it('такой нет (доходная с тем же именем не в счёт) — null, строка просит выбрать', () => {
+        expect(usualCategoryId('Транспорт', own)).toBeNull();
+    });
+
+    it('выбирать — из своих расходных, без системных', () => {
+        const list = [{ id: 'auto', name: 'Авто', type: 'EXPENSE' as const, isSystem: false },
+            { id: 'goal', name: 'Цели', type: 'EXPENSE' as const, isSystem: true },
+            { id: 'sal', name: 'Зарплата', type: 'INCOME' as const, isSystem: false }];
+        expect(usualChoices(list).map(c => c.id)).toEqual(['auto']);
+    });
+
+    it('выбор человека важнее имени', () => {
+        expect(usualCategoryId('Продукты', own, { Продукты: 'auto' })).toBe('auto');
+        expect(usualCategoryId('Транспорт', own, { Транспорт: 'auto' })).toBe('auto');
     });
 });
 

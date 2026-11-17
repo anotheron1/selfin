@@ -5,7 +5,7 @@ import { createPlanWithFact, fetchCategories, fetchEvents } from '../../api';
 import { AttemptKeys } from '../../lib/attemptKey';
 import { parseAmountExpression } from '../../lib/amountExpression';
 import { fmtDayShort } from '../../lib/format';
-import { termIncome, USUAL_CATEGORIES, usualDtos, type UsualName } from '../../lib/usualSpending';
+import { termIncome, USUAL_CATEGORIES, usualCategoryId, usualChoices, usualDtos, type UsualName } from '../../lib/usualSpending';
 import type { Category, PocketResponse } from '../../types/api';
 
 const ICON: Record<UsualName, typeof Bus> = { Продукты: ShoppingCart, Транспорт: Bus, 'Кафе и доставка': Coffee };
@@ -25,6 +25,8 @@ export function UsualSpendingForm({ data, onDone, onSkip, doneLabel = 'Гото�
     const until = income?.date ?? data.horizon.endDate;
     const [raw, setRaw] = useState<Record<UsualName, string>>({ Продукты: '', Транспорт: '', 'Кафе и доставка': '' });
     const [categories, setCategories] = useState<Category[] | null>(null);
+    /** Своя категория у строки, чьей категории по умолчанию у человека нет. */
+    const [chosen, setChosen] = useState<Partial<Record<UsualName, string>>>({});
     const [monthly, setMonthly] = useState<boolean | null>(income?.id ? null : false);
     const [attempts] = useState(() => new AttemptKeys());
     const [busy, setBusy] = useState(false);
@@ -42,14 +44,15 @@ export function UsualSpendingForm({ data, onDone, onSkip, doneLabel = 'Гото�
 
     const amounts = Object.fromEntries(USUAL_CATEGORIES.map(n => [n, parseAmountExpression(raw[n]).value ?? 0])) as Record<UsualName, number>;
     const any = USUAL_CATEGORIES.some(n => amounts[n] > 0);
+    const placed = categories != null && USUAL_CATEGORIES.every(n => !(amounts[n] > 0) || usualCategoryId(n, categories, chosen));
 
     const submit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!categories || monthly == null || busy) return;
+        if (!categories || !placed || monthly == null || busy) return;
         setBusy(true);
         setError(null);
         try {
-            const dtos = usualDtos(amounts, categories, { date: until, monthly }, data.trajectory[0]?.date ?? until);
+            const dtos = usualDtos(amounts, categories, { date: until, monthly }, data.trajectory[0]?.date ?? until, chosen);
             for (const dto of dtos) await createPlanWithFact(attempts, dto);
             onDone();
         } catch (err) {
@@ -69,10 +72,21 @@ export function UsualSpendingForm({ data, onDone, onSkip, doneLabel = 'Гото�
             <div className="flex flex-col">
                 {USUAL_CATEGORIES.map(n => {
                     const Icon = ICON[n];
+                    const pick = categories != null && !usualCategoryId(n, categories);
                     return (
-                        <div key={n} className="flex min-h-[60px] items-center gap-3 border-b border-sf-rule">
+                        <div key={n} className="flex min-h-[60px] items-center gap-3 border-b border-sf-rule py-1.5">
                             <KindMark kind="ozh" icon={<Icon strokeWidth={1.7} />} />
-                            <span className="flex-1 text-sf-button font-normal">{n}</span>
+                            <span className="flex min-w-0 flex-1 flex-col gap-1">
+                                <span className="text-sf-button font-normal">{n}</span>
+                                {pick && (
+                                    <select value={chosen[n] ?? ''} aria-label={`${n}: своя категория`}
+                                        onChange={e => setChosen(c => ({ ...c, [n]: e.target.value }))}
+                                        className="h-8 w-full min-w-0 rounded-sf-field bg-sf-plate px-2 font-sf text-sf-label text-sf-ink outline-none focus:shadow-[inset_0_0_0_2px_var(--sf-accent)]">
+                                        <option value="">Такой категории нет — выбери свою</option>
+                                        {usualChoices(categories ?? []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                )}
+                            </span>
                             <Field className="w-[132px]" inputMode="decimal" placeholder="0" suffix="₽" aria-label={`${n}, ₽`}
                                 value={raw[n]} onChange={e => setRaw(r => ({ ...r, [n]: e.target.value }))} />
                         </div>
@@ -81,7 +95,7 @@ export function UsualSpendingForm({ data, onDone, onSkip, doneLabel = 'Гото�
             </div>
             {error && <p role="alert" className="text-sf-label text-sf-muted">{error}</p>}
             <div className="flex gap-2">
-                <Button type="submit" disabled={!any || busy || !categories || monthly == null} className="flex-1">{doneLabel}</Button>
+                <Button type="submit" disabled={!any || !placed || busy || monthly == null} className="flex-1">{doneLabel}</Button>
                 {onSkip && <Button type="button" variant="outline" onClick={onSkip}>Пропустить</Button>}
             </div>
         </form>

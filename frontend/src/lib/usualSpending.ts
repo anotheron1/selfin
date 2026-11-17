@@ -16,6 +16,20 @@ export function termIncome(p: PocketResponse): { date: string; id: string | null
     return end && inc ? { date: end.date, id: inc.id } : null;
 }
 
+/**
+ * Категория строки: выбранная человеком, иначе — расходная с именем строки (категории по умолчанию). null — у человека
+ * такой нет (переименовал «Транспорт» в «Авто»): строка просит выбрать из своих.
+ */
+export function usualCategoryId(
+    name: UsualName, categories: Pick<Category, 'id' | 'name' | 'type'>[], chosen: Partial<Record<UsualName, string>> = {},
+): string | null {
+    return chosen[name] || categories.find(c => c.type === 'EXPENSE' && c.name === name)?.id || null;
+}
+
+/** Из чего выбирать: свои расходные, без системных («Кредит», «Переводы в копилки», «Хотелки», «Цели»). */
+export const usualChoices = <C extends Pick<Category, 'type' | 'isSystem'>>(categories: C[]): C[] =>
+    categories.filter(c => c.type === 'EXPENSE' && !c.isSystem);
+
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export function usualDtos(
@@ -23,6 +37,7 @@ export function usualDtos(
     categories: Pick<Category, 'id' | 'name' | 'type'>[],
     income: { date: string; monthly: boolean },
     today: string,
+    chosen: Partial<Record<UsualName, string>> = {},
 ): FinancialEventCreateDto[] {
     const [y, m, d] = income.date.split('-').map(Number);
     const before = iso(new Date(y, m - 1, d - 1));
@@ -33,8 +48,8 @@ export function usualDtos(
     return USUAL_CATEGORIES.flatMap(name => {
         const amount = amounts[name];
         if (!amount || amount <= 0) return [];
-        const cat = categories.find(c => c.type === 'EXPENSE' && c.name === name);
-        if (!cat) throw new Error(`Нет категории «${name}»`);
-        return [{ date, categoryId: cat.id, type: 'EXPENSE' as const, plannedAmount: amount, priority: 'MEDIUM' as const, recurring }];
+        const categoryId = usualCategoryId(name, categories, chosen);
+        if (!categoryId) throw new Error(`Нет категории «${name}»`);
+        return [{ date, categoryId, type: 'EXPENSE' as const, plannedAmount: amount, priority: 'MEDIUM' as const, recurring }];
     });
 }
