@@ -222,6 +222,9 @@ describe('словарь правил продукта на строках ин�
         expect(BACKEND.length).toBeGreaterThan(40);
         const texts = STRINGS.map((s) => s.text);
         expect(texts.some((t) => t.includes('Всё это уже оплачено?'))).toBe(true);    // today/WhyPlate.tsx
+        // Подсказки и пояснения справки на «Сегодня» (срез 2, ANO-189) — тоже слова экрана.
+        expect(texts.some((t) => t.includes('Купил — запиши здесь'))).toBe(true);     // lib/hints.ts
+        expect(texts.some((t) => t.includes('бронь без оплаты держится'))).toBe(true); // today/WhyPlate.tsx
         expect(texts.some((t) => t.includes('Взносы в копилки'))).toBe(true);   // PocketEngine.java
     });
 

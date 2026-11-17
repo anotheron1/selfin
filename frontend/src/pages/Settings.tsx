@@ -10,6 +10,7 @@ import type { Account, BalanceCheckpoint, Category, CategoryType, ForecastReadin
 import PriorityButton from '../components/PriorityButton';
 import AccountsSection from '../components/accounts/AccountsSection';
 import NzForm from '../components/pocket/NzForm';
+import HintsSection from '../components/HintsSection';
 import SignOutSection from '../components/SignOutSection';
 import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import { ScrollArea } from '../components/ui/scroll-area';
@@ -219,6 +220,9 @@ export default function Settings() {
                         />
                     )}
                 </div>
+
+                {/* Подсказки первого дня на «Сегодня» (срез 2, п. 12): выключатель и «Скрыть все» — одно. */}
+                <HintsSection />
 
                 {/* Баланс счёта */}
                 <div className="rounded-2xl p-5 space-y-4"

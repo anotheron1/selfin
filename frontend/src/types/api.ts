@@ -200,6 +200,12 @@ export interface PocketSettings {
     bufferAmount: number;
 }
 
+/** Подсказки первого дня (срез 2, п. 12): `off` — выключатель и «Скрыть все», `closed` — закрытые крестиком. */
+export interface HintsSettings {
+    off: boolean;
+    closed: string[];
+}
+
 export interface PocketResponse {
     pocket: number;
     currentBalance: number;

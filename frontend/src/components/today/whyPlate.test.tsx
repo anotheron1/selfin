@@ -120,3 +120,36 @@ describe('WhyPlate — «Из чего число»', () => {
         expect(html.indexOf('Кроме этого')).toBeGreaterThan(html.indexOf('Задать НЗ'));
     });
 });
+
+describe('WhyPlate — пояснения из справки под строками (спека среза 2, «Справка → подача»)', () => {
+    /** Пояснение под строкой: текст между подписью строки и следующей строкой. */
+    const noteOf = (html: string, label: string) => {
+        const start = html.indexOf(`data-row="${label}"`);
+        const end = html.indexOf('data-row=', start + 1);
+        return html.slice(start, end < 0 ? undefined : end).replace(/<[^>]+>/g, ' ');
+    };
+
+    it('бронь без оплаты держится — под строкой расходов, только когда такая бронь есть', () => {
+        const withOverdue = render(stand(), { initialOpen: true });
+        expect(noteOf(withOverdue, 'Ещё уйдёт до 24 ноября')).toContain('по плану: Аренда; бронь без оплаты держится');
+
+        const none = stand({
+            breakdown: [line('STARTING_BALANCE', 48_800), line('PLANNED_EXPENSES', -21_800),
+                line('TRAJECTORY_MIN', 27_000), line('POCKET', 27_000)],
+            upcoming: [bron('2026-11-20', 21_800, 'Аренда', false)],
+        });
+        expect(noteOf(render(none, { initialOpen: true }), 'Ещё уйдёт до 24 ноября')).not.toContain('держится');
+    });
+
+    it('сначала взнос, остальное твоё — под строкой взносов, с именами копилок и без них', () => {
+        const contrib = (details: string[]) => stand({
+            breakdown: [line('STARTING_BALANCE', 48_800), line('SAVINGS_CONTRIBUTIONS', -5_000, details),
+                line('TRAJECTORY_MIN', 43_800), line('POCKET', 43_800)],
+            upcoming: [],
+        });
+        expect(noteOf(render(contrib(['Отпуск']), { initialOpen: true }), 'Взносы в копилки'))
+            .toContain('Отпуск; сначала взнос, остальное твоё');
+        expect(noteOf(render(contrib([]), { initialOpen: true }), 'Взносы в копилки'))
+            .toContain('сначала взнос, остальное твоё');
+    });
+});

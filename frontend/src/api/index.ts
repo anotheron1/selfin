@@ -40,6 +40,7 @@ import type {
     WishlistSimulationDto,
     WishlistThresholds,
     PocketSettings,
+    HintsSettings,
     WishlistKind,
     WishlistStatus,
     RecomputeResponse,
@@ -193,6 +194,11 @@ export const fetchPocketSettings = () => get<PocketSettings>('/settings/pocket')
 /** Сохранить НЗ; 0 — НЗ нет (пустого значения сервер не принимает). */
 export const updatePocketSettings = (body: PocketSettings) =>
     put<PocketSettings>('/settings/pocket', body);
+
+/** Подсказки первого дня (срез 2, п. 12): на сервере — телефон и компьютер видят одно. */
+export const fetchHintsSettings = () => get<HintsSettings>('/settings/hints');
+
+export const updateHintsSettings = (body: HintsSettings) => put<HintsSettings>('/settings/hints', body);
 
 // --- Funds ---
 

@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 import { Button, plateVariants } from '@/ds';
 import { cn } from '@/lib/utils';
-import { BALANCE_ROW, buildBreakdownView, CREDIT_ROW, OVERDUE_ROW, type BreakdownRow } from '../../lib/breakdownRows';
+import {
+    BALANCE_ROW, buildBreakdownView, CONTRIB_ROW, CREDIT_ROW, OVERDUE_ROW, PLANNED_ROW, type BreakdownRow,
+} from '../../lib/breakdownRows';
 import { fmtDayShort, fmtRub } from '../../lib/format';
 import { pocketResult, pocketState } from '../../lib/gapMode';
 import { ruPlural } from '../../lib/plural';
@@ -11,6 +13,18 @@ import type { FinancialEvent, PocketResponse, UpcomingItem } from '../../types/a
 
 /** Имена строк на «Сегодня» — с досок Zh2-390x и Zh2-1440-7t; «Цели» до среза 6 говорят по-старому. */
 const RENAME: Record<string, string> = { [BALANCE_ROW]: 'На картах', [CREDIT_ROW]: 'Вернуть на кредитку' };
+
+/**
+ * Абзацы справки «Как считаются свободные деньги» — пояснениями под своими строками (спека среза 2, «Справка → подача»;
+ * ANO-189). Только на «Сегодня»: «Цели» до среза 6 открывают справку целиком.
+ */
+function noteOf(row: BreakdownRow, data: PocketResponse): string | null {
+    if (row.label.startsWith(PLANNED_ROW) && data.upcoming.some(u => u.overdue)) {
+        return `${row.note}; бронь без оплаты держится`;
+    }
+    if (row.label === CONTRIB_ROW) return row.note ? `${row.note}; сначала взнос, остальное твоё` : 'сначала взнос, остальное твоё';
+    return row.note;
+}
 
 type MarkKind = 'both' | 'go' | 'free' | 'short' | null;
 const MARK: Record<Exclude<MarkKind, null>, string> = {
@@ -103,6 +117,7 @@ export function WhyPlate({ data, size, onNz, onReanchor, overdue, aside, initial
         const mark = markOf(row, ok);
         const isOverdue = row.label === OVERDUE_ROW && overdueItems.length > 0;
         const label = RENAME[row.label] ?? row.label;
+        const note = isOverdue ? overdueNote(overdueItems) : noteOf(row, data);
         return (
             <div key={key} className={cn('flex gap-2', wide ? 'py-2' : 'py-[7px]')} data-row={label}>
                 <span aria-hidden="true" className="mt-[5px] h-2.5 w-2.5 shrink-0 rounded-[3px]"
@@ -117,8 +132,7 @@ export function WhyPlate({ data, size, onNz, onReanchor, overdue, aside, initial
                             : <span>{label}</span>}
                         <span className="whitespace-nowrap tabular-nums">{row.amount}</span>
                     </div>
-                    {(isOverdue ? overdueNote(overdueItems) : row.note) &&
-                        <span className="text-sf-label text-sf-muted">{isOverdue ? overdueNote(overdueItems) : row.note}</span>}
+                    {note && <span className="text-sf-label text-sf-muted">{note}</span>}
                     {isOverdue && overdueOpen && (
                         <div className="mt-1 flex flex-col" data-list="overdue">
                             {byMonth(overdueItems).map(g => (
