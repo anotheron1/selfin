@@ -95,6 +95,10 @@ describe('Первый вход — когда открывается (п. 11)',
         expect(src).toContain('<UsualSpendingForm data={data} onDone={finish} onSkip={finish} />');
     });
 
+    it('после записи число перечитывается всегда — и когда повтор ничего не написал (ревью Codex на #227)', () => {
+        expect(read('./Start.tsx')).toMatch(/await write\(\);\s*const n = reads\.start\('pocket'\);\s*const p = await fetchPocket\(\);/);
+    });
+
     it('/start — без навигации, как вход и согласие', () => {
         expect(read('../App.tsx')).toMatch(/STANDALONE[^}]*'\/start': \(\) => <Start \/>/);
     });

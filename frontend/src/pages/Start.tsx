@@ -119,15 +119,18 @@ export default function Start() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    /** Записать и перечитать число; `then` — шаг после удачной записи. */
-    const save = async (write: () => Promise<boolean | boolean[]>, then?: number) => {
+    /**
+     * Записать и перечитать число; `then` — шаг после удачной записи. Перечитывает и когда писать нечего (ревью Codex
+     * на #227): запись прошла, а чтение упало — повтор «Дальше» ничего не пишет, и без чтения шаг ушёл бы со старым
+     * ответом движка, а вопрос 4 — без дохода срока.
+     */
+    const save = async (write: () => Promise<unknown>, then?: number) => {
         setError(null);
         try {
-            if ([await write()].flat().some(Boolean)) {
-                const n = reads.start('pocket');
-                const p = await fetchPocket();
-                if (reads.isLatest('pocket', n)) setData(p);
-            }
+            await write();
+            const n = reads.start('pocket');
+            const p = await fetchPocket();
+            if (reads.isLatest('pocket', n)) setData(p);
             if (then) setStep(then);
         } catch (err) {
             console.error(err);
