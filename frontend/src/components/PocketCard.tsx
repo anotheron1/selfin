@@ -178,7 +178,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                             {gap && gap.movable.length > 0 && (
                                 <div className="mt-2">
                                     <p className="text-xs text-white/70">{gap.moveHeader}</p>
-                                    {gap.movable.map(line => (
+                                    {gap.movable.map(({ text: line }) => (
                                         <p key={line} className="text-xs text-white/90">{line}</p>
                                     ))}
                                 </div>

@@ -17,11 +17,25 @@ import { fmtDayMonth, fmtRub as fmtC } from './format';
 export interface GapMode {
     horizonLabel: string;
     headline: string;
+    /** Заголовок без суммы — над крупным числом на «Сегодня» (Zh2-G7b): «24 декабря по плану не хватит». */
+    lead: string;
+    /** Сколько не хватает до уровня (ноль или НЗ), без минуса. */
+    shortfall: number;
     /** Что будет с доходом; null, когда срок не заякорен доходом. */
     subline: string | null;
     moveHeader: string;
-    /** До трёх строк «Кафе · 25.09 — 900 ₽ → не хватит 2 785 ₽» или «… → из НЗ 1 500 ₽», крупные первыми. */
-    movable: string[];
+    /** До трёх строк, крупные первыми; у каждой — строка плана или хотелка, которую переносит «Сдвинуть». */
+    movable: MovableRow[];
+}
+
+export interface MovableRow {
+    item: UpcomingItem;
+    /** Своё имя строки или категория. */
+    label: string;
+    /** «разрыва не будет», «не хватит 2 785 ₽», «НЗ цел», «из НЗ 1 500 ₽». */
+    outcome: string;
+    /** Строкой целиком: «Кафе · 25.09 — 900 ₽ → не хватит 2 785 ₽». */
+    text: string;
 }
 
 const MOVABLE_LIMIT = 3;
@@ -74,11 +88,12 @@ export function buildGapMode(p: PocketResponse): GapMode | null {
     // «Сегодня» — день 0 траектории, то есть сегодня сервера, а не браузера: так же решает
     // фраза-ответ, и в разных часовых поясах они не разойдутся.
     const today = minPoint.date === trajectory[0]?.date;
-    const headline = nz
-        ? `${today ? 'Сегодня' : fmtDayMonth(minPoint.date)} по плану придётся взять из НЗ ${fmtC(shortfall)}`
+    const lead = nz
+        ? `${today ? 'Сегодня' : fmtDayMonth(minPoint.date)} по плану придётся взять из НЗ`
         : today
-            ? `Сегодня по плану не хватает ${fmtC(shortfall)}`
-            : `${fmtDayMonth(minPoint.date)} по плану не хватит ${fmtC(shortfall)}`;
+            ? 'Сегодня по плану не хватает'
+            : `${fmtDayMonth(minPoint.date)} по плану не хватит`;
+    const headline = `${lead} ${fmtC(shortfall)}`;
 
     const incomeAnchored =
         (horizon.type === 'NEXT_INCOME' || horizon.type === 'SECOND_INCOME') && !horizon.fallback;
@@ -89,7 +104,7 @@ export function buildGapMode(p: PocketResponse): GapMode | null {
             ? `${nz ? `Доход ${on} восстановит НЗ` : `Доход ${on} закроет разрыв`}, останется ${fmtC(endPoint.balance)}.`
             : `${nz ? `Даже доход ${on} не восстановит НЗ` : `Даже доход ${on} не закроет разрыв`} — план требует правки.`;
 
-    const movable = p.upcoming
+    const movable: MovableRow[] = p.upcoming
         .filter(u => isMovable(u, minPoint.date))
         .sort((a, b) => b.amount - a.amount)
         .slice(0, MOVABLE_LIMIT)
@@ -102,12 +117,14 @@ export function buildGapMode(p: PocketResponse): GapMode | null {
                 ? (nz ? `из НЗ ${fmtC(after)}` : `не хватит ${fmtC(after)}`)
                 : (nz ? 'НЗ цел' : 'разрыва не будет');
             // ANO-213: дата — у двух строк с одним именем («Бензин» 05.10 и 12.10) иначе не понять, какую двигать.
-            return `${label} · ${fmtD(u.date)} — ${fmtC(u.amount)} → ${outcome}`;
+            return { item: u, label, outcome, text: `${label} · ${fmtD(u.date)} — ${fmtC(u.amount)} → ${outcome}` };
         });
 
     return {
         horizonLabel: horizon.label,
         headline,
+        lead,
+        shortfall,
         subline,
         moveHeader: `Можно сдвинуть на после ${fmtD(horizon.endDate)}:`,
         movable,

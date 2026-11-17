@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Pencil } from 'lucide-react';
-import { plateVariants } from '@/ds';
+import { Button, plateVariants } from '@/ds';
 import { cn } from '@/lib/utils';
 import { BALANCE_ROW, buildBreakdownView, CREDIT_ROW, OVERDUE_ROW, type BreakdownRow } from '../../lib/breakdownRows';
 import { fmtDayShort, fmtRub } from '../../lib/format';
@@ -147,10 +147,7 @@ export function WhyPlate({ data, size, onNz, onReanchor, overdue, initialOpen, i
                                 <span className="flex-1 text-sf-note">
                                     Всё это уже оплачено? Обнови остаток — брони до сверки снимутся разом.
                                 </span>
-                                <button type="button" onClick={onReanchor}
-                                    className="h-[34px] shrink-0 rounded-sf-pill bg-sf-accent-soft px-3.5 text-sf-note font-semibold text-sf-accent">
-                                    Обновить
-                                </button>
+                                <Button variant="soft" size="s" onClick={onReanchor}>Обновить</Button>
                             </div>
                         </div>
                     )}

@@ -81,7 +81,6 @@ export function Landscape({ data, size, selectedDate, onDay, dashedSun = false, 
             )}
             <circle cx={m.today.x} cy={m.today.y} r={m.today.r} fill="var(--sf-dot)" stroke="var(--sf-dot-rim)" strokeWidth="2" />
             {low && <circle cx={low.x} cy={low.y} r={low.r} fill="var(--sf-ring)" stroke="var(--sf-ring-rim)" strokeWidth="2" data-layer="low" />}
-            {overlay?.(m)}
             {onDay && m.points.map((p, i) => {
                 const prev = m.points[i - 1]?.x ?? p.x;
                 const next = m.points[i + 1]?.x ?? p.x;
@@ -93,6 +92,43 @@ export function Landscape({ data, size, selectedDate, onDay, dashedSun = false, 
                         style={{ cursor: 'pointer' }} />
                 );
             })}
+            {/* Поверх полос нажатия по дням: точка «впритык» и флажки нажимаются сами. */}
+            {overlay?.(m)}
         </svg>
+    );
+}
+
+/**
+ * Точка «впритык» у воды (S2-T3): по умолчанию — только точка на тёмном слое; нажатие показывает и прячет подпись
+ * «может не хватить около N» (S2-T2). Дня нет на графике — рисовать нечего.
+ */
+export function TightDot({ m, date, lines, open, onToggle }: {
+    m: LandscapeModel;
+    date: string;
+    lines: [string, string];
+    open: boolean;
+    onToggle: () => void;
+}) {
+    const p = m.points.find(x => x.date === date);
+    if (!p) return null;
+    const y = p.yUsual ?? p.y;
+    const wide = m.w > 390;
+    const bw = wide ? 260 : 236;
+    const bh = wide ? 48 : 44;
+    const bx = Math.min(Math.max(p.x + 12 - bw, 8), m.w - bw - 8);
+    const by = 20;
+    return (
+        <g role="button" tabIndex={0} aria-expanded={open} aria-label={`Впритык: ${lines[1]}, ${lines[0]}`}
+            onClick={onToggle} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+            style={{ cursor: 'pointer' }} data-layer="tight">
+            <circle cx={p.x} cy={y} r="14" fill="transparent" />
+            {open ? <>
+                <path d={`M${p.x},${y - 4} L${p.x},${by + bh}`} stroke="var(--sf-ink)" strokeWidth="1" strokeDasharray="2 3" />
+                <circle cx={p.x} cy={y} r="3.5" fill="var(--sf-ink)" />
+                <rect x={bx} y={by} width={bw} height={bh} rx="12" fill="var(--sf-page)" fillOpacity=".94" />
+                <text x={bx + 14} y={by + 18} fontSize="11" fill="var(--sf-muted)">{lines[0]}</text>
+                <text x={bx + 14} y={by + 35} fontSize="13" fontWeight="600" fill="var(--sf-ink)">{lines[1]}</text>
+            </> : <circle cx={p.x} cy={y} r="5.5" fill="var(--sf-plate)" stroke="var(--sf-ink)" strokeWidth="2" />}
+        </g>
     );
 }
