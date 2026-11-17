@@ -12,7 +12,7 @@ function fakeServer() {
     const log: string[] = [];
     const events: { id: string; key: string; dto: FinancialEventCreateDto; deleted: boolean }[] = [];
     const checkpoints: { id: string; dto: BalanceCheckpointCreateDto }[] = [];
-    let lose = 0;
+    let lose: Error | null = null;
     let hold: Promise<void> | null = null;
     const api = {
         createCheckpoint: async (dto: BalanceCheckpointCreateDto) => {
@@ -28,6 +28,10 @@ function fakeServer() {
         },
         createPlanWithFact: async (attempts: AttemptKeys, dto: FinancialEventCreateDto) => {
             const key = attempts.keyFor('plan', dto);
+            if ((dto.description?.length ?? 0) > 255) {
+                log.push('POST отказ 400');
+                throw new ApiError(400, [], 'API error: 400 /events');
+            }
             let ev = events.find(e => e.key === key);
             if (!ev) {
                 ev = { id: `ev${events.length + 1}`, key, dto, deleted: false };
@@ -38,7 +42,7 @@ function fakeServer() {
             }
             await Promise.resolve();
             if (hold) { const h = hold; hold = null; await h; }
-            if (lose > 0) { lose--; throw new Error('ответ потерян'); }
+            if (lose) { const e = lose; lose = null; throw e; }
             attempts.done('plan', key);
             return { id: ev.id } as never;
         },
@@ -48,13 +52,14 @@ function fakeServer() {
             ev.deleted = true;
             log.push(`DELETE ${id} ${scope}`);
             await Promise.resolve();
-            if (lose > 0) { lose--; throw new Error('ответ потерян'); }
+            if (lose) { const e = lose; lose = null; throw e; }
         },
     };
     return {
         api, log, checkpoints,
         live: () => events.filter(e => !e.deleted).map(e => `${e.dto.description ?? e.dto.type} ${e.dto.plannedAmount}`),
-        loseNext: () => { lose = 1; },
+        /** `err` — чем кончается запрос: по умолчанию сеть, иначе, например, 502 прокси. */
+        loseNext: (err: Error = new Error('ответ потерян')) => { lose = err; },
         /** Ответ на следующую запись задерживается, пока не отпустят: сервер уже записал. */
         holdNext: () => { let release = () => {}; hold = new Promise<void>(r => { release = r; }); return release; },
     };
@@ -134,6 +139,15 @@ describe('FirstEntryWrites — «Назад» правит, а не пишет �
         expect(s.live()).toEqual(['Аренда 27000']);
     });
 
+    it('502 после записи — неясно, записано ли: держится, как потерянный', async () => {
+        const s = fakeServer();
+        const w = new FirstEntryWrites(s.api);
+        s.loseNext(new ApiError(502, [], 'API error: 502 /events'));
+        await expect(w.plan('pay:1', pay(25_000))).rejects.toThrow('502');
+        await w.plan('pay:1', pay(27_000));
+        expect(s.live()).toEqual(['Аренда 27000']);
+    });
+
     it('ответ потерялся, потом строку стёрли — записи нет', async () => {
         const s = fakeServer();
         const w = new FirstEntryWrites(s.api);
@@ -141,6 +155,23 @@ describe('FirstEntryWrites — «Назад» правит, а не пишет �
         await expect(w.plan('pay:1', pay(25_000))).rejects.toThrow('ответ потерян');
         await w.plan('pay:1', null);
         expect(s.live()).toEqual([]);
+    });
+
+    it('сервер отверг запись — она не повторяется, исправленный ответ пишется (ревью Codex на #227)', async () => {
+        const s = fakeServer();
+        const w = new FirstEntryWrites(s.api);
+        await expect(w.plan('pay:1', pay(25_000, 'А'.repeat(300)))).rejects.toThrow('400');
+        await w.plan('pay:1', pay(25_000));
+        expect(s.log).toEqual(['POST отказ 400', 'POST ev1 25000']);
+        expect(s.live()).toEqual(['Аренда 25000']);
+    });
+
+    it('сервер отверг запись, строку стёрли — ничего не пишется', async () => {
+        const s = fakeServer();
+        const w = new FirstEntryWrites(s.api);
+        await expect(w.plan('pay:1', pay(25_000, 'А'.repeat(300)))).rejects.toThrow('400');
+        expect(await w.plan('pay:1', null)).toBe(false);
+        expect(s.log).toEqual(['POST отказ 400']);
     });
 
     it('ключ — на каждый ответ: соседняя строка не стирает попытку потерянной', async () => {

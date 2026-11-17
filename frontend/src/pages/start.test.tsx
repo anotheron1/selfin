@@ -91,12 +91,24 @@ describe('Первый вход — когда открывается (п. 11)',
     it('вопросы 1 и 2 обязательны: «Пропустить» — только у 3 и у 4', () => {
         const src = read('./Start.tsx');
         expect(src.match(/>Пропустить</g)).toHaveLength(1);
-        expect(src).toMatch(/\{step === 3 && <Button [^\n]*onClick=\{\(\) => setStep\(4\)\}[^\n]*>Пропустить<\/Button>\}/);
+        expect(src).toMatch(/\{step === 3 && <Button [^\n]*onClick=\{\(\) => go\(4\)\}[^\n]*>Пропустить<\/Button>\}/);
         expect(src).toContain('<UsualSpendingForm data={data} onDone={finish} onSkip={finish} />');
     });
 
     it('после записи число перечитывается всегда — и когда повтор ничего не написал (ревью Codex на #227)', () => {
         expect(read('./Start.tsx')).toMatch(/await write\(\);\s*const n = reads\.start\('pocket'\);\s*const p = await fetchPocket\(\);/);
+    });
+
+    it('шаг меняет только последнее действие: поздний ответ не уводит назад (ревью Codex на #227)', () => {
+        const src = read('./Start.tsx');
+        expect(src).toContain("const move = then ? reads.start('step') : 0;");
+        expect(src).toContain("if (then && reads.isLatest('step', move)) setStep(then);");
+        expect(src).toContain("const go = (s: number) => { reads.start('step');");
+        expect(src.match(/setStep\(/g)).toHaveLength(2);   // в save и в go — других переходов нет
+    });
+
+    it('имя платежа — не длиннее, чем примет база (VARCHAR(255))', () => {
+        expect(read('./Start.tsx')).toContain('aria-label="Что за платёж" maxLength={255}');
     });
 
     it('/start — без навигации, как вход и согласие', () => {

@@ -57,7 +57,12 @@ export class FirstEntryWrites {
         const keys = this.keys.get(answer) ?? new AttemptKeys();
         this.keys.set(answer, keys);
         this.unconfirmed.set(answer, dto);
-        const ev = await this.api.createPlanWithFact(keys, dto);
+        const ev = await this.api.createPlanWithFact(keys, dto).catch(err => {
+            // Отказ сервера (4xx) — не записано: держать нечего, иначе неверный ответ повторялся бы перед каждой
+            // правкой и строку было бы не исправить (ревью Codex на #227). Сбой сети и 5xx — неясно: держим.
+            if (err instanceof ApiError && err.status >= 400 && err.status < 500) this.unconfirmed.delete(answer);
+            throw err;
+        });
         this.unconfirmed.delete(answer);
         this.saved.set(answer, { id: ev.id, json: JSON.stringify(dto), series: dto.recurring != null });
     }

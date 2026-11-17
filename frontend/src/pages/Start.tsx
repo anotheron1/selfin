@@ -77,7 +77,7 @@ function PayRow({ row, onChange, onSettle }: { row: Row; onChange: (r: Row) => v
     return (
         <div className="flex min-h-14 items-center gap-3 border-b border-sf-rule py-1.5 lg:min-h-[60px] lg:gap-3.5">
             <KindMark kind="bron" icon={<Icon strokeWidth={1.7} />} />
-            <input value={row.name} placeholder="Название" aria-label="Что за платёж"
+            <input value={row.name} placeholder="Название" aria-label="Что за платёж" maxLength={255}
                 onChange={e => onChange({ ...row, name: e.target.value })} onBlur={() => onSettle(row)}
                 className="h-11 min-w-0 flex-1 bg-transparent font-sf text-sf-button text-sf-ink outline-none placeholder:text-sf-muted" />
             <select value={row.day} aria-label="Какого числа"
@@ -123,15 +123,19 @@ export default function Start() {
      * Записать и перечитать число; `then` — шаг после удачной записи. Перечитывает и когда писать нечего (ревью Codex
      * на #227): запись прошла, а чтение упало — повтор «Дальше» ничего не пишет, и без чтения шаг ушёл бы со старым
      * ответом движка, а вопрос 4 — без дохода срока.
+     *
+     * Шаг меняет только последнее действие: двойное «Дальше» на медленной сети или «Назад», пока запись идёт, — и
+     * поздний ответ прежнего нажатия не уводит на шаг, с которого человек уже ушёл (ревью Codex на #227).
      */
     const save = async (write: () => Promise<unknown>, then?: number) => {
+        const move = then ? reads.start('step') : 0;
         setError(null);
         try {
             await write();
             const n = reads.start('pocket');
             const p = await fetchPocket();
             if (reads.isLatest('pocket', n)) setData(p);
-            if (then) setStep(then);
+            if (then && reads.isLatest('step', move)) setStep(then);
         } catch (err) {
             console.error(err);
             setError('Не записалось — попробуй ещё раз');
@@ -153,7 +157,8 @@ export default function Start() {
         return a && paymentDto(cats, a, today);
     };
     const settle = (r: Row) => save(() => writes.plan(`pay:${r.key}`, rowDto(r)));
-    const back = () => { setError(null); setStep(s => s - 1); };
+    const go = (s: number) => { reads.start('step'); setError(null); setStep(s); };
+    const back = () => go(step - 1);
     const finish = () => navigate('/', { replace: true });
     const until = fmtDayShort(termIncome(data)?.date ?? data.horizon.endDate);
 
@@ -228,7 +233,7 @@ export default function Start() {
                                     {error && <p role="alert" className="text-sf-label text-sf-muted">{error}</p>}
                                     <div className="mt-auto flex flex-col gap-1 pt-6 lg:mt-3 lg:flex-row-reverse lg:justify-start lg:gap-3 lg:pt-0">
                                         <Button type="submit" disabled={!q.ready} className="w-full lg:w-auto lg:px-10">Дальше</Button>
-                                        {step === 3 && <Button type="button" variant="text" onClick={() => setStep(4)} className="lg:px-6">Пропустить</Button>}
+                                        {step === 3 && <Button type="button" variant="text" onClick={() => go(4)} className="lg:px-6">Пропустить</Button>}
                                     </div>
                                 </form>
                             );
