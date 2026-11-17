@@ -18,9 +18,9 @@ export default function CapitalTrajectoryCard({ timeline }: Props) {
                 title="Капитал"
                 toggles={[
                     { id: 'capital', label: 'Чистый', color: '#22c55e', shape: 'dot', active: true },
-                    { id: 'assets', label: 'Активы', color: 'rgba(255,255,255,0.5)', shape: 'dot',
+                    { id: 'assets', label: 'Активы', color: 'rgba(38, 42, 34, 0.5)', shape: 'dot',
                       active: showAssets, onToggle: () => setShowAssets(v => !v) },
-                    { id: 'liabilities', label: 'Обязательства', color: 'rgba(255,255,255,0.5)', shape: 'dash',
+                    { id: 'liabilities', label: 'Обязательства', color: 'rgba(38, 42, 34, 0.5)', shape: 'dash',
                       active: showLiabilities, onToggle: () => setShowLiabilities(v => !v) },
                 ]}
             />

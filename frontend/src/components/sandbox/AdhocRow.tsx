@@ -29,13 +29,13 @@ export default function AdhocRow({
                     <span>«а если» {fmtRub(t.amount)} · {t.date.slice(8, 10)}.{t.date.slice(5, 7)}</span>
                     <div className="flex gap-1.5">
                         <button onClick={() => onSaveAsWishlist(t.amount, t.date)}
-                            className="p-1.5 rounded-lg hover:bg-white/5"
+                            className="p-1.5 rounded-lg hover:bg-black/[.04]"
                             style={{ color: 'var(--color-text-muted)' }}
                             aria-label="Сохранить как хотелку">
                             <Save size={14} />
                         </button>
                         <button onClick={() => onRemove(i)}
-                            className="p-1.5 rounded-lg hover:bg-white/5"
+                            className="p-1.5 rounded-lg hover:bg-black/[.04]"
                             style={{ color: 'var(--color-danger)' }}
                             aria-label="Убрать">
                             <Trash2 size={14} />

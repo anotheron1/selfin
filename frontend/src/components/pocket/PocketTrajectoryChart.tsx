@@ -20,7 +20,7 @@ const H = 230;
 const PAD_X = 10;
 const TOP = 30;
 const FLOOR = 196;
-const LINE = '#8f86ff';
+const LINE = '#2F6B55';
 const AMBER = '#EF9F27';
 const AMBER_LIGHT = '#FAC775';
 
@@ -102,7 +102,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 )}
                 {/* Линия нуля */}
                 <line x1={PAD_X} y1={yZero} x2={W - PAD_X} y2={yZero}
-                    stroke="rgba(255,255,255,0.25)" strokeWidth={1} />
+                    stroke="rgba(38, 42, 34, 0.25)" strokeWidth={1} />
                 {/* Линия НЗ */}
                 {showBufferLine && (
                     <>
@@ -114,7 +114,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 )}
                 {/* Заливка между траекторией и нулём */}
                 <polygon points={`${x(0)},${yZero} ${line} ${x(n - 1)},${yZero}`}
-                    fill="#6c63ff" opacity={0.14} />
+                    fill="#2F6B55" opacity={0.14} />
                 {/* Траектория: внутри горизонта — плотно, хвост за горизонтом — приглушённо */}
                 <polyline points={mainLine} fill="none" stroke={LINE} strokeWidth={2}
                     strokeLinejoin="round" />
@@ -123,7 +123,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                         <polyline points={tailLine} fill="none" stroke={LINE} strokeWidth={2}
                             strokeLinejoin="round" opacity={0.4} />
                         <line x1={x(horizonIdx)} y1={TOP} x2={x(horizonIdx)} y2={FLOOR}
-                            stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="2 4" />
+                            stroke="rgba(38, 42, 34, 0.25)" strokeWidth={1} strokeDasharray="2 4" />
                     </>
                 )}
                 {/*
@@ -166,7 +166,7 @@ export default function PocketTrajectoryChart({ data }: { data: PocketResponse }
                 {/* Выбранный день */}
                 {selected != null && (
                     <line x1={x(selected)} y1={TOP} x2={x(selected)} y2={FLOOR}
-                        stroke="rgba(255,255,255,0.35)" strokeWidth={1} strokeDasharray="3 3" />
+                        stroke="rgba(38, 42, 34, 0.35)" strokeWidth={1} strokeDasharray="3 3" />
                 )}
                 {/* Тики дат */}
                 {ticks.map(i => (

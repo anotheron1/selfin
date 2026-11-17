@@ -294,7 +294,7 @@ export default function Wishlist() {
             {/* Шапка: два числа + разница + скоупы */}
             {baseline && fitted && (
                 <div className="rounded-2xl p-4"
-                    style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
+                    style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, var(--sf-usual) 100%)' }}>
                     {/*
                       Оба числа — словами по состоянию, как итог расшифровки (ANO-76, ревью Codex #80):
                       при нехватке «Свободно сейчас −25 612 ₽» противоречило себе. Сумма — без минуса;

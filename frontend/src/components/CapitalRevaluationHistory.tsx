@@ -61,7 +61,7 @@ export default function CapitalRevaluationHistory({ itemId, refreshSignal, onCha
         <>
         <ul className="space-y-1">
             {history.map(r => (
-                <li key={r.id} className="text-sm py-2 px-2 rounded hover:bg-white/5">
+                <li key={r.id} className="text-sm py-2 px-2 rounded hover:bg-black/[.04]">
                     {editingId === r.id ? (
                         <div className="flex gap-1 items-center">
                             <AmountInput value={editValue} onChange={setEditValue} hidePreview className="w-32 h-7" />

@@ -47,7 +47,7 @@ function ForecastSparkline({ history, plannedLimit, projectionAmount, daysInMont
                 <line x1={todayX} y1={y(today.cumulativeFact)} x2={futureEndX} y2={futureEndY}
                     stroke="#8a8aa0" strokeWidth={1.5} strokeDasharray="4 4" opacity={0.8} />
                 <line x1={todayX} y1={0} x2={todayX} y2={H}
-                    stroke="rgba(108,99,255,0.4)" strokeWidth={1} strokeDasharray="2 2" />
+                    stroke="rgba(47, 107, 85, 0.4)" strokeWidth={1} strokeDasharray="2 2" />
             </svg>
             <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
                 <span>1</span><span>{daysInMonth}</span>

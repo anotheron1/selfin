@@ -110,7 +110,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
 
     return (
         <div className="rounded-2xl p-6"
-            style={{ background: gap ? GAP_BACKGROUND : 'linear-gradient(135deg, var(--color-accent) 0%, #9f8cff 100%)' }}>
+            style={{ background: gap ? GAP_BACKGROUND : 'linear-gradient(135deg, var(--color-accent) 0%, var(--sf-usual) 100%)' }}>
             <div className="flex items-start gap-4">
                 <Wallet size={32} color="white" className="shrink-0 mt-1" />
                 <div className="min-w-0 flex-1">

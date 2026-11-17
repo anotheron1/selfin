@@ -10,8 +10,8 @@ const H = 240;
 const PAD_X = 10;
 const TOP = 34;
 const FLOOR = 200;
-const BASE = 'rgba(143,134,255,0.45)';   // приглушённая «как сейчас»
-const FIT = '#8f86ff';                   // яркая «с примеркой»
+const BASE = 'rgba(47, 107, 85, 0.45)';   // приглушённая «как сейчас»
+const FIT = '#2F6B55';                   // яркая «с примеркой»
 const AMBER = '#EF9F27';
 
 /**
@@ -67,7 +67,7 @@ export default function SandboxChart({ baseline, fitted }: {
                 )}
                 {/* Линия нуля */}
                 <line x1={PAD_X} y1={yZero} x2={W - PAD_X} y2={yZero}
-                    stroke="rgba(255,255,255,0.25)" strokeWidth={1} />
+                    stroke="rgba(38, 42, 34, 0.25)" strokeWidth={1} />
 
                 {/* baseline — приглушённая пунктирная */}
                 <polyline points={baseLine} fill="none" stroke={BASE} strokeWidth={2}

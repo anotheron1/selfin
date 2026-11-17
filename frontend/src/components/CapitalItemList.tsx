@@ -57,7 +57,7 @@ export default function CapitalItemList({ kind, items, onItemClick, onCreate, co
                         <button
                             type="button"
                             onClick={() => onItemClick(item)}
-                            className="w-full flex justify-between items-center py-2 px-2 rounded hover:bg-white/5 transition text-left">
+                            className="w-full flex justify-between items-center py-2 px-2 rounded hover:bg-black/[.04] transition text-left">
                             <span className="truncate">{item.name}</span>
                             <span className="font-medium ml-2">{fmt(item.currentValue)}</span>
                         </button>
@@ -86,7 +86,7 @@ export default function CapitalItemList({ kind, items, onItemClick, onCreate, co
                                     <button
                                         type="button"
                                         onClick={() => onItemClick(item)}
-                                        className="w-full flex justify-between items-center py-1.5 px-2 rounded hover:bg-white/5 text-left text-sm opacity-70">
+                                        className="w-full flex justify-between items-center py-1.5 px-2 rounded hover:bg-black/[.04] text-left text-sm opacity-70">
                                         <span className="truncate">{item.name}</span>
                                         <span>—</span>
                                     </button>

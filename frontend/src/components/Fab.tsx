@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
 import { createPlanWithFact, createStandaloneFact, fetchCategories, fetchFunds, transferToFund } from '../api';
 import type { Category, FinancialEventCreateDto, RecurringConfig, TargetFund } from '../types/api';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
@@ -15,11 +14,11 @@ import { writeFailure } from '../lib/writeFailure';
 import { AttemptKeys } from '../lib/attemptKey';
 
 /**
- * Модальная форма быстрого добавления транзакции (bottom sheet).
+ * Модальная форма быстрого добавления транзакции (bottom sheet). Открывают «+» капсулы и «+ Записать» полосы (components/frame).
  * Поддерживает типы: Расход, Доход, В копилку (FUND_TRANSFER).
  * При успешном сохранении вызывает `onSuccess` для обновления данных родителя.
  */
-function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+export default function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
     // ANO-155 + ревью #45: умолчание и граница «сегодня» берутся из ОДНОГО источника.
     // toISOString() даёт дату по UTC: восточнее Гринвича она вечером отстаёт на день
     // (форма предлагала вчера), западнее — ночью опережает, и тогда собственное
@@ -306,7 +305,7 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                                         title={priorityTitle(p)}
                                         className="flex-1 text-xs px-2 py-1.5 rounded border transition-colors"
                                         style={isActive ? {
-                                            background: p === 'HIGH' ? 'rgba(239,68,68,0.15)' : p === 'LOW' ? 'rgba(100,116,139,0.15)' : 'rgba(108,99,255,0.15)',
+                                            background: p === 'HIGH' ? 'rgba(239,68,68,0.15)' : p === 'LOW' ? 'rgba(100,116,139,0.15)' : 'rgba(47, 107, 85, 0.15)',
                                             borderColor: p === 'HIGH' ? 'hsl(var(--destructive))' : p === 'LOW' ? 'var(--color-border)' : 'var(--color-accent)',
                                             color: p === 'HIGH' ? 'hsl(var(--destructive))' : p === 'LOW' ? 'var(--color-text-muted)' : 'var(--color-accent)',
                                         } : {
@@ -335,41 +334,5 @@ function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
                 </form>
             </SheetContent>
         </Sheet>
-    );
-}
-
-interface FabProps {
-    /** Колбэк, вызываемый после успешного добавления транзакции для обновления страницы. */
-    onSuccess: () => void;
-}
-
-/**
- * Floating Action Button (FAB) — фиксированная кнопка быстрого добавления транзакции.
- */
-export default function Fab({ onSuccess }: FabProps) {
-    const [open, setOpen] = useState(false);
-
-    return (
-        <>
-            <button
-                onClick={() => setOpen(true)}
-                className="fixed z-50 rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
-                style={{
-                    bottom: 'calc(var(--nav-height) + 16px)',
-                    right: '20px',
-                    width: '56px',
-                    height: '56px',
-                    background: 'var(--color-accent)',
-                    boxShadow: '0 0 24px var(--color-accent-glow)',
-                }}>
-                <Plus size={26} color="white" />
-            </button>
-            {open && (
-                <QuickAddModal
-                    onClose={() => setOpen(false)}
-                    onSuccess={onSuccess}
-                />
-            )}
-        </>
     );
 }

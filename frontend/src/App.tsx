@@ -1,8 +1,8 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 
-import BottomNav from './components/BottomNav';
-import Fab from './components/Fab';
+import AppFrame, { SectionTrack } from './components/frame/AppFrame';
+import QuickAddModal from './components/Fab';
 import Analytics from './pages/Analytics';
 import Capital from './pages/Capital';
 import Dashboard from './pages/Dashboard';
@@ -17,11 +17,11 @@ import Wishlist from './pages/Wishlist';
 
 /**
  * Журнал на широком экране — две колонки, основной список и ожидания (ANO-176), и в прежние
- * 672 px они не помещаются. Остальным страницам хватает прежней ширины.
+ * 672 px они не помещаются. Остальные экраны раскладываются под ширину в своих срезах.
  */
 function Main({ children }: { children: React.ReactNode }) {
   const wide = useLocation().pathname === '/budget';
-  return <main className={wide ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto'}>{children}</main>;
+  return <main className={wide ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto'}><SectionTrack />{children}</main>;
 }
 
 /**
@@ -36,6 +36,7 @@ const STANDALONE: Record<string, () => React.ReactElement> = {
 
 function Screens() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [adding, setAdding] = useState(false);
   const handleSuccess = () => setRefreshKey(k => k + 1);
 
   const standalone = STANDALONE[useLocation().pathname];
@@ -43,7 +44,7 @@ function Screens() {
 
   return (
     <>
-      <div className="min-h-dvh overflow-x-hidden" style={{ paddingBottom: 'var(--nav-height)' }}>
+      <AppFrame onAdd={() => setAdding(true)} onChanged={handleSuccess} refreshSignal={refreshKey}>
         <Main>
           <Routes>
             <Route path="/" element={<Dashboard refreshSignal={refreshKey} />} />
@@ -56,9 +57,8 @@ function Screens() {
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </Main>
-      </div>
-      <Fab onSuccess={handleSuccess} />
-      <BottomNav />
+      </AppFrame>
+      {adding && <QuickAddModal onClose={() => setAdding(false)} onSuccess={handleSuccess} />}
       <UpdateBanner />
     </>
   );

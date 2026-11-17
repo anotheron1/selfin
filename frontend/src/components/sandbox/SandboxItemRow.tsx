@@ -106,7 +106,7 @@ export default function SandboxItemRow({
                 </div>
 
                 <button onClick={() => setOpen(o => !o)}
-                    className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
+                    className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-black/[.04]"
                     style={{ color: open ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
                     aria-label="Параметры">
                     <SlidersHorizontal size={15} />

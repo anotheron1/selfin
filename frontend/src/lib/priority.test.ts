@@ -62,8 +62,8 @@ describe('характер строки с экрана «Хотелки» не 
     });
 
     it('объяснение называет экран так же, как навигация', () => {
-        // Имена экранов — из BottomNav.tsx: «Хотелки», а не «Крупные решения».
-        expect(read('../components/BottomNav.tsx')).toContain("label: 'Хотелки'");
-        expect(WISHLIST_CHARACTER_NOTE).toContain('«Хотелки»');
+        // Имена экранов — из навигации (components/frame/sections.ts): с среза 1 «Хотелки» — «Примерить покупку».
+        expect(read('../components/frame/sections.ts')).toContain("{ to: '/wishlist', label: 'Примерить покупку' }");
+        expect(WISHLIST_CHARACTER_NOTE).toContain('«Примерить покупку»');
     });
 });

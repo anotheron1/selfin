@@ -47,9 +47,14 @@ describe('блок берёт цвета меток только из прави
 });
 
 describe('палитра — те же токены, что в index.css', () => {
-    const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
-    const token = (name: string) =>
-        css.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`))?.[1]?.toLowerCase();
+    // Старые переменные — ссылки на светлые --sf-* (решение 45): ссылка разворачивается по ds/tokens.css.
+    const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8')
+        + readFileSync(new URL('../ds/tokens.css', import.meta.url), 'utf8');
+    const token = (name: string): string | undefined => {
+        const v = css.match(new RegExp(`${name}:\\s*([^;]+);`))?.[1]?.trim();
+        const ref = v && /^var\((--[\w-]+)\)$/.exec(v);
+        return ref ? token(ref[1]) : v?.toLowerCase();
+    };
 
     it.each([
         ['track', '--color-surface-2'],

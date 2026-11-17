@@ -61,7 +61,7 @@ export default function CapitalTrajectoryChart({ refreshSignal }: Props) {
             {data.length <= 1 ? (
                 <div className="py-8 text-center space-y-3">
                     <svg width="80" height="40" className="inline-block" viewBox="0 0 80 40">
-                        <circle cx="70" cy="20" r="4" fill="var(--color-accent, #6c63ff)" />
+                        <circle cx="70" cy="20" r="4" fill="var(--color-accent)" />
                     </svg>
                     <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
                         История появится по мере переоценок. Хочешь увидеть прошлое — добавь оценку задним числом из Sheet любого актива.
@@ -73,7 +73,7 @@ export default function CapitalTrajectoryChart({ refreshSignal }: Props) {
                         <XAxis dataKey="dateLabel" tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
                         <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11, fill: 'var(--color-text-muted)' }} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Line type="monotone" dataKey="capital" stroke="var(--color-accent, #6c63ff)" strokeWidth={2} dot={{ r: 3 }} />
+                        <Line type="monotone" dataKey="capital" stroke="var(--color-accent)" strokeWidth={2} dot={{ r: 3 }} />
                     </LineChart>
                 </ResponsiveContainer>
             )}

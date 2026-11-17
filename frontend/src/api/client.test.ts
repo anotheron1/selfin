@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, del, get, patch, post, put, signOut } from './client';
+import { ApiError, CHANGED, del, get, patch, post, put, signOut } from './client';
 import { setEventWishlistStatus, setFundWishlistStatus } from './index';
 import { attempt } from '../lib/writeFailure';
 
@@ -112,5 +112,46 @@ describe('выход (ANO-152)', () => {
         answer(new Response(null, { status: 403 }));
         await expect(signOut()).rejects.toBeInstanceOf(ApiError);
         expect(assign).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * Срез 1, ревью Codex на #225: шапка с «Свободно» видна поверх любого экрана, а экраны пишут своими запросами —
+ * запись в журнале, перевод в копилку, НЗ в настройках. После любой удачной записи клиент сообщает об этом, и шапка
+ * перечитывает число; чтение и отказ — молчат.
+ */
+describe('удачная запись сообщает шапке (CHANGED)', () => {
+    const listen = () => {
+        const target = new EventTarget();
+        vi.stubGlobal('window', target);
+        const heard = vi.fn();
+        target.addEventListener(CHANGED, heard);
+        return heard;
+    };
+
+    it.each([
+        ['POST', () => post('/x', {})],
+        ['PUT', () => put('/x', {})],
+        ['PATCH', () => patch('/x', {})],
+        ['DELETE', () => del('/x')],
+    ])('%s — сообщает', async (_m, call) => {
+        const heard = listen();
+        answer(new Response(null, { status: 204 }));
+        await call();
+        expect(heard).toHaveBeenCalledTimes(1);
+    });
+
+    it('чтение — молчит', async () => {
+        const heard = listen();
+        answer(new Response('{}', { status: 200 }));
+        await get('/x');
+        expect(heard).not.toHaveBeenCalled();
+    });
+
+    it('отказ — молчит', async () => {
+        const heard = listen();
+        answer(new Response('{}', { status: 409 }));
+        await post('/x', {}).catch(() => {});
+        expect(heard).not.toHaveBeenCalled();
     });
 });
