@@ -77,7 +77,7 @@ function PayRow({ row, onChange, onSettle }: { row: Row; onChange: (r: Row) => v
     return (
         <div className="flex min-h-14 items-center gap-3 border-b border-sf-rule py-1.5 lg:min-h-[60px] lg:gap-3.5">
             <KindMark kind="bron" icon={<Icon strokeWidth={1.7} />} />
-            <input value={row.name} placeholder="Что за платёж" aria-label="Что за платёж"
+            <input value={row.name} placeholder="Название" aria-label="Что за платёж"
                 onChange={e => onChange({ ...row, name: e.target.value })} onBlur={() => onSettle(row)}
                 className="h-11 min-w-0 flex-1 bg-transparent font-sf text-sf-button text-sf-ink outline-none placeholder:text-sf-muted" />
             <select value={row.day} aria-label="Какого числа"
