@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback, useReducer } from 'react';
+import { useEffect, useState, useCallback, useReducer, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronRight, HelpCircle, Repeat } from 'lucide-react';
 import { fetchEvents, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
 import type { FinancialEvent } from '../types/api';
 import { compareByRecency, byRecencyDesc } from '../lib/eventOrder';
-import { dayLabel, expectationCards, expectationsSummary, factLinkLabel, mainListEvents } from '../lib/journalSections';
+import { dayLabel, expectationCards, expectationsSummary, factLinkLabel, journalDate, mainListEvents } from '../lib/journalSections';
 import { anchorDateOf, quickClose, type QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { canRecordFact, latestAllowedIso, todayIso } from '../lib/factDate';
@@ -121,8 +122,12 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     // «Записать» — не позже даты сервера: факт местным «сегодня» восточнее Москвы ночью он отверг бы (@PastOrPresent).
     const today = todayIso(now);
     const allowedToday = latestAllowedIso(now);
-    const [year, setYear] = useState(now.getFullYear());
-    const [month, setMonth] = useState(now.getMonth());
+    // «Открыть день в журнале» с листа дня (срез 2, п. 8): месяц этой даты и одна прокрутка к ней после чтения.
+    const [params] = useSearchParams();
+    const [target] = useState(() => journalDate(params.get('date')));
+    const scrolled = useRef(false);
+    const [year, setYear] = useState(target?.year ?? now.getFullYear());
+    const [month, setMonth] = useState(target?.month ?? now.getMonth());
     const [events, setEvents] = useState<FinancialEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
@@ -162,6 +167,16 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     }, [year, month, guard]);
 
     useEffect(() => { load(); }, [load]);
+
+    useEffect(() => {
+        if (loading || !target || scrolled.current) return;
+        scrolled.current = true;
+        // Строк в этот день нет — день не нарисован; тогда к его неделе.
+        const el = document.getElementById(`day-${target.iso}`)
+            ?? [...document.querySelectorAll<HTMLElement>('[data-week-start]')]
+                .find(w => w.dataset.weekStart! <= target.iso && target.iso <= w.dataset.weekEnd!);
+        el?.scrollIntoView({ block: 'start' });
+    }, [loading, target]);
 
     useEffect(() => {
         Promise.all([fetchCheckpoints(), fetchAccounts()])
@@ -316,7 +331,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                     const weekEvents = mainEvents.filter((e: FinancialEvent) => e.date != null && e.date >= week.start && e.date <= week.end);
                     const isOpen = openWeeks[week.label] !== false;
                     return (
-                        <div key={week.label} className="rounded-2xl overflow-hidden"
+                        <div key={week.label} data-week-start={week.start} data-week-end={week.end} className="rounded-2xl overflow-hidden"
                             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
                             <button
                                 onClick={() => setOpenWeeks((s: Record<string, boolean>) => ({ ...s, [week.label]: !isOpen }))}
@@ -362,6 +377,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                             return (
                                                 <div
                                                     key={day}
+                                                    id={`day-${day}`}
                                                     style={{
                                                         display: 'grid',
                                                         // minmax(0, …): иначе столбец не уже самой длинной строки,
