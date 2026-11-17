@@ -24,11 +24,11 @@ function owner(overrides: Partial<PocketResponse> = {}): PocketResponse {
         minPointWithForecast: null,
         breakdown: [],
         trajectory: [
-            { date: '2026-09-24', balance: -3685, income: 0, expense: 1000, balanceWithForecast: null },
-            { date: '2026-09-25', balance: -3685, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-26', balance: -3685, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-27', balance: -3685, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-28', balance: 63315, income: 75000, expense: 8000, balanceWithForecast: null },
+            { date: '2026-09-24', balance: -3685, income: 0, expense: 1000, balanceWithForecast: null, items: [] },
+            { date: '2026-09-25', balance: -3685, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-26', balance: -3685, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-27', balance: -3685, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-28', balance: 63315, income: 75000, expense: 8000, balanceWithForecast: null, items: [] },
         ],
         wishlistCandidates: [],
         upcoming: [
@@ -54,11 +54,11 @@ function nz(overrides: Partial<PocketResponse> = {}): PocketResponse {
         buffer: 5000,
         minPoint: { date: '2026-09-24', balance: 3000, drivenBy: null },
         trajectory: [
-            { date: '2026-09-24', balance: 3000, income: 0, expense: 1000, balanceWithForecast: null },
-            { date: '2026-09-25', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-26', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-27', balance: 3000, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-28', balance: 70000, income: 75000, expense: 8000, balanceWithForecast: null },
+            { date: '2026-09-24', balance: 3000, income: 0, expense: 1000, balanceWithForecast: null, items: [] },
+            { date: '2026-09-25', balance: 3000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-26', balance: 3000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-27', balance: 3000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-28', balance: 70000, income: 75000, expense: 8000, balanceWithForecast: null, items: [] },
         ],
         pocketAfterCreditRestore: null,
         ...overrides,
@@ -106,7 +106,7 @@ describe('buildGapMode (ANO-100)', () => {
         const p = owner({
             horizon: { type: 'NEXT_INCOME', endDate: '2026-10-24', label: '30 дней вперёд (нет плановых доходов)', fallback: true },
         });
-        p.trajectory.push({ date: '2026-10-24', balance: 5000, income: 0, expense: 0, balanceWithForecast: null });
+        p.trajectory.push({ date: '2026-10-24', balance: 5000, income: 0, expense: 0, balanceWithForecast: null, items: [] });
         expect(buildGapMode(p)?.subline).toBeNull();
     });
 
@@ -167,10 +167,10 @@ describe('buildGapMode (ANO-100)', () => {
         const p = owner({
             minPoint: { date: '2026-09-25', balance: -3000, drivenBy: null },
             trajectory: [
-                { date: '2026-09-24', balance: -2500, income: 0, expense: 0, balanceWithForecast: null },
-                { date: '2026-09-25', balance: -3000, income: 0, expense: 500, balanceWithForecast: null },
-                { date: '2026-09-28', balance: 60000, income: 63000, expense: 0, balanceWithForecast: null },
-                { date: '2026-10-03', balance: -9000, income: 0, expense: 69000, balanceWithForecast: null },
+                { date: '2026-09-24', balance: -2500, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+                { date: '2026-09-25', balance: -3000, income: 0, expense: 500, balanceWithForecast: null, items: [] },
+                { date: '2026-09-28', balance: 60000, income: 63000, expense: 0, balanceWithForecast: null, items: [] },
+                { date: '2026-10-03', balance: -9000, income: 0, expense: 69000, balanceWithForecast: null, items: [] },
             ],
             upcoming: [row({ date: '2026-09-25', amount: 2000, categoryName: 'Кафе' })],
         });

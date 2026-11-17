@@ -35,9 +35,9 @@ const ok: PocketResponse = {
         { type: 'POCKET', label: 'Свободно', amount: 12000, details: [] },
     ],
     trajectory: [
-        { date: '2026-09-26', balance: 30000, income: 0, expense: 0, balanceWithForecast: null },
-        { date: '2026-10-04', balance: 12000, income: 0, expense: 18000, balanceWithForecast: null },
-        { date: '2026-10-05', balance: 87000, income: 75000, expense: 0, balanceWithForecast: null },
+        { date: '2026-09-26', balance: 30000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+        { date: '2026-10-04', balance: 12000, income: 0, expense: 18000, balanceWithForecast: null, items: [] },
+        { date: '2026-10-05', balance: 87000, income: 75000, expense: 0, balanceWithForecast: null, items: [] },
     ],
     wishlistCandidates: [],
     upcoming: [],

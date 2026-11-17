@@ -17,7 +17,7 @@ import {
 
 const pt = (date: string, balance: number, income = 0, expense = 0,
             balanceWithForecast: number | null = null): TrajPoint =>
-    ({ date, balance, income, expense, balanceWithForecast });
+    ({ date, balance, income, expense, balanceWithForecast, items: [] });
 
 describe('forecastSeries (ANO-80)', () => {
     it('прогноза нет — ряда нет, рисовать нечего', () => {

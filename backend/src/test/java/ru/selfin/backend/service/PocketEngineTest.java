@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /** Табличные тесты формулы кармашка. Чистый движок, ни одного мока (спека §9). */
 class PocketEngineTest {
@@ -235,6 +236,66 @@ class PocketEngineTest {
         assertThat(out.get(0).overdue()).isTrue();
         assertThat(out.get(1).overdue()).isFalse();
         assertThat(out.get(2).amount()).isEqualByComparingTo(dec(23_600));
+    }
+
+    // ── ANO-98: состав дня в точке траектории ────────────────────────────────
+    // Нажатие на день показывало две суммы и ни одной строки. Теперь у точки — те же строки,
+    // что двигают её остаток; сумма строк дня равна доходу и расходу точки.
+
+    @Test
+    @DisplayName("ANO-98: у дня — его строки: доход, бронь, ожидание, с суммами")
+    void trajectoryPoint_carriesDayItems() {
+        LocalDate day = LocalDate.of(2026, 3, 10);
+        EventSnapshot bron = plan(EventType.EXPENSE, day, 23_600, Priority.HIGH);
+        EventSnapshot ozh = planNamed(EventType.EXPENSE, day, 500, "Продукты");
+        EventSnapshot salary = planNamed(EventType.INCOME, day, 75_000, "Зарплата");
+        PocketInput in = base().events(bron, ozh, salary).build();
+
+        PocketResultDto.TrajectoryPoint p = PocketEngine.calculate(in).trajectory().stream()
+                .filter(t -> t.date().equals(day)).findFirst().orElseThrow();
+
+        assertThat(p.items()).extracting(PocketResultDto.UpcomingItem::id)
+                .containsExactlyInAnyOrder(bron.id(), ozh.id(), salary.id());
+        assertThat(p.items().stream().filter(i -> i.type() == EventType.INCOME).findFirst().orElseThrow().amount())
+                .isEqualByComparingTo(dec(75_000));
+        assertThat(p.items()).allMatch(i -> !i.overdue(), "строки будущего дня — не просрочка");
+    }
+
+    @Test
+    @DisplayName("ANO-98: на каждый день сумма строк равна доходу и расходу точки; прогноз строкой не становится")
+    void trajectoryItems_sumToPointTotals_forecastIsNotAnItem() {
+        PocketInput in = base()
+                .checkpointDate(TODAY.minusDays(10))
+                .overdue(planNamed(EventType.EXPENSE, TODAY.minusDays(5), 4_000, "Коммуналка"))
+                .events(planNamed(EventType.EXPENSE, TODAY, 300, "Продукты"),
+                        planNamed(EventType.EXPENSE, LocalDate.of(2026, 3, 5), 2_000, "Связь"),
+                        planNamed(EventType.INCOME, LocalDate.of(2026, 3, 12), 75_000, "Зарплата"),
+                        contribution(LocalDate.of(2026, 3, 12), 5_000, "Отпуск"))
+                .forecast(9_000, "Кафе")
+                .build();
+
+        for (PocketResultDto.TrajectoryPoint p : PocketEngine.calculate(in).trajectory()) {
+            BigDecimal income = p.items().stream().filter(i -> i.type() == EventType.INCOME)
+                    .map(PocketResultDto.UpcomingItem::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal expense = p.items().stream().filter(i -> i.type() != EventType.INCOME)
+                    .map(PocketResultDto.UpcomingItem::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            assertThat(income).as("доход строк дня %s", p.date()).isEqualByComparingTo(p.income());
+            assertThat(expense).as("расход строк дня %s", p.date()).isEqualByComparingTo(p.expense());
+        }
+    }
+
+    @Test
+    @DisplayName("ANO-98: у сегодняшнего дня — просрочка с отметкой и сегодняшние строки")
+    void todayPoint_itemsAreOverdueAndToday() {
+        EventSnapshot overdue = planNamed(EventType.EXPENSE, TODAY.minusDays(5), 4_000, "Коммуналка");
+        EventSnapshot today = planNamed(EventType.EXPENSE, TODAY, 300, "Продукты");
+        PocketInput in = base().checkpointDate(TODAY.minusDays(10)).overdue(overdue).events(today).build();
+
+        PocketResultDto.TrajectoryPoint p0 = PocketEngine.calculate(in).trajectory().get(0);
+
+        assertThat(p0.date()).isEqualTo(TODAY);
+        assertThat(p0.items()).extracting(PocketResultDto.UpcomingItem::description, PocketResultDto.UpcomingItem::overdue)
+                .containsExactly(tuple("Коммуналка", true), tuple("Продукты", false));
     }
 
     @Test

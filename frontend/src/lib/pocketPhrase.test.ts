@@ -28,9 +28,9 @@ function make(overrides: Partial<PocketResponse> = {}): PocketResponse {
         minPoint: { date: '2026-07-12', balance: 36000, drivenBy: 'Страховка' },
         breakdown: [],
         trajectory: [
-            { date: '2026-07-10', balance: 60000, income: 0, expense: 20000, balanceWithForecast: null },
-            { date: '2026-07-12', balance: 36000, income: 0, expense: 24000, balanceWithForecast: null },
-            { date: '2026-07-15', balance: 129000, income: 93000, expense: 0, balanceWithForecast: null },
+            { date: '2026-07-10', balance: 60000, income: 0, expense: 20000, balanceWithForecast: null, items: [] },
+            { date: '2026-07-12', balance: 36000, income: 0, expense: 24000, balanceWithForecast: null, items: [] },
+            { date: '2026-07-15', balance: 129000, income: 93000, expense: 0, balanceWithForecast: null, items: [] },
         ],
         wishlistCandidates: [],
         upcoming: [],
@@ -76,9 +76,9 @@ describe('buildPocketPhrase', () => {
             pocket: 60000,
             minPoint: { date: '2026-07-10', balance: 60000, drivenBy: null },
             trajectory: [
-                { date: '2026-07-10', balance: 60000, income: 0, expense: 5000, balanceWithForecast: null },
-                { date: '2026-07-12', balance: 153000, income: 100000, expense: 7000, balanceWithForecast: null },
-                { date: '2026-07-15', balance: 129000, income: 0, expense: 24000, balanceWithForecast: null },
+                { date: '2026-07-10', balance: 60000, income: 0, expense: 5000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-12', balance: 153000, income: 100000, expense: 7000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-15', balance: 129000, income: 0, expense: 24000, balanceWithForecast: null, items: [] },
             ],
         });
         expect(buildPocketPhrase(p)).toBe(
@@ -92,8 +92,8 @@ describe('buildPocketPhrase', () => {
             buffer: 5000,
             minPoint: { date: '2026-07-10', balance: 60000, drivenBy: null },
             trajectory: [
-                { date: '2026-07-10', balance: 60000, income: 0, expense: 5000, balanceWithForecast: null },
-                { date: '2026-07-15', balance: 129000, income: 69000, expense: 0, balanceWithForecast: null },
+                { date: '2026-07-10', balance: 60000, income: 0, expense: 5000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-15', balance: 129000, income: 69000, expense: 0, balanceWithForecast: null, items: [] },
             ],
         });
         expect(buildPocketPhrase(p)).toBe(
@@ -106,9 +106,9 @@ describe('buildPocketPhrase', () => {
             pocket: -49094,
             minPoint: { date: '2026-07-13', balance: -49094, drivenBy: 'Детсад' },
             trajectory: [
-                { date: '2026-07-10', balance: -17994, income: 0, expense: 85400, balanceWithForecast: null },
-                { date: '2026-07-13', balance: -49094, income: 0, expense: 11300, balanceWithForecast: null },
-                { date: '2026-07-15', balance: 25906, income: 75000, expense: 0, balanceWithForecast: null },
+                { date: '2026-07-10', balance: -17994, income: 0, expense: 85400, balanceWithForecast: null, items: [] },
+                { date: '2026-07-13', balance: -49094, income: 0, expense: 11300, balanceWithForecast: null, items: [] },
+                { date: '2026-07-15', balance: 25906, income: 75000, expense: 0, balanceWithForecast: null, items: [] },
             ],
         });
         expect(buildPocketPhrase(p)).toBe(
@@ -121,9 +121,9 @@ describe('buildPocketPhrase', () => {
             pocket: -49094,
             minPoint: { date: '2026-07-13', balance: -49094, drivenBy: null },
             trajectory: [
-                { date: '2026-07-10', balance: -17994, income: 0, expense: 85400, balanceWithForecast: null },
-                { date: '2026-07-13', balance: -49094, income: 0, expense: 11300, balanceWithForecast: null },
-                { date: '2026-07-15', balance: -9094, income: 40000, expense: 0, balanceWithForecast: null },
+                { date: '2026-07-10', balance: -17994, income: 0, expense: 85400, balanceWithForecast: null, items: [] },
+                { date: '2026-07-13', balance: -49094, income: 0, expense: 11300, balanceWithForecast: null, items: [] },
+                { date: '2026-07-15', balance: -9094, income: 40000, expense: 0, balanceWithForecast: null, items: [] },
             ],
         });
         expect(buildPocketPhrase(p)).toBe(
@@ -157,9 +157,9 @@ describe('buildPocketPhrase', () => {
         const p = make({
             horizon: { type: 'SECOND_INCOME', endDate: '2026-07-25', label: 'до 2-го дохода 25.07', fallback: false },
             trajectory: [
-                { date: '2026-07-10', balance: 60000, income: 0, expense: 20000, balanceWithForecast: null },
-                { date: '2026-07-12', balance: 36000, income: 0, expense: 24000, balanceWithForecast: null },
-                { date: '2026-07-25', balance: 129000, income: 93000, expense: 0, balanceWithForecast: null },
+                { date: '2026-07-10', balance: 60000, income: 0, expense: 20000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-12', balance: 36000, income: 0, expense: 24000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-25', balance: 129000, income: 93000, expense: 0, balanceWithForecast: null, items: [] },
             ],
         });
         expect(buildPocketPhrase(p)).toBe(
@@ -190,11 +190,11 @@ describe('buildPocketPhrase', () => {
     it('информационный хвост за горизонтом: «после дохода» = точка дня дохода, не конец траектории', () => {
         const p = make({
             trajectory: [
-                { date: '2026-07-10', balance: 60000, income: 0, expense: 20000, balanceWithForecast: null },
-                { date: '2026-07-12', balance: 36000, income: 0, expense: 24000, balanceWithForecast: null },
-                { date: '2026-07-15', balance: 129000, income: 93000, expense: 0, balanceWithForecast: null },
-                { date: '2026-07-16', balance: 104000, income: 0, expense: 25000, balanceWithForecast: null },
-                { date: '2026-07-17', balance: 104000, income: 0, expense: 0, balanceWithForecast: null },
+                { date: '2026-07-10', balance: 60000, income: 0, expense: 20000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-12', balance: 36000, income: 0, expense: 24000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-15', balance: 129000, income: 93000, expense: 0, balanceWithForecast: null, items: [] },
+                { date: '2026-07-16', balance: 104000, income: 0, expense: 25000, balanceWithForecast: null, items: [] },
+                { date: '2026-07-17', balance: 104000, income: 0, expense: 0, balanceWithForecast: null, items: [] },
             ],
         });
         expect(buildPocketPhrase(p)).toBe(

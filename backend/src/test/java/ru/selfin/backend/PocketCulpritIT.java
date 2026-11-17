@@ -78,6 +78,26 @@ class PocketCulpritIT {
         assertThat(pocket().get("minPoint").get("drivenBy").asText()).isEqualTo("Страховка");
     }
 
+    @Test
+    @DisplayName("ANO-98: у точки дня — его строки с категорией и суммой, через настоящую базу")
+    void dayItems_inTrajectory_withCategoryNames() throws Exception {
+        String produkty = createCategory("Продукты ANO-98");
+        String auto = createCategory("Авто ANO-98");
+        createPlan(produkty, 8_000, null);
+        createPlan(auto, 3_300, "Бензин");
+
+        JsonNode day = null;
+        for (JsonNode p : pocket().get("trajectory")) {
+            if (p.get("date").asText().equals(DAY.toString())) day = p;
+        }
+
+        assertThat(day).as("точка дня в траектории").isNotNull();
+        assertThat(day.get("items")).hasSize(2);
+        java.util.Map<String, Integer> byCategory = new java.util.HashMap<>();
+        day.get("items").forEach(i -> byCategory.put(i.get("categoryName").asText(), i.get("amount").asInt()));
+        assertThat(byCategory).containsEntry("Продукты ANO-98", 8_000).containsEntry("Авто ANO-98", 3_300);
+    }
+
     // ── оснастка ────────────────────────────────────────────────────────────
 
     /** Горизонт — до следующего дня после {@link #DAY}: минимум не зависит от доходов в базе. */

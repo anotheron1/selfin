@@ -42,8 +42,8 @@ function stand(overrides: Partial<PocketResponse> = {}): PocketResponse {
             line('WISHLIST_INFO', 594048),
         ],
         trajectory: [
-            { date: '2026-09-25', balance: -1600, income: 0, expense: 0, balanceWithForecast: null },
-            { date: '2026-09-28', balance: 61400, income: 75000, expense: 12000, balanceWithForecast: null },
+            { date: '2026-09-25', balance: -1600, income: 0, expense: 0, balanceWithForecast: null, items: [] },
+            { date: '2026-09-28', balance: 61400, income: 75000, expense: 12000, balanceWithForecast: null, items: [] },
         ],
         wishlistCandidates: [],
         upcoming: [

@@ -86,9 +86,13 @@ public class PocketService {
      * У синтетики (взносы копилок) идентификатора нет — она остаётся со своим описанием.
      */
     private PocketResultDto withCategoryNames(PocketResultDto result) {
-        List<UUID> ids = result.upcoming().stream()
+        // ANO-98: строки дней траектории — те же записи, что «осталось потратить», плюс доходы и хвост
+        // за горизонтом; имена — одним запросом на всех.
+        List<UUID> ids = java.util.stream.Stream.concat(result.upcoming().stream(),
+                        result.trajectory().stream().flatMap(p -> p.items().stream()))
                 .map(PocketResultDto.UpcomingItem::id)
                 .filter(Objects::nonNull)
+                .distinct()
                 .toList();
         if (ids.isEmpty()) return result;
 
@@ -96,8 +100,9 @@ public class PocketService {
         for (FinancialEvent e : eventRepository.findAllById(ids)) {
             if (e.getCategory() != null) names.put(e.getId(), e.getCategory().getName());
         }
-        return result.withUpcoming(result.upcoming().stream()
-                .map(i -> i.withCategoryName(names.get(i.id())))
-                .toList());
+        java.util.function.Function<List<PocketResultDto.UpcomingItem>, List<PocketResultDto.UpcomingItem>> named =
+                items -> items.stream().map(i -> i.withCategoryName(names.get(i.id()))).toList();
+        return result.withUpcoming(named.apply(result.upcoming()))
+                .withTrajectory(result.trajectory().stream().map(p -> p.withItems(named.apply(p.items()))).toList());
     }
 }
