@@ -84,6 +84,17 @@ describe('Первый вход — когда открывается (п. 11)',
         expect(read('./Start.tsx')).toMatch(/if \(needsFirstEntry\(p\)\) setData\(p\); else navigate\('\/', \{ replace: true \}\)/);
     });
 
+    it('вопрос 1 — про свои деньги, без кредитного лимита (п. 16, ANO-62)', () => {
+        expect(read('./Start.tsx')).toContain("'Посмотри в приложении банка. Кредитный лимит не считай — только свои деньги.'");
+    });
+
+    it('вопросы 1 и 2 обязательны: «Пропустить» — только у 3 и у 4', () => {
+        const src = read('./Start.tsx');
+        expect(src.match(/>Пропустить</g)).toHaveLength(1);
+        expect(src).toMatch(/\{step === 3 && <Button [^\n]*onClick=\{\(\) => setStep\(4\)\}[^\n]*>Пропустить<\/Button>\}/);
+        expect(src).toContain('<UsualSpendingForm data={data} onDone={finish} onSkip={finish} />');
+    });
+
     it('/start — без навигации, как вход и согласие', () => {
         expect(read('../App.tsx')).toMatch(/STANDALONE[^}]*'\/start': \(\) => <Start \/>/);
     });

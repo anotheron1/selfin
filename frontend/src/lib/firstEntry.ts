@@ -1,3 +1,4 @@
+import { parseAmountExpression } from './amountExpression';
 import type { Category, FinancialEventCreateDto, PocketResponse } from '../types/api';
 
 /**
@@ -11,6 +12,26 @@ type Cat = Pick<Category, 'id' | 'name' | 'type' | 'isSystem'>;
 /** Ни сверки остатка, ни строк плана впереди — то же условие, что у прежнего пустого Дашборда. */
 export const needsFirstEntry = (p: Pick<PocketResponse, 'checkpointDate' | 'upcoming'>): boolean =>
     p.checkpointDate == null && p.upcoming.length === 0;
+
+const positive = (raw: string) => {
+    const v = parseAmountExpression(raw).value;
+    return v != null && v > 0 ? v : null;
+};
+
+/** Вопрос 1: остаток. Ноль — тоже ответ: до зарплаты на карте бывает пусто. */
+export const balanceAnswer = (raw: string): number | null => (/^\s*0+\s*$/.test(raw) ? 0 : positive(raw));
+
+/** Вопрос 2: дата не раньше сегодня — повтор с прошедшей датой сервер не заведёт (I3); сумма больше нуля. */
+export function incomeAnswer(raw: { date: string; amount: string; monthly: boolean }, today: string) {
+    const amount = positive(raw.amount);
+    return raw.date >= today && amount != null ? { ...raw, amount } : null;
+}
+
+/** Вопрос 3: строка платежа пишется, когда в ней есть число и сумма; имя — не обязательно. */
+export function paymentAnswer(raw: { name: string; day: string; amount: string }) {
+    const amount = positive(raw.amount);
+    return raw.day && amount != null ? { name: raw.name, day: Number(raw.day), amount } : null;
+}
 
 const own = (cats: Cat[], type: Cat['type']) => cats.filter(c => c.type === type && !c.isSystem);
 

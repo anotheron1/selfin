@@ -97,6 +97,7 @@ describe('FirstEntryWrites — «Назад» правит, а не пишет �
         expect(await w.plan('pay:2', null)).toBe(false);
         await w.plan('pay:1', pay(25_000));
         expect(await w.plan('pay:1', null)).toBe(true);
+        expect(await w.plan('pay:1', null)).toBe(false);
         expect(s.live()).toEqual([]);
         expect(s.log).toEqual(['POST ev1 25000', 'DELETE ev1 ALL']);
     });

@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils';
 import { fetchCategories, fetchPocket } from '../api';
 import { Landscape, PayFlags } from '../components/today/Landscape';
 import { UsualSpendingForm } from '../components/today/UsualSpendingForm';
-import { parseAmountExpression } from '../lib/amountExpression';
 import { latestAllowedIso, serverTodayIso } from '../lib/factDate';
-import { incomeDto, needsFirstEntry, paymentCategory, paymentDto } from '../lib/firstEntry';
+import {
+    balanceAnswer, incomeAnswer, incomeDto, needsFirstEntry, paymentAnswer, paymentCategory, paymentDto,
+} from '../lib/firstEntry';
 import { FirstEntryWrites } from '../lib/firstEntryWrites';
 import { fmtDayShort } from '../lib/format';
 import { LatestRequests } from '../lib/latestRequests';
@@ -17,12 +18,6 @@ import type { Category, PocketResponse } from '../types/api';
 
 const STEPS = 4;
 const num = (n: number) => Math.round(n).toLocaleString('ru-RU');
-const positive = (raw: string) => {
-    const v = parseAmountExpression(raw).value;
-    return v != null && v > 0 ? v : null;
-};
-/** Остаток может быть и нулём: до зарплаты на карте бывает пусто. */
-const balanceOf = (raw: string) => (/^\s*0+\s*$/.test(raw) ? 0 : positive(raw));
 
 function Steps({ step }: { step: number }) {
     return (
@@ -151,21 +146,22 @@ export default function Start() {
 
     const today = serverTodayIso(new Date());
     const rowDto = (r: Row) => {
-        const amount = positive(r.amount);
-        return r.day && amount ? paymentDto(cats, { name: r.name, day: Number(r.day), amount }, today) : null;
+        const a = paymentAnswer(r);
+        return a && paymentDto(cats, a, today);
     };
     const settle = (r: Row) => save(() => writes.plan(`pay:${r.key}`, rowDto(r)));
     const back = () => { setError(null); setStep(s => s - 1); };
     const finish = () => navigate('/', { replace: true });
     const until = fmtDayShort(termIncome(data)?.date ?? data.horizon.endDate);
 
-    const incomeAmount = positive(income.amount);
+    const onCard = balanceAnswer(balance);
+    const nextIncome = incomeAnswer(income, today);
     const QUESTIONS: Record<1 | 2 | 3, { title: string; sub: string; ready: boolean; next: () => void; body: React.ReactNode }> = {
         1: {
             title: 'Сколько сейчас на основной карте?',
             sub: 'Посмотри в приложении банка. Кредитный лимит не считай — только свои деньги.',
-            ready: balanceOf(balance) != null,
-            next: () => save(() => writes.balance({ date: latestAllowedIso(new Date()), amount: balanceOf(balance)! }), 2),
+            ready: onCard != null,
+            next: () => save(() => writes.balance({ date: latestAllowedIso(new Date()), amount: onCard! }), 2),
             body: <>
                 <Field look="amount" autoFocus inputMode="decimal" placeholder="0" suffix="₽" aria-label="Остаток, ₽"
                     value={balance} onChange={e => setBalance(e.target.value)} />
@@ -175,8 +171,8 @@ export default function Start() {
         2: {
             title: 'Когда и сколько следующий доход?',
             sub: 'До него и считается «Свободно».',
-            ready: income.date >= today && incomeAmount != null,
-            next: () => save(() => writes.plan('income', incomeDto(cats, { ...income, amount: incomeAmount! })), 3),
+            ready: nextIncome != null,
+            next: () => save(() => writes.plan('income', incomeDto(cats, nextIncome!)), 3),
             body: <>
                 <Field type="date" min={today} aria-label="Когда придёт" value={income.date}
                     onChange={e => setIncome(v => ({ ...v, date: e.target.value }))} />
