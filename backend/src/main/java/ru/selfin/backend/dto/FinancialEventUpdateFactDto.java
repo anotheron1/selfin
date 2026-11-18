@@ -1,8 +1,11 @@
 package ru.selfin.backend.dto;
 
 import jakarta.validation.constraints.PositiveOrZero;
+import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.UUID;
 
 /**
  * DTO для частичного обновления события: ввод фактической суммы и комментария.
@@ -13,9 +16,16 @@ import java.math.BigDecimal;
  * @param description произвольный комментарий пользователя; {@code null} — без изменений
  * @param rawInput исходный текст суммы, если её ввели выражением («450+1230+890», ANO-33);
  *                 {@code null} — без изменений
+ * @param date       дата записи, не позже сегодня (срез 3 п. 2, ANO-253); {@code null} — без изменений
+ * @param categoryId категория записи — живая и того же типа; у записи к брони и у перевода в копилку
+ *                   не меняется; {@code null} — без изменений
+ * @param priority   вид записи; {@code null} — без изменений
  */
 public record FinancialEventUpdateFactDto(
         @PositiveOrZero BigDecimal factAmount,
         String description,
-        String rawInput) {
+        String rawInput,
+        LocalDate date,
+        UUID categoryId,
+        Priority priority) {
 }

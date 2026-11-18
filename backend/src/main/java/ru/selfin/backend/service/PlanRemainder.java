@@ -3,6 +3,7 @@ package ru.selfin.backend.service;
 import ru.selfin.backend.dto.pocket.EventSnapshot;
 import ru.selfin.backend.model.EventKind;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.repository.FactAggregateProjection;
 
 import java.math.BigDecimal;
 import java.util.Collection;
@@ -69,6 +70,16 @@ public final class PlanRemainder {
         return group(events,
                 e -> e.eventKind() == EventKind.FACT ? e.parentEventId() : null,
                 EventSnapshot::factAmount);
+    }
+
+    /**
+     * То же по агрегатам из базы — по всем живым фактам плана, а не по окну (срез 3 п. 4).
+     *
+     * @param aggregates ответ {@code findFactAggregatesByPlanIds}
+     * @return сумма фактов по идентификатору плана
+     */
+    public static Map<UUID, BigDecimal> settledByAggregates(Collection<FactAggregateProjection> aggregates) {
+        return group(aggregates, FactAggregateProjection::getParentEventId, FactAggregateProjection::getTotalAmount);
     }
 
     private static <T> Map<UUID, BigDecimal> group(Collection<T> items,

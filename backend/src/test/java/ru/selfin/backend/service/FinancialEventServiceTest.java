@@ -493,7 +493,7 @@ class FinancialEventServiceTest {
     }
 
     @Test
-    @DisplayName("update FOLLOWING calls applyDtoToRule then regenerate from event date")
+    @DisplayName("update FOLLOWING calls applyDtoToRule then regenerate from the start of the event month (срез 3 п. 5)")
     void update_FOLLOWING_calls_applyDtoToRule_then_regenerate_from_event_date() {
         UUID id = UUID.randomUUID();
         Category cat = category();
@@ -507,8 +507,8 @@ class FinancialEventServiceTest {
                 .recurringRule(rule).deleted(false).build();
 
         when(eventRepository.findById(id)).thenReturn(Optional.of(event));
-        when(eventRepository.findActiveByRuleAndDate(rule.getId(), eventDate))
-                .thenReturn(Optional.of(event));
+        when(eventRepository.findFirstByRecurringRuleIdAndDeletedFalseAndDateGreaterThanEqualOrderByDateAsc(
+                rule.getId(), eventDate.withDayOfMonth(1))).thenReturn(Optional.of(event));
         when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
 
         var dto = new FinancialEventCreateDto(eventDate, cat.getId(), EventType.EXPENSE,
@@ -517,7 +517,7 @@ class FinancialEventServiceTest {
         service.update(id, ScopeEnum.FOLLOWING, dto);
 
         verify(ruleService).applyDtoToRule(rule, dto);
-        verify(ruleService).regenerate(rule, eventDate);
+        verify(ruleService).regenerate(rule, eventDate.withDayOfMonth(1));
     }
 
     @Test
@@ -580,8 +580,8 @@ class FinancialEventServiceTest {
                 .recurringRule(rule).deleted(false).build();
 
         when(eventRepository.findById(id)).thenReturn(Optional.of(event));
-        when(eventRepository.findActiveByRuleAndDate(rule.getId(), eventDate))
-                .thenReturn(Optional.of(event));
+        when(eventRepository.findFirstByRecurringRuleIdAndDeletedFalseAndDateGreaterThanEqualOrderByDateAsc(
+                rule.getId(), eventDate.withDayOfMonth(1))).thenReturn(Optional.of(event));
         when(targetFundRepository.findById(any())).thenReturn(Optional.empty());
 
         var dto = new FinancialEventCreateDto(eventDate, cat.getId(), EventType.EXPENSE,
@@ -749,7 +749,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
 
         assertThatThrownBy(() -> service.updateFact(planId,
-                new FinancialEventUpdateFactDto(new BigDecimal("4000"), null, null)))
+                new FinancialEventUpdateFactDto(new BigDecimal("4000"), null, null, null, null, null)))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("/facts");
         assertThat(plan.getFactAmount()).isNull();
@@ -771,7 +771,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
                 .thenReturn(List.of(agg(planId, "300")));
 
-        service.updateFact(factId, new FinancialEventUpdateFactDto(new BigDecimal("300"), null, null));
+        service.updateFact(factId, new FinancialEventUpdateFactDto(new BigDecimal("300"), null, null, null, null, null));
 
         assertThat(plan.getStatus())
                 .as("погашено 300 из 5 000 — 4 700 человек ещё должен")
@@ -792,7 +792,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
                 .thenReturn(Collections.emptyList());
 
-        service.updateFact(factId, new FinancialEventUpdateFactDto(null, null, null));
+        service.updateFact(factId, new FinancialEventUpdateFactDto(null, null, null, null, null, null));
 
         assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
     }

@@ -312,9 +312,23 @@ public class PocketInputAssembler {
                 futureForecast,
                 accounts.otherAccountsBalance(), accounts.creditRestoreReserve(), accounts.semiLiquidBalance(),
                 // Р10-А (ANO-212): деньги копилок без счёта сидят в остатке карты — движок их вычтет.
-                accountBalanceService.envelopesAt(asOfDate));
+                accountBalanceService.envelopesAt(asOfDate),
+                planSettled(events));
         return new Assembled(input, baselineRefs, allIncomes, forecastByCategory,
                 reservable.stream().map(TargetFund::getId).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    /**
+     * Погашение планов окна по всем их живым фактам — тем же запросом, что {@code resettlePlan}
+     * (срез 3 п. 4). Факт раньше сверки в окно не попадает, а строку впереди он погасил.
+     */
+    private Map<UUID, BigDecimal> planSettled(List<EventSnapshot> events) {
+        List<UUID> planIds = events.stream()
+                .filter(e -> e.id() != null && e.eventKind() == EventKind.PLAN)
+                .map(EventSnapshot::id)
+                .toList();
+        if (planIds.isEmpty()) return Map.of();
+        return PlanRemainder.settledByAggregates(eventRepository.findFactAggregatesByPlanIds(planIds));
     }
 
     // ANO-80: порог и окно жили здесь своей копией, а в конусе fan chart — своей. Обе

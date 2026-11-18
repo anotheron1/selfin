@@ -156,12 +156,16 @@ class PocketEngineTest {
         PocketInputBuilder semiLiquidBalance(long v) { this.semiLiquidBalance = dec(v); return this; }
         /** Накопленное в копилках без счёта (Р10-А) — по умолчанию null (копилок нет). */
         PocketInputBuilder envelopeFunds(long v) { this.envelopeFunds = dec(v); return this; }
+        /** Погашение планов по всем фактам из базы (срез 3 п. 4) — по умолчанию null: по окну. */
+        java.util.Map<UUID, BigDecimal> planSettled = null;
+        PocketInputBuilder planSettled(java.util.Map<UUID, BigDecimal> m) { this.planSettled = m; return this; }
 
         PocketInput build() {
             return new PocketInput(asOf, checkpoint, checkpointDate, checkpointCreatedAt,
                     events, wishlistEvents, overdue, releasedOverdue,
                     scope, horizonEnd, fallback, buffer, forecast, contributors, futureForecast,
-                    otherAccountsBalance, creditRestoreReserve, semiLiquidBalance, envelopeFunds);
+                    otherAccountsBalance, creditRestoreReserve, semiLiquidBalance, envelopeFunds,
+                    planSettled);
         }
     }
 
@@ -205,6 +209,45 @@ class PocketEngineTest {
                 .isEqualByComparingTo(dec(9_700));
         assertThat(r.pocket())
                 .as("удерживается 19 700 — не ноль (план снят) и не 20 000 (чек не зачтён)")
+                .isEqualByComparingTo(dec(-10_000));
+    }
+
+    @Test
+    @DisplayName("Срез 3 п. 4: факт до сверки гасит строку впереди — держится остаток, а не вся сумма")
+    void factBeforeCheckpoint_settlesPlanAhead() {
+        // Продукты 6 000 на 10.03, запись 1 200 вчера, сверка сегодня. Факт в окно движка не
+        // попал — деньги уже в остатке сверки, — но строку он погасил: погашение приходит из базы.
+        UUID planId = UUID.randomUUID();
+        PocketInput in = base()
+                .events(planWithId(planId, EventType.EXPENSE, LocalDate.of(2026, 3, 10), 6_000))
+                .planSettled(java.util.Map.of(planId, dec(1_200)))
+                .build();
+
+        PocketResultDto r = PocketEngine.calculate(in);
+
+        assertThat(r.pocket())
+                .as("сверка 10 000 минус остаток строки 4 800, не минус 6 000")
+                .isEqualByComparingTo(dec(5_200));
+        assertThat(r.upcoming()).extracting(PocketResultDto.UpcomingItem::amount)
+                .usingComparatorForType(BigDecimal::compareTo, BigDecimal.class)
+                .containsExactly(dec(4_800));
+        assertThat(PocketEngine.held(in)).extracting(PocketEngine.Held::amount)
+                .usingComparatorForType(BigDecimal::compareTo, BigDecimal.class)
+                .containsExactly(dec(4_800));
+    }
+
+    @Test
+    @DisplayName("Срез 3 п. 4: факт в окне при погашении из базы считается один раз")
+    void factInWindow_withPlanSettled_countsOnce() {
+        UUID planId = UUID.randomUUID();
+        PocketInput in = base().checkpointDate(TODAY.minusDays(1))
+                .events(planWithId(planId, EventType.EXPENSE, LocalDate.of(2026, 3, 10), 20_000),
+                        factFor(planId, EventType.EXPENSE, TODAY, 300))
+                .planSettled(java.util.Map.of(planId, dec(300)))
+                .build();
+
+        assertThat(PocketEngine.calculate(in).pocket())
+                .as("как без погашения из базы: остаток 9 700 минус 19 700")
                 .isEqualByComparingTo(dec(-10_000));
     }
 
