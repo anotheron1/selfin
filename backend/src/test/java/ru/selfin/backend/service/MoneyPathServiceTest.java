@@ -31,8 +31,8 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-/** Срез 3 п. 2 (ANO-253): у записи правятся дата, категория и вид — и правило привязки пересчитывается. */
-class FactEditTest {
+/** Срез 3, PR 1 «Путь денег»: правка записи (п. 2, ANO-253) и «Больше не нужно» (п. 3). */
+class MoneyPathServiceTest {
 
     static final LocalDate TODAY = LocalDate.of(2026, 11, 18);
 
@@ -248,5 +248,68 @@ class FactEditTest {
                 TODAY, products.getId(), Priority.MEDIUM));
 
         assertThat(f.getParentEventId()).isNull();
+    }
+
+    // ── п. 3: «Больше не нужно» — closePlan ──────────────────────────────────
+
+    FinancialEvent booking(EventType type, Priority priority) {
+        FinancialEvent p = plan(products, TODAY, priority);
+        p.setType(type);
+        p.setPlannedAmount(new BigDecimal("10000"));
+        return p;
+    }
+
+    void pay(FinancialEvent plan, String amount, Boolean closePlan) {
+        when(events.findFactAggregatesByPlanIds(List.of(plan.getId()))).thenReturn(List.of(agg(plan.getId(), amount)));
+        service.createLinkedFact(plan.getId(), UUID.randomUUID(),
+                new ru.selfin.backend.dto.FactCreateDto(TODAY, new BigDecimal(amount), null, null, null, closePlan));
+    }
+
+    @Test
+    @DisplayName("бронь 10 000, записано 7 000 с «Больше не нужно» — сумма брони 7 000, исполнена")
+    void closePlan_shrinksBookingToSettled() {
+        FinancialEvent b = booking(EventType.EXPENSE, Priority.HIGH);
+        pay(b, "7000", true);
+        assertThat(b.getPlannedAmount()).isEqualByComparingTo("7000");
+        assertThat(b.getStatus()).isEqualTo(EventStatus.EXECUTED);
+    }
+
+    @Test
+    @DisplayName("плановый доход — так же")
+    void closePlan_incomeBooking() {
+        FinancialEvent b = booking(EventType.INCOME, Priority.HIGH);
+        pay(b, "7000", true);
+        assertThat(b.getPlannedAmount()).isEqualByComparingTo("7000");
+        assertThat(b.getStatus()).isEqualTo(EventStatus.EXECUTED);
+    }
+
+    @Test
+    @DisplayName("без признака — остаток держится бронью")
+    void noClosePlan_keepsRemainder() {
+        FinancialEvent b = booking(EventType.EXPENSE, Priority.HIGH);
+        pay(b, "7000", false);
+        assertThat(b.getPlannedAmount()).isEqualByComparingTo("10000");
+        assertThat(b.getStatus()).isEqualTo(EventStatus.PLANNED);
+    }
+
+    @Test
+    @DisplayName("записано больше брони — сумма брони прежняя, бронь исполнена")
+    void closePlan_overpaid_keepsPlannedAmount() {
+        FinancialEvent b = booking(EventType.EXPENSE, Priority.HIGH);
+        pay(b, "12000", true);
+        assertThat(b.getPlannedAmount()).isEqualByComparingTo("10000");
+        assertThat(b.getStatus()).isEqualTo(EventStatus.EXECUTED);
+    }
+
+    @Test
+    @DisplayName("у ожидания и хотелки — 400, ничего не записано")
+    void closePlan_onExpectationOrWish_rejected() {
+        for (Priority p : List.of(Priority.MEDIUM, Priority.LOW)) {
+            FinancialEvent b = booking(EventType.EXPENSE, p);
+            assertThatThrownBy(() -> pay(b, "7000", true))
+                    .isInstanceOf(ResponseStatusException.class).hasMessageContaining("400");
+            assertThat(b.getPlannedAmount()).isEqualByComparingTo("10000");
+        }
+        verify(events, never()).save(any());
     }
 }

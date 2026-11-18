@@ -416,6 +416,13 @@ public class FinancialEventService {
         var recorded = eventRepository.findByIdempotencyKey(idempotencyKey);
         if (recorded.isPresent()) return toDto(recorded.get(), null, plan);
         requireNotFuture(dto.date());
+        boolean closePlan = Boolean.TRUE.equals(dto.closePlan());
+        // Срез 3 п. 3: «Больше не нужно» закрывает только бронь — ожидание и так не держится после
+        // своей даты, а о хотелке решают на её экране.
+        if (closePlan && plan.getPriority() != Priority.HIGH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "closePlan applies to a booking only, not to " + plan.getPriority());
+        }
 
         // ANO-169: факт к плану перевода — это перевод. Раньше он брал у плана категорию и
         // тип, но не копилку, и движения не писал: счёт уменьшался, копилка стояла на месте,
@@ -461,6 +468,16 @@ public class FinancialEventService {
                     savedFact.getDate(), savedFact.getFactAmount());
         }
 
+        if (closePlan) {
+            // В той же транзакции: сумма брони — заплаченное, и пересчёт ниже её исполняет. Записано
+            // больше брони — сумма прежняя: лишнее уменьшает «Свободно», как и без признака.
+            BigDecimal settled = PlanRemainder.settledByAggregates(
+                    eventRepository.findFactAggregatesByPlanIds(List.of(planId))).getOrDefault(planId, BigDecimal.ZERO);
+            if (plan.getPlannedAmount() != null && settled.compareTo(plan.getPlannedAmount()) < 0) {
+                plan.setPlannedAmount(settled);
+                eventRepository.save(plan);
+            }
+        }
         resettlePlan(plan);
 
         return toDto(savedFact, null, plan);

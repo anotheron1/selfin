@@ -198,6 +198,40 @@ class MoneyPathIT {
                 .isEqualTo(today.minusDays(4));
     }
 
+    // ── п. 3: «Больше не нужно» ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("п. 3: бронь 10 000, записано 7 000 с closePlan — бронь 7 000, исполнена, «Свободно» на 3 000 больше")
+    void closePlan_closesBookingAtPaid() throws Exception {
+        anchor(today.minusDays(1), "60000");
+        String booking = createPlan(today.plusDays(3), "10000", "HIGH", expenseCategory(0));
+        BigDecimal before = pocket();
+
+        mockMvc.perform(post("/api/v1/events/{id}/facts", booking)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"date\": \"" + today + "\", \"factAmount\": 7000, \"closePlan\": true}"))
+                .andExpect(status().isOk());
+
+        var row = jdbc.queryForMap("SELECT planned_amount, status FROM financial_events WHERE id = ?::uuid", booking);
+        assertThat((BigDecimal) row.get("planned_amount")).isEqualByComparingTo("7000");
+        assertThat(row.get("status")).isEqualTo("EXECUTED");
+        assertThat(pocket().subtract(before))
+                .as("без признака «Свободно» прежнее: 7 000 ушли, остаток брони держит 3 000")
+                .isEqualByComparingTo("3000");
+    }
+
+    @Test
+    @DisplayName("п. 3: closePlan у ожидания — 400")
+    void closePlan_onExpectation_rejected() throws Exception {
+        String plan = createPlan(today, "6000", "MEDIUM", expenseCategory(0));
+        mockMvc.perform(post("/api/v1/events/{id}/facts", plan)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"date\": \"" + today + "\", \"factAmount\": 1000, \"closePlan\": true}"))
+                .andExpect(status().isBadRequest());
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
 
     ResultActions patchFact(String id, String body) throws Exception {
