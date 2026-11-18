@@ -273,6 +273,32 @@ class MoneyPathIT {
         assertThat(seriesDates()).containsExactly(seriesStart, second);
     }
 
+    @Test
+    @DisplayName("п. 5: годовая серия, FOLLOWING на месяц раньше — строка того же года не теряется")
+    void yearlySeries_earlierMonth() throws Exception {
+        LocalDate start = LocalDate.of(today.getYear() + 1, 6, 12);
+        LocalDate end = start.plusYears(2);
+        String body = """
+                {"date": "%s", "categoryId": "%s", "type": "EXPENSE", "plannedAmount": 5000,
+                 "priority": "HIGH", "description": "Страховка",
+                 "recurring": {"frequency": "YEARLY", "dayOfMonth": 12, "monthOfYear": %d, "startDate": "%s", "endDate": "%s"}}
+                """;
+        mockMvc.perform(post("/api/v1/events").header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body.formatted(start, expenseCategory(0), start.getMonthValue(), start, end)))
+                .andExpect(status().isOk());
+        LocalDate second = start.plusYears(1);
+        LocalDate moved = second.minusMonths(1);
+
+        JsonNode r = json(mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/api/v1/events/{id}", rowOn(second)).param("scope", "FOLLOWING")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body.formatted(moved, expenseCategory(0), moved.getMonthValue(), start, end)))
+                .andExpect(status().isOk()));
+
+        assertThat(r.get("date").asText()).isEqualTo(moved.toString());
+    }
+
     String createSeries() throws Exception {
         return id(mockMvc.perform(post("/api/v1/events")
                         .header("Idempotency-Key", UUID.randomUUID().toString())

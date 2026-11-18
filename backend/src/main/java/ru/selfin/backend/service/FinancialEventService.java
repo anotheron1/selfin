@@ -655,15 +655,12 @@ public class FinancialEventService {
 
     /**
      * Категория записи после правки (срез 3 п. 2). Та же — всегда можно; другая — только живая, того же
-     * типа и не у записи к брони и не у перевода в копилку: у них категория — от брони и от копилки.
+     * типа и не у записи к брони: у неё категория — от брони. У перевода в копилку другой категории нет
+     * вовсе: тип перевода — не тип ни одной категории, и проверка типа отказывает ему сама.
      */
     private Category categoryForFact(FinancialEvent event, UUID categoryId, boolean heldByPlan) {
         if (categoryId == null || event.getCategory() != null && categoryId.equals(event.getCategory().getId())) {
             return event.getCategory();
-        }
-        if (event.getType() == EventType.FUND_TRANSFER) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "The category of a transfer into a fund is not edited");
         }
         if (heldByPlan) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,

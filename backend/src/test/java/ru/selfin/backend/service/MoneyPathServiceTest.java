@@ -250,6 +250,23 @@ class MoneyPathServiceTest {
         assertThat(f.getParentEventId()).isNull();
     }
 
+    // ── п. 1: запись без плана ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("запись на всю сумму ожидания исполняет строку")
+    void standaloneFact_fullAmount_executesExpectation() {
+        FinancialEvent row = plan(products, TODAY, Priority.MEDIUM);
+        rows(products, row);
+        when(categories.findById(products.getId())).thenReturn(Optional.of(products));
+        when(events.findFactAggregatesByPlanIds(List.of(row.getId())))
+                .thenReturn(List.of(), List.of(agg(row.getId(), "6000")));   // до записи — ничего, после — 6 000
+
+        service.createStandaloneFact(UUID.randomUUID(), new ru.selfin.backend.dto.StandaloneFactCreateDto(
+                TODAY, products.getId(), EventType.EXPENSE, new BigDecimal("6000"), null, Priority.MEDIUM, null));
+
+        assertThat(row.getStatus()).isEqualTo(EventStatus.EXECUTED);
+    }
+
     // ── п. 3: «Больше не нужно» — closePlan ──────────────────────────────────
 
     FinancialEvent booking(EventType type, Priority priority) {
