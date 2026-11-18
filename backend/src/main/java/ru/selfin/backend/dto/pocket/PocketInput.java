@@ -40,6 +40,11 @@ import java.util.List;
  * @param envelopeFunds  накопленное в копилках без счёта на {@code asOfDate} (Р10-А, ANO-212):
  *                       эти деньги лежат на основной карте и сидят в остатке, свободными они не
  *                       считаются — движок вычитает их строкой «Уже в копилках»
+ * @param planSettled    сколько по каждому плану из {@code events} погашено ВСЕМИ его живыми фактами
+ *                       (срез 3 п. 4). Окно событий начинается с даты сверки, и факт раньше неё в
+ *                       {@code events} не попадает: деньги уже в остатке, а строку он гасит. Без этого
+ *                       строка впереди держалась целиком, хотя часть её оплачена. {@code null} —
+ *                       погашение считается по фактам окна
  */
 public record PocketInput(
         LocalDate asOfDate,
@@ -60,8 +65,25 @@ public record PocketInput(
         BigDecimal otherAccountsBalance,
         BigDecimal creditRestoreReserve,
         BigDecimal semiLiquidBalance,
-        BigDecimal envelopeFunds
+        BigDecimal envelopeFunds,
+        java.util.Map<java.util.UUID, BigDecimal> planSettled
 ) {
+    /** Без погашения из базы — оно считается по фактам окна (тесты движка, старые вызовы). */
+    public PocketInput(LocalDate asOfDate, BigDecimal checkpointAmount, LocalDate checkpointDate,
+                       LocalDateTime checkpointCreatedAt, List<EventSnapshot> events,
+                       List<EventSnapshot> wishlistEvents, List<EventSnapshot> overdueEvents,
+                       List<EventSnapshot> releasedOverdueEvents, PocketScope scope, LocalDate horizonEnd,
+                       FallbackKind fallbackKind, BigDecimal bufferAmount, BigDecimal unplannedForecast,
+                       List<String> forecastContributors,
+                       java.util.Map<java.time.YearMonth, BigDecimal> futureForecast,
+                       BigDecimal otherAccountsBalance, BigDecimal creditRestoreReserve,
+                       BigDecimal semiLiquidBalance, BigDecimal envelopeFunds) {
+        this(asOfDate, checkpointAmount, checkpointDate, checkpointCreatedAt, events, wishlistEvents,
+                overdueEvents, releasedOverdueEvents, scope, horizonEnd, fallbackKind, bufferAmount,
+                unplannedForecast, forecastContributors, futureForecast, otherAccountsBalance,
+                creditRestoreReserve, semiLiquidBalance, envelopeFunds, null);
+    }
+
     /** Прогноз будущих месяцев, безопасный к null (старые вызовы/тесты). */
     public java.util.Map<java.time.YearMonth, BigDecimal> futureForecastOrEmpty() {
         return futureForecast != null ? futureForecast : java.util.Map.of();

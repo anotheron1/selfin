@@ -84,7 +84,7 @@ public final class PocketEngine {
         // обязательство, а уменьшает его на свою сумму — как «частично оплачен» в
         // платёжном календаре. Раньше первый же факт снимал план целиком, и чек на 300
         // освобождал резерв продуктов на 20 000.
-        Map<UUID, BigDecimal> settled = PlanRemainder.settledBySnapshots(in.events());
+        Map<UUID, BigDecimal> settled = settledOf(in);
 
         // 2. День 0: − резерв просрочки − плановые расходы сегодняшнего дня.
         //    Плановые доходы с датой ≤ asOfDate НЕ учитываются (консервативная асимметрия §3.3.2).
@@ -316,7 +316,7 @@ public final class PocketEngine {
      * минус копилки (Р10-А) минус расходы плюс доходы этих строк — последняя точка траектории.
      */
     public static List<Held> held(PocketInput in) {
-        Map<UUID, BigDecimal> settled = PlanRemainder.settledBySnapshots(in.events());
+        Map<UUID, BigDecimal> settled = settledOf(in);
         List<Held> out = new ArrayList<>();
         for (EventSnapshot e : in.overdueEvents()) {
             if (e.plannedAmount() != null) out.add(new Held(e, in.asOfDate(), e.plannedAmount()));
@@ -375,6 +375,16 @@ public final class PocketEngine {
                                                            boolean overdue) {
         return new PocketResultDto.UpcomingItem(e.id(), e.date(), null, amount,
                 e.description(), overdue, e.wishlistStatus() != null, e.priority(), e.type());
+    }
+
+    /**
+     * Погашение планов (срез 3 п. 4): по всем живым фактам из базы, если сборщик их принёс, иначе
+     * по фактам окна. Окно начинается с даты сверки, и факт раньше неё строку впереди не гасил —
+     * её сумма держалась целиком, хотя деньги уже ушли и сидят в остатке сверки. Факты окна поверх
+     * суммы из базы не прибавляются: они в ней уже есть. Примерка фактов во вход не кладёт.
+     */
+    private static Map<UUID, BigDecimal> settledOf(PocketInput in) {
+        return in.planSettled() != null ? in.planSettled() : PlanRemainder.settledBySnapshots(in.events());
     }
 
     /** Непогашенная часть плана (ANO-155). Правило живёт в {@link PlanRemainder}, не здесь. */

@@ -664,7 +664,15 @@ public class TargetFundService {
         FundTransaction tx = transactionRepository.findByIdempotencyKey(key).orElse(null);
         BigDecimal current = tx != null && !tx.isDeleted() ? tx.getAmount() : BigDecimal.ZERO;
         BigDecimal delta = desired.subtract(current);
-        if (delta.signum() == 0) return;
+        if (delta.signum() == 0) {
+            // Срез 3 п. 2: у перевода правится дата — движение идёт за ней, иначе капитал за прошлые
+            // даты разошёлся бы со счётом.
+            if (tx != null && !tx.isDeleted() && !date.equals(tx.getTransactionDate())) {
+                tx.setTransactionDate(date);
+                transactionRepository.save(tx);
+            }
+            return;
+        }
 
         // Деньги уже лежат в копилке движения — она и двигается; копилка события — для нового.
         TargetFund fund = tx != null ? tx.getFund() : fundRepository.findById(fundId)
@@ -688,6 +696,7 @@ public class TargetFundService {
         } else {
             tx.setAmount(desired);
             tx.setDeleted(false);
+            tx.setTransactionDate(date);   // срез 3 п. 2: сумма и дата правятся вместе (ревью Codex на #230)
         }
         transactionRepository.save(tx);
 

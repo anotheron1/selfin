@@ -205,20 +205,48 @@ public class FinancialEventService {
                 .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
         requireNotFuture(dto.date());
 
+        Priority priority = dto.priority() != null ? dto.priority() : category.getPriority();
+        // Срез 3 п. 1: трата встаёт к строке ожидания сама и гасит её, как факт к брони, —
+        // «Свободно» не меняется: трата уже была в плане.
+        FinancialEvent expectation = expectationFor(dto.date(), category, dto.type(), priority, null)
+                .orElse(null);
         FinancialEvent fact = FinancialEvent.builder()
                 .idempotencyKey(idempotencyKey)
                 .eventKind(EventKind.FACT)
+                .parentEventId(expectation != null ? expectation.getId() : null)
                 .date(dto.date())
                 .category(category)
                 .type(dto.type())
                 .factAmount(dto.factAmount())
-                .priority(dto.priority() != null ? dto.priority() : category.getPriority())
+                .priority(priority)
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .rawInput(dto.rawInput())        // ANO-33: «450+1230+890», если сумму ввели выражением
                 .build();
 
-        return toDto(eventRepository.save(fact), null, null);
+        FinancialEvent saved = eventRepository.save(fact);
+        if (expectation != null) resettlePlan(expectation);
+        return toDto(saved, null, expectation);
+    }
+
+    /**
+     * Строка ожидания, к которой встаёт запись без брони (срез 3 п. 1); правило — в {@link ExpectationMatch}.
+     *
+     * @param fact уже записанная запись при правке, иначе {@code null}. Её собственная сумма из погашения
+     *             прежней строки вычитается: строка, погашенная целиком только ею, иначе выпала бы из
+     *             кандидатов, и запись уходила бы от своей строки при любой правке
+     */
+    private Optional<FinancialEvent> expectationFor(LocalDate date, Category category, EventType type,
+                                                    Priority priority, FinancialEvent fact) {
+        List<FinancialEvent> rows = eventRepository.findPlanRowsOfCategory(category.getId(), type,
+                date.minusDays(ExpectationMatch.OWN_WEEK_DAYS_BACK), date.withDayOfMonth(date.lengthOfMonth()));
+        if (rows.isEmpty()) return Optional.empty();
+        Map<UUID, BigDecimal> settled = new HashMap<>(PlanRemainder.settledByAggregates(
+                eventRepository.findFactAggregatesByPlanIds(rows.stream().map(FinancialEvent::getId).toList())));
+        if (fact != null && fact.getParentEventId() != null && fact.getFactAmount() != null) {
+            settled.computeIfPresent(fact.getParentEventId(), (id, sum) -> sum.subtract(fact.getFactAmount()));
+        }
+        return ExpectationMatch.pick(date, category.getId(), type, priority, rows, settled);
     }
 
     /**
@@ -268,14 +296,21 @@ public class FinancialEventService {
                     "endDate must be on or after the trigger event date for scope FOLLOWING/ALL");
         }
         ruleService.applyDtoToRule(rule, dto);   // throws 400 if startDate change attempted
-        LocalDate regenerateFrom = (scope == ScopeEnum.FOLLOWING) ? event.getDate() : rule.getStartDate();
+        // Срез 3 п. 5: число серии могло смениться — правленая строка встаёт на новое число своего
+        // месяца (года). Поэтому «этот и дальше» перестраивается с начала её периода, а не с её даты:
+        // иначе число раньше прежнего снимало строку этого месяца и не ставило новую.
+        LocalDate period = rule.getFrequency() == RecurringFrequency.YEARLY
+                ? event.getDate().withDayOfYear(1) : event.getDate().withDayOfMonth(1);
+        LocalDate regenerateFrom = (scope == ScopeEnum.FOLLOWING) ? period : rule.getStartDate();
         ruleService.regenerate(rule, regenerateFrom);
 
-        // Re-fetch the event at the same date — regenerate may have replaced the row identity.
-        return eventRepository.findActiveByRuleAndDate(rule.getId(), event.getDate())
+        // Ответ — строка серии с начала того же периода: regenerate заменил строки, и прежней даты
+        // может уже не быть. Раньше её искали по старой дате и отвечали 500.
+        return eventRepository.findFirstByRecurringRuleIdAndDeletedFalseAndDateGreaterThanEqualOrderByDateAsc(
+                        rule.getId(), period)
                 .map(e -> toDto(e, null, null))
                 .orElseThrow(() -> new IllegalStateException(
-                        "Regenerate dropped the trigger date " + event.getDate() + " for rule " + rule.getId()));
+                        "Regenerate left no row from " + period + " for rule " + rule.getId()));
     }
 
     /** An existing plan may retain its own archived category, but cannot adopt another one. */
@@ -388,6 +423,13 @@ public class FinancialEventService {
         var recorded = eventRepository.findByIdempotencyKey(idempotencyKey);
         if (recorded.isPresent()) return toDto(recorded.get(), null, plan);
         requireNotFuture(dto.date());
+        boolean closePlan = Boolean.TRUE.equals(dto.closePlan());
+        // Срез 3 п. 3: «Больше не нужно» закрывает только бронь — ожидание и так не держится после
+        // своей даты, а о хотелке решают на её экране.
+        if (closePlan && plan.getPriority() != Priority.HIGH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "closePlan applies to a booking only, not to " + plan.getPriority());
+        }
 
         // ANO-169: факт к плану перевода — это перевод. Раньше он брал у плана категорию и
         // тип, но не копилку, и движения не писал: счёт уменьшался, копилка стояла на месте,
@@ -433,6 +475,16 @@ public class FinancialEventService {
                     savedFact.getDate(), savedFact.getFactAmount());
         }
 
+        if (closePlan) {
+            // В той же транзакции: сумма брони — заплаченное, и пересчёт ниже её исполняет. Записано
+            // больше брони — сумма прежняя: лишнее уменьшает «Свободно», как и без признака.
+            BigDecimal settled = PlanRemainder.settledByAggregates(
+                    eventRepository.findFactAggregatesByPlanIds(List.of(planId))).getOrDefault(planId, BigDecimal.ZERO);
+            if (plan.getPlannedAmount() != null && settled.compareTo(plan.getPlannedAmount()) < 0) {
+                plan.setPlannedAmount(settled);
+                eventRepository.save(plan);
+            }
+        }
         resettlePlan(plan);
 
         return toDto(savedFact, null, plan);
@@ -542,6 +594,30 @@ public class FinancialEventService {
             requireNotFuture(event.getDate());
         }
 
+        // Срез 3 п. 2 (ANO-253): дата, категория и вид. Проверки — до первого сеттера: отказ не
+        // оставляет запись наполовину переписанной.
+        requireNotFuture(dto.date());
+        FinancialEvent oldParent = event.getParentEventId() == null ? null
+                : eventRepository.findById(event.getParentEventId()).filter(p -> !p.isDeleted()).orElse(null);
+        // Запись к брони держит свою бронь: её гасит «Оплачено» или «своё», а не правка.
+        boolean heldByPlan = oldParent != null && oldParent.getPriority() != Priority.MEDIUM;
+        LocalDate date = dto.date() != null ? dto.date() : event.getDate();
+        Category category = categoryForFact(event, dto.categoryId(), heldByPlan);
+        Priority priority = dto.priority() != null ? dto.priority() : event.getPriority();
+        boolean moved = !Objects.equals(date, event.getDate()) || category != event.getCategory()
+                || priority != event.getPriority();
+        // Правило п. 1 заново — только у правленой записи: старые записи не перепривязываются.
+        // Зовётся до смены суммы: собственный вклад записи вычитается из погашения её строки.
+        UUID parentId = event.getParentEventId();
+        if (moved && !heldByPlan && event.getType() != EventType.FUND_TRANSFER) {
+            parentId = expectationFor(date, category, event.getType(), priority, event)
+                    .map(FinancialEvent::getId).orElse(null);
+        }
+        event.setDate(date);
+        event.setCategory(category);
+        event.setPriority(priority);
+        event.setParentEventId(parentId);
+
         BigDecimal oldFact = event.getFactAmount();
         event.setFactAmount(dto.factAmount());
         if (dto.description() != null) event.setDescription(dto.description());
@@ -567,12 +643,38 @@ public class FinancialEventService {
         FinancialEvent saved = eventRepository.save(event);
         // Ревью #45: это единственный путь правки уже записанного факта. Уменьшенный или
         // снятый факт гасит план меньше, чем гасил, — родитель обязан снова открыться.
-        if (saved.getEventKind() == EventKind.FACT && saved.getParentEventId() != null) {
+        // Срез 3 п. 2: запись могла уйти к другой строке — пересчитываются обе.
+        if (oldParent != null) resettlePlan(oldParent);
+        if (saved.getParentEventId() != null && !saved.getParentEventId().equals(oldParent != null ? oldParent.getId() : null)) {
             eventRepository.findById(saved.getParentEventId())
                     .filter(p -> !p.isDeleted())
                     .ifPresent(this::resettlePlan);
         }
         return toDto(saved, null, null);
+    }
+
+    /**
+     * Категория записи после правки (срез 3 п. 2). Та же — всегда можно; другая — только живая, того же
+     * типа и не у записи к брони: у неё категория — от брони. У перевода в копилку другой категории нет
+     * вовсе: тип перевода — не тип ни одной категории, и проверка типа отказывает ему сама.
+     */
+    private Category categoryForFact(FinancialEvent event, UUID categoryId, boolean heldByPlan) {
+        if (categoryId == null || event.getCategory() != null && categoryId.equals(event.getCategory().getId())) {
+            return event.getCategory();
+        }
+        if (heldByPlan) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A record to a booking keeps the booking's category");
+        }
+        Category category = categoryRepository.findById(categoryId)
+                .filter(c -> !c.isDeleted())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Category " + categoryId + " not found or deleted"));
+        if (category.getType() == null || !category.getType().name().equals(event.getType().name())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Category " + category.getName() + " is not of type " + event.getType());
+        }
+        return category;
     }
 
     /**

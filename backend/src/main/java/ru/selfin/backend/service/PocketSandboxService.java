@@ -126,7 +126,7 @@ public class PocketSandboxService {
                 in.scope(), in.horizonEnd(), in.fallbackKind(), in.bufferAmount(),
                 in.unplannedForecast(), in.forecastContributors(), in.futureForecast(),
                 in.otherAccountsBalance(), in.creditRestoreReserve(), in.semiLiquidBalance(),
-                in.envelopeFunds());
+                in.envelopeFunds(), in.planSettled());
         PocketResultDto fitted = PocketEngine.calculate(fittedInput);
 
         // ── дельта-векторы (§4): tryOn в порядке запроса, затем exclude ─────
