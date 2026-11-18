@@ -138,10 +138,12 @@ describe('экраны берут «сегодня» одним способом
     // записи и «Записать» — не позже даты сервера: факт местным «сегодня» восточнее Москвы ночью он отверг бы.
     it('журнал: «сегодня» у дня — местная дата, кружок и «Записать» — не позже даты сервера', () => {
         const src = readFileSync(new URL('../pages/Budget.tsx', import.meta.url), 'utf8');
+        const list = readFileSync(new URL('../components/journal/JournalList.tsx', import.meta.url), 'utf8');
         expect(src).toMatch(/const today = todayIso\(now\);/);
         expect(src).toMatch(/const allowedToday = latestAllowedIso\(now\);/);
-        expect(src).toMatch(/\{day === today && \(/);
-        expect(src).toMatch(/quickClose\(event, allowedToday, anchorDate\)/);
-        expect(src).toMatch(/canRecordFact\(event\.date, allowedToday\)/);
+        // «Сегодня, 12 нояб.» у дня и «Впереди» — от местной даты (journalView); «Оплачено» — от даты сервера.
+        expect(src).toMatch(/journalView\(events, year, month, today\)/);
+        expect(src).toMatch(/allowedToday=\{allowedToday\}/);
+        expect(list).toMatch(/quickClose\(e, allowedToday, anchorDate\)/);
     });
 });

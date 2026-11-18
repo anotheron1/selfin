@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { returnedAfterPause } from './lib/screenSync';
 
 import AppFrame, { SectionTrack } from './components/frame/AppFrame';
 import QuickAddModal from './components/Fab';
@@ -23,7 +24,7 @@ import Wishlist from './pages/Wishlist';
  */
 function Main({ children }: { children: React.ReactNode }) {
   const path = useLocation().pathname;
-  const width = path === '/' ? undefined : path === '/budget' ? 'max-w-2xl lg:max-w-6xl mx-auto' : 'max-w-2xl mx-auto';
+  const width = path === '/' ? undefined : path === '/budget' ? undefined : 'max-w-2xl mx-auto';
   return <main className={width}><SectionTrack />{children}</main>;
 }
 
@@ -43,6 +44,19 @@ function Screens() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [adding, setAdding] = useState(false);
   const handleSuccess = () => setRefreshKey(k => k + 1);
+
+  // Вернулся на вкладку или в приложение после минуты и дольше — экраны перечитываются (срез 3, п. 8, ANO-256):
+  // так видна запись с телефона. Сервер о переменах сам не сообщает.
+  useEffect(() => {
+    let hiddenAt: number | null = null;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      if (returnedAfterPause(hiddenAt, Date.now())) setRefreshKey(k => k + 1);
+      hiddenAt = null;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
 
   const standalone = STANDALONE[useLocation().pathname];
   if (standalone) return standalone();

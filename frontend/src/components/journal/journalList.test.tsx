@@ -1,0 +1,110 @@
+/**
+ * Журнал на деталях системы (срез 3, п. 6; доски Zh2-J8, Zh2-J8b, S3-F7): порядок дней, план блоком «по плану» над
+ * записями, «Впереди», «Оплачено | своё»; кромки слева нет. Сводка месяца, «Последний факт», справка, «нет факта»
+ * и «+ записать факт» ушли (решения 8 и 51) — сторож по исходнику страницы.
+ */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { FinancialEvent } from '../../types/api';
+import { journalView } from '../../lib/journalSections';
+import JournalList from './JournalList';
+
+const ev = (over: Partial<FinancialEvent>): FinancialEvent => ({
+    id: 'e', date: '2026-11-12', categoryId: 'c', categoryName: 'Жильё и быт', type: 'EXPENSE', plannedAmount: null,
+    factAmount: null, status: 'PLANNED', priority: 'HIGH', description: null, rawInput: null,
+    createdAt: '2026-11-01T09:00:00', eventKind: 'PLAN', parentEventId: null, linkedFactsCount: 0,
+    linkedFactsAmount: null, parentPlanDescription: null, ...over,
+});
+
+const TODAY = '2026-11-12';
+const EVENTS = [
+    ev({ id: 'rent', description: 'Аренда', plannedAmount: 25000 }),
+    ev({ id: 'cafe', eventKind: 'FACT', priority: 'MEDIUM', description: 'Кофе', categoryName: 'Кафе и доставка', factAmount: 250, createdAt: '2026-11-12T12:00:00' }),
+    ev({ id: 'taxi', eventKind: 'FACT', date: '2026-11-11', priority: 'MEDIUM', description: 'Такси', categoryName: 'Транспорт', factAmount: 540 }),
+    ev({ id: 'salary', date: '2026-11-25', type: 'INCOME', description: 'Зарплата', categoryName: 'Зарплата', plannedAmount: 80000 }),
+    ev({ id: 'phone', date: '2026-11-15', description: 'Связь', categoryName: 'Связь и подписки', plannedAmount: 800 }),
+    ev({ id: 'wish', date: '2026-11-28', priority: 'LOW', description: 'Наушники', categoryName: 'Покупки', plannedAmount: 6000 }),
+    ev({ id: 'old', eventKind: 'FACT', date: '2026-11-05', priority: 'MEDIUM', description: 'Пятёрочка', categoryName: 'Продукты', factAmount: 1200 }),
+    ev({ id: 'income', date: '2026-11-10', type: 'INCOME', description: 'Аванс', categoryName: 'Зарплата', plannedAmount: 30000 }),
+];
+
+const render = (aheadOpen = false) => renderToStaticMarkup(
+    <JournalList view={journalView(EVENTS, 2026, 10, TODAY)} allowedToday={TODAY} anchorDate={null} aheadOpen={aheadOpen}
+        busy={() => false} failed={() => false} stale={() => false} handlers={{
+            onRow: () => {}, onPaid: () => {}, onOwn: () => {}, onCycle: () => {}, onRefresh: () => {},
+        }} />);
+const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').replace(/ /g, ' ');
+const order = (html: string, words: string[]) => words.map((w) => text(html).indexOf(w));
+
+describe('журнал по дням', () => {
+    it('«Впереди» сверху, дальше дни — свежий первым, прошлая неделя свёрнута', () => {
+        const at = order(render(), ['Впереди в ноябре · 3', 'Сегодня, 12 нояб., чт', 'Вчера, 11 нояб., ср', 'Вт, 10 нояб.', '2–8 нояб.']);
+        expect(at.every((i) => i >= 0)).toBe(true);
+        expect([...at].sort((a, b) => a - b)).toEqual(at);
+        expect(text(render())).not.toContain('Пятёрочка');
+        expect(text(render())).toContain('1 запись');
+    });
+
+    it('свёрнутое «Впереди» — строкой; раскрытое — по неделям', () => {
+        expect(text(render())).toContain('Связь 15-го, Зарплата 25-го, Наушники 28-го');
+        const open = text(render(true));
+        expect(order(open, ['Эта неделя, 9–15 нояб.', 'Связь', '23–29 нояб.', 'Зарплата', 'Наушники']))
+            .toEqual([...order(open, ['Эта неделя, 9–15 нояб.', 'Связь', '23–29 нояб.', 'Зарплата', 'Наушники'])].sort((a, b) => a - b));
+        expect(open).toContain('+80 000 ₽');
+    });
+
+    it('в дне — «по плану» над записями; у брони с наступившей датой — «Оплачено | своё», у дохода — «Получено»', () => {
+        const t = text(render());
+        expect(order(t, ['по плану', 'Аренда', 'Кофе'])).toEqual([...order(t, ['по плану', 'Аренда', 'Кофе'])].sort((a, b) => a - b));
+        expect(t).toContain('Аренда сегодня · бронь 25 000 ₽ Оплачено своё');
+        expect(t).toContain('Аванс 10 нояб., вт · бронь +30 000 ₽ Получено своё');
+    });
+
+    it('у плана без одного касания — только «своё»: запись к нему не теряется (было «+ записать факт»)', () => {
+        const open = text(render(true));
+        expect(open).toContain('Наушники 28 нояб., сб · хотелка 6 000 ₽ своё');
+        expect(open).not.toContain('Наушники 28 нояб., сб · хотелка 6 000 ₽ Оплачено');
+    });
+
+    it('кромки слева нет; кружок вида — деталь системы', () => {
+        const html = render(true);
+        expect(html).not.toMatch(/border-left|borderLeft|border-l-/);
+        expect(html).toContain('Вид: бронь. Нажми — сменить');
+    });
+});
+
+describe('сторож: что ушло с экрана журнала (решения 8, 51)', () => {
+    const page = readFileSync(resolve(__dirname, '../../pages/Budget.tsx'), 'utf8')
+        + readFileSync(resolve(__dirname, './JournalList.tsx'), 'utf8');
+
+    it.each([
+        ['сводка месяца', /totalPlannedIncome|totalFactExpense|Доходы|Расходы/],
+        ['«Последний факт»', /Последний факт|lastFact/],
+        ['справка «Как устроен журнал»', /HelpDialog|Как устроен журнал/],
+        ['«нет факта»', /нет факта/],
+        ['«+ записать факт»', /записать факт/],
+        ['кромка слева', /borderLeft|border-left/],
+    ])('%s', (_name, pattern) => {
+        expect(page).not.toMatch(pattern);
+    });
+});
+
+describe('знак суммы — по направлению денег (ANO-184)', () => {
+    it('ушедшее — без знака, доход и возврат из копилки — «+»', () => {
+        const html = renderToStaticMarkup(
+            <JournalList view={journalView([
+                ev({ id: 'out', eventKind: 'FACT', priority: 'MEDIUM', factAmount: 300, description: 'Расход' }),
+                ev({ id: 'back', eventKind: 'FACT', type: 'FUND_TRANSFER', targetFundName: 'Отпуск', priority: 'MEDIUM', factAmount: -100 }),
+                ev({ id: 'in', eventKind: 'FACT', type: 'INCOME', priority: 'MEDIUM', factAmount: 500, description: 'Возврат долга' }),
+            ], 2026, 10, TODAY)} allowedToday={TODAY} anchorDate={null}
+                busy={() => false} failed={() => false} stale={() => false} handlers={{
+                    onRow: () => {}, onPaid: () => {}, onOwn: () => {}, onCycle: () => {}, onRefresh: () => {},
+                }} />);
+        const t = text(html);
+        expect(t).toContain('Расход Жильё и быт 300 ₽');
+        expect(t).toContain('Отпуск Накопление · в копилку +100 ₽');
+        expect(t).toContain('Возврат долга Жильё и быт +500 ₽');
+    });
+});
