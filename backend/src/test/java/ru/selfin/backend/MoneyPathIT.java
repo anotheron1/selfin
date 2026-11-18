@@ -79,7 +79,64 @@ class MoneyPathIT {
                 .isEqualByComparingTo("54000");
     }
 
+    // ── п. 1: трата встаёт к ожиданию сама ───────────────────────────────────
+
+    @Test
+    @DisplayName("п. 1: запись в категории ожидания встаёт к строке недели — «Свободно» прежнее; «Отменить» возвращает строке сумму")
+    void standaloneFact_bindsToWeekExpectation() throws Exception {
+        anchor(today.minusDays(1), "60000");
+        String category = expenseCategory(0);
+        String plan = createPlan(today, "6000", "MEDIUM", category);
+        BigDecimal before = pocket();
+
+        JsonNode fact = json(standaloneFact(category, today, "1200", "MEDIUM").andExpect(status().isCreated()));
+
+        assertThat(fact.get("parentEventId").asText()).isEqualTo(plan);
+        assertThat(pocket()).as("трата была в плане").isEqualByComparingTo(before);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/v1/events/{id}", fact.get("id").asText()))
+                .andExpect(status().isNoContent());
+        assertThat(pocket()).as("счёт вернул 1 200, строка снова держит 6 000").isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("п. 1: бронь той же категории запись к себе не берёт — «Свободно» меньше на трату")
+    void standaloneFact_doesNotBindToBooking() throws Exception {
+        anchor(today.minusDays(1), "60000");
+        String category = expenseCategory(0);
+        createPlan(today, "6000", "HIGH", category);
+        BigDecimal before = pocket();
+
+        JsonNode fact = json(standaloneFact(category, today, "1200", "MEDIUM").andExpect(status().isCreated()));
+
+        assertThat(fact.get("parentEventId").isNull()).isTrue();
+        assertThat(before.subtract(pocket())).isEqualByComparingTo("1200");
+    }
+
+    @Test
+    @DisplayName("п. 1: запись с характером «Бронь» к ожиданию не встаёт")
+    void highFact_doesNotBindToExpectation() throws Exception {
+        anchor(today.minusDays(1), "60000");
+        String category = expenseCategory(0);
+        createPlan(today, "6000", "MEDIUM", category);
+
+        JsonNode fact = json(standaloneFact(category, today, "1200", "HIGH").andExpect(status().isCreated()));
+
+        assertThat(fact.get("parentEventId").isNull()).isTrue();
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
+
+    ResultActions standaloneFact(String categoryId, LocalDate date, String amount, String priority) throws Exception {
+        return mockMvc.perform(post("/api/v1/events/facts")
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"date": "%s", "categoryId": "%s", "type": "EXPENSE",
+                         "factAmount": %s, "priority": "%s", "description": "трата"}
+                        """.formatted(date, categoryId, amount, priority)));
+    }
 
     String expenseCategory(int n) {
         return jdbc.queryForList("SELECT id::text FROM categories WHERE type = 'EXPENSE' AND is_deleted = false"

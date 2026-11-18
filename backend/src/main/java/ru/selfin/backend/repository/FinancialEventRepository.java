@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.enums.EventStatus;
+import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.model.enums.Priority;
 
 import java.math.BigDecimal;
@@ -62,6 +63,24 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
         GROUP BY e.parentEventId
         """)
     List<FactAggregateProjection> findFactAggregatesByPlanIds(@Param("planIds") List<UUID> planIds);
+
+    /**
+     * Строки плана одной категории и типа в окне дат — кандидаты, к которым может встать запись
+     * (срез 3 п. 1). Остальной отбор — в {@code ExpectationMatch}: правило живёт там одно.
+     */
+    @Query("""
+        SELECT e FROM FinancialEvent e
+        WHERE e.deleted = false
+          AND e.eventKind = ru.selfin.backend.model.EventKind.PLAN
+          AND e.category.id = :categoryId
+          AND e.type = :type
+          AND e.date BETWEEN :from AND :to
+        ORDER BY e.date ASC, e.createdAt ASC, e.id ASC
+        """)
+    List<FinancialEvent> findPlanRowsOfCategory(@Param("categoryId") UUID categoryId,
+                                                @Param("type") EventType type,
+                                                @Param("from") LocalDate from,
+                                                @Param("to") LocalDate to);
 
     /**
      * FACT-записи в диапазоне дат (для FundPlannerService).

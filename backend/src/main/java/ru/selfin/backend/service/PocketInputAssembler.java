@@ -328,11 +328,7 @@ public class PocketInputAssembler {
                 .map(EventSnapshot::id)
                 .toList();
         if (planIds.isEmpty()) return Map.of();
-        Map<UUID, BigDecimal> settled = new java.util.HashMap<>();
-        for (var agg : eventRepository.findFactAggregatesByPlanIds(planIds)) {
-            if (agg.getTotalAmount() != null) settled.put(agg.getParentEventId(), agg.getTotalAmount());
-        }
-        return settled;
+        return PlanRemainder.settledByAggregates(eventRepository.findFactAggregatesByPlanIds(planIds));
     }
 
     // ANO-80: порог и окно жили здесь своей копией, а в конусе fan chart — своей. Обе

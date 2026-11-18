@@ -205,20 +205,48 @@ public class FinancialEventService {
                 .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
         requireNotFuture(dto.date());
 
+        Priority priority = dto.priority() != null ? dto.priority() : category.getPriority();
+        // Срез 3 п. 1: трата встаёт к строке ожидания сама и гасит её, как факт к брони, —
+        // «Свободно» не меняется: трата уже была в плане.
+        FinancialEvent expectation = expectationFor(dto.date(), category, dto.type(), priority, null)
+                .orElse(null);
         FinancialEvent fact = FinancialEvent.builder()
                 .idempotencyKey(idempotencyKey)
                 .eventKind(EventKind.FACT)
+                .parentEventId(expectation != null ? expectation.getId() : null)
                 .date(dto.date())
                 .category(category)
                 .type(dto.type())
                 .factAmount(dto.factAmount())
-                .priority(dto.priority() != null ? dto.priority() : category.getPriority())
+                .priority(priority)
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .rawInput(dto.rawInput())        // ANO-33: «450+1230+890», если сумму ввели выражением
                 .build();
 
-        return toDto(eventRepository.save(fact), null, null);
+        FinancialEvent saved = eventRepository.save(fact);
+        if (expectation != null) resettlePlan(expectation);
+        return toDto(saved, null, expectation);
+    }
+
+    /**
+     * Строка ожидания, к которой встаёт запись без брони (срез 3 п. 1); правило — в {@link ExpectationMatch}.
+     *
+     * @param fact уже записанная запись при правке, иначе {@code null}. Её собственная сумма из погашения
+     *             прежней строки вычитается: строка, погашенная целиком только ею, иначе выпала бы из
+     *             кандидатов, и запись уходила бы от своей строки при любой правке
+     */
+    private Optional<FinancialEvent> expectationFor(LocalDate date, Category category, EventType type,
+                                                    Priority priority, FinancialEvent fact) {
+        List<FinancialEvent> rows = eventRepository.findPlanRowsOfCategory(category.getId(), type,
+                date.minusDays(ExpectationMatch.OWN_WEEK_DAYS_BACK), date.withDayOfMonth(date.lengthOfMonth()));
+        if (rows.isEmpty()) return Optional.empty();
+        Map<UUID, BigDecimal> settled = new HashMap<>(PlanRemainder.settledByAggregates(
+                eventRepository.findFactAggregatesByPlanIds(rows.stream().map(FinancialEvent::getId).toList())));
+        if (fact != null && fact.getParentEventId() != null && fact.getFactAmount() != null) {
+            settled.computeIfPresent(fact.getParentEventId(), (id, sum) -> sum.subtract(fact.getFactAmount()));
+        }
+        return ExpectationMatch.pick(date, category.getId(), type, priority, rows, settled);
     }
 
     /**
