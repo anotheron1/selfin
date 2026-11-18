@@ -570,6 +570,30 @@ public class FinancialEventService {
             requireNotFuture(event.getDate());
         }
 
+        // Срез 3 п. 2 (ANO-253): дата, категория и вид. Проверки — до первого сеттера: отказ не
+        // оставляет запись наполовину переписанной.
+        requireNotFuture(dto.date());
+        FinancialEvent oldParent = event.getParentEventId() == null ? null
+                : eventRepository.findById(event.getParentEventId()).filter(p -> !p.isDeleted()).orElse(null);
+        // Запись к брони держит свою бронь: её гасит «Оплачено» или «своё», а не правка.
+        boolean heldByPlan = oldParent != null && oldParent.getPriority() != Priority.MEDIUM;
+        LocalDate date = dto.date() != null ? dto.date() : event.getDate();
+        Category category = categoryForFact(event, dto.categoryId(), heldByPlan);
+        Priority priority = dto.priority() != null ? dto.priority() : event.getPriority();
+        boolean moved = !Objects.equals(date, event.getDate()) || category != event.getCategory()
+                || priority != event.getPriority();
+        // Правило п. 1 заново — только у правленой записи: старые записи не перепривязываются.
+        // Зовётся до смены суммы: собственный вклад записи вычитается из погашения её строки.
+        UUID parentId = event.getParentEventId();
+        if (moved && !heldByPlan && event.getType() != EventType.FUND_TRANSFER) {
+            parentId = expectationFor(date, category, event.getType(), priority, event)
+                    .map(FinancialEvent::getId).orElse(null);
+        }
+        event.setDate(date);
+        event.setCategory(category);
+        event.setPriority(priority);
+        event.setParentEventId(parentId);
+
         BigDecimal oldFact = event.getFactAmount();
         event.setFactAmount(dto.factAmount());
         if (dto.description() != null) event.setDescription(dto.description());
@@ -595,12 +619,41 @@ public class FinancialEventService {
         FinancialEvent saved = eventRepository.save(event);
         // Ревью #45: это единственный путь правки уже записанного факта. Уменьшенный или
         // снятый факт гасит план меньше, чем гасил, — родитель обязан снова открыться.
-        if (saved.getEventKind() == EventKind.FACT && saved.getParentEventId() != null) {
+        // Срез 3 п. 2: запись могла уйти к другой строке — пересчитываются обе.
+        if (oldParent != null) resettlePlan(oldParent);
+        if (saved.getParentEventId() != null && !saved.getParentEventId().equals(oldParent != null ? oldParent.getId() : null)) {
             eventRepository.findById(saved.getParentEventId())
                     .filter(p -> !p.isDeleted())
                     .ifPresent(this::resettlePlan);
         }
         return toDto(saved, null, null);
+    }
+
+    /**
+     * Категория записи после правки (срез 3 п. 2). Та же — всегда можно; другая — только живая, того же
+     * типа и не у записи к брони и не у перевода в копилку: у них категория — от брони и от копилки.
+     */
+    private Category categoryForFact(FinancialEvent event, UUID categoryId, boolean heldByPlan) {
+        if (categoryId == null || event.getCategory() != null && categoryId.equals(event.getCategory().getId())) {
+            return event.getCategory();
+        }
+        if (event.getType() == EventType.FUND_TRANSFER) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The category of a transfer into a fund is not edited");
+        }
+        if (heldByPlan) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A record to a booking keeps the booking's category");
+        }
+        Category category = categoryRepository.findById(categoryId)
+                .filter(c -> !c.isDeleted())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Category " + categoryId + " not found or deleted"));
+        if (category.getType() == null || !category.getType().name().equals(event.getType().name())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Category " + category.getName() + " is not of type " + event.getType());
+        }
+        return category;
     }
 
     /**

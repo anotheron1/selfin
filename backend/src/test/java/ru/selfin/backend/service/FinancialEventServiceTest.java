@@ -749,7 +749,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findById(planId)).thenReturn(Optional.of(plan));
 
         assertThatThrownBy(() -> service.updateFact(planId,
-                new FinancialEventUpdateFactDto(new BigDecimal("4000"), null, null)))
+                new FinancialEventUpdateFactDto(new BigDecimal("4000"), null, null, null, null, null)))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("/facts");
         assertThat(plan.getFactAmount()).isNull();
@@ -771,7 +771,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
                 .thenReturn(List.of(agg(planId, "300")));
 
-        service.updateFact(factId, new FinancialEventUpdateFactDto(new BigDecimal("300"), null, null));
+        service.updateFact(factId, new FinancialEventUpdateFactDto(new BigDecimal("300"), null, null, null, null, null));
 
         assertThat(plan.getStatus())
                 .as("погашено 300 из 5 000 — 4 700 человек ещё должен")
@@ -792,7 +792,7 @@ class FinancialEventServiceTest {
         when(eventRepository.findFactAggregatesByPlanIds(List.of(planId)))
                 .thenReturn(Collections.emptyList());
 
-        service.updateFact(factId, new FinancialEventUpdateFactDto(null, null, null));
+        service.updateFact(factId, new FinancialEventUpdateFactDto(null, null, null, null, null, null));
 
         assertThat(plan.getStatus()).isEqualTo(EventStatus.PLANNED);
     }

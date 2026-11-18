@@ -126,7 +126,86 @@ class MoneyPathIT {
         assertThat(fact.get("parentEventId").isNull()).isTrue();
     }
 
+    // ── п. 2: дата, категория и вид у записи ─────────────────────────────────
+
+    @Test
+    @DisplayName("п. 2: новая категория без ожидания — запись выходит из плана, строка снова держит всё")
+    void patchCategory_leavesExpectation() throws Exception {
+        anchor(today.minusDays(1), "60000");
+        String category = expenseCategory(0);
+        createPlan(today, "6000", "MEDIUM", category);
+        String fact = id(standaloneFact(category, today, "1200", "MEDIUM").andExpect(status().isCreated()));
+        BigDecimal before = pocket();
+
+        JsonNode patched = json(patchFact(fact, """
+                {"factAmount": 1200, "categoryId": "%s"}""".formatted(expenseCategory(1))).andExpect(status().isOk()));
+
+        assertThat(patched.get("parentEventId").isNull()).isTrue();
+        assertThat(patched.get("categoryId").asText()).isEqualTo(expenseCategory(1));
+        assertThat(before.subtract(pocket())).as("трата больше не в плане").isEqualByComparingTo("1200");
+    }
+
+    @Test
+    @DisplayName("п. 2: дата позже сегодня — 400")
+    void patchFutureDate_rejected() throws Exception {
+        String fact = id(standaloneFact(expenseCategory(0), today, "1200", "MEDIUM").andExpect(status().isCreated()));
+        patchFact(fact, "{\"factAmount\": 1200, \"date\": \"" + today.plusDays(1) + "\"}")
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("п. 2: запись к брони — смена категории 400, новая дата — бронь держится")
+    void patchBookingFact() throws Exception {
+        String category = expenseCategory(0);
+        String booking = createPlan(today, "6000", "HIGH", category);
+        String fact = id(linkedFact(booking, today, "1200").andExpect(status().isOk()));
+
+        patchFact(fact, "{\"factAmount\": 1200, \"categoryId\": \"" + expenseCategory(1) + "\"}")
+                .andExpect(status().isBadRequest());
+        JsonNode patched = json(patchFact(fact, "{\"factAmount\": 1200, \"date\": \"" + today.minusDays(3) + "\"}")
+                .andExpect(status().isOk()));
+
+        assertThat(patched.get("date").asText()).isEqualTo(today.minusDays(3).toString());
+        assertThat(patched.get("parentEventId").asText()).isEqualTo(booking);
+    }
+
+    @Test
+    @DisplayName("п. 2: перевод в копилку — новая дата, движение копилки идёт за ней")
+    void patchTransferDate_movesFundMovement() throws Exception {
+        anchor(today.minusDays(10), "60000");
+        String fund = jdbc.queryForObject("SELECT gen_random_uuid()::text", String.class);
+        jdbc.update("""
+                INSERT INTO target_funds (id, name, target_amount, current_balance, status, purchase_type, is_deleted, created_at)
+                VALUES (?::uuid, 'Отпуск', 1000000, 0, 'FUNDING', 'SAVINGS', false, now())
+                """, fund);
+        mockMvc.perform(post("/api/v1/funds/{id}/transfer", fund)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\": 5000}"))
+                .andExpect(status().isOk());
+        String transfer = jdbc.queryForObject(
+                "SELECT id::text FROM financial_events WHERE type = 'FUND_TRANSFER' AND is_deleted = false", String.class);
+
+        patchFact(transfer, "{\"factAmount\": 5000, \"categoryId\": \"" + expenseCategory(0) + "\"}")
+                .andExpect(status().isBadRequest());
+        patchFact(transfer, "{\"factAmount\": 5000, \"date\": \"" + today.minusDays(4) + "\"}")
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("""
+                SELECT t.transaction_date FROM fund_transactions t
+                JOIN financial_events e ON e.idempotency_key = t.idempotency_key
+                WHERE e.id = ?::uuid AND t.is_deleted = false""", LocalDate.class, transfer))
+                .isEqualTo(today.minusDays(4));
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
+
+    ResultActions patchFact(String id, String body) throws Exception {
+        return mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .patch("/api/v1/events/{id}/fact", id)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
 
     ResultActions standaloneFact(String categoryId, LocalDate date, String amount, String priority) throws Exception {
         return mockMvc.perform(post("/api/v1/events/facts")
