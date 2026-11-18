@@ -50,8 +50,15 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const placed = useRef(false);
     const [year, setYear] = useState(target?.year ?? saved?.year ?? now.getFullYear());
     const [month, setMonth] = useState(target?.month ?? saved?.month ?? now.getMonth());
-    const [events, setEvents] = useState<FinancialEvent[]>([]);
-    const [loading, setLoading] = useState(true);
+    // События — вместе с месяцем, к которому прочитаны: сразу после смены месяца в руках ещё прошлые, и вид по ним
+    // ронял экран (строка вне недель месяца); поздний ответ прошлого месяца не перезаписывает новый.
+    const shownKey = `${year}-${month}`;
+    const keyNow = useRef(shownKey);
+    keyNow.current = shownKey;
+    const [loaded, setLoaded] = useState<{ key: string; events: FinancialEvent[] }>({ key: '', events: [] });
+    const [fetching, setFetching] = useState(true);
+    const events = loaded.key === shownKey ? loaded.events : [];
+    const loading = fetching || loaded.key !== shownKey;
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
     // ANO-176: запись к плану открывается из «своё», из «Оплачено» брони до сверки и из карточек ожиданий.
     const [factSheet, setFactSheet] = useState<{
@@ -69,13 +76,14 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const load = useCallback((silent = false) => {
         const start = iso(new Date(year, month, 1));
         const end = iso(new Date(year, month + 1, 0));
-        if (!silent) setLoading(true);
+        const key = `${year}-${month}`;
+        if (!silent) setFetching(true);
         // Брони, записанные до начала этого чтения: его успех их освобождает.
         const releases = guard.readStarted();
         return fetchEvents(start, end)
             .then(data => {
                 document.querySelectorAll('.pf-hovered').forEach(el => el.classList.remove('pf-hovered'));
-                setEvents(data);
+                if (keyNow.current === key) setLoaded({ key, events: data });
                 guard.readSucceeded(releases);
                 guardChanged();
             }, (err) => {
@@ -83,7 +91,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 guardChanged();
                 throw err;
             })
-            .finally(() => setLoading(false));
+            .finally(() => setFetching(false));
     }, [year, month, guard]);
 
     useEffect(() => { load().catch(console.error); }, [load]);

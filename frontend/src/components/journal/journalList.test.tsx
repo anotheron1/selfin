@@ -92,6 +92,19 @@ describe('сторож: что ушло с экрана журнала (реше
     });
 });
 
+describe('сторож: смена месяца (стенд 19.11 — «‹» ронял экран)', () => {
+    const page = readFileSync(resolve(__dirname, '../../pages/Budget.tsx'), 'utf8');
+
+    it('вид считается только по событиям показанного месяца', () => {
+        expect(page).toMatch(/const events = loaded\.key === shownKey \? loaded\.events : \[\];/);
+        expect(page).toMatch(/const loading = fetching \|\| loaded\.key !== shownKey;/);
+    });
+
+    it('поздний ответ прошлого месяца не перезаписывает новый', () => {
+        expect(page).toMatch(/if \(keyNow\.current === key\) setLoaded\(\{ key, events: data \}\);/);
+    });
+});
+
 describe('знак суммы — по направлению денег (ANO-184)', () => {
     it('ушедшее — без знака, доход и возврат из копилки — «+»', () => {
         const html = renderToStaticMarkup(
