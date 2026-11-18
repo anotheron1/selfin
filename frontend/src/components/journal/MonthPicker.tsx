@@ -21,6 +21,10 @@ export function stepMonth(year: number, month: number, step: -1 | 1): { year: nu
     return m < 0 ? { year: year - 1, month: 11 } : m > 11 ? { year: year + 1, month: 0 } : { year, month: m };
 }
 
+/** Выбранный месяц отмечается только в сетке своего года. */
+export const selectedIn = (gridYear: number, year: number, month: number): number | null =>
+    gridYear === year ? month : null;
+
 const arrow = cn(iconButtonVariants({ variant: 'plain' }), '[&_svg]:size-5');
 const yearArrow = cn(iconButtonVariants({ variant: 'plain' }), 'bg-sf-chip hover:bg-sf-chip-hover [&_svg]:size-5');
 
@@ -99,7 +103,7 @@ export default function MonthPicker({ year, month, onChange, loadMonths }: {
                 {/* Нажатие мимо сетки закрывает её; на телефоне страница под ней притушена (S3-M1). */}
                 <div aria-hidden="true" className="fixed inset-0 z-40 bg-[color-mix(in_srgb,var(--sf-ink)_12%,transparent)] lg:bg-transparent" onClick={() => setOpen(false)} />
                 <div className="absolute left-0 top-full z-50 mt-2 w-[min(366px,calc(100vw-24px))] lg:w-[410px]">
-                    <MonthGrid year={gridYear} selected={gridYear === year ? month : null} dots={dots}
+                    <MonthGrid year={gridYear} selected={selectedIn(gridYear, year, month)} dots={dots}
                         onYear={(s) => setGridYear((y) => y + s)}
                         onPick={(m) => { setOpen(false); onChange(gridYear, m); }} />
                 </div>

@@ -46,16 +46,22 @@ class JournalMonthsIT {
     @Autowired OwnerService owners;
 
     @Test
-    @DisplayName("месяцы года со строками: план и запись — да; удалённая строка, другой год и чужая — нет")
+    @DisplayName("месяцы года со строками: план и запись — да, по разу и по порядку; удалённая, хотелка вне плана, "
+            + "другой год и чужая — нет")
     void monthsWithRows() throws Exception {
         RequestPostProcessor me = person("months-me");
         RequestPostProcessor other = person("months-other");
         String category = firstExpenseCategory(me);
 
-        create(me, "/api/v1/events", """
-                {"date":"2025-02-10","categoryId":"%s","type":"EXPENSE","plannedAmount":1000,"priority":"HIGH"}""".formatted(category));
         create(me, "/api/v1/events/facts", """
-                {"date":"2025-11-01","categoryId":"%s","type":"EXPENSE","factAmount":250}""".formatted(category));
+                {"date":"2025-12-31","categoryId":"%s","type":"EXPENSE","factAmount":250}""".formatted(category));
+        create(me, "/api/v1/events", """
+                {"date":"2025-01-01","categoryId":"%s","type":"EXPENSE","plannedAmount":1000,"priority":"HIGH"}""".formatted(category));
+        create(me, "/api/v1/events", """
+                {"date":"2026-03-20","categoryId":"%s","type":"EXPENSE","plannedAmount":300,"priority":"HIGH"}""".formatted(category));
+        // Обсуждаемая хотелка с экрана «Примерить покупку» — не строка месяца: журнал её не покажет (Р4, ANO-206).
+        create(me, "/api/v1/events/wishlist", """
+                {"description":"Велосипед","plannedAmount":40000,"date":"2025-09-09"}""");
         String gone = create(me, "/api/v1/events", """
                 {"date":"2025-05-05","categoryId":"%s","type":"EXPENSE","plannedAmount":500,"priority":"HIGH"}""".formatted(category));
         mockMvc.perform(delete("/api/v1/events/" + gone).with(me)).andExpect(status().is2xxSuccessful());
@@ -65,7 +71,7 @@ class JournalMonthsIT {
                 {"date":"2025-07-07","categoryId":"%s","type":"EXPENSE","plannedAmount":900,"priority":"HIGH"}"""
                 .formatted(firstExpenseCategory(other)));
 
-        assertThat(months(me, 2025)).containsExactly(2, 11);
+        assertThat(months(me, 2025)).containsExactly(1, 12);
         assertThat(months(other, 2025)).containsExactly(7);
         assertThat(months(me, 2026)).containsExactly(3);
         assertThat(months(me, 2024)).isEmpty();

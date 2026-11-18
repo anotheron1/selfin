@@ -44,7 +44,8 @@ describe('журнал по дням', () => {
         expect(at.every((i) => i >= 0)).toBe(true);
         expect([...at].sort((a, b) => a - b)).toEqual(at);
         expect(text(render())).not.toContain('Пятёрочка');
-        expect(text(render())).toContain('1 запись');
+        expect(text(render())).toContain('2–8 нояб. 1 запись');
+        expect(text(render())).toContain('1 нояб. Нет записей');
     });
 
     it('свёрнутое «Впереди» — строкой; раскрытое — по неделям', () => {
@@ -59,7 +60,7 @@ describe('журнал по дням', () => {
         const t = text(render());
         expect(order(t, ['по плану', 'Аренда', 'Кофе'])).toEqual([...order(t, ['по плану', 'Аренда', 'Кофе'])].sort((a, b) => a - b));
         expect(t).toContain('Аренда сегодня · бронь 25 000 ₽ Оплачено своё');
-        expect(t).toContain('Аванс 10 нояб., вт · бронь +30 000 ₽ Получено своё');
+        expect(t).toContain('Аванс бронь +30 000 ₽ Получено своё');
     });
 
     it('у плана без одного касания — только «своё»: запись к нему не теряется (было «+ записать факт»)', () => {
@@ -106,5 +107,16 @@ describe('знак суммы — по направлению денег (ANO-18
         expect(t).toContain('Расход Жильё и быт 300 ₽');
         expect(t).toContain('Отпуск Накопление · в копилку +100 ₽');
         expect(t).toContain('Возврат долга Жильё и быт +500 ₽');
+    });
+});
+
+describe('«Оплачено» и сверка остатка', () => {
+    it('бронь раньше сверки — «Оплачено» есть: оно спросит дату (lib/quickClose)', () => {
+        const html = renderToStaticMarkup(
+            <JournalList view={journalView(EVENTS, 2026, 10, TODAY)} allowedToday={TODAY} anchorDate="2026-11-11"
+                busy={() => false} failed={() => false} stale={() => false} handlers={{
+                    onRow: () => {}, onPaid: () => {}, onOwn: () => {}, onCycle: () => {}, onRefresh: () => {},
+                }} />);
+        expect(text(html)).toContain('Аванс бронь +30 000 ₽ Получено своё');
     });
 });

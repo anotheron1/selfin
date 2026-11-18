@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import MonthPicker, { MonthGrid, monthTitle, stepMonth } from './MonthPicker';
+import MonthPicker, { MonthGrid, monthTitle, selectedIn, stepMonth } from './MonthPicker';
 
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -43,6 +43,8 @@ describe('сетка года', () => {
         expect(grid(10, []).match(/aria-pressed="true"/g)).toHaveLength(1);
         expect(grid(10, [])).toMatch(/aria-pressed="true"[^>]*>Нояб\./);
         expect(grid(null, [])).not.toContain('aria-pressed="true"');
+        expect(selectedIn(2026, 2026, 10)).toBe(10);
+        expect(selectedIn(2025, 2026, 10)).toBeNull();
     });
 
     it('точка — у месяцев со строками, и только у них', () => {

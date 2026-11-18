@@ -217,8 +217,11 @@ function recordRow(e: FinancialEvent, byId: Map<string, FinancialEvent>): Journa
 function planRow(e: FinancialEvent, today: string): JournalRow {
     const income = e.type === 'INCOME';
     const paid = e.linkedFactsAmount ?? 0;
+    // В дне дата уже в заголовке: у плана — только «сегодня» и «вчера», как на доске; иначе на 390 за край уходит
+    // «оплачено 3 000». Во «Впереди» дата нужна.
+    const word = dateWord(e.date!, today);
     const sub = [
-        dateWord(e.date!, today),
+        e.date! > today || e.date === today || e.date === shift(today, -1) ? word : null,
         e.type === 'FUND_TRANSFER' ? 'в копилку' : PRIORITY_DOT_CONFIG[e.priority].name.toLowerCase(),
         paid > 0 ? `${income ? 'получено' : 'оплачено'} ${rub(paid)}` : null,
     ].filter(Boolean).join(' · ');

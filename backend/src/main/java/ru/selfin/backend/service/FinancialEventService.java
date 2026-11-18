@@ -47,9 +47,10 @@ public class FinancialEventService {
     @Transactional(readOnly = true)
     public List<Integer> monthsWithRows(int year) {
         // ponytail: год строк целиком в памяти — сотни строк; если станет тесно, DISTINCT по месяцу в запросе.
-        return eventRepository.findAllByDeletedFalseAndDateBetween(LocalDate.of(year, 1, 1), LocalDate.of(year, 12, 31))
+        return eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(
+                        LocalDate.of(year, 1, 1), LocalDate.of(year, 12, 31))
                 .stream().filter(e -> !e.outsideMonthPlan())
-                .map(e -> e.getDate().getMonthValue()).distinct().sorted().toList();
+                .map(e -> e.getDate().getMonthValue()).distinct().toList(); // порядок — из запроса
     }
 
     /**

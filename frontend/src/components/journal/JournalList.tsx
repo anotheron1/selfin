@@ -120,20 +120,19 @@ export default function JournalList({ view, allowedToday, anchorDate, aheadOpen 
             <div key={e.id}>
                 {row(r)}
                 <div className="flex flex-col items-end gap-1 px-2 pb-2">
-                    {d.kind !== 'done' && (
-                        <div className="inline-flex">
-                            {pays && (
-                                <button type="button" disabled={held} onClick={() => handlers.onPaid(e, d)}
-                                    className={cn(buttonVariants({ size: 's' }), 'rounded-r-none')}>
-                                    {r.income ? 'Получено' : 'Оплачено'}
-                                </button>
-                            )}
-                            <button type="button" disabled={held} onClick={() => handlers.onOwn(e)}
-                                className={cn(buttonVariants({ variant: 'soft', size: 's' }), pays && 'rounded-l-none')}>
-                                своё
+                    {/* Оплаченный план сюда не доходит (journalView): «своё» есть у каждого — запись к плану не теряется. */}
+                    <div className="inline-flex">
+                        {pays && (
+                            <button type="button" disabled={held} onClick={() => handlers.onPaid(e, d)}
+                                className={cn(buttonVariants({ size: 's' }), 'rounded-r-none')}>
+                                {r.income ? 'Получено' : 'Оплачено'}
                             </button>
-                        </div>
-                    )}
+                        )}
+                        <button type="button" disabled={held} onClick={() => handlers.onOwn(e)}
+                            className={cn(buttonVariants({ variant: 'soft', size: 's' }), pays && 'rounded-l-none')}>
+                            своё
+                        </button>
+                    </div>
                     {failed(e.id) && <p className="text-sf-label text-sf-error">Не записалось — попробуйте ещё раз</p>}
                     {stale(e.id) && (
                         <p className="text-sf-label text-sf-muted">

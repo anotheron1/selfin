@@ -217,3 +217,39 @@ describe('журнал по дням (срез 3, п. 6)', () => {
         expect(future.ahead).toMatchObject({ title: 'Впереди в декабре', count: 1 });
     });
 });
+
+describe('журнал по дням — края недели и брони', () => {
+    const at = (id: string, date: string, over: Partial<FinancialEvent> = {}) =>
+        fact({ id, date, createdAt: `${date}T10:00:00`, priority: 'LOW', categoryName: 'Транспорт', ...over });
+    const plan = (id: string, date: string, over: Partial<FinancialEvent> = {}) =>
+        ev({ id, date, createdAt: '2026-11-01T09:00:00', priority: 'HIGH', categoryName: 'Жильё и быт', ...over });
+
+    it('сегодня — воскресенье: неделя ещё текущая', () => {
+        const j = journalView([at('a', '2026-11-15')], 2026, 10, '2026-11-15');
+        expect(j.weeks[0]).toMatchObject({ label: '9–15 нояб.', current: true, open: true });
+    });
+
+    it('сегодня — понедельник: строка впереди этой недели — «Эта неделя»', () => {
+        const j = journalView([plan('p', '2026-11-12')], 2026, 10, '2026-11-09');
+        expect(j.ahead!.groups.map((g) => g.label)).toEqual(['Эта неделя, 9–15 нояб.']);
+    });
+
+    it('бронь оплачена двумя записями — у каждой «часть брони»', () => {
+        const j = journalView([
+            plan('rent', '2026-11-10', { plannedAmount: 25000, linkedFactsCount: 2, linkedFactsAmount: 25000, status: 'EXECUTED' }),
+            fact({ id: 'f1', date: '2026-11-10', priority: 'HIGH', parentEventId: 'rent', createdAt: '2026-11-10T09:00:00' }),
+            fact({ id: 'f2', date: '2026-11-10', priority: 'HIGH', parentEventId: 'rent', createdAt: '2026-11-10T10:00:00' }),
+        ], 2026, 10, '2026-11-12');
+        expect(j.weeks[0].days[0].records.map((r) => r.sub)).toEqual(['часть брони', 'часть брони']);
+    });
+
+    it('счёт свёрнутой недели — все её строки, и планы тоже', () => {
+        const j = journalView([plan('p', '2026-11-03'), at('a', '2026-11-04')], 2026, 10, '2026-11-12');
+        expect(j.weeks[1]).toMatchObject({ label: '2–8 нояб.', count: 2 });
+    });
+
+    it('план в прошлом дне — без даты: она в заголовке дня; «вчера» — словом', () => {
+        const j = journalView([plan('p', '2026-11-10'), plan('y', '2026-11-11')], 2026, 10, '2026-11-12');
+        expect(j.weeks[0].days.map((d) => d.plans[0].sub)).toEqual(['вчера · бронь', 'бронь']);
+    });
+});
