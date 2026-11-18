@@ -230,6 +230,10 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
            "       WHERE f.parentEventId = e.id AND f.deleted = false))")
     Optional<LocalDate> findLastPaidDateByRule(@Param("ruleId") UUID ruleId);
 
+    /** Первая живая строка серии не раньше даты — ответ правки серии (срез 3 п. 5). */
+    Optional<FinancialEvent> findFirstByRecurringRuleIdAndDeletedFalseAndDateGreaterThanEqualOrderByDateAsc(
+            UUID ruleId, LocalDate date);
+
     @Query("SELECT e FROM FinancialEvent e " +
            "WHERE e.recurringRule.id = :ruleId " +
            "  AND e.date = :date " +

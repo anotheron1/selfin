@@ -296,14 +296,21 @@ public class FinancialEventService {
                     "endDate must be on or after the trigger event date for scope FOLLOWING/ALL");
         }
         ruleService.applyDtoToRule(rule, dto);   // throws 400 if startDate change attempted
-        LocalDate regenerateFrom = (scope == ScopeEnum.FOLLOWING) ? event.getDate() : rule.getStartDate();
+        // Срез 3 п. 5: число серии могло смениться — правленая строка встаёт на новое число своего
+        // месяца (года). Поэтому «этот и дальше» перестраивается с начала её периода, а не с её даты:
+        // иначе число раньше прежнего снимало строку этого месяца и не ставило новую.
+        LocalDate period = rule.getFrequency() == RecurringFrequency.YEARLY
+                ? event.getDate().withDayOfYear(1) : event.getDate().withDayOfMonth(1);
+        LocalDate regenerateFrom = (scope == ScopeEnum.FOLLOWING) ? period : rule.getStartDate();
         ruleService.regenerate(rule, regenerateFrom);
 
-        // Re-fetch the event at the same date — regenerate may have replaced the row identity.
-        return eventRepository.findActiveByRuleAndDate(rule.getId(), event.getDate())
+        // Ответ — строка серии с начала того же периода: regenerate заменил строки, и прежней даты
+        // может уже не быть. Раньше её искали по старой дате и отвечали 500.
+        return eventRepository.findFirstByRecurringRuleIdAndDeletedFalseAndDateGreaterThanEqualOrderByDateAsc(
+                        rule.getId(), period)
                 .map(e -> toDto(e, null, null))
                 .orElseThrow(() -> new IllegalStateException(
-                        "Regenerate dropped the trigger date " + event.getDate() + " for rule " + rule.getId()));
+                        "Regenerate left no row from " + period + " for rule " + rule.getId()));
     }
 
     /** An existing plan may retain its own archived category, but cannot adopt another one. */

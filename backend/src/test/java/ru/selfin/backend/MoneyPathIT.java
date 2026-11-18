@@ -232,6 +232,80 @@ class MoneyPathIT {
                 .andExpect(status().isBadRequest());
     }
 
+    // ── п. 5: правка серии со сменой числа ───────────────────────────────────
+
+    final LocalDate seriesStart = today.plusMonths(1).withDayOfMonth(12);
+    final LocalDate seriesEnd = seriesStart.plusMonths(5);
+
+    @Test
+    @DisplayName("п. 5: серия 12-го, ALL с 15-м — 200, ответ — строка 15-го того же месяца")
+    void seriesAll_dayChange() throws Exception {
+        String head = createSeries();
+        JsonNode r = json(putSeries(head, "ALL", seriesStart.withDayOfMonth(15), 15, seriesEnd).andExpect(status().isOk()));
+        assertThat(r.get("date").asText()).isEqualTo(seriesStart.withDayOfMonth(15).toString());
+    }
+
+    @Test
+    @DisplayName("п. 5: FOLLOWING с 15-м и с 10-м — 200, строка того же месяца на новое число")
+    void seriesFollowing_dayChange() throws Exception {
+        createSeries();
+        LocalDate second = seriesStart.plusMonths(1);
+        JsonNode later = json(putSeries(rowOn(second), "FOLLOWING", second.withDayOfMonth(15), 15, seriesEnd)
+                .andExpect(status().isOk()));
+        assertThat(later.get("date").asText()).isEqualTo(second.withDayOfMonth(15).toString());
+
+        JsonNode earlier = json(putSeries(later.get("id").asText(), "FOLLOWING", second.withDayOfMonth(10), 10, seriesEnd)
+                .andExpect(status().isOk()));
+        assertThat(earlier.get("date").asText())
+                .as("число раньше прежнего — строка месяца не теряется")
+                .isEqualTo(second.withDayOfMonth(10).toString());
+        assertThat(seriesDates()).containsExactly(seriesStart, second.withDayOfMonth(10),
+                second.plusMonths(1).withDayOfMonth(10), second.plusMonths(2).withDayOfMonth(10),
+                second.plusMonths(3).withDayOfMonth(10), second.plusMonths(4).withDayOfMonth(10));
+    }
+
+    @Test
+    @DisplayName("п. 5: «Закончить серию» — FOLLOWING с концом на дату строки: дальше строк нет, эта осталась")
+    void seriesFinish() throws Exception {
+        createSeries();
+        LocalDate second = seriesStart.plusMonths(1);
+        putSeries(rowOn(second), "FOLLOWING", second, 12, second).andExpect(status().isOk());
+        assertThat(seriesDates()).containsExactly(seriesStart, second);
+    }
+
+    String createSeries() throws Exception {
+        return id(mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(seriesBody(seriesStart, 12, seriesStart, seriesEnd)))
+                .andExpect(status().isOk()));
+    }
+
+    ResultActions putSeries(String id, String scope, LocalDate date, int day, LocalDate end) throws Exception {
+        return mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .put("/api/v1/events/{id}", id).param("scope", scope)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(seriesBody(date, day, seriesStart, end)));
+    }
+
+    String seriesBody(LocalDate date, int day, LocalDate start, LocalDate end) {
+        return """
+                {"date": "%s", "categoryId": "%s", "type": "EXPENSE", "plannedAmount": 5000,
+                 "priority": "HIGH", "description": "Аренда",
+                 "recurring": {"frequency": "MONTHLY", "dayOfMonth": %d, "startDate": "%s", "endDate": "%s"}}
+                """.formatted(date, expenseCategory(0), day, start, end);
+    }
+
+    String rowOn(LocalDate date) {
+        return jdbc.queryForObject("SELECT id::text FROM financial_events WHERE date = ? AND is_deleted = false"
+                + " AND recurring_rule_id IS NOT NULL", String.class, date);
+    }
+
+    java.util.List<LocalDate> seriesDates() {
+        return jdbc.queryForList("SELECT date FROM financial_events WHERE is_deleted = false"
+                + " AND recurring_rule_id IS NOT NULL ORDER BY date", LocalDate.class);
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
 
     ResultActions patchFact(String id, String body) throws Exception {
