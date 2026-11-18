@@ -191,11 +191,19 @@ class MoneyPathIT {
         patchFact(transfer, "{\"factAmount\": 5000, \"date\": \"" + today.minusDays(4) + "\"}")
                 .andExpect(status().isOk());
 
-        assertThat(jdbc.queryForObject("""
+        assertThat(movementDate(transfer)).isEqualTo(today.minusDays(4));
+
+        // Ревью Codex на #230: сумма и дата вместе — движение берёт и то, и другое.
+        patchFact(transfer, "{\"factAmount\": 4000, \"date\": \"" + today.minusDays(6) + "\"}")
+                .andExpect(status().isOk());
+        assertThat(movementDate(transfer)).isEqualTo(today.minusDays(6));
+    }
+
+    LocalDate movementDate(String transfer) {
+        return jdbc.queryForObject("""
                 SELECT t.transaction_date FROM fund_transactions t
                 JOIN financial_events e ON e.idempotency_key = t.idempotency_key
-                WHERE e.id = ?::uuid AND t.is_deleted = false""", LocalDate.class, transfer))
-                .isEqualTo(today.minusDays(4));
+                WHERE e.id = ?::uuid AND t.is_deleted = false""", LocalDate.class, transfer);
     }
 
     // ── п. 3: «Больше не нужно» ──────────────────────────────────────────────

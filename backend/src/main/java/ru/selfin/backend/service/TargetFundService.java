@@ -696,6 +696,7 @@ public class TargetFundService {
         } else {
             tx.setAmount(desired);
             tx.setDeleted(false);
+            tx.setTransactionDate(date);   // срез 3 п. 2: сумма и дата правятся вместе (ревью Codex на #230)
         }
         transactionRepository.save(tx);
 
