@@ -373,12 +373,13 @@ export function expectationGroups(
 /**
  * Куда пишет «Записать» и кружок с «+». Трата и доход — форма «+» с категорией: сервер ставит запись к строке своей
  * недели (ExpectationMatch). Перевод в копилку мимо этого правила — запись к строке (`createLinkedFact`), по умолчанию
- * к первой строке открытой недели (ревью Codex на #233). Так же — категория в архиве (`live` — живые категории): форма
- * «+» её не покажет, а сервер отдельную запись в неё не примет; запись к строке берёт категорию строки.
+ * к первой строке открытой недели (ревью Codex на #233). Так же — категория, которую форма «+» ожиданием не запишет
+ * (`viaForm` — живые категории не «брони»): архивную форма не покажет и сервер не примет; у категории-брони форма
+ * пишет бронь, а к строке ожидания встают только записи ожиданий. Запись к строке берёт категорию и характер строки.
  */
 export const recordTo = (g: ExpectationGroup, line: FinancialEvent = g.weeks[g.open]?.lines[0] ?? g.first,
-    live?: ReadonlySet<string>): { planId: string } | { preset: ExpectationGroup['preset'] } =>
-    g.preset.type === 'FUND_TRANSFER' || (live && !live.has(g.preset.categoryId ?? ''))
+    viaForm?: ReadonlySet<string>): { planId: string } | { preset: ExpectationGroup['preset'] } =>
+    g.preset.type === 'FUND_TRANSFER' || (viaForm && !viaForm.has(g.preset.categoryId ?? ''))
         ? { planId: line.id } : { preset: g.preset };
 
 /**

@@ -187,7 +187,7 @@ describe('куда пишет «Записать» (ревью Codex на #233)'
         expect(recordTo(g, fund[2])).toEqual({ planId: 'f2' });
     });
 
-    it('категория в архиве — запись к строке: форма «+» её не примет и не покажет', () => {
+    it('категории нет среди тех, что форма «+» пишет ожиданием (архив, «бронь») — запись к строке', () => {
         const [g] = expectationGroups([ev({ id: 'x', date: '2026-11-16' })], 2026, 10, TODAY);
         expect(recordTo(g, undefined, new Set(['cafe']))).toEqual({ planId: 'x' });
         expect(recordTo(g, undefined, new Set(['food']))).toEqual({ preset: { type: 'EXPENSE', categoryId: 'food' } });
