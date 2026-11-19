@@ -152,6 +152,13 @@ describe('сторож: смена месяца (стенд 19.11 — «‹» р
         expect(page).toMatch(/const loading = fetching \|\| loaded\.key !== shownKey;/);
     });
 
+    it('месяц не прочитался — словами и «обновить», а не вечная «Загрузка…» (ревью Codex на #232)', () => {
+        expect(page).toContain("const failed = !fetching && failedKey === shownKey;");
+        expect(page).toContain('if (keyNow.current === key) setFailedKey(key);');
+        expect(page).toContain('Журнал не загрузился —');
+        expect(page).toContain('onClick={() => { load().catch(console.error); }}');
+    });
+
     it('поздний ответ прошлого месяца не перезаписывает новый', () => {
         expect(page).toMatch(/if \(keyNow\.current === key\) setLoaded\(\{ key, events: data \}\);/);
     });

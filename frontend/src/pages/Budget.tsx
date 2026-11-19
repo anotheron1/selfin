@@ -60,6 +60,9 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const [fetching, setFetching] = useState(true);
     const events = loaded.key === shownKey ? loaded.events : [];
     const loading = fetching || loaded.key !== shownKey;
+    // Чтение месяца упало — сказать и дать повторить; чужой месяц по-прежнему не показывается (ревью Codex на #232).
+    const [failedKey, setFailedKey] = useState<string | null>(null);
+    const failed = !fetching && failedKey === shownKey;
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
     // ANO-176: запись к плану открывается из «своё», из «Оплачено» брони до сверки и из карточек ожиданий.
     const [factSheet, setFactSheet] = useState<{
@@ -88,6 +91,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 guard.readSucceeded(releases);
                 guardChanged();
             }, (err) => {
+                if (keyNow.current === key) setFailedKey(key);
                 guard.readFailed(releases);
                 guardChanged();
                 throw err;
@@ -225,7 +229,14 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                     </div>
 
                     {loading
-                        ? <p className="animate-pulse py-6 text-center text-sf-note text-sf-muted">Загрузка…</p>
+                        ? failed
+                            ? (
+                                <p className="py-6 text-center text-sf-note text-sf-muted">
+                                    Журнал не загрузился —{' '}
+                                    <button type="button" className="underline" onClick={() => { load().catch(console.error); }}>обновить</button>
+                                </p>
+                            )
+                            : <p className="animate-pulse py-6 text-center text-sf-note text-sf-muted">Загрузка…</p>
                         : <JournalList key={`${year}-${month}`} view={view} allowedToday={allowedToday} anchorDate={anchorDate}
                             openDate={target?.iso} onOpened={onOpened}
                             opened={placed.current ? undefined
