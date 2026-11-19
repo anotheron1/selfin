@@ -122,4 +122,9 @@ describe('журнал: старые карточки ожиданий ушли,
         expect(page).toMatch(/<ExpectationSheet/);
         expect(page).toMatch(/<WeekGrid/);
     });
+
+    it('записи шести дней после месяца дочитываются и идут в ожидания (ревью Codex на #233)', () => {
+        expect(page).toMatch(/const tail = afterMonth\(year, month\);[\s\S]*fetchEvents\(tail\.start, tail\.end\)/);
+        expect(page).toMatch(/expectationGroups\(events, year, month, today, after\)/);
+    });
 });

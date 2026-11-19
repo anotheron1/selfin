@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FinancialEvent } from '../types/api';
 import {
-    expectationGroups, expectationsHeader, isExpectationPlan, journalDate, journalView, mainListEvents,
+    afterMonth, expectationGroups, expectationsHeader, isExpectationPlan, journalDate, journalView, mainListEvents,
 } from './journalSections';
 
 const ev = (over: Partial<FinancialEvent> = {}): FinancialEvent => ({
@@ -119,6 +119,22 @@ describe('ожидания месяца (срез 3, п. 10; доски Zh2-J8, 
         expect(g.notes.map(sp)).toEqual(['пт 20 — 15 000 ₽ «Стоматолог»']);
         expect(g.subtitle).not.toContain('«');
     });
+    it('запись следующего месяца к строке 30-го — в листе; планы следующего месяца ожиданиями не становятся (ревью Codex)', () => {
+        // Запись 1 дек. встаёт к строке 30 нояб. (шесть дней назад, ExpectationMatch) — журнал ноября её не читает.
+        const after = [
+            fact({ id: 'dec1', date: '2026-12-01', parentEventId: 'w4', factAmount: 900, createdAt: '2026-12-01T10:00:00' }),
+            ev({ id: 'decPlan', date: '2026-12-07', categoryId: 'cafe', categoryName: 'Кафе' }),
+        ];
+        const g = expectationGroups(weekly, 2026, 10, TODAY, after);
+        expect(g.map((x) => x.title)).toEqual(['Продукты']);
+        expect(g[0].weeks[4].records.map((r) => r.id)).toEqual(['dec1']);
+    });
+
+    it('дочитать после месяца — шесть дней: строка 30-го собирает записи до 6-го', () => {
+        expect(afterMonth(2026, 10)).toEqual({ start: '2026-12-01', end: '2026-12-06' });
+        expect(afterMonth(2026, 11)).toEqual({ start: '2027-01-01', end: '2027-01-06' });
+    });
+
     it('погашенная строка — та же строка с «записано», не пропадает', () => {
         const [g] = groups([ev({ id: 'a', date: '2026-11-03', plannedAmount: 8000, linkedFactsCount: 3, linkedFactsAmount: 8650 })]);
         expect(g.weeks[0].recorded).toBe(8650);

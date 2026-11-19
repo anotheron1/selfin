@@ -293,14 +293,28 @@ const sumOf = (rows: FinancialEvent[]) => rows.reduce((s, e) => s + (e.plannedAm
 const isWeekly = (rows: FinancialEvent[]) => rows.length > 1
     && rows.every((e, i) => e.plannedAmount === rows[0].plannedAmount && (i === 0 || e.date === shift(rows[i - 1].date!, 7)));
 
-/** Ожидания месяца по категориям; группы — по дате первой строки. */
-export function expectationGroups(events: FinancialEvent[], year: number, month: number, today: string): ExpectationGroup[] {
+/**
+ * Дни после месяца, чьи записи могут встать к его строкам: правило «своей недели» (ExpectationMatch, шесть дней назад)
+ * ставит запись 1 дек. к строке 30 нояб. Журнал читает их отдельно — только для ожиданий (ревью Codex на #233).
+ */
+export function afterMonth(year: number, month: number): { start: string; end: string } {
+    const start = iso(new Date(year, month + 1, 1));
+    return { start, end: shift(start, 5) };
+}
+
+/**
+ * Ожидания месяца по категориям; группы — по дате первой строки. `after` — чтение `afterMonth`: из него берутся только
+ * записи к строкам месяца, планы следующего месяца ожиданиями этого не становятся.
+ */
+export function expectationGroups(
+    events: FinancialEvent[], year: number, month: number, today: string, after: FinancialEvent[] = [],
+): ExpectationGroup[] {
     const groups = new Map<string, FinancialEvent[]>();
     for (const e of datedExpectations(events)) {
         const key = e.type === 'FUND_TRANSFER' ? `fund:${e.targetFundId ?? ''}` : e.categoryId;
         groups.set(key, [...(groups.get(key) ?? []), e]);
     }
-    const factsOf = (ids: Set<string>) => events
+    const factsOf = (ids: Set<string>) => [...events, ...after]
         .filter((f) => f.eventKind === 'FACT' && f.parentEventId != null && ids.has(f.parentEventId))
         .sort(byRecencyDesc);
 

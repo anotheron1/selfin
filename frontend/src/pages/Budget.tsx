@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
 import { CHANGED } from '../api/client';
 import type { FinancialEvent, HintsSettings } from '../types/api';
-import { expectationGroups, expectationsHeader, journalDate, journalView, type ExpectationGroup } from '../lib/journalSections';
+import { afterMonth, expectationGroups, expectationsHeader, journalDate, journalView, type ExpectationGroup } from '../lib/journalSections';
 import { weekGrid } from '../lib/weekGrid';
 import {
     firstJournal, JOURNAL_PAID_HINT, JOURNAL_PLUS_HINT, journalCircleHint, loadHints, saveHints, type HintId,
@@ -60,9 +60,10 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const shownKey = `${year}-${month}`;
     const keyNow = useRef(shownKey);
     keyNow.current = shownKey;
-    const [loaded, setLoaded] = useState<{ key: string; events: FinancialEvent[] }>({ key: '', events: [] });
+    const [loaded, setLoaded] = useState<{ key: string; events: FinancialEvent[]; after: FinancialEvent[] }>({ key: '', events: [], after: [] });
     const [fetching, setFetching] = useState(true);
     const events = loaded.key === shownKey ? loaded.events : [];
+    const after = loaded.key === shownKey ? loaded.after : [];
     const loading = fetching || loaded.key !== shownKey;
     // Чтение месяца упало — сказать и дать повторить; чужой месяц по-прежнему не показывается (ревью Codex на #232).
     const [failedKey, setFailedKey] = useState<string | null>(null);
@@ -95,10 +96,13 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         if (!silent) setFetching(true);
         // Брони, записанные до начала этого чтения: его успех их освобождает.
         const releases = guard.readStarted();
-        return fetchEvents(start, end)
-            .then(data => {
+        // Записи шести дней после месяца — только для ожиданий: они могут встать к строкам его конца (afterMonth).
+        // Не прочлись — журнал всё равно показывается, без них.
+        const tail = afterMonth(year, month);
+        return Promise.all([fetchEvents(start, end), fetchEvents(tail.start, tail.end).catch(() => [] as FinancialEvent[])])
+            .then(([data, next]) => {
                 document.querySelectorAll('.pf-hovered').forEach(el => el.classList.remove('pf-hovered'));
-                if (keyNow.current === key) setLoaded({ key, events: data });
+                if (keyNow.current === key) setLoaded({ key, events: data, after: next });
                 guard.readSucceeded(releases);
                 guardChanged();
             }, (err) => {
@@ -197,7 +201,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     }, [refreshSignal]);
 
     const view = journalView(events, year, month, today);
-    const groups = expectationGroups(events, year, month, today);
+    const groups = expectationGroups(events, year, month, today, after);
     const header = expectationsHeader(events);
     const expTitle = `${PRIORITY_DOT_CONFIG.MEDIUM.plural} месяца`;
     const grid = weekGrid(groups, year, month, today);
