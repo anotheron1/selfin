@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { Button, Plate } from '@/ds';
 import { cn } from '@/lib/utils';
 import type { FinancialEvent } from '../../types/api';
-import type { ExpectationGroup, ExpectationWeek } from '../../lib/journalSections';
+import { dayLabel, type ExpectationGroup, type ExpectationWeek } from '../../lib/journalSections';
 import { iconOf } from './JournalList';
 
 const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽`;
@@ -18,13 +18,28 @@ export const weekAmount = (w: ExpectationWeek, income: boolean) => {
  * Открытая неделя ожидания — плашка: что ждали, сколько записано и записи к строкам (S3-X4, S3-X5, блок под сеткой
  * S3-W1d). «Записано» — без «осталось», без цвета и полосы: граница по запрету 1.
  */
-export function WeekBlock({ title, week, income, note }: { title: string; week: ExpectationWeek; income: boolean; note?: string }) {
+export function WeekBlock({ title, week, income, note, line = 0, onLine }: {
+    title: string; week: ExpectationWeek; income: boolean; note?: string;
+    /** Несколько строк в неделе — выбор той, что правит «Изменить ожидание» (ревью Codex на #233). */
+    line?: number; onLine?: (i: number) => void;
+}) {
     return (
         <Plate>
             <div className="flex items-baseline justify-between gap-3">
                 <span className="text-sf-body font-semibold">{title}</span>
                 <span className="shrink-0 whitespace-nowrap text-sf-body tabular-nums">{weekAmount(week, income)}</span>
             </div>
+            {onLine && week.lines.length > 1 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                    {week.lines.map((e, i) => (
+                        <button key={e.id} type="button" aria-pressed={i === line} onClick={() => onLine(i)}
+                            className={cn('rounded-sf-pill border px-2.5 py-1 text-sf-label tabular-nums',
+                                i === line ? 'border-sf-accent font-semibold' : 'border-sf-rule text-sf-muted')}>
+                            {dayLabel(e.date!)} · {income ? '+' : ''}{rub(e.plannedAmount ?? 0)}
+                        </button>
+                    ))}
+                </div>
+            )}
             {week.recorded > 0 && (
                 <p className="mt-1.5 text-sf-label">
                     записано <span className="font-semibold tabular-nums">{rub(week.recorded)}</span>
@@ -70,12 +85,15 @@ export default function ExpectationSheet({ group, onClose, onEdit, onRecord }: {
     onClose: () => void;
     /** «Изменить ожидание» — строка открытой недели (EditEventSheet до PR 5). */
     onEdit: (line: FinancialEvent) => void;
-    onRecord: () => void;
+    /** «Записать» — выбранная строка открытой недели: к ней встаёт перевод в копилку (recordTo). */
+    onRecord: (line: FinancialEvent) => void;
 }) {
     const [open, setOpen] = useState(group.open);
+    const [line, setLine] = useState(0);
     const ref = useRef<HTMLDivElement>(null);
     useEffect(() => { ref.current?.focus(); }, []);
     const week = group.weeks[open];
+    const chosen = week?.lines[line] ?? week?.lines[0] ?? group.first;
 
     return (
         <div className="fixed inset-0 z-50 lg:hidden">
@@ -97,9 +115,9 @@ export default function ExpectationSheet({ group, onClose, onEdit, onRecord }: {
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {group.weeks.map((w, i) => (i === open
-                        ? <WeekBlock key={w.start} title={w.label} week={w} income={group.income} />
+                        ? <WeekBlock key={w.start} title={w.label} week={w} income={group.income} line={line} onLine={setLine} />
                         : (
-                            <button key={w.start} type="button" onClick={() => setOpen(i)}
+                            <button key={w.start} type="button" onClick={() => { setOpen(i); setLine(0); }}
                                 className={cn('flex w-full items-baseline justify-between gap-3 border-b border-sf-rule px-1 py-3.5 text-left text-sf-body',
                                     w.past && 'text-sf-muted')}>
                                 <span className="min-w-0 truncate">{w.label}</span>
@@ -115,8 +133,8 @@ export default function ExpectationSheet({ group, onClose, onEdit, onRecord }: {
                     <p className="mt-3 px-1 text-sf-label text-sf-muted">{group.footnote}</p>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2.5">
-                    <Button variant="soft" className="px-3" onClick={() => onEdit(week?.lines[0] ?? group.first)}>Изменить ожидание</Button>
-                    <Button onClick={onRecord}>Записать</Button>
+                    <Button variant="soft" className="px-3" onClick={() => onEdit(chosen)}>Изменить ожидание</Button>
+                    <Button onClick={() => onRecord(chosen)}>Записать</Button>
                 </div>
             </div>
         </div>

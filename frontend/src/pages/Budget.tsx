@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
 import { CHANGED } from '../api/client';
 import type { FinancialEvent, HintsSettings } from '../types/api';
-import { afterMonth, expectationGroups, expectationsHeader, journalDate, journalView, type ExpectationGroup } from '../lib/journalSections';
+import { afterMonth, expectationGroups, expectationsHeader, journalDate, journalView, recordTo, type ExpectationGroup } from '../lib/journalSections';
 import { weekGrid } from '../lib/weekGrid';
 import {
     firstJournal, JOURNAL_PAID_HINT, JOURNAL_PLUS_HINT, journalCircleHint, loadHints, saveHints, type HintId,
@@ -222,6 +222,10 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             text={text} arrow={arrow} arrowClass={arrowClass} className={className} />
     );
     const circleHint = groups.length > 0 ? journalCircleHint(groups[0].title) : '';
+    const record = (g: ExpectationGroup, line?: FinancialEvent) => {
+        const to = recordTo(g, line);
+        void ('planId' in to ? setFactSheet({ planId: to.planId }) : setAdding(to.preset));
+    };
 
     return (
         <>
@@ -240,7 +244,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                     <span className="shrink-0 whitespace-nowrap text-sf-button font-semibold">{expTitle}</span>
                                     <span className="text-right text-sf-label text-sf-muted">{header}</span>
                                 </div>
-                                <ExpectationCircles groups={groups} onRecord={g => setAdding(g.preset)} onOpen={g => setSheetKey(g.key)}
+                                <ExpectationCircles groups={groups} onRecord={g => record(g)} onOpen={g => setSheetKey(g.key)}
                                     hint={bubble('journal-circle', circleHint, 'up', 'left-[38px]', 'left-0 top-[100px] w-[290px]')} />
                             </div>
                         )}
@@ -285,7 +289,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                         </div>
                         {header
                             ? <WeekGrid grid={grid} selected={selected} onSelect={(row, col) => setCell({ key: shownKey, row, col })}
-                                onRecord={g => setAdding(g.preset)} onEdit={setSelectedEvent}
+                                onRecord={record} onEdit={setSelectedEvent}
                                 hint={bubble('journal-circle', circleHint, 'up', 'left-3', 'left-0 top-full mt-1 w-[290px]')} />
                             : <p className="px-1 text-sf-label text-sf-muted">В этом месяце ожиданий нет.</p>}
                     </aside>
@@ -304,7 +308,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             {sheetGroup && (
                 <ExpectationSheet key={sheetGroup.key} group={sheetGroup} onClose={() => setSheetKey(null)}
                     onEdit={line => { setSheetKey(null); setSelectedEvent(line); }}
-                    onRecord={() => { setSheetKey(null); setAdding(sheetGroup.preset); }} />
+                    onRecord={line => { setSheetKey(null); record(sheetGroup, line); }} />
             )}
             {adding && <QuickAddModal preset={adding} onClose={() => setAdding(null)} onSuccess={() => {}} />}
             {factSheet && (() => {

@@ -371,6 +371,15 @@ export function expectationGroups(
 }
 
 /**
+ * Куда пишет «Записать» и кружок с «+». Трата и доход — форма «+» с категорией: сервер ставит запись к строке своей
+ * недели (ExpectationMatch). Перевод в копилку мимо этого правила — запись к строке (`createLinkedFact`), по умолчанию
+ * к первой строке открытой недели (ревью Codex на #233).
+ */
+export const recordTo = (g: ExpectationGroup, line: FinancialEvent = g.weeks[g.open]?.lines[0] ?? g.first):
+    { planId: string } | { preset: ExpectationGroup['preset'] } =>
+    g.preset.type === 'FUND_TRANSFER' ? { planId: line.id } : { preset: g.preset };
+
+/**
  * «14 строк · 53 100 ₽» — заголовок «Ожидания месяца». Счёт и сумма — по одному набору строк: есть доходные —
  * «уйдёт X · придёт Y» (ANO-227; было: доход в счёте строк, а сумма только расходов). Ожиданий нет — null.
  */

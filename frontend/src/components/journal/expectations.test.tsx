@@ -10,7 +10,7 @@ import type { FinancialEvent } from '../../types/api';
 import { expectationGroups, journalView } from '../../lib/journalSections';
 import { weekGrid } from '../../lib/weekGrid';
 import ExpectationCircles from './ExpectationCircles';
-import ExpectationSheet from './ExpectationSheet';
+import ExpectationSheet, { WeekBlock } from './ExpectationSheet';
 import WeekGrid from './WeekGrid';
 import JournalList from './JournalList';
 
@@ -113,8 +113,58 @@ describe('сетка недель — 1440 (S3-W1d)', () => {
     });
 });
 
+describe('несколько строк в неделе — каждую можно изменить (ревью Codex на #233)', () => {
+    // Неделя 16–22: две строки «Продукты» — пн 16 по 500 и ср 18 по 700.
+    const two = expectationGroups([
+        ev({ id: 'a', date: '2026-11-16', plannedAmount: 500 }), ev({ id: 'b', date: '2026-11-18', plannedAmount: 700 }),
+    ], 2026, 10, TODAY);
+    const pressed = (html: string) => (html.match(/<button[^>]*aria-pressed="true"[^>]*>[^<]*/g) ?? []).map(text);
+
+    it('лист: строки недели выбираются, нажата первая', () => {
+        const html = renderToStaticMarkup(<ExpectationSheet group={two[0]} onClose={() => {}} onEdit={() => {}} onRecord={() => {}} />);
+        expect(pressed(html)).toEqual([' пн 16 · 500 ₽']);
+        expect(text(html)).toContain('ср 18 · 700 ₽');
+    });
+
+    it('плашка недели показывает выбранную строку нажатой', () => {
+        const html = renderToStaticMarkup(
+            <WeekBlock title="t" week={two[0].weeks[0]} income={false} line={1} onLine={() => {}} />);
+        expect(pressed(html)).toEqual([' ср 18 · 700 ₽']);
+    });
+
+    it('под сеткой — тот же выбор строки', () => {
+        const grid = weekGrid(two, 2026, 10, TODAY);
+        const html = renderToStaticMarkup(
+            <WeekGrid grid={grid} selected={grid.selected} onSelect={() => {}} onRecord={() => {}} onEdit={() => {}} />);
+        expect(pressed(html)).toContain(' пн 16 · 500 ₽');
+        expect(text(html)).toContain('ср 18 · 700 ₽');
+    });
+
+    it('одна строка в неделе — выбора нет', () => {
+        const html = renderToStaticMarkup(<ExpectationSheet group={groups[0]} onClose={() => {}} onEdit={() => {}} onRecord={() => {}} />);
+        expect(html).not.toContain('aria-pressed');
+    });
+
+    it('«Изменить ожидание» и «Записать» берут выбранную строку', () => {
+        const src = (f: string) => readFileSync(resolve(__dirname, f), 'utf8');
+        for (const f of ['./ExpectationSheet.tsx', './WeekGrid.tsx']) {
+            expect(src(f)).toMatch(/onEdit\(chosen\)/);
+            expect(src(f)).toMatch(/onRecord\([^)]*chosen\)/);
+        }
+    });
+});
+
 describe('журнал: старые карточки ожиданий ушли, их место заняли кружки и сетка', () => {
     const page = readFileSync(resolve(__dirname, '../../pages/Budget.tsx'), 'utf8');
+
+    it('«Записать» идёт через recordTo: перевод в копилку — лист записи к строке (ревью Codex на #233)', () => {
+        expect(page).toMatch(/const record = \(g: ExpectationGroup, line\?: FinancialEvent\) => \{\s*const to = recordTo\(g, line\);/);
+        expect(page).toMatch(/'planId' in to \? setFactSheet\(\{ planId: to\.planId \}\) : setAdding\(to\.preset\)/);
+        expect(page).not.toMatch(/setAdding\(g\.preset\)|setAdding\(sheetGroup\.preset\)/);
+        // Лист и сетка отдают выбранную строку.
+        expect(page).toMatch(/onRecord=\{line => \{ setSheetKey\(null\); record\(sheetGroup, line\); \}\}/);
+        expect(page).toMatch(/<WeekGrid[^/]*onRecord=\{record\}/);
+    });
 
     it('страница рисует кружки, лист и сетку, а не ExpectationCards', () => {
         expect(page).not.toMatch(/ExpectationCards|expectationCards|expectationsSummary/);

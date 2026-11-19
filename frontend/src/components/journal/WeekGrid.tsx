@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button } from '@/ds';
 import { cn } from '@/lib/utils';
 import type { FinancialEvent } from '../../types/api';
@@ -17,8 +17,9 @@ export default function WeekGrid({ grid, selected, onSelect, onRecord, onEdit, h
     grid: Grid;
     selected: { row: number; col: number } | null;
     onSelect: (row: number, col: number) => void;
-    onRecord: (g: ExpectationGroup) => void;
-    /** «Изменить ожидание» — строка нажатой клетки (EditEventSheet до PR 5). */
+    /** Кружок строки — без строки; «Записать» под сеткой — выбранная строка нажатой клетки (recordTo). */
+    onRecord: (g: ExpectationGroup, line?: FinancialEvent) => void;
+    /** «Изменить ожидание» — выбранная строка нажатой клетки (EditEventSheet до PR 5). */
     onEdit: (line: FinancialEvent) => void;
     /** Пузырь первого журнала у кружка первого ожидания (S3-N1). */
     hint?: ReactNode;
@@ -26,6 +27,11 @@ export default function WeekGrid({ grid, selected, onSelect, onRecord, onEdit, h
     const cols = `minmax(0,1fr) repeat(${grid.weeks.length}, 52px)`;
     const sel = selected && grid.rows[selected.row]?.cells[selected.col];
     const group = selected && grid.rows[selected.row]?.group;
+    // Выбор строки — свой у каждой нажатой клетки: другая клетка или месяц — снова первая строка.
+    const at = selected ? `${grid.weeks[0]?.start}:${selected.row}:${selected.col}` : '';
+    const [pick, setPick] = useState({ at: '', i: 0 });
+    const line = pick.at === at ? pick.i : 0;
+    const chosen = sel ? (sel.lines[line] ?? sel.lines[0]) : null;
     return (
         <div>
             <div className="grid items-end gap-x-1 pb-1.5 text-center text-sf-caption text-sf-muted" style={{ gridTemplateColumns: cols }}>
@@ -63,13 +69,14 @@ export default function WeekGrid({ grid, selected, onSelect, onRecord, onEdit, h
                     {row === 0 && hint}
                 </div>
             ))}
-            {sel && group && (
+            {sel && group && chosen && (
                 <div className="mt-3 flex flex-col gap-3 rounded-sf-plate bg-sf-plate pb-3">
                     <WeekBlock title={`${group.title} · ${sel.range}`} week={sel} income={group.income}
-                        note={sel.records.length > 0 ? 'эти записи подсвечены в списке' : undefined} />
+                        note={sel.records.length > 0 ? 'эти записи подсвечены в списке' : undefined}
+                        line={line} onLine={(i) => setPick({ at, i })} />
                     <div className="grid grid-cols-2 gap-2.5 px-4">
-                        <Button variant="soft" size="m" onClick={() => onEdit(sel.lines[0])}>Изменить ожидание</Button>
-                        <Button size="m" onClick={() => onRecord(group)}>Записать</Button>
+                        <Button variant="soft" size="m" onClick={() => onEdit(chosen)}>Изменить ожидание</Button>
+                        <Button size="m" onClick={() => onRecord(group, chosen)}>Записать</Button>
                     </div>
                 </div>
             )}

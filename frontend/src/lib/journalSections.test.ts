@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FinancialEvent } from '../types/api';
 import {
-    afterMonth, expectationGroups, expectationsHeader, isExpectationPlan, journalDate, journalView, mainListEvents,
+    afterMonth, expectationGroups, expectationsHeader, isExpectationPlan, journalDate, journalView, mainListEvents, recordTo,
 } from './journalSections';
 
 const ev = (over: Partial<FinancialEvent> = {}): FinancialEvent => ({
@@ -164,6 +164,27 @@ describe('ожидания месяца (срез 3, п. 10; доски Zh2-J8, 
         const [g] = groups([ev({ id: 'i', type: 'INCOME', date: '2026-11-20', categoryName: 'Подработка', plannedAmount: 20000 })]);
         expect(sp(g.caption)).toBe('≈ +20 000 ₽');
         expect(g.footnote.startsWith('Поступления')).toBe(true);
+    });
+});
+
+describe('куда пишет «Записать» (ревью Codex на #233)', () => {
+    const TODAY = '2026-11-12';
+    const fund = [
+        ev({ id: 'f0', date: '2026-11-02', type: 'FUND_TRANSFER', targetFundId: 'trip', targetFundName: 'Отпуск', categoryId: 'tr' }),
+        ev({ id: 'f1', date: '2026-11-16', type: 'FUND_TRANSFER', targetFundId: 'trip', targetFundName: 'Отпуск', categoryId: 'tr' }),
+        ev({ id: 'f2', date: '2026-11-18', type: 'FUND_TRANSFER', targetFundId: 'trip', targetFundName: 'Отпуск', categoryId: 'tr' }),
+    ];
+
+    it('трата и доход — форма «+» с категорией: сервер сам ставит запись к строке', () => {
+        const [g] = expectationGroups([ev({ id: 'x', date: '2026-11-16' })], 2026, 10, TODAY);
+        expect(recordTo(g)).toEqual({ preset: { type: 'EXPENSE', categoryId: 'food' } });
+    });
+
+    it('перевод в копилку — запись к строке: переводы мимо правила привязки', () => {
+        const [g] = expectationGroups(fund, 2026, 10, TODAY);
+        // Открытая неделя — 16–22, её первая строка.
+        expect(recordTo(g)).toEqual({ planId: 'f1' });
+        expect(recordTo(g, fund[2])).toEqual({ planId: 'f2' });
     });
 });
 
