@@ -135,6 +135,15 @@ describe('сторож: раскрытое и будущий день на ст�
     });
 });
 
+describe('сторож: граница сверки — свежая (ревью Codex на #232)', () => {
+    const page = readFileSync(resolve(__dirname, '../../pages/Budget.tsx'), 'utf8');
+
+    it('перемена — из этой вкладки или другой — перечитывает и журнал, и сверку', () => {
+        expect(page).toContain('const reread = () => { load(true).catch(console.error); loadAnchor(); };');
+        expect(page).toContain('useEffect(() => { loadAnchor(); }, [loadAnchor, refreshSignal]);');
+    });
+});
+
 describe('сторож: смена месяца (стенд 19.11 — «‹» ронял экран)', () => {
     const page = readFileSync(resolve(__dirname, '../../pages/Budget.tsx'), 'utf8');
 

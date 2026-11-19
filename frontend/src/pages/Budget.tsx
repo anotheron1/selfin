@@ -97,12 +97,22 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
 
     useEffect(() => { load().catch(console.error); }, [load]);
 
-    // Запись в этой вкладке и в другой (срез 3, п. 8: событие приходит и из BroadcastChannel) — журнал перечитывается.
+    // Граница «Оплачено» одним касанием — последняя сверка основного счёта; сверка в другой вкладке её сдвигает.
+    const loadAnchor = useCallback(() => {
+        Promise.all([fetchCheckpoints(), fetchAccounts()])
+            .then(([checkpoints, accounts]) =>
+                setAnchor({ loaded: true, date: anchorDateOf(checkpoints, accounts, todayIso(new Date())) }))
+            .catch(console.error);
+    }, []);
+    useEffect(() => { loadAnchor(); }, [loadAnchor, refreshSignal]);
+
+    // Запись в этой вкладке и в другой (срез 3, п. 8: событие приходит и из BroadcastChannel) — журнал перечитывается,
+    // и граница сверки с ним: иначе «Оплачено» записало бы датой плана мимо новой сверки (ревью Codex на #232).
     useEffect(() => {
-        const reread = () => { load(true).catch(console.error); };
+        const reread = () => { load(true).catch(console.error); loadAnchor(); };
         window.addEventListener(CHANGED, reread);
         return () => window.removeEventListener(CHANGED, reread);
-    }, [load]);
+    }, [load, loadAnchor]);
 
     // Одна расстановка после первого чтения: к дню из ?date= или к запомненной прокрутке.
     useEffect(() => {
@@ -139,13 +149,6 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         return () => window.removeEventListener('scroll', savePosition);
     }, [savePosition]);
     const onOpened = useCallback((o: JournalOpen) => { openNow.current = o; savePosition(); }, [savePosition]);
-
-    useEffect(() => {
-        Promise.all([fetchCheckpoints(), fetchAccounts()])
-            .then(([checkpoints, accounts]) =>
-                setAnchor({ loaded: true, date: anchorDateOf(checkpoints, accounts, todayIso(new Date())) }))
-            .catch(console.error);
-    }, [refreshSignal]);
 
     // Повтор после сбоя безопасен — тот же ключ попытки (ANO-192). Но после записи кнопка занята,
     // пока журнал не перечитан: строка ещё показывает прежний остаток, и новое касание — уже новый факт.
