@@ -127,6 +127,12 @@ describe('сторож: раскрытое и будущий день на ст�
         expect(page).toContain('?? document.querySelector<HTMLElement>(`[data-date="${target.iso}"]`)');
         expect(page).toContain("?? (target.iso > today ? document.querySelector<HTMLElement>('[data-ahead]') : week)");
     });
+
+    it('цель встаёт под липкой строкой месяца, а не за ней', () => {
+        expect(page).toContain("const cover = top && getComputedStyle(top).position === 'sticky' ? top.offsetHeight : 0;");
+        expect(page).toContain('window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - cover);');
+        expect(page).toContain('<div ref={topRef} className="sticky top-0');
+    });
 });
 
 describe('сторож: смена месяца (стенд 19.11 — «‹» ронял экран)', () => {

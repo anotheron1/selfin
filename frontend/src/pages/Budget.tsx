@@ -48,6 +48,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     // Ушёл из журнала и вернулся в этой вкладке — тот же месяц и та же прокрутка (п. 8, ANO-126).
     const [saved] = useState(() => (target ? null : readJournalPosition(sessionStore())));
     const placed = useRef(false);
+    const topRef = useRef<HTMLDivElement>(null);
     const [year, setYear] = useState(target?.year ?? saved?.year ?? now.getFullYear());
     const [month, setMonth] = useState(target?.month ?? saved?.month ?? now.getMonth());
     // События — вместе с месяцем, к которому прочитаны: сразу после смены месяца в руках ещё прошлые, и вид по ним
@@ -115,7 +116,12 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             const el = document.getElementById(`day-${target.iso}`)
                 ?? document.querySelector<HTMLElement>(`[data-date="${target.iso}"]`)
                 ?? (target.iso > today ? document.querySelector<HTMLElement>('[data-ahead]') : week);
-            el?.scrollIntoView({ block: 'start' });
+            if (el) {
+                // На телефоне строка месяца липкая: цель встаёт под ней, а не за ней.
+                const top = topRef.current;
+                const cover = top && getComputedStyle(top).position === 'sticky' ? top.offsetHeight : 0;
+                window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - cover);
+            }
         } else if (saved) {
             window.scrollTo(0, saved.scroll);
         }
@@ -187,7 +193,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-12">
                 <div className="min-w-0">
                     {/* Телефон: строка месяца и ожидания стоят, список листается под ними (ANO-227 п. 1). */}
-                    <div className="sticky top-0 z-30 -mx-4 bg-sf-page px-4 pb-2 pt-3 lg:static">
+                    <div ref={topRef} className="sticky top-0 z-30 -mx-4 bg-sf-page px-4 pb-2 pt-3 lg:static">
                         <MonthPicker year={year} month={month} loadMonths={fetchEventMonths}
                             onChange={(y, m) => { setYear(y); setMonth(m); }} />
                         {/* Ожидания — как были, до кружков PR 3: на телефоне свёрнутой строкой. */}
