@@ -312,6 +312,8 @@ export function expectationGroups(events: FinancialEvent[], year: number, month:
         const total = sumOf(rows);
         const single = rows.length === 1;
         const weekly = isWeekly(rows);
+        // Одно название у всех строк серии — имя ожидания, а не заметка: в подзаголовок один раз, не пять заметок.
+        const common = !single && rows.every((e) => e.description && e.description === first.description) ? first.description : null;
         const money = (n: number) => `${income ? '+' : ''}${rub(n)} ₽`;
         const dated = (d: string) => `${fmtDayShort(d)}, ${dow(d)}`;
 
@@ -340,11 +342,11 @@ export function expectationGroups(events: FinancialEvent[], year: number, month:
             key, title, income, first, total, single, weeks,
             preset: fund ? { type: first.type, targetFundId: first.targetFundId } : { type: first.type, categoryId: first.categoryId },
             caption: weekly ? `${money(first.plannedAmount ?? 0)} · неделя` : `≈ ${money(total)}`,
-            subtitle: `ожидание · ${single ? `около ${money(total)} · ${dated(first.date!)}`
+            subtitle: `ожидание · ${common ? `«${common}» · ` : ''}${single ? `около ${money(total)} · ${dated(first.date!)}`
                 : weekly ? `${EVERY[parse(first.date!).getDay()]} по ${money(first.plannedAmount ?? 0)}`
                     : `около ${money(total)} в ${IN_MONTH[month]}`}`,
             open: ahead === -1 ? weeks.length - 1 : ahead,
-            notes: rows.filter((e) => e.description)
+            notes: common ? [] : rows.filter((e) => e.description)
                 .map((e) => `${dayLabel(e.date!)} — ${money(e.plannedAmount ?? 0)} «${e.description}»`),
             // Перевод к ожиданию сам не встаёт: правило привязки — у записей расхода и дохода (ExpectationMatch).
             footnote: fund ? prognosis

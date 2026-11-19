@@ -102,9 +102,12 @@ export default function ExpectationSheet({ group, onClose, onEdit, onRecord }: {
                             <button key={w.start} type="button" onClick={() => setOpen(i)}
                                 className={cn('flex w-full items-baseline justify-between gap-3 border-b border-sf-rule px-1 py-3.5 text-left text-sf-body',
                                     w.past && 'text-sf-muted')}>
-                                <span>{w.label}</span>
+                                <span className="min-w-0 truncate">{w.label}</span>
+                                {/* С записанным — как на доске S3-X4: «8 000 · записано 8 650 ₽», в одну строку. */}
                                 <span className="shrink-0 whitespace-nowrap tabular-nums">
-                                    {weekAmount(w, group.income)}{w.recorded > 0 && ` · записано ${rub(w.recorded)}`}
+                                    {w.recorded > 0
+                                        ? `${weekAmount(w, group.income).replace(/ ₽$/, '')} · записано ${rub(w.recorded)}`
+                                        : weekAmount(w, group.income)}
                                 </span>
                             </button>
                         )))}
@@ -112,7 +115,7 @@ export default function ExpectationSheet({ group, onClose, onEdit, onRecord }: {
                     <p className="mt-3 px-1 text-sf-label text-sf-muted">{group.footnote}</p>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2.5">
-                    <Button variant="soft" onClick={() => onEdit(week?.lines[0] ?? group.first)}>Изменить ожидание</Button>
+                    <Button variant="soft" className="px-3" onClick={() => onEdit(week?.lines[0] ?? group.first)}>Изменить ожидание</Button>
                     <Button onClick={onRecord}>Записать</Button>
                 </div>
             </div>

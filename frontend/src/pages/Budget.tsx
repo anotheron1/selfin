@@ -233,7 +233,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                         {!loading && header && (
                             <div className="mt-3 lg:hidden">
                                 <div className="mb-2.5 flex items-baseline justify-between gap-2">
-                                    <span className="text-sf-button font-semibold">{expTitle}</span>
+                                    <span className="shrink-0 whitespace-nowrap text-sf-button font-semibold">{expTitle}</span>
                                     <span className="text-right text-sf-label text-sf-muted">{header}</span>
                                 </div>
                                 <ExpectationCircles groups={groups} onRecord={g => setAdding(g.preset)} onOpen={g => setSheetKey(g.key)}
@@ -276,7 +276,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 {!loading && (
                     <aside className="hidden min-w-0 flex-col gap-3 lg:sticky lg:top-0 lg:flex lg:max-h-dvh lg:overflow-y-auto lg:pb-6 lg:pt-3">
                         <div className="flex items-baseline justify-between gap-2 px-1 pt-1.5">
-                            <span className="text-sf-button font-semibold">{expTitle}</span>
+                            <span className="shrink-0 whitespace-nowrap text-sf-button font-semibold">{expTitle}</span>
                             {header && <span className="text-right text-sf-label text-sf-muted">{header}</span>}
                         </div>
                         {header

@@ -118,6 +118,12 @@ describe('ожидания месяца (срез 3, п. 10; доски Zh2-J8, 
         expect(g.notes.map(sp)).toEqual(['вс 29 — 2 000 ₽ «Закупка к празднику»']);
     });
 
+    it('одно название у всех строк серии — в подзаголовке один раз, без заметок у каждой строки', () => {
+        const [g] = groups(weekly.map((w) => ({ ...w, description: 'Бензин' })));
+        expect(g.notes).toEqual([]);
+        expect(sp(g.subtitle)).toBe('ожидание · «Бензин» · каждый понедельник по 8 000 ₽');
+    });
+
     it('доходное ожидание — «+» и «Поступления»', () => {
         const [g] = groups([ev({ id: 'i', type: 'INCOME', date: '2026-11-20', categoryName: 'Подработка', plannedAmount: 20000 })]);
         expect(sp(g.caption)).toBe('≈ +20 000 ₽');

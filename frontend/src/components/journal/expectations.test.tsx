@@ -65,7 +65,7 @@ describe('лист ожидания — 390 (S3-X4, S3-X5)', () => {
         expect(t).toContain('Эта неделя, 9–15 нояб. 8 000 ₽ записано 2 440 ₽');
         expect(t).toContain('Пятёрочка · сегодня 1 240 ₽');
         expect(t).toContain('Продукты · вчера 1 200 ₽');
-        expect(html).toMatch(/text-sf-muted[^"]*"[^>]*>\s*<span>2–8 нояб\., прошла<\/span><span[^>]*>8 000 ₽ · записано 8 650 ₽/);
+        expect(html).toMatch(/text-sf-muted[^"]*"[^>]*><span[^>]*>2–8 нояб\., прошла<\/span><span[^>]*>8 000 · записано 8 650 ₽/);
         expect(t).toContain('Изменить ожидание');
         expect(t).toContain('Записать');
     });
