@@ -10,7 +10,16 @@ export const PAUSE_MS = 60_000;
 export const returnedAfterPause = (hiddenAt: number | null, now: number): boolean =>
     hiddenAt != null && now - hiddenAt >= PAUSE_MS;
 
-export interface JournalPosition { year: number; month: number; scroll: number }
+/** Что раскрыто в журнале: «Впереди» и недели по подписи — без этого прокрутка вернула бы не к тем строкам. */
+export interface JournalOpen { ahead: boolean; weeks: Record<string, boolean> }
+
+export interface JournalPosition { year: number; month: number; scroll: number; open?: JournalOpen }
+
+const isOpen = (o: unknown): o is JournalOpen => {
+    const x = o as JournalOpen | null;
+    return !!x && typeof x.ahead === 'boolean' && !!x.weeks && typeof x.weeks === 'object'
+        && Object.values(x.weeks).every((v) => typeof v === 'boolean');
+};
 
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 
@@ -30,7 +39,8 @@ export function readJournalPosition(store: Store): JournalPosition | null {
         const p = JSON.parse(store?.getItem(KEY) ?? 'null');
         const ok = p && Number.isInteger(p.year) && Number.isInteger(p.month) && p.month >= 0 && p.month <= 11
             && typeof p.scroll === 'number';
-        return ok ? { year: p.year, month: p.month, scroll: p.scroll } : null;
+        if (!ok) return null;
+        return isOpen(p.open) ? { year: p.year, month: p.month, scroll: p.scroll, open: p.open } : { year: p.year, month: p.month, scroll: p.scroll };
     } catch {
         return null;
     }

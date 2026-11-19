@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { JournalOpen } from '../../lib/screenSync';
 import {
     ArrowDownToLine, Briefcase, CalendarDays, Car, ChevronDown, ChevronUp, Coffee, Gift, GraduationCap, HeartPulse,
     House, Landmark, Plane, Receipt, Repeat, Scissors, ShoppingBag, ShoppingCart, Target, Wifi, type LucideIcon,
@@ -72,8 +73,10 @@ interface Props {
     allowedToday: string;
     /** Последняя сверка основного счёта — граница одного касания (lib/quickClose). */
     anchorDate: string | null;
-    /** «Впереди» раскрыто сразу. */
-    aheadOpen?: boolean;
+    /** Что раскрыто сразу: запомненное при уходе или «Впереди» для будущего дня из ?date=. */
+    opened?: JournalOpen;
+    /** Раскрыли или свернули — страница запоминает вместе с прокруткой. */
+    onOpened?: (o: JournalOpen) => void;
     /** День, к которому журнал открыт (?date=): его неделя открыта. */
     openDate?: string | null;
     busy: (id: string) => boolean;
@@ -82,9 +85,10 @@ interface Props {
     handlers: JournalHandlers;
 }
 
-export default function JournalList({ view, allowedToday, anchorDate, aheadOpen = false, openDate, busy, failed, stale, handlers }: Props) {
-    const [ahead, setAhead] = useState(aheadOpen);
-    const [toggled, setToggled] = useState<Record<string, boolean>>({});
+export default function JournalList({ view, allowedToday, anchorDate, opened: initial, onOpened, openDate, busy, failed, stale, handlers }: Props) {
+    const [ahead, setAhead] = useState(initial?.ahead ?? false);
+    const [toggled, setToggled] = useState<Record<string, boolean>>(initial?.weeks ?? {});
+    useEffect(() => { onOpened?.({ ahead, weeks: toggled }); }, [ahead, toggled, onOpened]);
 
     const row = (r: JournalRow) => {
         const Icon = iconOf(r.event);
@@ -185,7 +189,7 @@ export default function JournalList({ view, allowedToday, anchorDate, aheadOpen 
     return (
         <div className="font-sf text-sf-ink">
             {a && (
-                <section className="mb-1 rounded-sf-plate border border-dashed border-sf-rule">
+                <section data-ahead className="mb-1 rounded-sf-plate border border-dashed border-sf-rule">
                     <button type="button" aria-expanded={ahead} onClick={() => setAhead((o) => !o)}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left">
                         <CalendarDays size={20} strokeWidth={1.6} className="shrink-0 text-sf-muted" />
@@ -198,7 +202,7 @@ export default function JournalList({ view, allowedToday, anchorDate, aheadOpen 
                     {ahead && a.groups.map((g) => (
                         <div key={g.label} className="px-1.5 pb-1">
                             <div className="px-2 pb-1 pt-2 text-sf-label font-semibold text-sf-muted">{g.label}</div>
-                            {g.rows.map(planRow)}
+                            {g.rows.map((r) => <div key={r.event.id} data-date={r.event.date}>{planRow(r)}</div>)}
                         </div>
                     ))}
                 </section>

@@ -10,7 +10,7 @@ import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { latestAllowedIso, todayIso } from '../lib/factDate';
 import { ruPlural } from '../lib/plural';
 import { PRIORITY_DOT_CONFIG } from '../lib/priority';
-import { readJournalPosition, saveJournalPosition, sessionStore } from '../lib/screenSync';
+import { type JournalOpen, readJournalPosition, saveJournalPosition, sessionStore } from '../lib/screenSync';
 import EditEventSheet from '../components/EditEventSheet';
 import FactCreateSheet from '../components/FactCreateSheet';
 import ExpectationCards from '../components/journal/ExpectationCards';
@@ -108,24 +108,31 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         if (loading || placed.current) return;
         placed.current = true;
         if (target) {
-            // Строк в этот день нет — день не нарисован; тогда к его неделе.
+            // Будущий день — строка во «Впереди» (оно раскрыто, см. opened). Строк в день нет — день не нарисован:
+            // будущий — к «Впереди», прошедший — к его неделе.
+            const week = [...document.querySelectorAll<HTMLElement>('section[data-week-start]')]
+                .find(w => w.dataset.weekStart! <= target.iso && target.iso <= w.dataset.weekEnd!);
             const el = document.getElementById(`day-${target.iso}`)
-                ?? [...document.querySelectorAll<HTMLElement>('[data-week-start]')]
-                    .find(w => w.dataset.weekStart! <= target.iso && target.iso <= w.dataset.weekEnd!);
+                ?? document.querySelector<HTMLElement>(`[data-date="${target.iso}"]`)
+                ?? (target.iso > today ? document.querySelector<HTMLElement>('[data-ahead]') : week);
             el?.scrollIntoView({ block: 'start' });
         } else if (saved) {
             window.scrollTo(0, saved.scroll);
         }
-    }, [loading, target, saved]);
+    }, [loading, target, saved, today]);
 
-    // Позиция пишется на каждую прокрутку и смену месяца; снимается до того, как страница сменится.
-    useLayoutEffect(() => {
-        const store = sessionStore();
-        const save = () => { if (placed.current) saveJournalPosition(store, { year, month, scroll: window.scrollY }); };
-        save();
-        window.addEventListener('scroll', save, { passive: true });
-        return () => window.removeEventListener('scroll', save);
+    // Позиция пишется на каждую прокрутку, смену месяца и раскрытие раздела; снимается до того, как страница сменится.
+    // Раскрытое — вместе с ней: иначе журнал вернулся бы свёрнутым и прокрутка попала бы не туда (ревью Codex на #232).
+    const openNow = useRef<JournalOpen | undefined>(undefined);
+    const savePosition = useCallback(() => {
+        if (placed.current) saveJournalPosition(sessionStore(), { year, month, scroll: window.scrollY, open: openNow.current });
     }, [year, month]);
+    useLayoutEffect(() => {
+        savePosition();
+        window.addEventListener('scroll', savePosition, { passive: true });
+        return () => window.removeEventListener('scroll', savePosition);
+    }, [savePosition]);
+    const onOpened = useCallback((o: JournalOpen) => { openNow.current = o; savePosition(); }, [savePosition]);
 
     useEffect(() => {
         Promise.all([fetchCheckpoints(), fetchAccounts()])
@@ -211,7 +218,11 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                     {loading
                         ? <p className="animate-pulse py-6 text-center text-sf-note text-sf-muted">Загрузка…</p>
                         : <JournalList key={`${year}-${month}`} view={view} allowedToday={allowedToday} anchorDate={anchorDate}
-                            openDate={target?.iso}
+                            openDate={target?.iso} onOpened={onOpened}
+                            opened={placed.current ? undefined
+                                : saved && saved.year === year && saved.month === month ? saved.open
+                                : target && target.year === year && target.month === month && target.iso > today ? { ahead: true, weeks: {} }
+                                : undefined}
                             busy={(id) => guard.held(id)} failed={(id) => closeFailedId === id} stale={(id) => guard.stale(id)}
                             handlers={{
                                 onRow: setSelectedEvent,

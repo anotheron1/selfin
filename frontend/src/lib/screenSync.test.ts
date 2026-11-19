@@ -34,4 +34,17 @@ describe('позиция журнала', () => {
         expect(readJournalPosition(null)).toBeNull();
         expect(() => saveJournalPosition(null, { year: 2026, month: 1, scroll: 0 })).not.toThrow();
     });
+
+    it('раскрытые разделы — вместе с позицией; испорченные — позиция без них (ревью Codex на #232)', () => {
+        const s = storage();
+        const open = { ahead: true, weeks: { '2–8 нояб.': true, '26–31 окт.': false } };
+        saveJournalPosition(s, { year: 2026, month: 10, scroll: 900, open });
+        expect(readJournalPosition(s)).toEqual({ year: 2026, month: 10, scroll: 900, open });
+        s.setItem('journal-position', '{"year":2026,"month":10,"scroll":5,"open":{"ahead":"да","weeks":{}}}');
+        expect(readJournalPosition(s)).toEqual({ year: 2026, month: 10, scroll: 5 });
+        s.setItem('journal-position', '{"year":2026,"month":10,"scroll":5,"open":{"ahead":false,"weeks":{"x":1}}}');
+        expect(readJournalPosition(s)).toEqual({ year: 2026, month: 10, scroll: 5 });
+        s.setItem('journal-position', '{"year":2026,"month":10,"scroll":5,"open":{"ahead":false,"weeks":null}}');
+        expect(readJournalPosition(s)).toEqual({ year: 2026, month: 10, scroll: 5 });
+    });
 });

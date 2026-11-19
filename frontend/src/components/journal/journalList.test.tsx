@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { FinancialEvent } from '../../types/api';
 import { journalView } from '../../lib/journalSections';
 import JournalList from './JournalList';
+import type { JournalOpen } from '../../lib/screenSync';
 
 const ev = (over: Partial<FinancialEvent>): FinancialEvent => ({
     id: 'e', date: '2026-11-12', categoryId: 'c', categoryName: 'Жильё и быт', type: 'EXPENSE', plannedAmount: null,
@@ -30,8 +31,9 @@ const EVENTS = [
     ev({ id: 'income', date: '2026-11-10', type: 'INCOME', description: 'Аванс', categoryName: 'Зарплата', plannedAmount: 30000 }),
 ];
 
-const render = (aheadOpen = false) => renderToStaticMarkup(
-    <JournalList view={journalView(EVENTS, 2026, 10, TODAY)} allowedToday={TODAY} anchorDate={null} aheadOpen={aheadOpen}
+const AHEAD: JournalOpen = { ahead: true, weeks: {} };
+const render = (opened?: JournalOpen) => renderToStaticMarkup(
+    <JournalList view={journalView(EVENTS, 2026, 10, TODAY)} allowedToday={TODAY} anchorDate={null} opened={opened}
         busy={() => false} failed={() => false} stale={() => false} handlers={{
             onRow: () => {}, onPaid: () => {}, onOwn: () => {}, onCycle: () => {}, onRefresh: () => {},
         }} />);
@@ -50,7 +52,7 @@ describe('журнал по дням', () => {
 
     it('свёрнутое «Впереди» — строкой; раскрытое — по неделям', () => {
         expect(text(render())).toContain('Связь 15-го, Зарплата 25-го, Наушники 28-го');
-        const open = text(render(true));
+        const open = text(render(AHEAD));
         expect(order(open, ['Эта неделя, 9–15 нояб.', 'Связь', '23–29 нояб.', 'Зарплата', 'Наушники']))
             .toEqual([...order(open, ['Эта неделя, 9–15 нояб.', 'Связь', '23–29 нояб.', 'Зарплата', 'Наушники'])].sort((a, b) => a - b));
         expect(open).toContain('+80 000 ₽');
@@ -64,13 +66,13 @@ describe('журнал по дням', () => {
     });
 
     it('у плана без одного касания — только «своё»: запись к нему не теряется (было «+ записать факт»)', () => {
-        const open = text(render(true));
+        const open = text(render(AHEAD));
         expect(open).toContain('Наушники 28 нояб., сб · хотелка 6 000 ₽ своё');
         expect(open).not.toContain('Наушники 28 нояб., сб · хотелка 6 000 ₽ Оплачено');
     });
 
     it('кромки слева нет; кружок вида — деталь системы', () => {
-        const html = render(true);
+        const html = render(AHEAD);
         expect(html).not.toMatch(/border-left|borderLeft|border-l-/);
         expect(html).toContain('Вид: бронь. Нажми — сменить');
     });
@@ -89,6 +91,41 @@ describe('сторож: что ушло с экрана журнала (реше
         ['кромка слева', /borderLeft|border-left/],
     ])('%s', (_name, pattern) => {
         expect(page).not.toMatch(pattern);
+    });
+});
+
+describe('раскрытое — как было (ревью Codex на #232)', () => {
+    it('запомненные разделы раскрыты сразу: прошлая неделя и «Впереди»', () => {
+        const html = text(render({ ahead: true, weeks: { '2–8 нояб.': true } }));
+        expect(html).toContain('Пятёрочка');
+        expect(html).toContain('Зарплата');
+    });
+
+    it('у строк «Впереди» — дата: «Открыть день в журнале» находит будущий день', () => {
+        const html = render(AHEAD);
+        expect(html).toContain('data-date="2026-11-25"');
+        expect(html).toContain('data-ahead');
+    });
+});
+
+describe('сторож: раскрытое и будущий день на странице', () => {
+    const list = readFileSync(resolve(__dirname, './JournalList.tsx'), 'utf8');
+    const page = readFileSync(resolve(__dirname, '../../pages/Budget.tsx'), 'utf8');
+
+    it('журнал сообщает, что раскрыто, — страница это запоминает', () => {
+        expect(list).toContain('useEffect(() => { onOpened?.({ ahead, weeks: toggled }); }, [ahead, toggled, onOpened]);');
+        expect(page).toContain('saveJournalPosition(sessionStore(), { year, month, scroll: window.scrollY, open: openNow.current })');
+        expect(page).toContain('const onOpened = useCallback((o: JournalOpen) => { openNow.current = o; savePosition(); }');
+    });
+
+    it('возврат — запомненное раскрытие; будущий день из ?date= — «Впереди» раскрыто', () => {
+        expect(page).toContain('saved && saved.year === year && saved.month === month ? saved.open');
+        expect(page).toContain('target.iso > today ? { ahead: true, weeks: {} }');
+    });
+
+    it('расстановка: день, строка «Впереди», для будущего — «Впереди», для прошлого — неделя', () => {
+        expect(page).toContain('?? document.querySelector<HTMLElement>(`[data-date="${target.iso}"]`)');
+        expect(page).toContain("?? (target.iso > today ? document.querySelector<HTMLElement>('[data-ahead]') : week)");
     });
 });
 
