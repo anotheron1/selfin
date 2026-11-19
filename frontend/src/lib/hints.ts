@@ -1,5 +1,5 @@
 import { fetchHintsSettings, updateHintsSettings } from '../api';
-import type { HintsSettings, PocketResponse } from '../types/api';
+import type { FinancialEvent, HintsSettings, PocketResponse } from '../types/api';
 import { listNames, plannedNames } from './breakdownRows';
 import { fmtDayShort } from './format';
 import { pocketState } from './gapMode';
@@ -13,7 +13,7 @@ import { noExpectationsNote } from './noExpectationsNote';
  * Тексты — абзацы справки «Как считаются свободные деньги», вставшие на место (спека среза 2, «Справка → подача»).
  */
 
-export type HintId = 'number' | 'slope' | 'plus';
+export type HintId = 'number' | 'slope' | 'plus' | 'journal-circle' | 'journal-paid' | 'journal-plus';
 
 /** Сверху вниз по экрану: «Скрыть все подсказки» стоит у первой видимой. */
 const ORDER: HintId[] = ['number', 'slope', 'plus'];
@@ -44,6 +44,31 @@ export function firstDay(p: PocketResponse, s: HintsSettings | null, view: 'land
         hints: s == null || s.off ? [] : offered.filter(id => !s.closed.includes(id)),
         noUsual: noExpectationsNote(p) != null,
     };
+}
+
+// ── Первый журнал (срез 3, п. 6; ANO-59; доска S3-N1) ──────────────────────────────────────────────────
+
+const JOURNAL_ORDER: HintId[] = ['journal-circle', 'journal-paid', 'journal-plus'];
+
+/** Род и падеж имени, которое задал человек, неизвестны — имя в кавычках, без склонения. */
+export const journalCircleHint = (name: string) =>
+    `Купил — нажми на кружок «${name}». Трата встанет к ожиданию, «Свободно» не изменится.`;
+export const JOURNAL_PAID_HINT = 'Заплатил — «Оплачено». Сумма другая — «своё».';
+export const JOURNAL_PLUS_HINT = 'Остальные траты и доходы — через «+».';
+
+/**
+ * Пузыри журнала: пока в текущем месяце нет ни одной записи и подсказки не выключены. У первого кружка ожидания — если
+ * ожидания есть (`circle`); у «Оплачено | своё» первой брони в списке — если она есть (`paid`); у «+». Ключ `hints` и
+ * выключатель — те же, что у «Сегодня»: «Скрыть все» здесь прячет и там.
+ */
+export function firstJournal(
+    p: { current: boolean; events: FinancialEvent[]; circle: boolean; paid: boolean },
+    s: HintsSettings | null,
+): HintId[] {
+    if (s == null || s.off || !p.current || p.events.some(e => e.eventKind === 'FACT')) return [];
+    return JOURNAL_ORDER
+        .filter(id => (id === 'journal-circle' ? p.circle : id === 'journal-paid' ? p.paid : true))
+        .filter(id => !s.closed.includes(id));
 }
 
 export const closeHint = (s: HintsSettings, id: HintId): HintsSettings =>

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fetchHintsSettings, updateHintsSettings } from '../api';
-import { closeHint, firstDay, hideAllHints, loadHints, numberHint, saveHints, switchHints } from './hints';
-import type { HintsSettings, PocketResponse, UpcomingItem } from '../types/api';
+import {
+    closeHint, firstDay, firstJournal, hideAllHints, JOURNAL_PAID_HINT, JOURNAL_PLUS_HINT, journalCircleHint, loadHints, numberHint,
+    saveHints, switchHints,
+} from './hints';
+import type { FinancialEvent, HintsSettings, PocketResponse, UpcomingItem } from '../types/api';
 
 vi.mock('../api', () => ({ updateHintsSettings: vi.fn(), fetchHintsSettings: vi.fn() }));
 
@@ -128,5 +131,47 @@ describe('подсказка у числа — строки «Ещё уйдёт�
         // «25 нояб.» с точкой, «15 мая» — без: точка в конце одна.
         const may = fresh({ upcoming: [], horizon: { type: 'NEXT_INCOME', endDate: '2027-05-15', label: '', fallback: false } });
         expect(numberHint(may)).toBe('Столько можно тратить до 15 мая.');
+    });
+});
+
+describe('подсказки первого журнала (срез 3, п. 6; ANO-59; S3-N1)', () => {
+    const plan = { eventKind: 'PLAN' } as FinancialEvent;
+    const record = { eventKind: 'FACT' } as FinancialEvent;
+    const month = (over: Partial<Parameters<typeof firstJournal>[0]> = {}) =>
+        ({ current: true, events: [plan], circle: true, paid: true, ...over });
+
+    it('три пузыря — у первого кружка ожидания, у «Оплачено | своё», у «+»', () => {
+        expect(firstJournal(month(), ON)).toEqual(['journal-circle', 'journal-paid', 'journal-plus']);
+    });
+
+    it('в текущем месяце есть запись — пузырей нет; другой месяц — нет', () => {
+        expect(firstJournal(month({ events: [plan, record] }), ON)).toEqual([]);
+        expect(firstJournal(month({ current: false }), ON)).toEqual([]);
+    });
+
+    it('нет ожиданий — нет пузыря у кружка; нет брони — нет у «Оплачено»', () => {
+        expect(firstJournal(month({ circle: false }), ON)).toEqual(['journal-paid', 'journal-plus']);
+        expect(firstJournal(month({ paid: false }), ON)).toEqual(['journal-circle', 'journal-plus']);
+    });
+
+    it('закрытая крестиком не возвращается; выключенные и не пришедшие настройки — пузырей нет', () => {
+        expect(firstJournal(month(), closeHint(ON, 'journal-paid'))).toEqual(['journal-circle', 'journal-plus']);
+        expect(firstJournal(month(), hideAllHints(ON))).toEqual([]);
+        expect(firstJournal(month(), null)).toEqual([]);
+    });
+
+    it('«Скрыть все» в журнале прячет и подсказки «Сегодня»: выключатель один', () => {
+        const fromJournal = hideAllHints(closeHint(ON, 'journal-circle'));
+        expect(firstDay(fresh(), fromJournal, 'land').hints).toEqual([]);
+    });
+
+    it('имя подсказки годится серверу: латиница, цифры и дефис, до 32 знаков', () => {
+        for (const id of firstJournal(month(), ON)) expect(id).toMatch(/^[a-z0-9-]{1,32}$/);
+    });
+
+    it('у кружка — имя ожидания; тексты — с доски', () => {
+        expect(journalCircleHint('Продукты')).toBe('Купил — нажми на кружок «Продукты». Трата встанет к ожиданию, «Свободно» не изменится.');
+        expect(JOURNAL_PAID_HINT).toBe('Заплатил — «Оплачено». Сумма другая — «своё».');
+        expect(JOURNAL_PLUS_HINT).toBe('Остальные траты и доходы — через «+».');
     });
 });
