@@ -158,7 +158,9 @@ describe('журнал: старые карточки ожиданий ушли,
     const page = readFileSync(resolve(__dirname, '../../pages/Budget.tsx'), 'utf8');
 
     it('«Записать» идёт через recordTo: перевод в копилку — лист записи к строке (ревью Codex на #233)', () => {
-        expect(page).toMatch(/const record = \(g: ExpectationGroup, line\?: FinancialEvent\) => \{\s*const to = recordTo\(g, line\);/);
+        expect(page).toMatch(/const record = \(g: ExpectationGroup, line\?: FinancialEvent\) => \{\s*const to = recordTo\(g, line, live \?\? undefined\);/);
+        // Живые категории — для записи к ожиданию из архивной категории (ревью Codex на #233, круг 3).
+        expect(page).toMatch(/fetchCategories\(\)\.then\(c => setLive\(new Set\(c\.map\(x => x\.id\)\)\)\)/);
         expect(page).toMatch(/'planId' in to \? setFactSheet\(\{ planId: to\.planId \}\) : setAdding\(to\.preset\)/);
         expect(page).not.toMatch(/setAdding\(g\.preset\)|setAdding\(sheetGroup\.preset\)/);
         // Лист и сетка отдают выбранную строку.

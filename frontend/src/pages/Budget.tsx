@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useReducer, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
+import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts, fetchCategories } from '../api';
 import { CHANGED } from '../api/client';
 import type { FinancialEvent, HintsSettings } from '../types/api';
 import { afterMonth, expectationGroups, expectationsHeader, journalDate, journalView, recordTo, type ExpectationGroup } from '../lib/journalSections';
@@ -77,6 +77,9 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const [sheetKey, setSheetKey] = useState<string | null>(null);
     const [cell, setCell] = useState<{ key: string; row: number; col: number } | null>(null);
     const [adding, setAdding] = useState<ExpectationGroup['preset'] | null>(null);
+    // Живые категории: ожидание из архивной пишется к строке, а не формой «+» (recordTo). Не пришли — форма «+».
+    const [live, setLive] = useState<Set<string> | null>(null);
+    useEffect(() => { fetchCategories().then(c => setLive(new Set(c.map(x => x.id)))).catch(console.error); }, [refreshSignal]);
     // Подсказки первого журнала (ANO-59) — ключ и выключатель те же, что у «Сегодня».
     const [hints, setHints] = useState<HintsSettings | null>(null);
     useEffect(() => { loadHints().then(setHints).catch(() => setHints(null)); }, []);
@@ -223,7 +226,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     );
     const circleHint = groups.length > 0 ? journalCircleHint(groups[0].title) : '';
     const record = (g: ExpectationGroup, line?: FinancialEvent) => {
-        const to = recordTo(g, line);
+        const to = recordTo(g, line, live ?? undefined);
         void ('planId' in to ? setFactSheet({ planId: to.planId }) : setAdding(to.preset));
     };
 
