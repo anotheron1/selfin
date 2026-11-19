@@ -46,9 +46,11 @@ describe('цвет — не приговор (ANO-123)', () => {
     it('журнал: «факт» под строкой плана — без цвета «в пользу» и «против»', () => {
         // Пункт 6 от 07.09. Перемер 26.09 сначала записал его ушедшим — grep был обрезан
         // head -10, и строка журнала в выдачу не попала; поймала проверка типов.
-        const src = read('../pages/Budget.tsx');
+        // С среза 3 «факт X» под планом — «оплачено X» в подписи строки, цветом подписи (доска S3-F7).
+        const src = read('../pages/Budget.tsx') + read('../components/journal/JournalList.tsx');
         expect(src).not.toMatch(/deltaColor|favourable/);
-        expect(span(src, 'planFact != null ?', 'нет факта')).not.toMatch(VERDICT);
+        expect(span(src, '{r.sub &&', '</div>')).not.toMatch(/VERDICT|color-|text-sf-(error|accent)|style=/);
+        expect(src).not.toMatch(VERDICT);
     });
 
     it('дрейф в «Настройках» — нейтральным цветом', () => {

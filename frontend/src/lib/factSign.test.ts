@@ -41,13 +41,10 @@ describe('знак суммы факта — по направлению ден�
 describe('знак факта на экране — только от правила (ANO-184)', () => {
     const budget = readFileSync(new URL('../pages/Budget.tsx', import.meta.url), 'utf8');
 
-    it('журнал, строка факта', () => {
-        expect(budget).toContain('factAmountText(event.type, event.factAmount, fmt)');
-        expect(budget).not.toContain("{isIncome ? '+' : '-'}{fmt(event.factAmount)}");
-    });
-
-    it('журнал, «Последний факт»', () => {
-        expect(budget).toContain('factAmountText(lastFact.type, lastFact.factAmount, fmt)');
-        expect(budget).not.toContain('-{fmt(lastFact.factAmount)}');
+    it('журнал, строка: знак — от правила, у ушедшего его нет (доска Zh2-J8); «Последнего факта» нет (решение 51)', () => {
+        const list = readFileSync(new URL('../components/journal/JournalList.tsx', import.meta.url), 'utf8');
+        expect(list).toContain('const s = signedFact(r.event.type, r.amount);');
+        expect(list).not.toMatch(/r\.income \? '\+'/);
+        expect(budget).not.toContain('lastFact');
     });
 });

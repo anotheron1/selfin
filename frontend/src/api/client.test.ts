@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, CHANGED, del, get, patch, post, put, signOut } from './client';
+import { ApiError, CHANGED, del, get, joinTabs, linkTabs, patch, post, put, signOut } from './client';
 import { setEventWishlistStatus, setFundWishlistStatus } from './index';
 import { attempt } from '../lib/writeFailure';
 
@@ -153,5 +153,35 @@ describe('удачная запись сообщает шапке (CHANGED)', ()
         answer(new Response('{}', { status: 409 }));
         await post('/x', {}).catch(() => {});
         expect(heard).not.toHaveBeenCalled();
+    });
+});
+
+/** Вкладки обновляют друг друга (срез 3, п. 8, ANO-256): перемена уходит в BroadcastChannel и приходит из него. */
+describe('вкладки — через канал', () => {
+    const fakeChannel = () => ({ postMessage: vi.fn(), onmessage: null as ((e: MessageEvent) => void) | null });
+
+    it('пришедшее из канала — то же событие в этой вкладке; чужое сообщение — нет', () => {
+        const target = new EventTarget();
+        const heard = vi.fn();
+        target.addEventListener(CHANGED, heard);
+        const channel = fakeChannel();
+        linkTabs(target, channel);
+        channel.onmessage!({ data: CHANGED } as MessageEvent);
+        channel.onmessage!({ data: 'другое' } as MessageEvent);
+        expect(heard).toHaveBeenCalledTimes(1);
+        expect(channel.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('удачная запись уходит в канал; чтение — нет', async () => {
+        const channel = fakeChannel();
+        vi.stubGlobal('window', new EventTarget());
+        vi.stubGlobal('BroadcastChannel', function FakeChannel() { return channel; });
+        joinTabs();
+        answer(new Response(null, { status: 204 }));
+        await post('/x', {});
+        answer(new Response('{}', { status: 200 }));
+        await get('/x');
+        expect(channel.postMessage).toHaveBeenCalledTimes(1);
+        expect(channel.postMessage).toHaveBeenCalledWith(CHANGED);
     });
 });

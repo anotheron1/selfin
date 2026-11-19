@@ -267,7 +267,7 @@ class TwoPeopleIsolationIT {
                 "/api/v1/analytics/forecast", "/api/v1/analytics/forecast-readiness", "/api/v1/balance-checkpoints",
                 "/api/v1/capital/items", item, item + "/revaluations", "/api/v1/capital/summary",
                 "/api/v1/capital/trajectory", "/api/v1/categories", "/api/v1/events?" + period,
-                "/api/v1/events?priority=LOW", "/api/v1/funds", "/api/v1/funds/planner", "/api/v1/hello",
+                "/api/v1/events?priority=LOW", "/api/v1/events/months?year=" + TODAY.getYear(), "/api/v1/funds", "/api/v1/funds/planner", "/api/v1/hello",
                 "/api/v1/me", "/api/v1/pocket", "/api/v1/settings/wishlist", "/api/v1/settings/pocket",
                 "/api/v1/settings/hints", "/api/v1/strategy/timeline", "/api/v1/version", "/api/v1/wishlist/simulation")) {
             answers.put("GET " + uri, readOk(p, GET, uri, null));
