@@ -60,6 +60,13 @@ public class FinancialEventController {
         return eventService.findByPeriod(startDate, endDate);
     }
 
+    @Operation(summary = "Месяцы года со строками журнала",
+            description = "Номера месяцев 1–12, где журнал покажет хоть одну строку: точки в сетке месяцев.")
+    @GetMapping("/months")
+    public List<Integer> monthsWithRows(@RequestParam int year) {
+        return eventService.monthsWithRows(year);
+    }
+
     @Operation(summary = "Создать событие (идемпотентно)", description = "Клиент обязан передать заголовок Idempotency-Key (UUID). "
             +
             "Повторный запрос с тем же ключом вернёт уже созданное событие без дублирования.")

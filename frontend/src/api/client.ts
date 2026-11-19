@@ -64,6 +64,30 @@ export class ApiError extends Error {
  */
 export const CHANGED = 'selfin:changed';
 
+/** Канал вкладок этого браузера — то, что от BroadcastChannel нужно клиенту. */
+export interface TabChannel {
+    postMessage(message: unknown): void;
+    onmessage: ((e: MessageEvent) => void) | null;
+}
+
+/**
+ * Перемена уходит в другие вкладки, их перемены приходят сюда тем же событием (срез 3, п. 8, ANO-256): шапка и журнал
+ * второй вкладки перечитываются сами. Себе канал не доставляет — эха нет; пришедшее дальше не пересылается.
+ *
+ * @return отправка перемены в другие вкладки
+ */
+export function linkTabs(target: EventTarget, channel: TabChannel): () => void {
+    channel.onmessage = (e) => { if (e.data === CHANGED) target.dispatchEvent(new Event(CHANGED)); };
+    return () => channel.postMessage(CHANGED);
+}
+
+let toOtherTabs: () => void = () => {};
+
+/** Подключает вкладку к остальным — один раз при старте (main.tsx). Без BroadcastChannel вкладка живёт сама. */
+export function joinTabs() {
+    if (typeof BroadcastChannel !== 'undefined') toOtherTabs = linkTabs(window, new BroadcastChannel('selfin'));
+}
+
 async function request<T>(path: string, options?: RequestInit & { extraHeaders?: Record<string, string> }): Promise<T> {
     const { extraHeaders, ...rest } = options ?? {};
     const res = await fetch(`${BASE_URL}${path}`, {
@@ -100,7 +124,10 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
         throw new ApiError(res.status, details,
             `API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
     }
-    if (rest.method && rest.method !== 'GET' && typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGED));
+    if (rest.method && rest.method !== 'GET' && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event(CHANGED));
+        toOtherTabs();
+    }
     // ANO-208: у успеха без тела нет и данных — у 204 и у 200 без тела одинаково. Ручки статуса
     // хотелки отвечают 200 без тела, и res.json() на нём падал: запись проходила, а экран писал
     // «Не записалось».

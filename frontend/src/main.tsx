@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './ds/tokens.css'
 import './index.css'
 import App from './App'
+import { joinTabs } from './api/client'
+
+joinTabs()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

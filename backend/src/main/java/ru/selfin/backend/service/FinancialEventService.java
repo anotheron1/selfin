@@ -39,6 +39,21 @@ public class FinancialEventService {
     private TargetFundService targetFundService;
 
     /**
+     * Месяцы года, где журнал покажет хоть одну строку (срез 3, п. 7): точки в сетке месяцев. Строки — те же, что у
+     * {@link #findByPeriod}: живые и без хотелок вне плана месяца.
+     *
+     * @return номера месяцев 1–12 по возрастанию
+     */
+    @Transactional(readOnly = true)
+    public List<Integer> monthsWithRows(int year) {
+        // ponytail: год строк целиком в памяти — сотни строк; если станет тесно, DISTINCT по месяцу в запросе.
+        return eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(
+                        LocalDate.of(year, 1, 1), LocalDate.of(year, 12, 31))
+                .stream().filter(e -> !e.outsideMonthPlan())
+                .map(e -> e.getDate().getMonthValue()).distinct().toList(); // порядок — из запроса
+    }
+
+    /**
      * Возвращает список событий за период {@code [start, end]} с обогащением:
      * для PLAN-записей — агрегаты привязанных FACT-записей (количество, сумма),
      * для FACT-записей — описание родительского PLAN,

@@ -52,8 +52,10 @@ describe('характер строки с экрана «Хотелки» не 
     // Сторожа по исходнику: компонентных тестов во фронте нет, а вернуть точке смену характера
     // или форме выбор — правка в одно слово, и правило выше осталось бы зелёным.
     it('журнал даёт точке смену характера только незапертой строке', () => {
-        expect(read('../pages/Budget.tsx'))
-            .toMatch(/onCycle=\{isPlan && !characterLocked\(event\) \? \(\) => cycleEventPriority\(/);
+        const list = read('../components/journal/JournalList.tsx');
+        expect(list).toMatch(/const cycle = r\.event\.eventKind === 'PLAN' && !characterLocked\(r\.event\);/);
+        expect(list).toMatch(/onClick=\{cycle \? \(e\) => \{ e\.stopPropagation\(\); handlers\.onCycle\(r\.event\); \} : undefined\}/);
+        expect(read('../pages/Budget.tsx')).toMatch(/onCycle: \(plan\) => \{ cycleEventPriority\(plan\.id\)/);
     });
 
     it('форма у запертой строки показывает имя и объяснение, выбор — только у незапертой', () => {

@@ -76,14 +76,7 @@ body {
 .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
 
 /* ── Plan-Fact hover groups (Budget) ── */
+/* Пара план — записи под указателем: только фон, без кромки (срез 3, п. 6, ANO-42). */
 .pf-hovered {
   background: var(--sf-accent-soft) !important;
-}
-.pf-hovered.pf-is-plan {
-  border-left: 2px solid var(--color-accent) !important;
-  padding-left: 12px !important;
-}
-.pf-hovered.pf-is-fact {
-  border-left: 2px solid rgba(47, 107, 85, 0.35) !important;
-  padding-left: 12px !important;
 }

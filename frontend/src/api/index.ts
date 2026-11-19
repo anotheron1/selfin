@@ -81,6 +81,9 @@ export const cycleCategoryPriority = (id: string) => patch<Category>(`/categorie
 export const fetchEvents = (startDate: string, endDate: string) =>
     get<FinancialEvent[]>(`/events?startDate=${startDate}&endDate=${endDate}`);
 
+/** Месяцы года со строками журнала, с единицы — точки в сетке месяцев (срез 3, п. 7). */
+export const fetchEventMonths = (year: number) => get<number[]>(`/events/months?year=${year}`);
+
 /**
  * Запись денег с ключом попытки (ANO-192): повтор после сбоя уходит с тем же ключом, и сервер
  * вернёт уже записанное; после успеха ключ забыт — следующая такая же запись новая.
