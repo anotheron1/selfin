@@ -203,9 +203,12 @@ function linkWord(f: FinancialEvent, byId: Map<string, FinancialEvent>): string 
 const nameOf = (e: FinancialEvent) =>
     e.type === 'FUND_TRANSFER' ? (e.targetFundName ?? 'Копилка') : (e.description || e.categoryName);
 
+/** Перевод с минусом — снятие из копилки (TargetFundService.transferToPocket), а не накопление в неё. */
+const fundWay = (amount: number | null) => ((amount ?? 0) < 0 ? 'из копилки' : 'в копилку');
+
 function recordRow(e: FinancialEvent, byId: Map<string, FinancialEvent>): JournalRow {
     const sub = e.type === 'FUND_TRANSFER'
-        ? 'Накопление · в копилку'
+        ? `Накопление · ${fundWay(e.factAmount ?? e.plannedAmount)}`
         : [e.description ? e.categoryName : null, e.eventKind === 'FACT' ? linkWord(e, byId) : null].filter(Boolean).join(' · ');
     return {
         event: e, fact: true, kind: KIND[e.priority], name: nameOf(e), sub,
@@ -222,7 +225,7 @@ function planRow(e: FinancialEvent, today: string): JournalRow {
     const word = dateWord(e.date!, today);
     const sub = [
         e.date! > today || e.date === today || e.date === shift(today, -1) ? word : null,
-        e.type === 'FUND_TRANSFER' ? 'в копилку' : PRIORITY_DOT_CONFIG[e.priority].name.toLowerCase(),
+        e.type === 'FUND_TRANSFER' ? fundWay(e.plannedAmount) : PRIORITY_DOT_CONFIG[e.priority].name.toLowerCase(),
         paid > 0 ? `${income ? 'получено' : 'оплачено'} ${rub(paid)}` : null,
     ].filter(Boolean).join(' · ');
     return {

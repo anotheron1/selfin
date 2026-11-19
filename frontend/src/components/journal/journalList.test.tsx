@@ -170,7 +170,7 @@ describe('знак суммы — по направлению денег (ANO-18
                 }} />);
         const t = text(html);
         expect(t).toContain('Расход Жильё и быт 300 ₽');
-        expect(t).toContain('Отпуск Накопление · в копилку +100 ₽');
+        expect(t).toContain('Отпуск Накопление · из копилки +100 ₽');
         expect(t).toContain('Возврат долга Жильё и быт +500 ₽');
     });
 });

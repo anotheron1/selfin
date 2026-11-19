@@ -188,6 +188,8 @@ describe('журнал по дням (срез 3, п. 6)', () => {
             fact({ id: 'c', date: '2026-11-09', parentEventId: 'wish', priority: 'LOW', categoryName: 'Досуг и поездки', createdAt: '2026-11-09T03:00:00' }),
             fact({ id: 'd', date: '2026-11-09', type: 'FUND_TRANSFER', targetFundName: 'Отпуск', categoryName: 'Переводы в копилки', createdAt: '2026-11-09T02:00:00' }),
             fact({ id: 'e', date: '2026-11-09', parentEventId: 'august', parentPlanDescription: 'Отпуск', categoryName: 'Досуг и поездки', createdAt: '2026-11-09T01:00:00' }),
+            // Снятие из копилки — перевод с минусом (TargetFundService.transferToPocket; ревью Codex на #232).
+            fact({ id: 'g', date: '2026-11-09', type: 'FUND_TRANSFER', targetFundName: 'Машина', factAmount: -400, categoryName: 'Переводы в копилки', createdAt: '2026-11-09T00:30:00' }),
         ]);
         expect(j.weeks[0].days[0].records.map((r) => [r.name, r.sub, r.fact])).toEqual([
             ['Пятёрочка', 'Продукты · к ожиданию', true],
@@ -195,6 +197,7 @@ describe('журнал по дням (срез 3, п. 6)', () => {
             ['Досуг и поездки', 'к хотелке', true],
             ['Отпуск', 'Накопление · в копилку', true],
             ['Досуг и поездки', 'к плану «Отпуск»', true],
+            ['Машина', 'Накопление · из копилки', true],
         ]);
     });
 
