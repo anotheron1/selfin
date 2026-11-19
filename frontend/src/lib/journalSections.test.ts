@@ -87,9 +87,10 @@ describe('ожидания месяца (срез 3, п. 10; доски Zh2-J8, 
     it('«записано X» — сумма записей к строкам недели (linkedFactsAmount) и сами записи; «осталось» не считается', () => {
         const [g] = groups([
             ...weekly.map((w) => (w.id === 'w1' ? { ...w, linkedFactsCount: 2, linkedFactsAmount: 2440 } : w)),
-            fact({ id: 'p', date: '2026-11-12', parentEventId: 'w1', factAmount: 1240, description: 'Пятёрочка', createdAt: '2026-11-12T10:00:00' }),
             fact({ id: 'q', date: '2026-11-11', parentEventId: 'w1', factAmount: 1200, createdAt: '2026-11-11T10:00:00' }),
+            fact({ id: 'p', date: '2026-11-12', parentEventId: 'w1', factAmount: 1240, description: 'Пятёрочка', createdAt: '2026-11-12T10:00:00' }),
             fact({ id: 'x', date: '2026-11-11', factAmount: 300 }),
+            fact({ id: 'y', date: '2026-11-03', parentEventId: 'w0', factAmount: 500 }),
         ]);
         const week = g.weeks[1];
         expect(week.recorded).toBe(2440);
@@ -99,6 +100,25 @@ describe('ожидания месяца (срез 3, п. 10; доски Zh2-J8, 
         expect(JSON.stringify(g)).not.toMatch(/remain|осталось|over|превыш/i);
     });
 
+
+    it('неделя, что кончается сегодня, — эта, а не прошедшая', () => {
+        const [g] = groups(weekly, '2026-11-15');
+        expect(g.weeks.map((w) => [sp(w.label), w.current, w.past]).slice(0, 2)).toEqual([
+            ['2–8 нояб., прошла', false, true],
+            ['Эта неделя, 9–15 нояб.', true, false],
+        ]);
+    });
+
+    it('строки через 7 дней, но с разными суммами, — не «неделей»', () => {
+        const [g] = groups([ev({ id: 'a', date: '2026-11-02' }), ev({ id: 'b', date: '2026-11-09', plannedAmount: 9000 })]);
+        expect(sp(g.caption)).toBe('≈ 17 000 ₽');
+    });
+
+    it('у разового название — заметка, а не подзаголовок', () => {
+        const [g] = groups([ev({ id: 'car', date: '2026-11-20', plannedAmount: 15000, description: 'Стоматолог' })]);
+        expect(g.notes.map(sp)).toEqual(['пт 20 — 15 000 ₽ «Стоматолог»']);
+        expect(g.subtitle).not.toContain('«');
+    });
     it('погашенная строка — та же строка с «записано», не пропадает', () => {
         const [g] = groups([ev({ id: 'a', date: '2026-11-03', plannedAmount: 8000, linkedFactsCount: 3, linkedFactsAmount: 8650 })]);
         expect(g.weeks[0].recorded).toBe(8650);

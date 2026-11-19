@@ -23,14 +23,11 @@ interface Props {
     defaultAmount?: number;
     /** Дата пустая, пока её не выберут: после сверки остатка её нельзя угадать (ANO-176). */
     requireDate?: boolean;
-    /** Правка самого плана — у строк, которые открываются не из недель, а из карточек ожиданий. */
-    onEditPlan?: () => void;
-    editPlanLabel?: string;
 }
 
 export default function FactCreateSheet({
     planId, planDescription, planPriority, open, onClose, onCreated,
-    hint, defaultAmount, requireDate, onEditPlan, editPlanLabel = 'изменить план',
+    hint, defaultAmount, requireDate,
 }: Props) {
     // ANO-155: местная дата, не UTC — toISOString() ночью уводил умолчание на день назад.
     // ANO-235: и не позже даты сервера — восточнее Москвы ночью местное «сегодня» для него завтра.
@@ -107,12 +104,6 @@ export default function FactCreateSheet({
                     <SheetTitle>Записать факт</SheetTitle>
                     <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{planDescription}</p>
                     {hint && <p className="text-sm">{hint}</p>}
-                    {onEditPlan && (
-                        <button type="button" onClick={onEditPlan} className="self-start text-xs"
-                            style={{ color: 'hsl(var(--primary))' }}>
-                            {editPlanLabel}
-                        </button>
-                    )}
                 </SheetHeader>
                 <form onSubmit={handleSubmit} className="space-y-3 mt-4">
                     <div>
