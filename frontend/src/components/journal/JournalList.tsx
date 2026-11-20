@@ -55,7 +55,7 @@ const hover = (group: string, on: boolean) => document.querySelectorAll(`[data-g
     .forEach((el) => el.classList.toggle('pf-hovered', on));
 
 export interface JournalHandlers {
-    /** Нажатие на строку — правка (EditEventSheet до PR 5). */
+    /** Нажатие на строку — карточка (срез 3 п. 16, EventCard). */
     onRow: (e: FinancialEvent) => void;
     /** «Оплачено» / «Получено» — одним касанием или с вопросом о дате, если раньше сверки. */
     onPaid: (e: FinancialEvent, d: QuickClose) => void;

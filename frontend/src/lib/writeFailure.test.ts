@@ -38,8 +38,10 @@ describe('фраза отказа записи', () => {
 
     it('те же слова, что в «Записать факт» и листе правки: одна фраза на один случай', () => {
         expect(read('../components/PlanFactSheet.tsx')).toContain(`'${WRITE_FAILED}'`);
-        expect(read('../components/EditEventSheet.tsx')).toContain(`'${WRITE_FAILED}'`);
-        expect(read('../components/EditEventSheet.tsx')).toContain(`'${DELETE_FAILED}'`);
+        // Правка и корзина (срез 3 п. 16) — те же фразы из этого файла, а не свои копии.
+        expect(read('../components/Fab.tsx')).toContain('setError(writeFailure(err))');
+        expect(read('../components/journal/EventCard.tsx')).toMatch(/import \{ DELETE_FAILED, writeFailure \} from '..\/..\/lib\/writeFailure'/);
+        expect(DELETE_FAILED).toBe('Не удалилось — попробуйте ещё раз');
     });
 });
 

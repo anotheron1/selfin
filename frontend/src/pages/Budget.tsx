@@ -2,20 +2,23 @@ import { useEffect, useLayoutEffect, useState, useCallback, useReducer, useRef }
 import { useSearchParams } from 'react-router-dom';
 import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts, fetchCategories } from '../api';
 import { CHANGED } from '../api/client';
-import type { FinancialEvent, HintsSettings } from '../types/api';
+import type { FinancialEvent, HintsSettings, ScopeEnum } from '../types/api';
 import { afterMonth, expectationGroups, expectationsHeader, journalDate, journalView, recordTo, type ExpectationGroup } from '../lib/journalSections';
 import { weekGrid } from '../lib/weekGrid';
 import {
     firstJournal, JOURNAL_PAID_HINT, JOURNAL_PLUS_HINT, journalCircleHint, loadHints, saveHints, type HintId,
 } from '../lib/hints';
-import { anchorDateOf, type QuickClose } from '../lib/quickClose';
+import { anchorDateOf, quickClose, type QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { latestAllowedIso, todayIso } from '../lib/factDate';
 import { PRIORITY_DOT_CONFIG } from '../lib/priority';
+import { eventName } from '../lib/eventCard';
 import { type JournalOpen, readJournalPosition, saveJournalPosition, sessionStore } from '../lib/screenSync';
-import EditEventSheet from '../components/EditEventSheet';
 import PlanFactSheet from '../components/PlanFactSheet';
 import QuickAddModal from '../components/Fab';
+import UndoToast from '../components/UndoToast';
+import { ApiError } from '../api/client';
+import EventCard, { type Written } from '../components/journal/EventCard';
 import { DayHint } from '../components/today/HintBubble';
 import ExpectationCircles from '../components/journal/ExpectationCircles';
 import ExpectationSheet from '../components/journal/ExpectationSheet';
@@ -25,11 +28,6 @@ import WeekGrid from '../components/journal/WeekGrid';
 
 const iso = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-function getDisplayName(event: FinancialEvent): string {
-    if (event.type === 'FUND_TRANSFER') return event.targetFundName ?? 'Копилка';
-    return event.description || event.rawInput || event.categoryName || '';
-}
 
 /**
  * «Журнал» (срез 3, п. 6–8; доски Zh2-J8, Zh2-J8b, левая колонка S3-W1d). Дни — lib/journalSections, вид списка —
@@ -64,7 +62,11 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     // Чтение месяца упало — сказать и дать повторить; чужой месяц по-прежнему не показывается (ревью Codex на #232).
     const [failedKey, setFailedKey] = useState<string | null>(null);
     const failed = !fetching && failedKey === shownKey;
-    const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
+    // Нажатие на строку — карточка; «Изменить» и строка карточки — та же форма «+», заполненная (п. 16).
+    const [card, setCard] = useState<FinancialEvent | null>(null);
+    const [editing, setEditing] = useState<{ event: FinancialEvent; scope: ScopeEnum } | null>(null);
+    // «Ещё раз сегодня» из карточки — строка снизу с «Отменить» (S3-F3).
+    const [written, setWritten] = useState<Written | null>(null);
     // Запись к плану (PlanFactSheet) открывается из «своё», из «Записать» ожидания и из «Оплачено» брони до сверки.
     const [factSheet, setFactSheet] = useState<{ planId: string; anchorDate?: string } | null>(null);
     // Ожидания (пп. 10–11): лист на телефоне, нажатая клетка сетки на 1440 — своя у месяца, форма «+» с категорией.
@@ -267,7 +269,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                 node: bubble('journal-paid', JOURNAL_PAID_HINT, 'up', 'right-12', 'right-0 top-full -mt-1 w-[240px]'),
                             }}
                             handlers={{
-                                onRow: setSelectedEvent,
+                                onRow: setCard,
                                 onPaid,
                                 onOwn: (plan) => setFactSheet({ planId: plan.id }),
                                 onCycle: (plan) => { cycleEventPriority(plan.id).then(() => load(true)).catch(console.error); },
@@ -284,25 +286,35 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                         </div>
                         {header
                             ? <WeekGrid grid={grid} selected={selected} onSelect={(row, col) => setCell({ key: shownKey, row, col })}
-                                onRecord={record} onEdit={setSelectedEvent}
+                                onRecord={record} onEdit={(line) => setEditing({ event: line, scope: 'FOLLOWING' })}
                                 hint={bubble('journal-circle', circleHint, 'up', 'left-3', 'left-0 top-full mt-1 w-[290px]')} />
                             : <p className="px-1 text-sf-label text-sf-muted">В этом месяце ожиданий нет.</p>}
                     </aside>
                 )}
                 </div>
             </div>
-            {selectedEvent && (
-                <EditEventSheet
-                    event={selectedEvent}
-                    onClose={() => setSelectedEvent(null)}
-                    onSuccess={() => { setSelectedEvent(null); load(true).catch(console.error); }}
-                />
+            {card && (() => {
+                const pay = card.eventKind === 'PLAN' ? quickClose(card, allowedToday, anchorDate) : undefined;
+                return (
+                    <EventCard key={card.id} event={card} today={allowedToday} pay={pay} held={guard.held(card.id)}
+                        onClose={() => setCard(null)}
+                        onEdit={(scope) => { setCard(null); setEditing({ event: card, scope }); }}
+                        onPaid={() => { if (pay) onPaid(card, pay); }}
+                        onOwn={() => setFactSheet({ planId: card.id })}
+                        onWritten={setWritten} />
+                );
+            })()}
+            {editing && <QuickAddModal key={editing.event.id} edit={editing} onClose={() => setEditing(null)} onSuccess={() => {}} />}
+            {written && (
+                // 404 — запись уже снята: повтор после потерянного ответа — тоже отмена (ревью Codex #235).
+                <UndoToast text={written.text} onDone={() => setWritten(null)}
+                    onUndo={() => written.undo().catch(e => { if (!(e instanceof ApiError && e.status === 404)) throw e; })} />
             )}
             {/* «+» на телефоне — в капсуле снизу: пузырь над ней, уголок вниз. */}
             {bubble('journal-plus', JOURNAL_PLUS_HINT, 'down', 'left-[112px]', 'fixed bottom-[92px] left-1/2 z-40 -ml-[118px] w-[236px] lg:hidden')}
             {sheetGroup && (
                 <ExpectationSheet key={sheetGroup.key} group={sheetGroup} onClose={() => setSheetKey(null)}
-                    onEdit={line => { setSheetKey(null); setSelectedEvent(line); }}
+                    onEdit={line => { setSheetKey(null); setEditing({ event: line, scope: 'FOLLOWING' }); }}
                     onRecord={line => { setSheetKey(null); record(sheetGroup, line); }} />
             )}
             {adding && <QuickAddModal preset={adding} onClose={() => setAdding(null)} onSuccess={() => {}} />}
@@ -310,7 +322,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 // Строка ожидания может быть из шести дней после месяца (afterMonth) — ищется и там.
                 const plan = events.find(e => e.id === factSheet.planId) ?? after.find(e => e.id === factSheet.planId);
                 return plan && (
-                    <PlanFactSheet key={factSheet.planId} plan={plan} name={getDisplayName(plan)}
+                    <PlanFactSheet key={factSheet.planId} plan={plan} name={eventName(plan)}
                         askDate={factSheet.anchorDate ? { anchorDate: factSheet.anchorDate } : undefined}
                         checkpointDate={anchor.loaded ? anchor.date : undefined}
                         onClose={() => setFactSheet(null)}

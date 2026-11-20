@@ -903,6 +903,8 @@ public class FinancialEventService {
                 e.getRecurringRule() != null ? e.getRecurringRule().getFrequency() : null;
         Integer recurringDayOfMonth = e.getRecurringRule() != null ? e.getRecurringRule().getDayOfMonth() : null;
         Integer recurringMonthOfYear = e.getRecurringRule() != null ? e.getRecurringRule().getMonthOfYear() : null;
+        LocalDate recurringStartDate = e.getRecurringRule() != null ? e.getRecurringRule().getStartDate() : null;
+        LocalDate recurringEndDate = e.getRecurringRule() != null ? e.getRecurringRule().getEndDate() : null;
 
         return new FinancialEventDto(
                 e.getId(), e.getDate(),
@@ -913,7 +915,9 @@ public class FinancialEventService {
                 e.getTargetFundId(), fundName, e.getUrl(),
                 e.getEventKind(), e.getParentEventId(),
                 linkedFactsCount, linkedFactsAmount, parentPlanDescription,
+                parentPlan != null ? parentPlan.getPriority() : null,
                 recurringRuleId, recurringFrequency, recurringDayOfMonth, recurringMonthOfYear,
+                recurringStartDate, recurringEndDate,
                 e.getWishlistStatus());
     }
 

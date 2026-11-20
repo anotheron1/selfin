@@ -68,11 +68,16 @@ export interface FinancialEvent {
     linkedFactsCount: number;
     linkedFactsAmount: number | null;
     parentPlanDescription: string | null;
+    /** Вид плана записи: «к ожиданию» или «по брони»; у записи к брони категория не правится (срез 3 п. 16). */
+    parentPlanPriority?: Priority | null;
     // Recurring fields
     recurringRuleId?: string | null;
     recurringFrequency?: RecurringFrequency | null;
     recurringDayOfMonth?: number | null;
     recurringMonthOfYear?: number | null;
+    /** Серия целиком в карточке плана (п. 18): с какой даты и до какой; null — без конца. */
+    recurringStartDate?: string | null;
+    recurringEndDate?: string | null;
     /** Статус хотелки у строки с экрана «Хотелки», null у обычной (ANO-183). */
     wishlistStatus?: WishlistStatus | null;
 }
