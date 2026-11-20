@@ -69,8 +69,6 @@ export function categoryChips(categories: Category[], type: 'EXPENSE' | 'INCOME'
     };
 }
 
-/** «1 200 ₽» — как в листе ожидания. */
-
 /** Что будет со «Свободно»: с чего начать фразу, на сколько оно изменится и, если надо, своими словами — как. */
 export interface FreeEffect { lead: string; delta: number; tail?: string }
 

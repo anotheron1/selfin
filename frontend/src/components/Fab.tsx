@@ -20,7 +20,6 @@ import {
 import { writeFailure } from '../lib/writeFailure';
 import { AttemptKeys } from '../lib/attemptKey';
 
-
 /** Что записано — для строки снизу и «Отменить» (S3-F3). */
 interface Written { text: string; undo: () => Promise<unknown> }
 

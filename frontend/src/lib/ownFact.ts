@@ -8,7 +8,6 @@ import { fmtDayShort, fmtRub } from './format';
  * бронь на заплаченном (`closePlan`).
  */
 
-
 /** Сколько по плану ещё не записано. */
 export const planRest = (p: FinancialEvent) => Math.max(0, (p.plannedAmount ?? 0) - (p.linkedFactsAmount ?? 0));
 
