@@ -160,7 +160,7 @@ describe('сторож: смена месяца (стенд 19.11 — «‹» р
     });
 
     it('поздний ответ прошлого месяца не перезаписывает новый', () => {
-        expect(page).toMatch(/if \(keyNow\.current === key\) setLoaded\(\{ key, events: data \}\);/);
+        expect(page).toMatch(/if \(keyNow\.current === key\) setLoaded\(\{ key, events: data, after: next \}\);/);
     });
 });
 

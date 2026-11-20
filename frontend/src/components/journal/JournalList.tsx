@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { JournalOpen } from '../../lib/screenSync';
 import {
     ArrowDownToLine, Briefcase, CalendarDays, Car, ChevronDown, ChevronUp, Coffee, Gift, GraduationCap, HeartPulse,
@@ -26,7 +26,7 @@ const ICONS: Record<string, LucideIcon> = {
     'Зарплата': ArrowDownToLine, 'Подработка': Briefcase, 'Прочий доход': ArrowDownToLine,
 };
 
-const iconOf = (e: FinancialEvent): LucideIcon =>
+export const iconOf = (e: FinancialEvent): LucideIcon =>
     e.type === 'FUND_TRANSFER' ? Target : ICONS[e.categoryName] ?? (e.type === 'INCOME' ? ArrowDownToLine : Receipt);
 
 const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -83,9 +83,15 @@ interface Props {
     failed: (id: string) => boolean;
     stale: (id: string) => boolean;
     handlers: JournalHandlers;
+    /** Записи нажатой клетки сетки недель — подсвечены фоном (срез 3, п. 11; S3-W1d). */
+    highlight?: ReadonlySet<string>;
+    /** Пузырь первого журнала у «Оплачено | своё» этой брони (S3-N1). */
+    paidHint?: { id: string; node: ReactNode };
 }
 
-export default function JournalList({ view, allowedToday, anchorDate, opened: initial, onOpened, openDate, busy, failed, stale, handlers }: Props) {
+export default function JournalList({
+    view, allowedToday, anchorDate, opened: initial, onOpened, openDate, busy, failed, stale, handlers, highlight, paidHint,
+}: Props) {
     const [ahead, setAhead] = useState(initial?.ahead ?? false);
     const [toggled, setToggled] = useState<Record<string, boolean>>(initial?.weeks ?? {});
     useEffect(() => { onOpened?.({ ahead, weeks: toggled }); }, [ahead, toggled, onOpened]);
@@ -97,7 +103,7 @@ export default function JournalList({ view, allowedToday, anchorDate, opened: in
             <div data-group={r.group} onClick={() => handlers.onRow(r.event)}
                 onMouseEnter={() => hover(r.group, true)} onMouseLeave={() => hover(r.group, false)}
                 className={cn('flex cursor-pointer items-center gap-3 rounded-sf-field px-2 py-2.5 transition-colors',
-                    r.fact ? 'pf-is-fact' : 'pf-is-plan', r.muted && 'opacity-60')}>
+                    r.fact ? 'pf-is-fact' : 'pf-is-plan', r.muted && 'opacity-60', highlight?.has(r.event.id) && 'lg:bg-sf-accent-soft')}>
                 <KindMark kind={r.kind} fact={r.fact} icon={<Icon strokeWidth={1.7} />}
                     onClick={cycle ? (e) => { e.stopPropagation(); handlers.onCycle(r.event); } : undefined} />
                 <div className="min-w-0 flex-1">
@@ -121,7 +127,7 @@ export default function JournalList({ view, allowedToday, anchorDate, opened: in
         const pays = d.kind === 'tap' || d.kind === 'askDate';
         const held = busy(e.id);
         return (
-            <div key={e.id}>
+            <div key={e.id} className="relative">
                 {row(r)}
                 <div className="flex flex-col items-end gap-1 px-2 pb-2">
                     {/* Оплаченный план сюда не доходит (journalView): «своё» есть у каждого — запись к плану не теряется. */}
@@ -145,6 +151,7 @@ export default function JournalList({ view, allowedToday, anchorDate, opened: in
                         </p>
                     )}
                 </div>
+                {paidHint?.id === e.id && paidHint.node}
             </div>
         );
     };

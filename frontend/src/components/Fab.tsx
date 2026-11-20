@@ -18,7 +18,12 @@ import { AttemptKeys } from '../lib/attemptKey';
  * Поддерживает типы: Расход, Доход, В копилку (FUND_TRANSFER).
  * При успешном сохранении вызывает `onSuccess` для обновления данных родителя.
  */
-export default function QuickAddModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+export default function QuickAddModal({ onClose, onSuccess, preset }: {
+    onClose: () => void;
+    onSuccess: () => void;
+    /** Кружок ожидания с «+» и «Записать» в листе — форма с категорией ожидания (срез 3, п. 10). */
+    preset?: Pick<FinancialEventCreateDto, 'type' | 'categoryId' | 'targetFundId'>;
+}) {
     // ANO-155 + ревью #45: умолчание и граница «сегодня» берутся из ОДНОГО источника.
     // toISOString() даёт дату по UTC: восточнее Гринвича она вечером отстаёт на день
     // (форма предлагала вчера), западнее — ночью опережает, и тогда собственное
@@ -29,6 +34,7 @@ export default function QuickAddModal({ onClose, onSuccess }: { onClose: () => v
         date: today,
         type: 'EXPENSE',
         priority: 'MEDIUM',
+        ...preset,
     });
     // ANO-33: суммы держим сырым текстом — в них может быть выражение,
     // а число выводим парсером в момент отправки.

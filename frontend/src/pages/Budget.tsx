@@ -1,23 +1,27 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useReducer, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
-import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts } from '../api';
+import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts, fetchCategories } from '../api';
 import { CHANGED } from '../api/client';
-import type { FinancialEvent } from '../types/api';
-import { dayLabel, expectationCards, expectationsSummary, journalDate, journalView } from '../lib/journalSections';
+import type { FinancialEvent, HintsSettings } from '../types/api';
+import { afterMonth, expectationGroups, expectationsHeader, journalDate, journalView, recordTo, type ExpectationGroup } from '../lib/journalSections';
+import { weekGrid } from '../lib/weekGrid';
+import {
+    firstJournal, JOURNAL_PAID_HINT, JOURNAL_PLUS_HINT, journalCircleHint, loadHints, saveHints, type HintId,
+} from '../lib/hints';
 import { anchorDateOf, type QuickClose } from '../lib/quickClose';
 import { QuickCloseGuard } from '../lib/quickCloseGuard';
 import { latestAllowedIso, todayIso } from '../lib/factDate';
-import { ruPlural } from '../lib/plural';
 import { PRIORITY_DOT_CONFIG } from '../lib/priority';
 import { type JournalOpen, readJournalPosition, saveJournalPosition, sessionStore } from '../lib/screenSync';
 import EditEventSheet from '../components/EditEventSheet';
 import FactCreateSheet from '../components/FactCreateSheet';
-import ExpectationCards from '../components/journal/ExpectationCards';
+import QuickAddModal from '../components/Fab';
+import { DayHint } from '../components/today/HintBubble';
+import ExpectationCircles from '../components/journal/ExpectationCircles';
+import ExpectationSheet from '../components/journal/ExpectationSheet';
 import JournalList from '../components/journal/JournalList';
 import MonthPicker from '../components/journal/MonthPicker';
-
-const fmt = (n: number) => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 0 }).format(n) + ' ₽';
+import WeekGrid from '../components/journal/WeekGrid';
 
 const iso = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -56,18 +60,33 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const shownKey = `${year}-${month}`;
     const keyNow = useRef(shownKey);
     keyNow.current = shownKey;
-    const [loaded, setLoaded] = useState<{ key: string; events: FinancialEvent[] }>({ key: '', events: [] });
+    const [loaded, setLoaded] = useState<{ key: string; events: FinancialEvent[]; after: FinancialEvent[] }>({ key: '', events: [], after: [] });
     const [fetching, setFetching] = useState(true);
     const events = loaded.key === shownKey ? loaded.events : [];
+    const after = loaded.key === shownKey ? loaded.after : [];
     const loading = fetching || loaded.key !== shownKey;
     // Чтение месяца упало — сказать и дать повторить; чужой месяц по-прежнему не показывается (ревью Codex на #232).
     const [failedKey, setFailedKey] = useState<string | null>(null);
     const failed = !fetching && failedKey === shownKey;
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
-    // ANO-176: запись к плану открывается из «своё», из «Оплачено» брони до сверки и из карточек ожиданий.
+    // Запись к плану открывается из «своё» и из «Оплачено» брони до сверки.
     const [factSheet, setFactSheet] = useState<{
-        planId: string; hint?: string; amount?: number; requireDate?: boolean; fromCard?: boolean;
+        planId: string; hint?: string; amount?: number; requireDate?: boolean;
     } | null>(null);
+    // Ожидания (пп. 10–11): лист на телефоне, нажатая клетка сетки на 1440 — своя у месяца, форма «+» с категорией.
+    const [sheetKey, setSheetKey] = useState<string | null>(null);
+    const [cell, setCell] = useState<{ key: string; row: number; col: number } | null>(null);
+    const [adding, setAdding] = useState<ExpectationGroup['preset'] | null>(null);
+    // Категории, которые форма «+» запишет ожиданием: живые и не «брони». Ожидание из других — к строке (recordTo).
+    // Не пришли — форма «+».
+    const [viaForm, setViaForm] = useState<Set<string> | null>(null);
+    useEffect(() => {
+        fetchCategories().then(c => setViaForm(new Set(c.filter(x => x.priority !== 'HIGH').map(x => x.id)))).catch(console.error);
+    }, [refreshSignal]);
+    // Подсказки первого журнала (ANO-59) — ключ и выключатель те же, что у «Сегодня».
+    const [hints, setHints] = useState<HintsSettings | null>(null);
+    useEffect(() => { loadHints().then(setHints).catch(() => setHints(null)); }, []);
+    const changeHints = (next: HintsSettings) => { setHints(next); saveHints(next); };
     // Последняя сверка основного счёта — граница «Оплачено» одним касанием (lib/quickClose).
     const [anchor, setAnchor] = useState<{ loaded: boolean; date: string | null }>({ loaded: false, date: null });
     // Ревью #56: у каждой брони своя занятость, и держится она до перечитанного журнала
@@ -75,7 +94,6 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const [guard] = useState(() => new QuickCloseGuard());
     const [, guardChanged] = useReducer((n: number) => n + 1, 0);
     const [closeFailedId, setCloseFailedId] = useState<string | null>(null);
-    const [expectationsOpen, setExpectationsOpen] = useState(false);
 
     const load = useCallback((silent = false) => {
         const start = iso(new Date(year, month, 1));
@@ -84,10 +102,13 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
         if (!silent) setFetching(true);
         // Брони, записанные до начала этого чтения: его успех их освобождает.
         const releases = guard.readStarted();
-        return fetchEvents(start, end)
-            .then(data => {
+        // Записи шести дней после месяца — только для ожиданий: они могут встать к строкам его конца (afterMonth).
+        // Не прочлись — журнал всё равно показывается, без них.
+        const tail = afterMonth(year, month);
+        return Promise.all([fetchEvents(start, end), fetchEvents(tail.start, tail.end).catch(() => [] as FinancialEvent[])])
+            .then(([data, next]) => {
                 document.querySelectorAll('.pf-hovered').forEach(el => el.classList.remove('pf-hovered'));
-                if (keyNow.current === key) setLoaded({ key, events: data });
+                if (keyNow.current === key) setLoaded({ key, events: data, after: next });
                 guard.readSucceeded(releases);
                 guardChanged();
             }, (err) => {
@@ -186,44 +207,51 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     }, [refreshSignal]);
 
     const view = journalView(events, year, month, today);
-    const cards = expectationCards(events);
-    const expSummary = expectationsSummary(events);
+    const groups = expectationGroups(events, year, month, today, after);
+    const header = expectationsHeader(events);
     const expTitle = `${PRIORITY_DOT_CONFIG.MEDIUM.plural} месяца`;
-    const expSummaryText = `${expSummary.count} ${ruPlural(expSummary.count, ['строка', 'строки', 'строк'])} · ${fmt(expSummary.total)}`;
+    const grid = weekGrid(groups, year, month, today);
+    const selected = cell?.key === shownKey ? cell : grid.selected;
+    const selectedCell = selected ? grid.rows[selected.row]?.cells[selected.col] : null;
+    const highlight = new Set(selectedCell?.records.map(r => r.id) ?? []);
+    const sheetGroup = groups.find(g => g.key === sheetKey) ?? null;
     // Пока сверка не пришла, граница — сегодня: всё прошлое спрашивает дату, а не пишет её наугад.
     const anchorDate = anchor.loaded ? anchor.date : today;
-    const openCardLine = (plan: FinancialEvent) => setFactSheet({ planId: plan.id, fromCard: true });
+
+    // Первый журнал (п. 6, S3-N1): у «Оплачено | своё» — первая бронь расхода на этой неделе: она всегда раскрыта.
+    const firstBron = view.weeks.find(w => w.current)?.days.flatMap(d => d.plans).find(r => r.kind === 'bron' && !r.income);
+    const shown = loading ? [] : firstJournal({
+        current: year === now.getFullYear() && month === now.getMonth(), events, circle: groups.length > 0, paid: firstBron != null,
+    }, hints);
+    const bubble = (id: HintId, text: string, arrow: 'up' | 'down', arrowClass: string, className: string) => (
+        <DayHint id={id} shown={shown} settings={hints} onChange={changeHints}
+            text={text} arrow={arrow} arrowClass={arrowClass} className={className} />
+    );
+    const circleHint = groups.length > 0 ? journalCircleHint(groups[0].title) : '';
+    const record = (g: ExpectationGroup, line?: FinancialEvent) => {
+        const to = recordTo(g, line, viaForm ?? undefined);
+        void ('planId' in to ? setFactSheet({ planId: to.planId }) : setAdding(to.preset));
+    };
 
     return (
         <>
-            <div className="px-4 pb-6 font-sf text-sf-ink">
-                <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-12">
+            <div className="relative px-4 pb-6 font-sf text-sf-ink">
+                {/* «+» на 1440 — «Записать» в полосе разделов над экраном: пузырь под ней, уголок вверх. */}
+                {bubble('journal-plus', JOURNAL_PLUS_HINT, 'up', 'right-[84px]', 'hidden lg:block right-[calc(var(--sf-gutter)+20px)] -top-[118px] w-[270px]')}
+                <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_480px] lg:items-start lg:gap-12">
                 <div className="min-w-0">
-                    {/* Телефон: строка месяца и ожидания стоят, список листается под ними (ANO-227 п. 1). */}
+                    {/* Телефон: строка месяца и кружки ожиданий стоят, список листается под ними (ANO-227 п. 1). */}
                     <div ref={topRef} className="sticky top-0 z-30 -mx-4 bg-sf-page px-4 pb-2 pt-3 lg:static">
                         <MonthPicker year={year} month={month} loadMonths={fetchEventMonths}
                             onChange={(y, m) => { setYear(y); setMonth(m); }} />
-                        {/* Ожидания — как были, до кружков PR 3: на телефоне свёрнутой строкой. */}
-                        {!loading && expSummary.count > 0 && (
-                            <div className="mt-2 overflow-hidden rounded-2xl lg:hidden"
-                                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                                <button type="button" aria-expanded={expectationsOpen}
-                                    onClick={() => setExpectationsOpen(o => !o)}
-                                    className="flex min-h-[52px] w-full items-center justify-between gap-2.5 px-4 py-3 text-left">
-                                    <span className="flex items-center gap-2">
-                                        <span className="h-2 w-2 rounded-full" style={{ background: PRIORITY_DOT_CONFIG.MEDIUM.color }} />
-                                        <span className="text-sm font-semibold">{expTitle}</span>
-                                    </span>
-                                    <span className="flex items-center gap-2 whitespace-nowrap text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                        {expSummaryText}
-                                        <ChevronRight size={14} className={`transition-transform${expectationsOpen ? ' rotate-90' : ''}`} />
-                                    </span>
-                                </button>
-                                {expectationsOpen && (
-                                    <div className="max-h-[50dvh] overflow-y-auto p-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-                                        <ExpectationCards cards={cards} onLine={openCardLine} />
-                                    </div>
-                                )}
+                        {!loading && header && (
+                            <div className="mt-3 lg:hidden">
+                                <div className="mb-2.5 flex items-baseline justify-between gap-2">
+                                    <span className="shrink-0 whitespace-nowrap text-sf-button font-semibold">{expTitle}</span>
+                                    <span className="text-right text-sf-label text-sf-muted">{header}</span>
+                                </div>
+                                <ExpectationCircles groups={groups} onRecord={g => record(g)} onOpen={g => setSheetKey(g.key)}
+                                    hint={bubble('journal-circle', circleHint, 'up', 'left-[38px]', 'left-0 top-[100px] w-[290px]')} />
                             </div>
                         )}
                     </div>
@@ -244,6 +272,11 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                 : target && target.year === year && target.month === month && target.iso > today ? { ahead: true, weeks: {} }
                                 : undefined}
                             busy={(id) => guard.held(id)} failed={(id) => closeFailedId === id} stale={(id) => guard.stale(id)}
+                            highlight={highlight}
+                            paidHint={firstBron && {
+                                id: firstBron.event.id,
+                                node: bubble('journal-paid', JOURNAL_PAID_HINT, 'up', 'right-12', 'right-0 top-full -mt-1 w-[240px]'),
+                            }}
                             handlers={{
                                 onRow: setSelectedEvent,
                                 onPaid,
@@ -253,17 +286,17 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                             }} />}
                 </div>
 
-                {/* 1440: ожидания колонкой справа, листаются сами (решение 53); вид — как был, до сетки PR 3. */}
+                {/* 1440: сетка недель колонкой 480 справа, листается сама (п. 11, решение 53). */}
                 {!loading && (
-                    <aside className="hidden min-w-0 flex-col gap-2.5 lg:sticky lg:top-0 lg:flex lg:max-h-dvh lg:overflow-y-auto lg:pt-3">
+                    <aside className="hidden min-w-0 flex-col gap-3 lg:sticky lg:top-0 lg:flex lg:max-h-dvh lg:overflow-y-auto lg:pb-6 lg:pt-3">
                         <div className="flex items-baseline justify-between gap-2 px-1 pt-1.5">
-                            <span className="text-sf-body font-semibold">{expTitle}</span>
-                            {expSummary.count > 0 && (
-                                <span className="whitespace-nowrap text-sf-label text-sf-muted">{expSummaryText}</span>
-                            )}
+                            <span className="shrink-0 whitespace-nowrap text-sf-button font-semibold">{expTitle}</span>
+                            {header && <span className="text-right text-sf-label text-sf-muted">{header}</span>}
                         </div>
-                        {expSummary.count > 0
-                            ? <ExpectationCards cards={cards} onLine={openCardLine} />
+                        {header
+                            ? <WeekGrid grid={grid} selected={selected} onSelect={(row, col) => setCell({ key: shownKey, row, col })}
+                                onRecord={record} onEdit={setSelectedEvent}
+                                hint={bubble('journal-circle', circleHint, 'up', 'left-3', 'left-0 top-full mt-1 w-[290px]')} />
                             : <p className="px-1 text-sf-label text-sf-muted">В этом месяце ожиданий нет.</p>}
                     </aside>
                 )}
@@ -276,12 +309,17 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                     onSuccess={() => { setSelectedEvent(null); load(true).catch(console.error); }}
                 />
             )}
+            {/* «+» на телефоне — в капсуле снизу: пузырь над ней, уголок вниз. */}
+            {bubble('journal-plus', JOURNAL_PLUS_HINT, 'down', 'left-[112px]', 'fixed bottom-[92px] left-1/2 z-40 -ml-[118px] w-[236px] lg:hidden')}
+            {sheetGroup && (
+                <ExpectationSheet key={sheetGroup.key} group={sheetGroup} onClose={() => setSheetKey(null)}
+                    onEdit={line => { setSheetKey(null); setSelectedEvent(line); }}
+                    onRecord={line => { setSheetKey(null); record(sheetGroup, line); }} />
+            )}
+            {adding && <QuickAddModal preset={adding} onClose={() => setAdding(null)} onSuccess={() => {}} />}
             {factSheet && (() => {
                 const plan = events.find(e => e.id === factSheet.planId);
-                // У строки из карточки название — категория, поэтому к нему дата строки.
-                const title = plan
-                    ? getDisplayName(plan) + (factSheet.fromCard && plan.date ? ` · ${dayLabel(plan.date)}` : '')
-                    : 'План';
+                const title = plan ? getDisplayName(plan) : 'План';
                 return (
                     <FactCreateSheet
                         key={factSheet.planId}
@@ -292,8 +330,6 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                         hint={factSheet.hint}
                         defaultAmount={factSheet.amount}
                         requireDate={factSheet.requireDate}
-                        onEditPlan={factSheet.fromCard && plan ? () => { setFactSheet(null); setSelectedEvent(plan); } : undefined}
-                        editPlanLabel={`изменить ${PRIORITY_DOT_CONFIG.MEDIUM.name.toLowerCase()}`}
                         onClose={() => setFactSheet(null)}
                         onCreated={() => { load(true).catch(console.error); setFactSheet(null); }}
                     />

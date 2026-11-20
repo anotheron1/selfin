@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FinancialEvent } from '../types/api';
 import {
-    expectationCards, expectationsSummary, isExpectationPlan, journalDate, journalView, mainListEvents,
+    afterMonth, expectationGroups, expectationsHeader, isExpectationPlan, journalDate, journalView, mainListEvents, recordTo,
 } from './journalSections';
 
 const ev = (over: Partial<FinancialEvent> = {}): FinancialEvent => ({
@@ -31,56 +31,187 @@ describe('что куда (ANO-176)', () => {
     });
 });
 
-describe('карточки ожиданий', () => {
-    it('одна карточка на категорию; строки по дате; карточки — по первой дате', () => {
-        const cards = expectationCards([
-            ev({ id: 'f28', date: '2026-09-28' }),
-            ev({ id: 'cafe12', date: '2026-09-12', categoryId: 'cafe', categoryName: 'Кафе', plannedAmount: 3000 }),
-            ev({ id: 'f7', date: '2026-09-07' }),
-            ev({ id: 'bron', date: '2026-09-05', priority: 'HIGH' }),
+describe('ожидания месяца (срез 3, п. 10; доски Zh2-J8, S3-X1, S3-X4, S3-X5)', () => {
+    // Ноябрь 2026: 1-е — воскресенье; сегодня — чт 12 нояб., неделя 9–15.
+    const TODAY = '2026-11-12';
+    const sp = (s: string) => s.replace(/ /g, ' ');
+    const groups = (events: FinancialEvent[], today = TODAY) => expectationGroups(events, 2026, 10, today);
+    const weekly = ['2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23', '2026-11-30']
+        .map((date, i) => ev({ id: `w${i}`, date, categoryName: 'Продукты' }));
+
+    it('одна группа на категорию; группы — по первой дате; бронь и хотелка не ожидания', () => {
+        const g = groups([
+            ev({ id: 'f28', date: '2026-11-28' }),
+            ev({ id: 'cafe', date: '2026-11-12', categoryId: 'cafe', categoryName: 'Кафе', plannedAmount: 3000 }),
+            ev({ id: 'f7', date: '2026-11-07' }),
+            ev({ id: 'bron', date: '2026-11-05', priority: 'HIGH' }),
+            ev({ id: 'wish', date: '2026-11-05', priority: 'LOW' }),
         ]);
-        expect(cards.map((c) => c.title)).toEqual(['Еда / Продукты', 'Кафе']);
-        expect(cards[0].lines.map((l) => l.id)).toEqual(['f7', 'f28']);
-        expect(cards[0].lines.map((l) => l.label)).toEqual(['пн 7', 'пн 28']);
+        expect(g.map((x) => x.title)).toEqual(['Еда / Продукты', 'Кафе']);
+        expect(g[0].preset).toEqual({ type: 'EXPENSE', categoryId: 'food' });
     });
 
-    it('равные суммы — «сколько × сколько»; разные — только итог', () => {
-        const [equal, mixed] = expectationCards([
-            ev({ id: 'a', date: '2026-09-07' }), ev({ id: 'b', date: '2026-09-14' }),
-            ev({ id: 'c', date: '2026-09-12', categoryId: 'cafe', categoryName: 'Кафе', plannedAmount: 3000 }),
-            ev({ id: 'd', date: '2026-09-26', categoryId: 'cafe', categoryName: 'Кафе', plannedAmount: 4500 }),
+    it('неделей: «8 000 ₽ · неделя», «каждый понедельник»; неделя с сегодня — «Эта неделя», прошедшая — «прошла»', () => {
+        const [g] = groups(weekly);
+        expect(sp(g.caption)).toBe('8 000 ₽ · неделя');
+        expect(sp(g.subtitle)).toBe('ожидание · каждый понедельник по 8 000 ₽');
+        expect(g.weeks.map((w) => [sp(w.label), w.current, w.past])).toEqual([
+            ['2–8 нояб., прошла', false, true],
+            ['Эта неделя, 9–15 нояб.', true, false],
+            ['16–22 нояб.', false, false],
+            ['23–29 нояб.', false, false],
+            ['30 нояб.', false, false],
         ]);
-        expect(equal).toMatchObject({ count: 2, each: 8000, total: 16000 });
-        expect(mixed).toMatchObject({ count: 2, each: null, total: 7500 });
+        expect(g.weeks[g.open].current).toBe(true);
     });
 
-    it('«✓» — на строку записан факт; ничего не считается «осталось»', () => {
-        const [card] = expectationCards([
-            ev({ id: 'a', date: '2026-09-07', linkedFactsCount: 1, linkedFactsAmount: 7350 }),
-            ev({ id: 'b', date: '2026-09-14' }),
+    it('разовое — одной строкой с датой; «около 15 000 ₽ · 20 нояб., пт»', () => {
+        const [g] = groups([ev({ id: 'car', date: '2026-11-20', categoryName: 'Ремонт машины', plannedAmount: 15000 })]);
+        expect(g.single).toBe(true);
+        expect(sp(g.caption)).toBe('≈ 15 000 ₽');
+        expect(sp(g.subtitle)).toBe('ожидание · около 15 000 ₽ · 20 нояб., пт');
+        expect(g.weeks.map((w) => sp(w.label))).toEqual(['20 нояб., пт']);
+        expect(g.footnote).toContain('раньше 20-го');
+    });
+
+    it('строки с разными датами и суммами — «≈ итог» и «около … в ноябре»; в неделе с равными суммами — «N ×»', () => {
+        const [g] = groups([
+            ev({ id: 'a', date: '2026-11-12', plannedAmount: 500 }), ev({ id: 'b', date: '2026-11-13', plannedAmount: 500 }),
+            ev({ id: 'c', date: '2026-11-16', plannedAmount: 500 }), ev({ id: 'd', date: '2026-11-17', plannedAmount: 700 }),
         ]);
-        expect(card.lines.map((l) => l.recorded)).toEqual([true, false]);
-        expect(Object.keys(card)).not.toContain('remaining');
+        expect(sp(g.caption)).toBe('≈ 2 200 ₽');
+        expect(sp(g.subtitle)).toBe('ожидание · около 2 200 ₽ в ноябре');
+        expect(g.weeks.map((w) => [w.planned, w.each, w.lines.length])).toEqual([[1000, 500, 2], [1200, null, 2]]);
     });
 
-    it('описание строки — примечание с её датой', () => {
-        const [card] = expectationCards([
-            ev({ id: 'a', date: '2026-09-26', description: 'День рождения друга' }),
-            ev({ id: 'b', date: '2026-09-12' }),
+    it('«записано X» — сумма записей к строкам недели (linkedFactsAmount) и сами записи; «осталось» не считается', () => {
+        const [g] = groups([
+            ...weekly.map((w) => (w.id === 'w1' ? { ...w, linkedFactsCount: 2, linkedFactsAmount: 2440 } : w)),
+            fact({ id: 'q', date: '2026-11-11', parentEventId: 'w1', factAmount: 1200, createdAt: '2026-11-11T10:00:00' }),
+            fact({ id: 'p', date: '2026-11-12', parentEventId: 'w1', factAmount: 1240, description: 'Пятёрочка', createdAt: '2026-11-12T10:00:00' }),
+            fact({ id: 'x', date: '2026-11-11', factAmount: 300 }),
+            fact({ id: 'y', date: '2026-11-03', parentEventId: 'w0', factAmount: 500 }),
         ]);
-        expect(card.notes).toEqual(['сб 26 — «День рождения друга»']);
+        const week = g.weeks[1];
+        expect(week.recorded).toBe(2440);
+        expect(week.records.map((r) => [r.name, r.when, r.amount])).toEqual([
+            ['Пятёрочка', 'сегодня', 1240], ['Еда / Продукты', 'вчера', 1200],
+        ]);
+        expect(JSON.stringify(g)).not.toMatch(/remain|осталось|over|превыш/i);
     });
 
-    it('сводка месяца — сколько строк и на какую сумму', () => {
-        expect(expectationsSummary([
-            ev({ plannedAmount: 8000 }), ev({ plannedAmount: 3000 }), ev({ priority: 'HIGH', plannedAmount: 45000 }),
-        ])).toEqual({ count: 2, total: 11000 });
+
+    it('неделя, что кончается сегодня, — эта, а не прошедшая', () => {
+        const [g] = groups(weekly, '2026-11-15');
+        expect(g.weeks.map((w) => [sp(w.label), w.current, w.past]).slice(0, 2)).toEqual([
+            ['2–8 нояб., прошла', false, true],
+            ['Эта неделя, 9–15 нояб.', true, false],
+        ]);
     });
 
-    it('в сумму сводки примерный доход не складывается с расходами', () => {
-        expect(expectationsSummary([
+    it('строки через 7 дней, но с разными суммами, — не «неделей»', () => {
+        const [g] = groups([ev({ id: 'a', date: '2026-11-02' }), ev({ id: 'b', date: '2026-11-09', plannedAmount: 9000 })]);
+        expect(sp(g.caption)).toBe('≈ 17 000 ₽');
+    });
+
+    it('у разового название — заметка, а не подзаголовок', () => {
+        const [g] = groups([ev({ id: 'car', date: '2026-11-20', plannedAmount: 15000, description: 'Стоматолог' })]);
+        expect(g.notes.map(sp)).toEqual(['пт 20 — 15 000 ₽ «Стоматолог»']);
+        expect(g.subtitle).not.toContain('«');
+    });
+    it('запись следующего месяца к строке 30-го — в листе; планы следующего месяца ожиданиями не становятся (ревью Codex)', () => {
+        // Запись 1 дек. встаёт к строке 30 нояб. (шесть дней назад, ExpectationMatch) — журнал ноября её не читает.
+        const after = [
+            fact({ id: 'dec1', date: '2026-12-01', parentEventId: 'w4', factAmount: 900, createdAt: '2026-12-01T10:00:00' }),
+            ev({ id: 'decPlan', date: '2026-12-07', categoryId: 'cafe', categoryName: 'Кафе' }),
+        ];
+        const g = expectationGroups(weekly, 2026, 10, TODAY, after);
+        expect(g.map((x) => x.title)).toEqual(['Продукты']);
+        expect(g[0].weeks[4].records.map((r) => r.id)).toEqual(['dec1']);
+    });
+
+    it('дочитать после месяца — шесть дней: строка 30-го собирает записи до 6-го', () => {
+        expect(afterMonth(2026, 10)).toEqual({ start: '2026-12-01', end: '2026-12-06' });
+        expect(afterMonth(2026, 11)).toEqual({ start: '2027-01-01', end: '2027-01-06' });
+    });
+
+    it('погашенная строка — та же строка с «записано», не пропадает', () => {
+        const [g] = groups([ev({ id: 'a', date: '2026-11-03', plannedAmount: 8000, linkedFactsCount: 3, linkedFactsAmount: 8650 })]);
+        expect(g.weeks[0].recorded).toBe(8650);
+        expect(g.weeks[0].planned).toBe(8000);
+    });
+
+    it('месяц без сегодня: открыта ближайшая впереди, в прошлом месяце — последняя', () => {
+        expect(groups(weekly, '2026-10-20')[0].open).toBe(0);
+        expect(groups(weekly, '2026-12-20')[0].open).toBe(4);
+    });
+
+    it('заметки строк — с датой и суммой', () => {
+        const [g] = groups([
+            ev({ id: 'a', date: '2026-11-29', plannedAmount: 2000, description: 'Закупка к празднику' }),
+            ev({ id: 'b', date: '2026-11-12' }),
+        ]);
+        expect(g.notes.map(sp)).toEqual(['вс 29 — 2 000 ₽ «Закупка к празднику»']);
+    });
+
+    it('одно название у всех строк серии — в подзаголовке один раз, без заметок у каждой строки', () => {
+        const [g] = groups(weekly.map((w) => ({ ...w, description: 'Бензин' })));
+        expect(g.notes).toEqual([]);
+        expect(sp(g.subtitle)).toBe('ожидание · «Бензин» · каждый понедельник по 8 000 ₽');
+    });
+
+    it('доходное ожидание — «+» и «Поступления»', () => {
+        const [g] = groups([ev({ id: 'i', type: 'INCOME', date: '2026-11-20', categoryName: 'Подработка', plannedAmount: 20000 })]);
+        expect(sp(g.caption)).toBe('≈ +20 000 ₽');
+        expect(g.footnote.startsWith('Поступления')).toBe(true);
+    });
+});
+
+describe('куда пишет «Записать» (ревью Codex на #233)', () => {
+    const TODAY = '2026-11-12';
+    const fund = [
+        ev({ id: 'f0', date: '2026-11-02', type: 'FUND_TRANSFER', targetFundId: 'trip', targetFundName: 'Отпуск', categoryId: 'tr' }),
+        ev({ id: 'f1', date: '2026-11-16', type: 'FUND_TRANSFER', targetFundId: 'trip', targetFundName: 'Отпуск', categoryId: 'tr' }),
+        ev({ id: 'f2', date: '2026-11-18', type: 'FUND_TRANSFER', targetFundId: 'trip', targetFundName: 'Отпуск', categoryId: 'tr' }),
+    ];
+
+    it('трата и доход — форма «+» с категорией: сервер сам ставит запись к строке', () => {
+        const [g] = expectationGroups([ev({ id: 'x', date: '2026-11-16' })], 2026, 10, TODAY);
+        expect(recordTo(g)).toEqual({ preset: { type: 'EXPENSE', categoryId: 'food' } });
+    });
+
+    it('перевод в копилку — запись к строке: переводы мимо правила привязки', () => {
+        const [g] = expectationGroups(fund, 2026, 10, TODAY);
+        // Открытая неделя — 16–22, её первая строка.
+        expect(recordTo(g)).toEqual({ planId: 'f1' });
+        expect(recordTo(g, fund[2])).toEqual({ planId: 'f2' });
+    });
+
+    it('категории нет среди тех, что форма «+» пишет ожиданием (архив, «бронь») — запись к строке', () => {
+        const [g] = expectationGroups([ev({ id: 'x', date: '2026-11-16' })], 2026, 10, TODAY);
+        expect(recordTo(g, undefined, new Set(['cafe']))).toEqual({ planId: 'x' });
+        expect(recordTo(g, undefined, new Set(['food']))).toEqual({ preset: { type: 'EXPENSE', categoryId: 'food' } });
+    });
+});
+
+describe('заголовок «Ожидания месяца» (п. 10; ошибка journalSections.ts:89)', () => {
+    const sp = (s: string | null) => s?.replace(/ /g, ' ') ?? null;
+
+    it('строки и сумма по одному набору: доходная строка в счёте — и в сумме «придёт»', () => {
+        // Было: «2 строки · 8 000 ₽» — доход в счёте строк, а сумма только расходов.
+        expect(sp(expectationsHeader([
             ev({ plannedAmount: 8000 }), ev({ type: 'INCOME', categoryId: 'side', plannedAmount: 20000 }),
-        ])).toEqual({ count: 2, total: 8000 });
+        ]))).toBe('2 строки · уйдёт 8 000 ₽ · придёт 20 000 ₽');
+    });
+
+    it('только расходы — «N строк · сумма»; брони и хотелки не считаются', () => {
+        expect(sp(expectationsHeader([
+            ev({ plannedAmount: 8000 }), ev({ plannedAmount: 3000 }), ev({ priority: 'HIGH', plannedAmount: 45000 }),
+        ]))).toBe('2 строки · 11 000 ₽');
+    });
+
+    it('ожиданий нет — заголовка с числами нет', () => {
+        expect(expectationsHeader([ev({ priority: 'HIGH' })])).toBeNull();
     });
 });
 
