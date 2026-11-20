@@ -18,8 +18,9 @@ export default function UndoToast({ text, onUndo, onDone }: {
     // Родитель перерисовывается от перечитанных данных — срок строки от этого не начинается заново.
     const done = useRef(onDone);
     done.current = onDone;
+    // Неудача срок не отменяет, а начинает заново: строка не повисает навсегда и не держит «+» закрытым (ревью Codex #235).
     useEffect(() => {
-        if (busy || failed) return;
+        if (busy) return;
         const t = setTimeout(() => done.current(), UNDO_TOAST_MS);
         return () => clearTimeout(t);
     }, [busy, failed]);

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Choices, Field, KindMark, Plate, chipVariants } from '@/ds';
 import { cn } from '@/lib/utils';
-import { createLinkedFact } from '../api';
+import { createLinkedFact, fetchPocket } from '../api';
 import type { FinancialEvent } from '../types/api';
 import { amountRawInput, amountValue } from './ui/amount-input';
 import { AmountField, DateChips } from './formParts';
@@ -45,10 +45,13 @@ export default function PlanFactSheet({ plan, name, askDate, checkpointDate, onC
     const [error, setError] = useState<string | null>(null);
     // ANO-192, ревью #104: память попытки живёт, пока лист открыт; новое открытие — новый лист (key в журнале).
     const [attempts] = useState(() => new AttemptKeys());
+    // До какого дня считается «Свободно»: без него строка о нём не обещает (бронь может быть за концом расчёта).
+    const [horizonEnd, setHorizonEnd] = useState<string | null>(null);
+    useEffect(() => { fetchPocket().then(p => setHorizonEnd(p.horizon.endDate)).catch(() => {}); }, []);
 
     const amount = amountValue(amountRaw);
     const question = restQuestion(plan, amount);
-    const effect = ownEffect(plan, amount, choice, checkpointDate, date);
+    const effect = horizonEnd ? ownEffect(plan, amount, choice, checkpointDate, date, horizonEnd) : null;
     const priority = plan.priority ?? 'MEDIUM';
     const label = `Записать к ${TITLE[priority]} «${name}»`;
     const choices = askDate ? askDateChoices(plan, today) : [];

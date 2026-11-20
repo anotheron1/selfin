@@ -72,8 +72,19 @@ describe('ownEffect', () => {
         expect(ownEffect(plan(), 10000, 'close', '2026-11-11')).toContain('вернутся в «Свободно»');
         expect(ownEffect(plan(), 10000, 'close', '2026-11-11', '2026-11-10')).toBeNull();
         expect(ownEffect(plan(), 10000, 'close', '2026-11-11', '2026-11-11')).toContain('вернутся в «Свободно»');
-        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('ownEffect(plan, amount, choice, checkpointDate, date)');
+        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('ownEffect(plan, amount, choice, checkpointDate, date, horizonEnd)');
         expect(readFileSync('src/pages/Budget.tsx', 'utf8')).toContain('checkpointDate={anchor.loaded ? anchor.date : undefined}');
+    });
+    it('бронь за концом расчёта «Свободно» не держит — строки нет; без горизонта лист её не показывает (ревью Codex #235)', () => {
+        expect(ownEffect(plan(), 10000, 'close', null, undefined, '2026-11-11')).toBeNull();
+        expect(ownEffect(plan(), 10000, 'close', null, undefined, '2026-11-12')).toContain('вернутся в «Свободно»');
+        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('const effect = horizonEnd ? ownEffect(');
+    });
+    it('после неудачной отмены срок строки идёт заново — строка не повисает (ревью Codex #235)', () => {
+        const toast = readFileSync('src/components/UndoToast.tsx', 'utf8');
+        expect(toast).toContain('if (busy) return;');
+        expect(toast).toContain('}, [busy, failed]);');
+        expect(toast).not.toContain('busy || failed');
     });
     it('лист записи — Radix Dialog: фокус в окне, фон инертен (ревью Codex #235)', () => {
         expect(readFileSync('src/components/FormSheet.tsx', 'utf8')).toContain('<Dialog.Content');
