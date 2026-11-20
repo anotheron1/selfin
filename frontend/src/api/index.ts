@@ -125,17 +125,12 @@ export const updateEvent = (id: string, dto: FinancialEventCreateDto, scope: Sco
     put<FinancialEvent>(`/events/${id}?scope=${scope}`, dto);
 
 /**
- * Частичное обновление события: только фактическая сумма и комментарий.
- * Использует `PATCH /events/{id}/fact` — облегчённый запрос из UI "Бюджет".
- *
- * @param id         идентификатор события
- * @param factAmount фактическая сумма; `undefined` — снять отметку об исполнении
- * @param description необязательный комментарий
- * @param rawInput исходный текст суммы, если её ввели выражением (ANO-33)
+ * Правка записи: `PATCH /events/{id}/fact`. Сумма (`undefined` — снять отметку об исполнении), название, выражение
+ * суммы (ANO-33); с среза 3 п. 2 — дата, категория и вид. Не присланное (кроме суммы) не меняется.
  */
-export const patchEventFact = (
-    id: string, factAmount: number | undefined, description?: string, rawInput?: string,
-) => patch<FinancialEvent>(`/events/${id}/fact`, { factAmount, description, rawInput });
+export const patchEventFact = (id: string, body: {
+    factAmount?: number; description?: string; rawInput?: string; date?: string; categoryId?: string; priority?: Priority;
+}) => patch<FinancialEvent>(`/events/${id}/fact`, body);
 
 /** Циклически меняет приоритет события (HIGH → MEDIUM → LOW → HIGH). */
 export const cycleEventPriority = (id: string) => patch<FinancialEvent>(`/events/${id}/priority`);

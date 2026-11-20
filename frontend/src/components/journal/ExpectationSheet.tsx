@@ -83,7 +83,7 @@ export function ExpectationMark({ group, size, plus }: { group: ExpectationGroup
 export default function ExpectationSheet({ group, onClose, onEdit, onRecord }: {
     group: ExpectationGroup;
     onClose: () => void;
-    /** «Изменить ожидание» — строка открытой недели (EditEventSheet до PR 5). */
+    /** «Изменить ожидание» — строка открытой недели: форма «+», заполненная (срез 3 п. 16). */
     onEdit: (line: FinancialEvent) => void;
     /** «Записать» — выбранная строка открытой недели: к ней встаёт перевод в копилку (recordTo). */
     onRecord: (line: FinancialEvent) => void;

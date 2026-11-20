@@ -328,6 +328,28 @@ class MoneyPathIT {
         assertThat(r.get("date").asText()).isEqualTo(moved.toString());
     }
 
+    @Test
+    @DisplayName("PR 5: список отдаёт начало и конец серии и вид плана у записи — для карточки")
+    void list_carriesSeriesBoundsAndParentKind() throws Exception {
+        createSeries();
+        String booking = createPlan(today, "6000", "HIGH", expenseCategory(1));
+        linkedFact(booking, today, "1000").andExpect(status().isOk());
+
+        JsonNode rows = json(mockMvc.perform(get("/api/v1/events")
+                        .param("startDate", today.toString()).param("endDate", seriesStart.toString()))
+                .andExpect(status().isOk()));
+        JsonNode row = null, fact = null;
+        for (JsonNode r : rows) {
+            if (!r.get("recurringRuleId").isNull()) row = r;
+            if (booking.equals(r.get("parentEventId").asText(null))) fact = r;
+        }
+        assertThat(row).isNotNull();
+        assertThat(row.get("recurringStartDate").asText()).isEqualTo(seriesStart.toString());
+        assertThat(row.get("recurringEndDate").asText()).isEqualTo(seriesEnd.toString());
+        assertThat(fact).isNotNull();
+        assertThat(fact.get("parentPlanPriority").asText()).isEqualTo("HIGH");
+    }
+
     String createSeries() throws Exception {
         return id(mockMvc.perform(post("/api/v1/events")
                         .header("Idempotency-Key", UUID.randomUUID().toString())

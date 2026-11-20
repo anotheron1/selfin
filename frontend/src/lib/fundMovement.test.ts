@@ -59,12 +59,15 @@ describe('формы журнала показывают отказ (ANO-169, AN
         expect(src).toContain('{error && (');
     });
 
-    it('правка и удаление факта — причина отказа, в том числе у удаления', () => {
-        const src = read('../components/EditEventSheet.tsx');
-        expect(src).toContain("setError(fundMovementMessage(err) ?? 'Не записалось — попробуйте ещё раз')");
-        expect(src.match(/setError\(fundMovementMessage\(err\) \?\? 'Не удалилось — попробуйте ещё раз'\)/g))
-            .toHaveLength(2);
-        expect(src).toContain('{error && (');
+    it('правка и удаление записи — причина отказа, в том числе у удаления (срез 3 п. 16: карточка и форма)', () => {
+        // Правка — форма «+»: writeFailure — это fundMovementMessage с запасной фразой (lib/writeFailure.test.ts).
+        expect(read('../components/Fab.tsx')).toMatch(/const save = async[\s\S]*?setError\(writeFailure\(err\)\)/);
+        // Корзина карточки и формы, «Пропустить» — отказ сервера словами, иначе «Не удалилось».
+        const card = read('../components/journal/EventCard.tsx');
+        expect(card).toContain('onError(fundMovementMessage(err) ?? DELETE_FAILED)');
+        expect(card).toContain('removes ? fundMovementMessage(err) ?? DELETE_FAILED : writeFailure(err)');
+        expect(card).toContain("act(() => deleteEvent(e.id, 'THIS'), onClose, true)");
+        expect(card).toContain('{error && <p');
     });
 
     it('быстрый ввод называет отказ копилки словами, остальное — «Не записалось» (ANO-170)', () => {

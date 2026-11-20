@@ -58,9 +58,10 @@ describe('характер строки с экрана «Хотелки» не 
         expect(read('../pages/Budget.tsx')).toMatch(/onCycle: \(plan\) => \{ cycleEventPriority\(plan\.id\)/);
     });
 
-    it('форма у запертой строки показывает имя и объяснение, выбор — только у незапертой', () => {
-        expect(read('../components/EditEventSheet.tsx')).toMatch(
-            /characterLocked\(event\) \?[\s\S]*?\{WISHLIST_CHARACTER_NOTE\}[\s\S]*?\) : \([\s\S]*?<Select value=\{priority\}/);
+    it('форма правки у запертой строки не даёт сменить вид и объясняет почему (срез 3 п. 16)', () => {
+        const src = read('../components/Fab.tsx');
+        expect(src).toContain('disabled={ev != null && characterLocked(ev)}');
+        expect(src).toContain('characterLocked(ev) ? WISHLIST_CHARACTER_NOTE : PRIORITY_DOT_CONFIG[kind].hint');
     });
 
     it('объяснение называет экран так же, как навигация', () => {

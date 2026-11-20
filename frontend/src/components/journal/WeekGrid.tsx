@@ -19,7 +19,7 @@ export default function WeekGrid({ grid, selected, onSelect, onRecord, onEdit, h
     onSelect: (row: number, col: number) => void;
     /** Кружок строки — без строки; «Записать» под сеткой — выбранная строка нажатой клетки (recordTo). */
     onRecord: (g: ExpectationGroup, line?: FinancialEvent) => void;
-    /** «Изменить ожидание» — выбранная строка нажатой клетки (EditEventSheet до PR 5). */
+    /** «Изменить ожидание» — выбранная строка нажатой клетки: форма «+», заполненная (срез 3 п. 16). */
     onEdit: (line: FinancialEvent) => void;
     /** Пузырь первого журнала у кружка первого ожидания (S3-N1). */
     hint?: ReactNode;
