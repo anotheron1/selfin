@@ -53,6 +53,10 @@ describe('nextDates', () => {
     it('серия кончается — дат меньше трёх', () => {
         expect(nextDates(series({ recurringEndDate: '2027-01-12' }))).toEqual(['2026-12-12', '2027-01-12']);
     });
+    it('годовая, строка сдвинута «Только этот» на апрель — дальше месяц правила, март', () => {
+        expect(nextDates(series({ recurringFrequency: 'YEARLY', recurringMonthOfYear: 3, date: '2026-04-15' })))
+            .toEqual(['2027-03-12', '2028-03-12', '2029-03-12']);
+    });
     it('последняя строка серии — дальше ничего', () => {
         expect(nextDates(series({ recurringEndDate: '2026-11-12' }))).toEqual([]);
     });

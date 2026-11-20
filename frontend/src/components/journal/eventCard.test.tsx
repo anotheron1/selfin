@@ -154,6 +154,11 @@ describe('правка той же формой (S3-E1a, S3-E1b)', () => {
         expect(form(FACT)).toContain('value="1240"');
         expect(html).toContain('value="Аренда"');
     });
+    it('сумма выражением — в поле выражение: правка даты его не сотрёт; не сходится с суммой — число', () => {
+        expect(form({ ...SERIES, rawInput: '20000+5000' })).toContain('value="20000+5000"');
+        expect(form({ ...FACT, rawInput: '1000+240' })).toContain('value="1000+240"');
+        expect(form({ ...SERIES, rawInput: '1+1' })).toContain('value="25000"');
+    });
     it('вид — с пояснением, у строки с экрана «Хотелки» — заперт', () => {
         expect(form(SERIES)).toContain('сумма и дата известны заранее');
         const wish = form(ev({ priority: 'LOW', wishlistStatus: 'FIXED' }));

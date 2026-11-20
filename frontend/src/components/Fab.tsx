@@ -61,6 +61,8 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     // ANO-33: сумма — сырой текст: в ней может быть выражение, число — парсером при отправке.
     const [amountRaw, setAmountRaw] = useState(() => {
         const a = fact ? ev?.factAmount : ev?.plannedAmount;
+        // Выражение суммы — в поле, если оно и даёт сумму: правка даты или названия его не стирает.
+        if (a != null && ev?.rawInput && amountValue(ev.rawInput) === a) return ev.rawInput;
         return a != null ? String(a) : '';
     });
     const [description, setDescription] = useState(ev?.description ?? '');

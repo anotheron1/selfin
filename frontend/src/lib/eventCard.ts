@@ -28,12 +28,15 @@ export function dayLabel(iso: string, today: string): string {
 
 /**
  * Даты следующих платежей серии после этой строки — как их ставит сервер (`RecurringEventGenerator`): число правила,
- * в коротком месяце — последний день; не позже конца серии.
+ * в коротком месяце — последний день; у годовой — месяц правила; не позже конца серии.
  */
 export function nextDates(e: FinancialEvent, n = 3): string[] {
     if (!e.recurringRuleId || !e.date || e.recurringDayOfMonth == null) return [];
-    const [y, m] = e.date.split('-').map(Number);
-    const step = e.recurringFrequency === 'YEARLY' ? 12 : 1;
+    const yearly = e.recurringFrequency === 'YEARLY';
+    // Год — месяцем правила, как next() сервера: строка, сдвинутая «Только этот», месяц серии не меняет.
+    const [y, dm] = e.date.split('-').map(Number);
+    const m = yearly ? e.recurringMonthOfYear ?? dm : dm;
+    const step = yearly ? 12 : 1;
     const out: string[] = [];
     for (let i = 1; i <= n; i++) {
         const total = y * 12 + m - 1 + i * step;
