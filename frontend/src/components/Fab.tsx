@@ -16,7 +16,7 @@ import { ApiError } from '../api/client';
 import { latestAllowedIso } from '../lib/factDate';
 import { fmtDayShort, fmtRub } from '../lib/format';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, WISHLIST_CHARACTER_NOTE, characterLocked } from '../lib/priority';
-import { categoryLocked, dayLabel, factEditPatch, planEditDto, seriesOf } from '../lib/eventCard';
+import { dayLabel, editChips, factEditPatch, planEditDto, seriesOf, withCurrent } from '../lib/eventCard';
 import { TrashButton, writeDuplicate } from './journal/EventCard';
 import {
     ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, fundReserved, kindOf,
@@ -88,19 +88,8 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     // Для строки о «Свободно»: дата сверки и до какого дня оно считается. Не пришло — строки нет.
     useEffect(() => { fetchPocket().then(p => setPocket({ checkpointDate: p.checkpointDate, horizon: p.horizon, trajectory: p.trajectory })).catch(() => {}); }, []);
 
-    const chips = categoryChips(categories ?? [], type);
-    // Правка: перевод остаётся переводом, расход и доход переводом не становятся; категория строки в архиве — в
-    // списке с пометкой, как раньше в листе правки (categoryChoices).
-    if (ev) {
-        const keep = (c: { transfer: boolean }) => c.transfer === (ev.type === 'FUND_TRANSFER');
-        chips.top = chips.top.filter(keep);
-        chips.rest = chips.rest.filter(keep);
-        if (categories && (ev.type === 'INCOME') === (type === 'INCOME') && !chips.top.concat(chips.rest).some(c => c.id === ev.categoryId)) {
-            chips.rest.push({ id: ev.categoryId, name: `${ev.categoryName} (в архиве)`, transfer: ev.type === 'FUND_TRANSFER' });
-        }
-    }
-    // У записи к брони и у перевода категория не правится (п. 2): на виду только она.
-    const locked = ev != null && categoryLocked(ev);
+    // Правка — свои чипы (lib/eventCard editChips): у записи к брони и у перевода на виду только своя категория.
+    const chips = ev ? editChips(categoryChips(categories ?? [], type), ev, type, categories != null) : categoryChips(categories ?? [], type);
     const all = [...chips.top, ...chips.rest];
     const chosen = all.find(c => c.id === categoryId);
     const transfer = chosen?.transfer ?? false;
@@ -111,8 +100,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     // ANO-169: копилки на счёте перевода не принимают — в списке их нет, под списком строка почему.
     const { choices: openFunds, onAccount } = transferFundChoice(funds ?? []);
     // Правка перевода в копилку, которой в списке нет (достигнута), — она остаётся выбранной.
-    const fundChoices = ev && fundId && !openFunds.some(f => f.id === fundId)
-        ? [...openFunds, ...(funds ?? []).filter(f => f.id === fundId)] : openFunds;
+    const fundChoices = ev ? withCurrent(openFunds, funds ?? [], fundId) : openFunds;
     const fund = fundChoices.find(f => f.id === fundId);
 
     const amount = amountValue(amountRaw);
@@ -123,7 +111,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const main: FormAction = buttons[buttons.length - 1];
 
     // Строка ожидания, к которой встанет запись, — у сервера (правило п. 1 на клиенте не повторяется).
-    const previewKey = !ev && main === 'record' && !transfer && category ? `${category.id}|${date}|${type}|${kind}` : null;
+    const previewKey = main === 'record' && !transfer && category ? `${category.id}|${date}|${type}|${kind}` : null;
     useEffect(() => {
         if (!previewKey || !category) return;
         let gone = false;
@@ -134,12 +122,10 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [previewKey]);
     const lineNow = previewKey && line?.key === previewKey ? line.value : null;
-    // У записи-перевода копилка не правится (PATCH её не берёт) — для сохранения нужна только сумма.
-    const canSubmit = fact && transfer
-        ? amount != null && amount > 0
-        : canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer, fundId: fund?.id });
+    const canSubmit = canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer, fundId: fund?.id });
     // Строка — когда форма собрана: без категории или копилки сказать нечего (стенд PR 4). Над кнопками — по главной,
     // после записи — по нажатой: «Запланировать» рядом с «Записать» держит сумму, строка ожидания ему ни при чём.
+    // У правки строки нет: что изменится со «Свободно», в спеке не задано.
     const effectOf = (action: FormAction) => !ev && pocket && canSubmit
         && (transfer || action === 'plan' || previewKey == null || line?.key === previewKey)
         ? freeEffect({
@@ -254,8 +240,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
 
     const label = (a: FormAction) => (a === 'plan' ? 'Запланировать' : transfer ? 'Отложить' : 'Записать');
     const kinds = PRIORITY_ORDER.map(p => ({ value: p, label: PRIORITY_DOT_CONFIG[p].name }));
-    const shownChips = locked ? all.filter(c => c.id === categoryId)
-        : moreOpen ? all : chosen && !chips.top.includes(chosen) ? [...chips.top, chosen] : chips.top;
+    const shownChips = moreOpen ? all : chosen && !chips.top.includes(chosen) ? [...chips.top, chosen] : chips.top;
     const lineText = effectLine(effect);
 
     return (
@@ -279,7 +264,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
                         <Choices name="category" label="Категория" look="chip" className="contents" value={categoryId ?? ''}
                             options={shownChips.map(c => ({ value: c.id, label: c.name }))} onChange={pickCategory} />
                     )}
-                {chips.rest.length > 0 && !locked && (
+                {chips.rest.length > 0 && (
                     <Chip aria-expanded={moreOpen} onClick={() => setMoreOpen(o => !o)}>
                         {moreOpen ? 'свернуть ▴' : `ещё ${chips.rest.length} ▾`}
                     </Chip>

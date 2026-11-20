@@ -10,7 +10,14 @@ import type { FinancialEvent, ScopeEnum } from '../../types/api';
 import type { QuickClose } from '../../lib/quickClose';
 
 vi.mock('../FormSheet', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-const { default: EventCard } = await import('./EventCard');
+// Запросы «Ещё раз сегодня» — подменены: что уходит на сервер и что пишет строка снизу.
+const api = vi.hoisted(() => ({
+    fetchPocket: vi.fn(), fetchFactPreview: vi.fn(), createStandaloneFact: vi.fn(), deleteEvent: vi.fn(), transferToFund: vi.fn(),
+    fetchEvents: vi.fn(),
+}));
+vi.mock('../../api', async (orig) => ({ ...(await orig<object>()), ...api }));
+const { default: EventCard, writeDuplicate } = await import('./EventCard');
+const { AttemptKeys } = await import('../../lib/attemptKey');
 const { default: QuickAddModal } = await import('../Fab');
 
 const ev = (over: Partial<FinancialEvent>): FinancialEvent => ({
@@ -92,6 +99,10 @@ describe('карточка плана из серии (S3-E2b)', () => {
 });
 
 describe('правка той же формой (S3-E1a, S3-E1b)', () => {
+    it('дата записи — не позже сегодня, у плана — любая', () => {
+        expect(form(FACT)).toMatch(/type="date"[^>]*max="\d{4}-\d{2}-\d{2}"/);
+        expect(form(SERIES)).not.toMatch(/type="date"[^>]*max=/);
+    });
     it('запись: «Сохранить», «Ещё раз», корзина; кнопок по дате и типа нет', () => {
         const html = form(FACT);
         expect(html).toContain('Сохранить');
@@ -117,6 +128,7 @@ describe('правка той же формой (S3-E1a, S3-E1b)', () => {
     it('сумма и название заполнены', () => {
         const html = form(SERIES);
         expect(html).toContain('value="25000"');
+        expect(form(FACT)).toContain('value="1240"');
         expect(html).toContain('value="Аренда"');
     });
     it('вид — с пояснением, у строки с экрана «Хотелки» — заперт', () => {
@@ -127,13 +139,41 @@ describe('правка той же формой (S3-E1a, S3-E1b)', () => {
     });
 });
 
+/** «Ещё раз сегодня» (п. 17): POST /events/facts с полями образца; строка снизу — что со «Свободно», «Отменить». */
+describe('writeDuplicate', () => {
+    const POCKET = { checkpointDate: '2026-11-01', horizon: { endDate: '2026-11-25', label: 'до 25 нояб.' }, trajectory: [] };
+    it('пишет копию сегодняшним числом; строка — по ответу fact-preview до записи; «Отменить» снимает её', async () => {
+        api.fetchPocket.mockResolvedValue(POCKET);
+        api.fetchFactPreview.mockResolvedValue(undefined);
+        api.createStandaloneFact.mockResolvedValue({ id: 'new' });
+        api.deleteEvent.mockResolvedValue(undefined);
+        const w = await writeDuplicate({ ...FACT, date: '2026-11-05' }, TODAY, new AttemptKeys());
+        expect(api.fetchFactPreview).toHaveBeenCalledWith({ categoryId: 'c', date: TODAY, type: 'EXPENSE', priority: 'MEDIUM' });
+        expect(api.createStandaloneFact.mock.calls[0][1]).toMatchObject({ date: TODAY, factAmount: 1240, categoryId: 'c' });
+        expect(w.text).toBe('Записано: Пятёрочка, 1 240 ₽. «Свободно» меньше на 1 240 ₽.'.replace(/ (?=\d{3}|₽)/g, '\u00a0'));
+        await w.undo();
+        expect(api.deleteEvent).toHaveBeenCalledWith('new');
+    });
+    it('строка ожидания не пришла — про «Свободно» молчит', async () => {
+        api.fetchPocket.mockResolvedValue(POCKET);
+        api.fetchFactPreview.mockRejectedValue(new Error('сеть'));
+        api.createStandaloneFact.mockResolvedValue({ id: 'new' });
+        expect((await writeDuplicate(FACT, TODAY, new AttemptKeys())).text).not.toContain('Свободно');
+    });
+    it('перевод в копилку — тем же переводом, что «Отложить»', async () => {
+        api.transferToFund.mockResolvedValue(undefined);
+        api.fetchEvents.mockResolvedValue([]);
+        await writeDuplicate({ ...FACT, type: 'FUND_TRANSFER', targetFundId: 'f', targetFundName: 'Отпуск' }, TODAY, new AttemptKeys());
+        expect(api.transferToFund.mock.calls.at(-1)?.slice(1)).toEqual(['f', 1240, true, undefined, TODAY]);
+    });
+});
+
 describe('сторожа по исходнику: нажатия проверяет стенд', () => {
     const fab = readFileSync(new URL('../Fab.tsx', import.meta.url), 'utf8');
     const page = readFileSync(new URL('../../pages/Budget.tsx', import.meta.url), 'utf8');
-    it('у записи к брони и у перевода на виду только своя категория, без «ещё»', () => {
-        expect(fab).toContain('const locked = ev != null && categoryLocked(ev);');
-        expect(fab).toContain('const shownChips = locked ? all.filter(c => c.id === categoryId)');
-        expect(fab).toContain('{chips.rest.length > 0 && !locked && (');
+    it('правка — свои чипы категорий (editChips), строки о «Свободно» нет', () => {
+        expect(fab).toContain('const chips = ev ? editChips(categoryChips(categories ?? [], type), ev, type, categories != null)');
+        expect(fab).toContain('const effectOf = (action: FormAction) => !ev && pocket && canSubmit');
     });
     it('правка плана — PUT со своим scope у серии, «Только этот» у разовой', () => {
         expect(fab).toContain("}), series ? scope : 'THIS');");

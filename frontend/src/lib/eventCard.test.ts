@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { FinancialEvent } from '../types/api';
 import {
-    categoryLocked, dayLabel, duplicateOf, endSeriesDto, factEditPatch, factNote, nextDates, planEditDto, seriesOf,
+    categoryLocked, dayLabel, duplicateOf, editChips, endSeriesDto, factEditPatch, factNote, nextDates, planEditDto, seriesOf,
+    withCurrent,
 } from './eventCard';
 
 const ev = (over: Partial<FinancialEvent>): FinancialEvent => ({
@@ -32,6 +33,9 @@ describe('seriesOf', () => {
         expect(s?.title).toBe('Каждый год, 12 нояб.');
         expect(s?.until).toBe('до 12 нояб. 2030');
         expect(s?.next).toEqual(['2027-11-12', '2028-11-12', '2029-11-12']);
+    });
+    it('строка 28 февр. серии 31-го — подпись по правилу: «31-го»', () => {
+        expect(seriesOf(series({ date: '2027-02-28', recurringDayOfMonth: 31 }))?.title).toBe('Каждый месяц, 31-го');
     });
     it('не серия — нет блока', () => {
         expect(seriesOf(ev({}))).toBeNull();
@@ -140,6 +144,40 @@ describe('planEditDto', () => {
     it('перевод — копилка из формы, тип прежний', () => {
         expect(planEditDto(ev({ type: 'FUND_TRANSFER' }), { ...form, type: 'EXPENSE', fundId: 'f', scope: 'THIS' }))
             .toMatchObject({ type: 'FUND_TRANSFER', targetFundId: 'f' });
+    });
+});
+
+/** Чипы категорий у правки (п. 16). */
+describe('editChips', () => {
+    const c = (id: string, transfer = false) => ({ id, name: id, transfer });
+    const chips = () => ({ top: [c('c'), c('cafe'), c('savings', true)], rest: [c('zoo')] });
+    it('расход переводом не становится: «Накопления» среди чипов нет', () => {
+        expect(editChips(chips(), fact(), 'EXPENSE', true)).toEqual({ top: [c('c'), c('cafe')], rest: [c('zoo')] });
+    });
+    it('перевод остаётся переводом: только «Накопление»', () => {
+        expect(editChips(chips(), fact({ type: 'FUND_TRANSFER', categoryId: 'savings' }), 'EXPENSE', true))
+            .toEqual({ top: [c('savings', true)], rest: [] });
+    });
+    it('категория строки в архиве — в списке с пометкой; пока категории не пришли — нет', () => {
+        const e = fact({ categoryId: 'old', categoryName: 'Старое' });
+        expect(editChips(chips(), e, 'EXPENSE', true).rest).toContainEqual({ id: 'old', name: 'Старое (в архиве)', transfer: false });
+        expect(editChips(chips(), e, 'EXPENSE', false).rest).not.toContainEqual(expect.objectContaining({ id: 'old' }));
+    });
+    it('сменил тип плана — архивная категория прежнего типа не предлагается', () => {
+        expect(editChips(chips(), ev({ categoryId: 'old' }), 'INCOME', true).rest).not.toContainEqual(expect.objectContaining({ id: 'old' }));
+    });
+    it('запись к брони — на виду только её категория, без «ещё»', () => {
+        expect(editChips(chips(), fact({ parentEventId: 'p', parentPlanPriority: 'HIGH', categoryId: 'zoo' }), 'EXPENSE', true))
+            .toEqual({ top: [c('zoo')], rest: [] });
+    });
+});
+
+describe('withCurrent', () => {
+    it('копилки строки нет в списке — она добавляется; есть — список как был', () => {
+        const all = [{ id: 'a' }, { id: 'reached' }];
+        expect(withCurrent([{ id: 'a' }], all, 'reached')).toEqual([{ id: 'a' }, { id: 'reached' }]);
+        expect(withCurrent([{ id: 'a' }], all, 'a')).toEqual([{ id: 'a' }]);
+        expect(withCurrent([{ id: 'a' }], all, undefined)).toEqual([{ id: 'a' }]);
     });
 });
 

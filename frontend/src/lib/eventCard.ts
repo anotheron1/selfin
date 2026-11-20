@@ -2,7 +2,7 @@ import type {
     EventType, FinancialEvent, FinancialEventCreateDto, Priority, RecurringConfig, ScopeEnum, StandaloneFactCreateDto,
 } from '../types/api';
 import { fmtDayShort } from './format';
-import { repeatLabel } from './quickAdd';
+import { repeatLabel, type CategoryChip } from './quickAdd';
 
 /**
  * Карточка записи и плана и правка той же формой (срез 3 пп. 2, 16–18; доски S3-E2a, S3-E2b, S3-E1a, S3-E1b, S3-W2):
@@ -34,10 +34,9 @@ export function nextDates(e: FinancialEvent, n = 3): string[] {
     if (!e.recurringRuleId || !e.date || e.recurringDayOfMonth == null) return [];
     const [y, m] = e.date.split('-').map(Number);
     const step = e.recurringFrequency === 'YEARLY' ? 12 : 1;
-    const month0 = e.recurringFrequency === 'YEARLY' && e.recurringMonthOfYear != null ? e.recurringMonthOfYear - 1 : m - 1;
     const out: string[] = [];
     for (let i = 1; i <= n; i++) {
-        const total = y * 12 + month0 + i * step;
+        const total = y * 12 + m - 1 + i * step;
         const yy = Math.floor(total / 12), mm = total % 12 + 1;
         const iso = `${yy}-${pad(mm)}-${pad(Math.min(e.recurringDayOfMonth, daysIn(yy, mm)))}`;
         if (e.recurringEndDate && iso > e.recurringEndDate) break;
@@ -64,7 +63,28 @@ export function seriesOf(e: FinancialEvent): { title: string; since: string; unt
  * Сервер в этих случаях отвечает 400; форма выбора не предлагает.
  */
 export const categoryLocked = (e: FinancialEvent): boolean =>
-    e.type === 'FUND_TRANSFER' || (e.eventKind === 'FACT' && e.parentEventId != null && e.parentPlanPriority !== 'MEDIUM');
+    e.type === 'FUND_TRANSFER' || (e.parentEventId != null && e.parentPlanPriority !== 'MEDIUM');
+
+/**
+ * Чипы категорий у правки (п. 16): перевод остаётся переводом, расход и доход переводом не становятся; категория
+ * строки в архиве — в списке с пометкой, как раньше в листе правки (categoryChoices); у запертой — только она.
+ */
+export function editChips(chips: { top: CategoryChip[]; rest: CategoryChip[] }, e: FinancialEvent,
+                          type: 'EXPENSE' | 'INCOME', loaded: boolean): { top: CategoryChip[]; rest: CategoryChip[] } {
+    const keep = (c: CategoryChip) => c.transfer === (e.type === 'FUND_TRANSFER');
+    const top = chips.top.filter(keep);
+    const rest = chips.rest.filter(keep);
+    const sameType = (e.type === 'INCOME') === (type === 'INCOME');
+    if (loaded && sameType && !top.concat(rest).some(c => c.id === e.categoryId)) {
+        rest.push({ id: e.categoryId, name: `${e.categoryName} (в архиве)`, transfer: e.type === 'FUND_TRANSFER' });
+    }
+    if (!categoryLocked(e)) return { top, rest };
+    return { top: top.concat(rest).filter(c => c.id === e.categoryId), rest: [] };
+}
+
+/** Копилка строки остаётся в выборе, даже если в списке её нет (достигнута): правка перевода её не теряет. */
+export const withCurrent = <T extends { id: string }>(choices: T[], all: T[], id: string | undefined): T[] =>
+    id && !choices.some(c => c.id === id) ? [...choices, ...all.filter(c => c.id === id)] : choices;
 
 /**
  * Что случилось с записью (S3-E2a) — по плану, к которому она встала. Про «Свободно» строка не говорит: изменилось
