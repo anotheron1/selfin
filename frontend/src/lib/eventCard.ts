@@ -48,6 +48,13 @@ export function nextDates(e: FinancialEvent, n = 3): string[] {
     return out;
 }
 
+/** Дата платежа серии в периоде строки по правилу — где сервер её ставит (`RecurringEventGenerator`). */
+function ruleDateOf(e: FinancialEvent): string {
+    const [y, dm] = e.date!.split('-').map(Number);
+    const m = e.recurringFrequency === 'YEARLY' ? e.recurringMonthOfYear ?? dm : dm;
+    return `${y}-${pad(m)}-${pad(Math.min(e.recurringDayOfMonth!, daysIn(y, m)))}`;
+}
+
 /** Серия в карточке плана (S3-E2b): «Каждый месяц, 12-го», «с 12 мар. 2026», «без конца», три даты дальше. */
 export function seriesOf(e: FinancialEvent): { title: string; since: string; until: string; next: string[] } | null {
     if (!e.recurringRuleId || !e.recurringFrequency || e.recurringDayOfMonth == null) return null;
@@ -141,13 +148,18 @@ export function planEditDto(e: FinancialEvent, f: {
     };
 }
 
-/** «Закончить серию» (п. 18): этот платёж последний — конец серии на его дату, остальное как было. Шлётся с FOLLOWING. */
+/**
+ * «Закончить серию» (п. 18): этот платёж последний — конец серии на его дату, остальное как было. Шлётся с FOLLOWING.
+ * Строка, сдвинутая «Только этот» раньше числа правила, — конец на число правила: сервер перестраивает период заново,
+ * и конец раньше числа не оставил бы в нём строки — ответ 500, серия не кончалась (ревью Codex #236).
+ */
 export const endSeriesDto = (e: FinancialEvent): FinancialEventCreateDto => ({
     date: e.date!, categoryId: e.categoryId, type: e.type, plannedAmount: e.plannedAmount ?? undefined, priority: e.priority,
     mandatory: e.mandatory, description: e.description ?? undefined, rawInput: e.rawInput ?? undefined,
     targetFundId: e.type === 'FUND_TRANSFER' ? e.targetFundId : undefined,
     recurring: {
         frequency: e.recurringFrequency!, dayOfMonth: e.recurringDayOfMonth!,
-        monthOfYear: e.recurringFrequency === 'YEARLY' ? e.recurringMonthOfYear ?? null : null, endDate: e.date,
+        monthOfYear: e.recurringFrequency === 'YEARLY' ? e.recurringMonthOfYear ?? null : null,
+        endDate: ruleDateOf(e) > e.date! ? ruleDateOf(e) : e.date,
     },
 });

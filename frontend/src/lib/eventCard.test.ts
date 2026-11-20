@@ -69,6 +69,12 @@ describe('endSeriesDto', () => {
         expect(dto.recurring).toEqual({ frequency: 'MONTHLY', dayOfMonth: 31, monthOfYear: null, endDate: '2027-02-28' });
         expect(dto).toMatchObject({ date: '2027-02-28', categoryId: 'c', type: 'EXPENSE', plannedAmount: 25000, priority: 'HIGH', mandatory: true });
     });
+    it('строка сдвинута «Только этот» раньше числа правила — конец на число правила: иначе перестройка не оставит строки', () => {
+        expect(endSeriesDto(series({ date: '2026-11-10' })).recurring?.endDate).toBe('2026-11-12');
+        expect(endSeriesDto(series({ date: '2026-11-20' })).recurring?.endDate).toBe('2026-11-20');
+        expect(endSeriesDto(series({ recurringFrequency: 'YEARLY', recurringMonthOfYear: 4, date: '2026-03-01' })).recurring?.endDate)
+            .toBe('2026-04-12');
+    });
 });
 
 /** «Ещё раз сегодня» (п. 17, ANO-254): поля образца сегодняшним числом, без связи с бронью. */
