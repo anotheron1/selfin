@@ -81,6 +81,25 @@ class MoneyPathIT {
                 .isEqualByComparingTo("54000");
     }
 
+    @Test
+    @DisplayName("п. 3: просроченная бронь, оплаченная частью, держит остаток; оплаченная целиком — ничего")
+    void overdueBookingPaidInPart_holdsRemainder() throws Exception {
+        anchor(today.minusDays(10), "60000");
+        String plan = createPlan(today.minusDays(3), "8000", "HIGH", expenseCategory(0));
+        BigDecimal before = pocket();
+
+        linkedFact(plan, today, "3000").andExpect(status().isOk());
+        assertThat(pocket()).as("«Доплачу позже»: 3 000 ушли со счёта, 5 000 держатся бронью").isEqualByComparingTo(before);
+
+        linkedFact(plan, today, "5000").andExpect(status().isOk());
+        assertThat(pocket()).as("бронь погашена: держать нечего").isEqualByComparingTo(before);
+
+        // Данные до ANO-155: погашенный план мог остаться PLANNED — в списке просрочки ему не место.
+        jdbc.update("UPDATE financial_events SET status = 'PLANNED' WHERE id = ?::uuid", UUID.fromString(plan));
+        JsonNode upcoming = json(mockMvc.perform(get("/api/v1/pocket")).andExpect(status().isOk())).get("upcoming");
+        assertThat(upcoming.findValuesAsText("id")).doesNotContain(plan);
+    }
+
     // ── п. 1: трата встаёт к ожиданию сама ───────────────────────────────────
 
     @Test

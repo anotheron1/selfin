@@ -70,9 +70,14 @@ public record EventSnapshot(
     }
 
     public static EventSnapshot from(FinancialEvent e) {
+        return from(e, e.getPlannedAmount());
+    }
+
+    /** Событие с другой суммой плана — просроченная бронь своим непогашенным остатком (срез 3 п. 3). */
+    public static EventSnapshot from(FinancialEvent e, BigDecimal plannedAmount) {
         return new EventSnapshot(
                 e.getId(), e.getDate(), e.getType(), e.getEventKind(), e.getStatus(),
-                e.getPriority(), e.getPlannedAmount(), e.getFactAmount(), e.getWishlistStatus(),
+                e.getPriority(), plannedAmount, e.getFactAmount(), e.getWishlistStatus(),
                 e.convertedToArtifact(),
                 e.getDescription(), null, e.getCreatedAt(), e.getParentEventId());
     }

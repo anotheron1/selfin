@@ -1,5 +1,5 @@
 import type { FinancialEvent } from '../types/api';
-import { fmtDayShort } from './format';
+import { fmtDayShort, fmtRub } from './format';
 
 /**
  * Запись к плану — «своё» и «Оплачено» брони раньше сверки (срез 3 п. 3, решения 32 и 52; доски S3-F6, S3-F9,
@@ -8,7 +8,6 @@ import { fmtDayShort } from './format';
  * бронь на заплаченном (`closePlan`).
  */
 
-const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽`;
 
 /** Сколько по плану ещё не записано. */
 export const planRest = (p: FinancialEvent) => Math.max(0, (p.plannedAmount ?? 0) - (p.linkedFactsAmount ?? 0));
@@ -34,10 +33,10 @@ export function ownEffect(p: FinancialEvent, amount: number | null, choice: Rest
     const q = restQuestion(p, amount);
     if (q) {
         return choice === 'close'
-            ? `Бронь закроется на ${rub(amount + (p.linkedFactsAmount ?? 0))} — остальные ${rub(q.rest)} вернутся в «Свободно».`
-            : `Остальные ${rub(q.rest)} держатся бронью, пока не доплатишь или не обновишь остаток.`;
+            ? `Бронь закроется на ${fmtRub(amount + (p.linkedFactsAmount ?? 0))} — остальные ${fmtRub(q.rest)} вернутся в «Свободно».`
+            : `Остальные ${fmtRub(q.rest)} держатся бронью, пока не доплатишь или не обновишь остаток.`;
     }
-    return amount === rest ? 'Бронь оплачена целиком.' : `Бронь оплачена; сверх неё — «Свободно» меньше на ${rub(amount - rest)}.`;
+    return amount === rest ? 'Бронь оплачена целиком.' : `Бронь оплачена; сверх неё — «Свободно» меньше на ${fmtRub(amount - rest)}.`;
 }
 
 /**
@@ -51,4 +50,4 @@ export const askDateChoices = (p: FinancialEvent, today: string) => [
 
 /** Бронь старше сверки движок не держит: «до» — деньги уже в остатке; «после» — остаток станет меньше (больше). */
 export const askDateNote = (p: FinancialEvent, amount: number) =>
-    `До — значит, они уже в остатке, и «Свободно» не изменится. После — «Свободно» станет ${p.type === 'INCOME' ? 'больше' : 'меньше'} на ${rub(amount)}.`;
+    `До — значит, они уже в остатке, и «Свободно» не изменится. После — «Свободно» станет ${p.type === 'INCOME' ? 'больше' : 'меньше'} на ${fmtRub(amount)}.`;

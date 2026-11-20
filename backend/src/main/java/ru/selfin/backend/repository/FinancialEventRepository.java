@@ -258,7 +258,8 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
 
     /**
      * Просроченные обязательные расходы БЕЗ границы месяца (спека §3.4):
-     * PLAN(PLANNED) HIGH EXPENSE с датой в прошлом и без FACT-детей.
+     * PLAN(PLANNED) HIGH EXPENSE с датой в прошлом. Факты-дети не исключают: бронь, оплаченная частью
+     * («Доплачу позже», срез 3 п. 3), держит остаток — его считает {@code PocketInputAssembler}.
      * Возвращает события (не сумму) — движку нужны details для breakdown.
      * wishlistStatus проверять не нужно: хотелки всегда LOW (DB constraint), HIGH-фильтр их исключает.
      *
@@ -276,10 +277,6 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
           AND e.date > :after
           AND e.date < :today
           AND e.deleted = false
-          AND NOT EXISTS (
-              SELECT 1 FROM FinancialEvent f
-              WHERE f.parentEventId = e.id AND f.deleted = false
-          )
         ORDER BY e.date, e.id
         """)
     // ANO-232: порядок — дата, потом id. Без ORDER BY Postgres отдавал строки в порядке хранения, и просрочка на

@@ -9,11 +9,10 @@ import FormSheet from './FormSheet';
 import { iconOf } from './journal/JournalList';
 import { AttemptKeys } from '../lib/attemptKey';
 import { canRecordFact, latestAllowedIso } from '../lib/factDate';
-import { fmtDayShort } from '../lib/format';
+import { fmtDayShort, fmtRub } from '../lib/format';
 import { fundMovementMessage } from '../lib/fundMovement';
 import { askDateChoices, askDateNote, closePlanOf, ownEffect, planRest, restQuestion, type RestChoice } from '../lib/ownFact';
 
-const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽`;
 const KIND = { HIGH: 'bron', MEDIUM: 'ozh', LOW: 'hot' } as const;
 const TO = { HIGH: 'К брони', MEDIUM: 'К ожиданию', LOW: 'К хотелке' } as const;
 const TITLE = { HIGH: 'брони', MEDIUM: 'ожиданию', LOW: 'хотелке' } as const;
@@ -79,15 +78,15 @@ export default function PlanFactSheet({ plan, name, askDate, onClose, onCreated 
                 <div className="min-w-0">
                     <div className="truncate text-sf-body font-semibold">{TO[priority]} «{name}»</div>
                     <div className="text-sf-label text-sf-muted">
-                        по плану {rub(plan.plannedAmount ?? 0)}{plan.date ? ` · ${fmtDayShort(plan.date)}` : ''}{plan.categoryName ? ` · ${plan.categoryName}` : ''}
+                        по плану {fmtRub(plan.plannedAmount ?? 0)}{plan.date ? ` · ${fmtDayShort(plan.date)}` : ''}{plan.categoryName ? ` · ${plan.categoryName}` : ''}
                     </div>
                 </div>
             </div>
             <AmountField value={amountRaw} onChange={setAmountRaw} autoFocus
-                note={`по плану — ${rub(plan.plannedAmount ?? 0)}${plan.linkedFactsAmount ? `, записано ${rub(plan.linkedFactsAmount)}` : ''}`} />
+                note={`по плану — ${fmtRub(plan.plannedAmount ?? 0)}${plan.linkedFactsAmount ? `, записано ${fmtRub(plan.linkedFactsAmount)}` : ''}`} />
             {question && (
                 <Plate className="flex flex-col gap-2">
-                    <span className="text-sf-control">Остальные {rub(question.rest)}</span>
+                    <span className="text-sf-control">Остальные {fmtRub(question.rest)}</span>
                     <Choices name="rest" label="Остаток брони" look="chip" value={choice}
                         options={[{ value: 'later', label: question.options[0] }, { value: 'close', label: question.options[1] }]}
                         onChange={(v) => setChoice(v as RestChoice)} />

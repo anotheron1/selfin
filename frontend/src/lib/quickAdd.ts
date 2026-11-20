@@ -1,5 +1,5 @@
 import type { Category, FactPreview, Priority, RecurringConfig, RecurringFrequency, TargetFund } from '../types/api';
-import { fmtDayShort } from './format';
+import { fmtDayShort, fmtRub } from './format';
 import { PRIORITY_DOT_CONFIG } from './priority';
 
 /**
@@ -70,7 +70,6 @@ export function categoryChips(categories: Category[], type: 'EXPENSE' | 'INCOME'
 }
 
 /** «1 200 ₽» — как в листе ожидания. */
-const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽`;
 
 /** Что будет со «Свободно»: с чего начать фразу, на сколько оно изменится и, если надо, своими словами — как. */
 export interface FreeEffect { lead: string; delta: number; tail?: string }
@@ -105,7 +104,7 @@ export function freeEffect(p: {
         if (p.type === 'INCOME') return null;
         const lead = `${PRIORITY_DOT_CONFIG[p.kind].name} на ${fmtDayShort(p.date)}`;
         return inRange(p.date)
-            ? { lead, delta: -a, tail: `меньше уже сейчас, на ${rub(a)}` }
+            ? { lead, delta: -a, tail: `меньше уже сейчас, на ${fmtRub(a)}` }
             : { lead, delta: 0, tail: `сейчас не изменится: оно считается ${p.horizon!.label}` };
     }
     const sign = p.type === 'INCOME' ? 1 : -1;
@@ -120,7 +119,7 @@ export function freeEffect(p: {
     return { lead, delta };
 }
 
-const change = (delta: number) => (delta < 0 ? `меньше на ${rub(-delta)}` : `больше на ${rub(delta)}`);
+const change = (delta: number) => (delta < 0 ? `меньше на ${fmtRub(-delta)}` : `больше на ${fmtRub(delta)}`);
 
 /** Строка над кнопкой: «В плане этого не было — «Свободно» меньше на 1 200 ₽.» */
 export function effectLine(e: FreeEffect | null): string | null {

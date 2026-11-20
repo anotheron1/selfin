@@ -11,7 +11,7 @@ import { AmountField, DateChips } from './formParts';
 import FormSheet from './FormSheet';
 import UndoToast from './UndoToast';
 import { latestAllowedIso } from '../lib/factDate';
-import { fmtDayShort } from '../lib/format';
+import { fmtDayShort, fmtRub } from '../lib/format';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../lib/priority';
 import {
     ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, kindOf,
@@ -20,7 +20,6 @@ import {
 import { writeFailure } from '../lib/writeFailure';
 import { AttemptKeys } from '../lib/attemptKey';
 
-const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽`;
 
 /** Что записано — для строки снизу и «Отменить» (S3-F3). */
 interface Written { text: string; undo: () => Promise<unknown> }
@@ -95,14 +94,14 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [previewKey]);
     const lineNow = previewKey && line?.key === previewKey ? line.value : null;
-    const effect = pocket && (transfer || previewKey == null || line?.key === previewKey)
+    const canSubmit = canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer, fundId: fund?.id });
+    // Строка — когда форма собрана: без категории или копилки сказать нечего (стенд PR 4).
+    const effect = pocket && canSubmit && (transfer || previewKey == null || line?.key === previewKey)
         ? freeEffect({
             action: transfer && main === 'record' ? 'transfer' : main, type, kind, amount, date, today,
             checkpointDate: pocket.checkpointDate, horizon: pocket.horizon, line: lineNow, fundName: fund?.name,
         })
         : null;
-
-    const canSubmit = canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer, fundId: fund?.id });
 
     const pickCategory = (id: string) => {
         setCategoryId(id);
@@ -142,7 +141,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
             }
             const after = afterLine(effect);
             setWritten({
-                text: `${action === 'plan' ? 'Запланировано' : 'Записано'}: ${name}, ${rub(amount)}.${after ? ` ${after}` : ''}`,
+                text: `${action === 'plan' ? 'Запланировано' : 'Записано'}: ${name}, ${fmtRub(amount)}.${after ? ` ${after}` : ''}`,
                 undo,
             });
             onSuccess();
