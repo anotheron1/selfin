@@ -467,10 +467,10 @@ class FundMoneyFlowIT {
     @DisplayName("Р10-А, ревью Codex на #139: удалённая «Цели» — «потрачено» возвращает её, а не падает на уникальности имени")
     void delete_spent_revivesDeletedGoalsCategory() throws Exception {
         // Имя категории уникально во всей таблице, вместе с удалёнными; удаляет категории сам человек.
-        jdbc.update("DELETE FROM categories WHERE name = 'Цели'");
+        jdbc.update("DELETE FROM categories WHERE name = 'Цели' OR system_kind = 'GOAL_SPENDING'");
         String deletedId = jdbc.queryForObject("""
-                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income, forecast_enabled)
-                VALUES (gen_random_uuid(), 'Цели', 'INCOME', TRUE, FALSE, TRUE, TRUE) RETURNING id::text
+                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income, forecast_enabled, system_kind)
+                VALUES (gen_random_uuid(), 'Цели', 'INCOME', TRUE, FALSE, TRUE, TRUE, 'GOAL_SPENDING') RETURNING id::text
                 """, String.class);
         anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
@@ -499,7 +499,7 @@ class FundMoneyFlowIT {
     @Test
     @DisplayName("ANO-224: удалённая «Переводы в копилки» — перевод в копилку возвращает её, а не падает на уникальности имени")
     void transfer_revivesDeletedTransferCategory() throws Exception {
-        String deletedId = deletedCategory("Переводы в копилки");
+        String deletedId = deletedCategory("Переводы в копилки", "FUND_TRANSFER");
         anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
 
@@ -525,7 +525,7 @@ class FundMoneyFlowIT {
     @Test
     @DisplayName("ANO-224: удалённая «Переводы в копилки» — план перевода без категории, как из быстрого ввода, тоже записывается")
     void transferPlan_revivesDeletedTransferCategory() throws Exception {
-        String deletedId = deletedCategory("Переводы в копилки");
+        String deletedId = deletedCategory("Переводы в копилки", "FUND_TRANSFER");
         String fundId = createFund("Отпуск");
 
         mockMvc.perform(post("/api/v1/events")
@@ -782,12 +782,12 @@ class FundMoneyFlowIT {
      * Удалённая категория — как после «Настроек», с признаками, которых у системной быть не должно.
      * Имя уникально во всей таблице, вместе с удалёнными, поэтому прежняя строка с ним убирается.
      */
-    private String deletedCategory(String name) {
-        jdbc.update("DELETE FROM categories WHERE name = ?", name);
+    private String deletedCategory(String name, String kind) {
+        jdbc.update("DELETE FROM categories WHERE name = ? OR system_kind = ?", name, kind);
         return jdbc.queryForObject("""
-                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income, forecast_enabled)
-                VALUES (gen_random_uuid(), ?, 'INCOME', TRUE, FALSE, TRUE, TRUE) RETURNING id::text
-                """, String.class, name);
+                INSERT INTO categories (id, name, type, is_deleted, is_system, primary_income, forecast_enabled, system_kind)
+                VALUES (gen_random_uuid(), ?, 'INCOME', TRUE, FALSE, TRUE, TRUE, ?) RETURNING id::text
+                """, String.class, name, kind);
     }
 
     private boolean isDeleted(String fundId) {

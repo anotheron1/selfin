@@ -1,22 +1,34 @@
-import { useState, useEffect } from 'react';
-import { createPlanWithFact, createStandaloneFact, fetchCategories, fetchFunds, transferToFund } from '../api';
-import type { Category, FinancialEventCreateDto, RecurringConfig, TargetFund } from '../types/api';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
-import { Input } from './ui/input';
-import { AmountInput, amountValue, amountRawInput } from './ui/amount-input';
-import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import RecurringFields from './RecurringFields';
-import { canRecordFact, latestAllowedIso } from '../lib/factDate';
-import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, priorityTitle } from '../lib/priority';
-import { ON_ACCOUNT_NOTE, canSubmitQuickAdd, quickAddAction, transferFundChoice } from '../lib/quickAdd';
+import { useEffect, useState } from 'react';
+import { ChevronDown, Repeat } from 'lucide-react';
+import {
+    createPlanWithFact, createStandaloneFact, deleteEvent, fetchCategories, fetchEvents, fetchFactPreview, fetchFunds,
+    fetchPocket, transferToFund,
+} from '../api';
+import type { Category, FactPreview, FinancialEvent, FinancialEventCreateDto, Priority, RecurringFrequency, TargetFund } from '../types/api';
+import { Button, Choices, Chip, Field } from '@/ds';
+import { amountRawInput, amountValue } from './ui/amount-input';
+import { AmountField, DateChips } from './formParts';
+import FormSheet from './FormSheet';
+import UndoToast from './UndoToast';
+import { latestAllowedIso } from '../lib/factDate';
+import { fmtDayShort } from '../lib/format';
+import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../lib/priority';
+import {
+    ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, kindOf,
+    repeatLabel, repeatOf, transferFundChoice, type FormAction,
+} from '../lib/quickAdd';
 import { writeFailure } from '../lib/writeFailure';
 import { AttemptKeys } from '../lib/attemptKey';
 
+const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽`;
+
+/** Что записано — для строки снизу и «Отменить» (S3-F3). */
+interface Written { text: string; undo: () => Promise<unknown> }
+
 /**
- * Модальная форма быстрого добавления транзакции (bottom sheet). Открывают «+» капсулы и «+ Записать» полосы (components/frame).
- * Поддерживает типы: Расход, Доход, В копилку (FUND_TRANSFER).
- * При успешном сохранении вызывает `onSuccess` для обновления данных родителя.
+ * Форма «+» (срез 3 п. 12, ANO-228; доски Zh2-F8a–c, S3-F1, S3-F4, S3-F8; на 1440 — окном S3-W4). Открывают «+»
+ * капсулы, «Записать» полосы (components/frame) и кружок ожидания журнала. Одна сумма; кнопки — по дате; «Накопление» —
+ * перевод в копилку. После записи — строка снизу: что записано, что со «Свободно», «Отменить».
  */
 export default function QuickAddModal({ onClose, onSuccess, preset }: {
     onClose: () => void;
@@ -24,321 +36,252 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
     /** Кружок ожидания с «+» и «Записать» в листе — форма с категорией ожидания (срез 3, п. 10). */
     preset?: Pick<FinancialEventCreateDto, 'type' | 'categoryId' | 'targetFundId'>;
 }) {
-    // ANO-155 + ревью #45: умолчание и граница «сегодня» берутся из ОДНОГО источника.
-    // toISOString() даёт дату по UTC: восточнее Гринвича она вечером отстаёт на день
-    // (форма предлагала вчера), западнее — ночью опережает, и тогда собственное
-    // умолчание формы читалось как будущее, а поле факта исчезало до правки даты руками.
-    // ANO-235: не позже даты сервера — восточнее Москвы ночью местное «сегодня» для него завтра, и факт получал 400.
+    // ANO-155 + ревью #45: умолчание и граница «сегодня» — из одного источника, местной датой, а не UTC.
+    // ANO-235: и не позже даты сервера — восточнее Москвы ночью местное «сегодня» для него завтра, и запись получала 400.
     const today = latestAllowedIso(new Date());
-    const [form, setForm] = useState<Partial<FinancialEventCreateDto>>({
-        date: today,
-        type: 'EXPENSE',
-        priority: 'MEDIUM',
-        ...preset,
-    });
-    // ANO-33: суммы держим сырым текстом — в них может быть выражение,
-    // а число выводим парсером в момент отправки.
-    const [plannedAmountLocal, setPlannedAmountLocal] = useState<string>('');
-    const [factAmountLocal, setFactAmountLocal] = useState<string>('');
+    const [type, setType] = useState<'EXPENSE' | 'INCOME'>(preset?.type === 'INCOME' ? 'INCOME' : 'EXPENSE');
+    const [categoryId, setCategoryId] = useState<string | undefined>(
+        preset?.type === 'FUND_TRANSFER' ? SAVINGS_ID : preset?.categoryId);
+    const [fundId, setFundId] = useState<string | undefined>(preset?.targetFundId);
+    // ANO-33: сумма — сырой текст: в ней может быть выражение, число — парсером при отправке.
+    const [amountRaw, setAmountRaw] = useState('');
+    const [description, setDescription] = useState('');
+    const [date, setDate] = useState(today);
+    // Из кружка ожидания — ожидание: запись встаёт к его строке. Иначе — от категории.
+    const [kind, setKind] = useState<Priority>('MEDIUM');
+    const [repeat, setRepeat] = useState<{ frequency: RecurringFrequency; endDate: string | null } | null>(null);
+    const [repeatOpen, setRepeatOpen] = useState(false);
+    const [moreOpen, setMoreOpen] = useState(false);
+    const [categories, setCategories] = useState<Category[] | null>(null);
+    const [funds, setFunds] = useState<TargetFund[] | null>(null);
+    const [pocket, setPocket] = useState<{ checkpointDate: string | null; horizon: { endDate: string; label: string } } | null>(null);
+    const [line, setLine] = useState<{ key: string; value: FactPreview | null } | null>(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [written, setWritten] = useState<Written | null>(null);
     // ANO-192, ревью #104: попытка живёт, пока открыт быстрый ввод — повтор после сбоя тот же.
     const [attempts] = useState(() => new AttemptKeys());
-    // ANO-155: факт значит «деньги ушли» — у события с будущей датой его быть не может.
-    const factAllowed = !form.date || canRecordFact(form.date, today);
-    const [error, setError] = useState<string | null>(null);
-    const [categories, setCategories] = useState<Category[]>([]);
-    const [catLoading, setCatLoading] = useState(true);
-    const [funds, setFunds] = useState<TargetFund[]>([]);
-    const [fundsLoading, setFundsLoading] = useState(false);
-    const [recurringEnabled, setRecurringEnabled] = useState(false);
-    const [recurring, setRecurring] = useState<RecurringConfig>({
-        frequency: 'MONTHLY',
-        dayOfMonth: 1,
-        monthOfYear: null,
-        endDate: null,
-    });
 
+    useEffect(() => { fetchCategories().then(setCategories).catch(() => setCategories([])); }, []);
+    // Для строки о «Свободно»: дата сверки и до какого дня оно считается. Не пришло — строки нет.
+    useEffect(() => { fetchPocket().then(p => setPocket({ checkpointDate: p.checkpointDate, horizon: p.horizon })).catch(() => {}); }, []);
+
+    const chips = categoryChips(categories ?? [], type);
+    const all = [...chips.top, ...chips.rest];
+    const chosen = all.find(c => c.id === categoryId);
+    const transfer = chosen?.transfer ?? false;
+    const category = categories?.find(c => c.id === categoryId);
     useEffect(() => {
-        setCatLoading(true);
-        fetchCategories().then(setCategories).finally(() => setCatLoading(false));
-    }, []);
+        if (transfer && funds == null) fetchFunds().then(d => setFunds(d.funds)).catch(() => setFunds([]));
+    }, [transfer, funds]);
+    // ANO-169: копилки на счёте перевода не принимают — в списке их нет, под списком строка почему.
+    const { choices: openFunds, onAccount } = transferFundChoice(funds ?? []);
+    const fund = openFunds.find(f => f.id === fundId);
 
+    const amount = amountValue(amountRaw);
+    const repeatOn = repeat != null && !transfer && date >= today;
+    const buttons = formButtons(date, today, repeatOn);
+    const main: FormAction = buttons[buttons.length - 1];
+
+    // Строка ожидания, к которой встанет запись, — у сервера (правило п. 1 на клиенте не повторяется).
+    const previewKey = main === 'record' && !transfer && category ? `${category.id}|${date}|${type}|${kind}` : null;
     useEffect(() => {
-        if (form.type === 'FUND_TRANSFER') {
-            setFundsLoading(true);
-            fetchFunds().then(data => setFunds(data.funds)).finally(() => setFundsLoading(false));
-        }
-    }, [form.type]);
+        if (!previewKey || !category) return;
+        let gone = false;
+        fetchFactPreview({ categoryId: category.id, date, type, priority: kind })
+            .then(v => { if (!gone) setLine({ key: previewKey, value: v ?? null }); })
+            .catch(() => { if (!gone) setLine(null); });
+        return () => { gone = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [previewKey]);
+    const lineNow = previewKey && line?.key === previewKey ? line.value : null;
+    const effect = pocket && (transfer || previewKey == null || line?.key === previewKey)
+        ? freeEffect({
+            action: transfer && main === 'record' ? 'transfer' : main, type, kind, amount, date, today,
+            checkpointDate: pocket.checkpointDate, horizon: pocket.horizon, line: lineNow, fundName: fund?.name,
+        })
+        : null;
 
-    const handleTypeChange = (type: 'EXPENSE' | 'INCOME' | 'FUND_TRANSFER') => {
-        // У перевода поля описания нет (ANO-169) — не несём в него скрытое значение.
-        setForm(f => ({
-            ...f, type, categoryId: undefined, targetFundId: undefined, priority: 'MEDIUM',
-            ...(type === 'FUND_TRANSFER' ? { description: undefined, rawInput: undefined } : {}),
-        }));
+    const canSubmit = canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer, fundId: fund?.id });
+
+    const pickCategory = (id: string) => {
+        setCategoryId(id);
+        // Вид — от категории; у прошлой даты он остаётся тем, что выбран (S3-F1).
+        setKind(kindOf(categories?.find(c => c.id === id)));
     };
 
-    const filteredCategories = categories.filter(c => c.type === form.type).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-    // ANO-169: копилки на счёте перевода не принимают — в списке их нет, под списком строка почему.
-    const { choices: activeFunds, onAccount } = transferFundChoice(funds);
-    const selectedCategory = categories.find(c => c.id === form.categoryId);
-    const showPrioritySelector = form.type !== 'FUND_TRANSFER' && selectedCategory?.priority !== 'HIGH';
-
-    const isFundTransfer = form.type === 'FUND_TRANSFER';
-    const canSubmit = canSubmitQuickAdd({
-        isFundTransfer,
-        targetFundId: form.targetFundId,
-        categoryId: form.categoryId,
-        hasPlanAmount: (form.plannedAmount ?? 0) > 0,
-        hasFactAmount: (amountValue(factAmountLocal) ?? 0) > 0,
-    });
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!canSubmit || !form.date || !form.type) return;
+    const submit = async (action: FormAction) => {
+        if (!canSubmit || amount == null) return;
         setLoading(true);
         setError(null);
         try {
-            const effectivePriority: FinancialEventCreateDto['priority'] = (() => {
-                if (isFundTransfer) return 'MEDIUM';
-                if (selectedCategory?.priority === 'HIGH') return 'HIGH';
-                return form.priority ?? 'MEDIUM';
-            })();
-            // ANO-33: parseFloat на «450+abc» молча вернул бы 450 — считаем парсером
-            const factAmount = amountValue(factAmountLocal);
-            const hasFactAmount = factAmount != null;
-            const hasPlanAmount = !!form.plannedAmount;
-            const action = quickAddAction(isFundTransfer, hasPlanAmount, hasFactAmount);
-
-            if (action === 'transfer') {
-                // ANO-169: «уже перевёл» — тот же перевод, что кнопка «Пополнить»: одна запись
-                // «В копилку: X», копилка растёт. Раньше здесь создавался план без суммы, а сумма
-                // выбрасывалась. Без вопроса «отложить всё равно?» (confirm): человек записывает
-                // то, что уже сделал, — спрашивать о нём значит сомневаться в его вводе (правило 5).
-                await transferToFund(attempts, form.targetFundId!, factAmount!, true, undefined, form.date!);
-            } else if (action === 'standaloneFact') {
-                // Внеплановый факт — только фактическая сумма, без плана
-                await createStandaloneFact(attempts, {
-                    date: form.date!,
-                    categoryId: form.categoryId!,
-                    type: form.type!,
-                    factAmount: factAmount!,
-                    description: form.description || undefined,
-                    priority: effectivePriority,
-                    rawInput: amountRawInput(factAmountLocal),
+            const rawInput = amountRawInput(amountRaw);
+            const name = transfer ? (fund?.name ?? '') : (description || chosen?.name || '');
+            let undo: () => Promise<unknown>;
+            if (transfer && action === 'record') {
+                // ANO-169: «Отложить» — тот же перевод, что «Пополнить»: одна запись, копилка растёт. Без вопроса
+                // «отложить всё равно?»: человек записывает то, что уже сделал (правило 5).
+                await transferToFund(attempts, fundId!, amount!, true, undefined, date);
+                undo = () => undoTransfer(fundId!, amount, date);
+            } else if (action === 'record') {
+                const fact = await createStandaloneFact(attempts, {
+                    date, categoryId: chosen!.id, type, factAmount: amount, description: description || undefined,
+                    priority: kind, rawInput,
                 });
+                undo = () => deleteEvent(fact.id);
             } else {
-                // Плановая транзакция. Повтора у перевода нет: переключатель мог остаться
-                // включённым от расхода, а поле у перевода скрыто.
-                // ANO-169: у перевода факт к плану переводит деньги сервер — раньше этот шаг
-                // для копилки пропускался, и сумма факта терялась. ANO-192: план и факт — одна
-                // попытка, повтор после сбоя не создаст второй план.
-                await createPlanWithFact(attempts, {
-                    ...form as FinancialEventCreateDto,
-                    priority: effectivePriority,
-                    recurring: recurringEnabled && !isFundTransfer ? { ...recurring, startDate: form.date } : null,
-                }, hasFactAmount ? {
-                    date: form.date!, factAmount: factAmount!,
-                    description: form.description || undefined,
-                    rawInput: amountRawInput(factAmountLocal),
-                } : undefined);
+                // План; повтор — только у плана, число — из даты формы. У перевода повтора нет.
+                const plan = await createPlanWithFact(attempts, transfer
+                    ? { date, type: 'FUND_TRANSFER', targetFundId: fundId, plannedAmount: amount, priority: 'MEDIUM' }
+                    : {
+                        date, categoryId: chosen!.id, type, plannedAmount: amount, priority: kind,
+                        description: description || undefined, rawInput,
+                        recurring: repeatOn ? repeatOf(repeat!.frequency, date, repeat!.endDate) : null,
+                    });
+                undo = () => deleteEvent(plan.id, repeatOn ? 'ALL' : 'THIS');
             }
+            const after = afterLine(effect);
+            setWritten({
+                text: `${action === 'plan' ? 'Запланировано' : 'Записано'}: ${name}, ${rub(amount)}.${after ? ` ${after}` : ''}`,
+                undo,
+            });
             onSuccess();
-            onClose();
         } catch (err) {
-            console.error('Ошибка создания транзакции:', err);
-            // Отказ копилки называется словами (ANO-169), остальное — «Не записалось», как в
-            // «Записать факт». Догадка про поля отправляла искать пустое поле, которого нет (ANO-170).
+            console.error('Ошибка записи:', err);
+            // Отказ копилки называется словами (ANO-169), остальное — «Не записалось» (ANO-170).
             setError(writeFailure(err));
         } finally {
             setLoading(false);
         }
     };
 
+    if (written) {
+        return <UndoToast text={written.text} onUndo={() => written.undo().then(onSuccess)} onDone={onClose} />;
+    }
+
+    const label = (a: FormAction) => (a === 'plan' ? 'Запланировать' : transfer ? 'Отложить' : 'Записать');
+    const kinds = PRIORITY_ORDER.map(p => ({ value: p, label: PRIORITY_DOT_CONFIG[p].name }));
+    const shownChips = moreOpen ? all : chosen && !chips.top.includes(chosen) ? [...chips.top, chosen] : chips.top;
+    const lineText = effectLine(effect);
+
     return (
-        <Sheet open onOpenChange={open => !open && onClose()}>
-            <SheetContent side="bottom" className="max-w-2xl mx-auto rounded-t-2xl">
-                <SheetHeader>
-                    <SheetTitle>Быстрый ввод</SheetTitle>
-                </SheetHeader>
-                <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-4">
-                    {/* Тип: Расход / Доход / В копилку */}
-                    <div className="flex gap-2">
-                        <Button
-                            type="button"
-                            className="flex-1"
-                            variant={form.type === 'EXPENSE' ? 'destructive' : 'secondary'}
-                            onClick={() => handleTypeChange('EXPENSE')}
-                        >
-                            Расход
-                        </Button>
-                        <Button
-                            type="button"
-                            className="flex-1"
-                            variant={form.type === 'INCOME' ? 'default' : 'secondary'}
-                            style={form.type === 'INCOME' ? { background: 'var(--color-success)' } : {}}
-                            onClick={() => handleTypeChange('INCOME')}
-                        >
-                            Доход
-                        </Button>
-                        <Button
-                            type="button"
-                            className="flex-1"
-                            variant={form.type === 'FUND_TRANSFER' ? 'default' : 'secondary'}
-                            style={form.type === 'FUND_TRANSFER' ? { background: 'hsl(var(--primary))' } : {}}
-                            onClick={() => handleTypeChange('FUND_TRANSFER')}
-                        >
-                            В копилку
-                        </Button>
+        <FormSheet label="Записать" onClose={onClose}>
+            <Choices name="type" label="Расход или доход" value={type}
+                options={[{ value: 'EXPENSE', label: 'Расход' }, { value: 'INCOME', label: 'Доход' }]}
+                onChange={(v) => { setType(v as 'EXPENSE' | 'INCOME'); setCategoryId(undefined); setKind('MEDIUM'); }} />
+            <AmountField value={amountRaw} onChange={setAmountRaw} autoFocus />
+            <div className="flex flex-wrap gap-1.5">
+                {categories == null
+                    ? <span className="px-1 text-sf-note text-sf-muted">Загрузка…</span>
+                    : (
+                        <Choices name="category" label="Категория" look="chip" className="contents" value={categoryId ?? ''}
+                            options={shownChips.map(c => ({ value: c.id, label: c.name }))} onChange={pickCategory} />
+                    )}
+                {chips.rest.length > 0 && (
+                    <Chip aria-expanded={moreOpen} onClick={() => setMoreOpen(o => !o)}>
+                        {moreOpen ? 'свернуть ▴' : `ещё ${chips.rest.length} ▾`}
+                    </Chip>
+                )}
+            </div>
+            {transfer && (
+                <>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="px-1 text-sf-note text-sf-muted">в копилку</span>
+                        {funds == null
+                            ? <span className="text-sf-note text-sf-muted">Загрузка…</span>
+                            : <Choices name="fund" label="В какую копилку" look="chip" className="contents" value={fundId ?? ''}
+                                options={openFunds.map(f => ({ value: f.id, label: f.name }))} onChange={setFundId} />}
                     </div>
-
-                    {/* Выбор копилки — только для FUND_TRANSFER */}
-                    {isFundTransfer ? (
-                        <>
-                            <Select
-                                value={form.targetFundId || ''}
-                                onValueChange={val => setForm(f => ({ ...f, targetFundId: val }))}
-                                disabled={fundsLoading}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder={fundsLoading ? 'Загрузка...' : 'Выбери копилку'} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {activeFunds.map(f => (
-                                        <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            {/* ANO-169: пропавшая из списка копилка без объяснения — та же стена, что ANO-174. */}
-                            {onAccount > 0 && (
-                                <p className="text-xs -mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                                    {ON_ACCOUNT_NOTE}
-                                </p>
-                            )}
-                        </>
-                    ) : (
-                        /* Категория — отфильтрована по типу */
-                        <Select
-                            value={form.categoryId || ''}
-                            onValueChange={val => {
-                                const cat = categories.find(c => c.id === val);
-                                setForm(f => ({
-                                    ...f,
-                                    categoryId: val,
-                                    // Keep form.priority neutral (MEDIUM) — effectivePriority derives HIGH on submit
-                                    priority: cat?.priority === 'HIGH' ? 'MEDIUM' : f.priority ?? 'MEDIUM',
-                                }));
-                            }}
-                            disabled={catLoading}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder={catLoading ? 'Загрузка...' : `Выбери категорию (${filteredCategories.length})`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {filteredCategories.map(c => (
-                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    )}
-
-                    {/* Плановая сумма */}
-                    <AmountInput
-                        placeholder="Сумма (план), ₽"
-                        value={plannedAmountLocal}
-                        onChange={raw => {
-                            setPlannedAmountLocal(raw);
-                            setForm(f => ({ ...f, plannedAmount: amountValue(raw) ?? undefined }));
-                        }}
-                    />
-
-                    {/* Фактическая сумма. ANO-155: у события с будущей датой факта быть не
-                        может — деньги ещё не ушли. Раньше поле оставалось, и факт молча
-                        наследовал будущую дату события: расход исчезал из расчёта целиком. */}
-                    {factAllowed && (
-                        <AmountInput
-                            placeholder={isFundTransfer ? 'Сумма (если уже перевёл), ₽' : 'Сумма (факт, если уже произошло), ₽'}
-                            value={factAmountLocal}
-                            onChange={setFactAmountLocal}
-                        />
-                    )}
-
-                    {/* Дата */}
-                    <Input
-                        type="date"
-                        value={form.date || ''}
-                        onChange={e => {
-                            const next = e.target.value;
-                            // Уехали в будущее — введённый факт больше не про эти деньги.
-                            if (next && !canRecordFact(next, today)) setFactAmountLocal('');
-                            setForm(f => ({ ...f, date: next }));
-                        }}
-                    />
-
-                    {/* Название транзакции. У перевода его нет (ANO-169): журнал и дашборд
-                        называют перевод именем копилки, а ручка перевода пишет своё
-                        «В копилку: X» — поле собирало бы то, что никуда не попадает. */}
-                    {!isFundTransfer && (
-                        <Input
-                            placeholder="Название транзакции (необязательно)"
-                            value={form.description ?? ''}
-                            onChange={e => setForm(f => ({ ...f, description: e.target.value, rawInput: e.target.value }))}
-                        />
-                    )}
-
-                    {/* Повтор — только для плановых транзакций (не FUND_TRANSFER) */}
-                    {!isFundTransfer && (
-                        <RecurringFields
-                            enabled={recurringEnabled}
-                            value={recurring}
-                            eventDate={form.date ?? ''}
-                            onToggle={setRecurringEnabled}
-                            onChange={setRecurring}
-                        />
-                    )}
-
-                    {/* Характер строки — только если не FUND_TRANSFER и не категория-обязательство.
-                        Строки-подсказки под выбором здесь нет нарочно: быстрый ввод — под кассу (правило 9). */}
-                    {showPrioritySelector && (
-                        <div className="flex gap-2">
-                            {PRIORITY_ORDER.map(p => {
-                                const label = PRIORITY_DOT_CONFIG[p].name;
-                                const isActive = form.priority === p;
-                                return (
-                                    <button
-                                        key={p}
-                                        type="button"
-                                        title={priorityTitle(p)}
-                                        className="flex-1 text-xs px-2 py-1.5 rounded border transition-colors"
-                                        style={isActive ? {
-                                            background: p === 'HIGH' ? 'rgba(239,68,68,0.15)' : p === 'LOW' ? 'rgba(100,116,139,0.15)' : 'rgba(47, 107, 85, 0.15)',
-                                            borderColor: p === 'HIGH' ? 'hsl(var(--destructive))' : p === 'LOW' ? 'var(--color-border)' : 'var(--color-accent)',
-                                            color: p === 'HIGH' ? 'hsl(var(--destructive))' : p === 'LOW' ? 'var(--color-text-muted)' : 'var(--color-accent)',
-                                        } : {
-                                            borderColor: 'var(--color-border)',
-                                            color: 'var(--color-text-muted)',
-                                        }}
-                                        onClick={() => setForm(f => ({ ...f, priority: p }))}
-                                    >
-                                        {label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    {error && (
-                        <p className="text-sm text-destructive">{error}</p>
-                    )}
-                    <Button
-                        type="submit"
-                        className="w-full"
-                        disabled={loading || !canSubmit}
-                    >
-                        {loading ? 'Сохраняем...' : 'Сохранить'}
+                    {onAccount > 0 && <p className="-mt-1 px-1 text-sf-label text-sf-muted">{ON_ACCOUNT_NOTE}</p>}
+                </>
+            )}
+            {/* У перевода названия нет (ANO-169): журнал называет его именем копилки. */}
+            {!transfer && (
+                <Field aria-label="Название транзакции (необязательно)" placeholder="Название транзакции (необязательно)"
+                    value={description} onChange={(e) => setDescription(e.target.value)} />
+            )}
+            <DateChips value={date} today={today} onChange={setDate}>
+                {/* Повтор — только у плана: у прошлой даты и у перевода его нет (замечание 2.3). */}
+                {!transfer && date >= today && (
+                    <Chip variant="outline" aria-label={repeatOn ? undefined : 'Повторять: нет'} aria-expanded={repeatOpen}
+                        onClick={() => setRepeatOpen(o => !o)} className={repeatOn ? undefined : 'w-11 px-0'}>
+                        <Repeat size={16} strokeWidth={1.8} />
+                        {repeatOn && <>{repeatLabel(repeat!.frequency, date)}<ChevronDown size={13} strokeWidth={2} /></>}
+                    </Chip>
+                )}
+            </DateChips>
+            {repeatOpen && !transfer && date >= today && (
+                <RepeatMenu date={date} value={repeat} onChange={setRepeat} onClose={() => setRepeatOpen(false)} />
+            )}
+            {!transfer && (
+                <div aria-label="Вид">
+                    <Choices name="kind" label="Вид" size="tile" value={kind} options={kinds} onChange={(v) => setKind(v as Priority)} />
+                </div>
+            )}
+            {lineText && <span role="status" className="px-1 text-sf-note">{lineText}</span>}
+            {error && <p className="px-1 text-sf-note text-sf-error">{error}</p>}
+            <div className="flex gap-2">
+                {buttons.map((a) => (
+                    <Button key={a} variant={a === main ? 'primary' : 'soft'} disabled={loading || !canSubmit}
+                        className={a === main ? 'flex-[1.6_1_0]' : 'flex-[1_1_0] px-3'} onClick={() => submit(a)}>
+                        {loading && a === main ? 'Сохраняем…' : label(a)}
                     </Button>
-                </form>
-            </SheetContent>
-        </Sheet>
+                ))}
+            </div>
+        </FormSheet>
+    );
+}
+
+/**
+ * «Отменить» у перевода: ручка перевода отвечает копилкой, а не записью, — запись ищется по копилке, сумме и дню,
+ * последняя записанная. Удаление перевода забирает деньги и из копилки (ANO-201).
+ */
+async function undoTransfer(fundId: string, amount: number, date: string) {
+    // ponytail: поиск по копилке, сумме и дню; два одинаковых перевода за секунды — снимется последний, что и нужно
+    const mine = (await fetchEvents(date, date))
+        .filter((e: FinancialEvent) => e.type === 'FUND_TRANSFER' && e.targetFundId === fundId && e.factAmount === amount);
+    const last = mine.reduce<FinancialEvent | undefined>((a, e) => (!a || (e.createdAt ?? '') > (a.createdAt ?? '') ? e : a), undefined);
+    if (last) await deleteEvent(last.id);
+}
+
+/** Меню повтора (S3-F8): не повторять, каждый месяц или год — число из даты; когда закончить. */
+function RepeatMenu({ date, value, onChange, onClose }: {
+    date: string;
+    value: { frequency: RecurringFrequency; endDate: string | null } | null;
+    onChange: (v: { frequency: RecurringFrequency; endDate: string | null } | null) => void;
+    onClose: () => void;
+}) {
+    const yearLater = `${Number(date.slice(0, 4)) + 1}${date.slice(4)}`;
+    const endLabel = (iso: string) => `${fmtDayShort(iso)} ${iso.slice(0, 4)}`;
+    const pick = (v: string) => {
+        if (v === 'none') { onChange(null); onClose(); return; }
+        onChange({ frequency: v as RecurringFrequency, endDate: value?.endDate ?? null });
+    };
+    return (
+        <div role="group" aria-label="Повторять" className="rounded-[20px] bg-sf-plate p-2">
+            <Choices name="repeat" label="Повторять" look="chip" value={value?.frequency ?? 'none'} className="flex-col items-stretch"
+                options={[
+                    { value: 'none', label: 'Не повторять' },
+                    { value: 'MONTHLY', label: repeatLabel('MONTHLY', date) },
+                    { value: 'YEARLY', label: repeatLabel('YEARLY', date) },
+                ]} onChange={pick} />
+            {value && (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-sf-rule px-1 pt-2.5">
+                    <span className="text-sf-control">Закончить</span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <Choices name="repeat-end" label="Когда закончить" look="chip" className="contents"
+                            value={value.endDate == null ? 'never' : 'date'}
+                            options={[{ value: 'never', label: 'никогда' }, { value: 'date', label: endLabel(value.endDate ?? yearLater) }]}
+                            onChange={(v) => onChange({ ...value, endDate: v === 'never' ? null : yearLater })} />
+                        {value.endDate != null && (
+                            <input type="date" aria-label="Дата окончания" min={date} value={value.endDate}
+                                onChange={(e) => onChange({ ...value, endDate: e.target.value || yearLater })}
+                                className="h-sf-chip rounded-sf-pill bg-sf-chip px-3 text-sf-note" />
+                        )}
+                    </div>
+                </div>
+            )}
+            <p className="px-2 pb-0.5 pt-1.5 text-sf-label text-sf-muted">день берётся из даты — поменяешь дату, поменяется и он</p>
+        </div>
     );
 }

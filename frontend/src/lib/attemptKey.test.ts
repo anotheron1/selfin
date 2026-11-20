@@ -103,8 +103,8 @@ describe('ключ и память попыток — только там, гд�
             .map(({ f, i }) => `${f}:${i + 1}`);
 
         expect(elsewhere, 'память попыток мимо экрана записи').toEqual([]);
-        expect(read('components/FactCreateSheet.tsx'), 'лист факта: новая память на каждое открытие')
-            .toContain('setAttempts(new AttemptKeys())');
+        expect(read('components/PlanFactSheet.tsx'), 'запись к плану: новая память на каждое открытие — лист монтируется заново (key)')
+            .toContain('useState(() => new AttemptKeys())');
         expect(read('components/Fab.tsx')).toContain('useState(() => new AttemptKeys())');
         expect(read('pages/Funds.tsx')).toContain('useState(() => new AttemptKeys())');
         expect(read('pages/Budget.tsx'), 'кружок — память сторожа журнала').toContain('createLinkedFact(guard.attempts, plan.id');

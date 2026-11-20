@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.FactCreateDto;
+import ru.selfin.backend.dto.FactPreviewDto;
+import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
@@ -65,6 +67,20 @@ public class FinancialEventController {
     @GetMapping("/months")
     public List<Integer> monthsWithRows(@RequestParam int year) {
         return eventService.monthsWithRows(year);
+    }
+
+    @Operation(summary = "К какой строке ожидания встанет запись",
+            description = "Строка по правилу привязки записи без плана (срез 3 п. 1) — имя, дата, сколько записано; "
+                    + "не встанет ни к какой — 204 без тела. Форма «+» по ответу говорит, что будет со «Свободно».")
+    @GetMapping("/fact-preview")
+    public ResponseEntity<FactPreviewDto> factPreview(
+            @RequestParam UUID categoryId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam EventType type,
+            @RequestParam(required = false) ru.selfin.backend.model.enums.Priority priority) {
+        return eventService.factPreview(categoryId, date, type, priority)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @Operation(summary = "Создать событие (идемпотентно)", description = "Клиент обязан передать заголовок Idempotency-Key (UUID). "

@@ -26,7 +26,7 @@ export function usualCategoryId(
     return chosen[name] || categories.find(c => c.type === 'EXPENSE' && c.name === name)?.id || null;
 }
 
-/** Из чего выбирать: свои расходные, без системных («Кредит», «Переводы в копилки», «Хотелки», «Цели»). */
+/** Из чего выбирать: свои расходные, без системных («Кредит», «Накопление», «Хотелки», «Цели»). */
 export const usualChoices = <C extends Pick<Category, 'type' | 'isSystem'>>(categories: C[]): C[] =>
     categories.filter(c => c.type === 'EXPENSE' && !c.isSystem);
 

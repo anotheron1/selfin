@@ -215,6 +215,10 @@ class TwoPeopleIsolationIT {
         p.save("standaloneFact", ok(p, POST, "/api/v1/events/facts", """
                 {"date":"%s","categoryId":"%s","type":"EXPENSE","factAmount":%d}"""
                 .formatted(TODAY, p.id("category"), 1_500 * k), key("standalone")));
+        // Строка ожидания — после записи: запись встала бы к ней (срез 3 п. 1). По ней отвечает fact-preview.
+        ok(p, POST, "/api/v1/events", """
+                {"date":"%s","categoryId":"%s","type":"EXPENSE","plannedAmount":%d,"priority":"MEDIUM"}"""
+                .formatted(TODAY, p.id("category"), 4_000 * k), key("expectation"));
         p.save("wish", ok(p, POST, "/api/v1/events/wishlist", """
                 {"description":"Велосипед","plannedAmount":%d}""".formatted(30_000 * k), null));
         p.save("fund", ok(p, POST, "/api/v1/funds", """
@@ -244,9 +248,9 @@ class TwoPeopleIsolationIT {
                 {"bufferAmount":%d}""".formatted(10_000 * k), null);
         ok(p, PUT, "/api/v1/settings/hints", """
                 {"off":false,"closed":["%s"]}""".formatted(k == 1 ? "number" : "plus"), null);
-        // Системные категории ищутся по имени — у каждого свои (ANO-150): чужую выдало бы правило 1.
+        // Системные категории ищутся по признаку вида — у каждого свои (ANO-150): чужую выдало бы правило 1.
         assertThat(JsonPath.<List<String>>read(ok(p, GET, "/api/v1/categories", null, null), "$[*].name"))
-                .contains("Хотелки", "Переводы в копилки", "Кредит", "Цели");
+                .contains("Хотелки", "Накопление", "Кредит", "Цели");
         return p;
     }
 
@@ -269,7 +273,8 @@ class TwoPeopleIsolationIT {
                 "/api/v1/capital/trajectory", "/api/v1/categories", "/api/v1/events?" + period,
                 "/api/v1/events?priority=LOW", "/api/v1/events/months?year=" + TODAY.getYear(), "/api/v1/funds", "/api/v1/funds/planner", "/api/v1/hello",
                 "/api/v1/me", "/api/v1/pocket", "/api/v1/settings/wishlist", "/api/v1/settings/pocket",
-                "/api/v1/settings/hints", "/api/v1/strategy/timeline", "/api/v1/version", "/api/v1/wishlist/simulation")) {
+                "/api/v1/settings/hints", "/api/v1/strategy/timeline", "/api/v1/version", "/api/v1/wishlist/simulation",
+                "/api/v1/events/fact-preview?categoryId=" + p.id("category") + "&date=" + TODAY + "&type=EXPENSE&priority=MEDIUM")) {
             answers.put("GET " + uri, readOk(p, GET, uri, null));
         }
         // Расчёты «что если» — POST, но ничего не пишут: те же чтения.
@@ -400,6 +405,9 @@ class TwoPeopleIsolationIT {
                         {"date":"2030-01-01","categoryId":"%s","type":"EXPENSE","plannedAmount":1}"""),
                 new Hit(POST, "/api/v1/events/facts", "category", """
                         {"date":"2026-01-01","categoryId":"%s","type":"EXPENSE","factAmount":1}"""),
+                // Чужая категория — как неизвестная: строки, к которой встанет запись, нет (срез 3 п. 12).
+                new Hit(GET, "/api/v1/events/fact-preview?categoryId=%s&date=" + TODAY + "&type=EXPENSE&priority=MEDIUM",
+                        "category", null, "204 "),
                 new Hit(POST, "/api/v1/accounts", "category", """
                         {"name":"Чужая цель","kind":"DEBIT","purposeCategoryId":"%s"}"""),
                 new Hit(POST, "/api/v1/balance-checkpoints", "account", """

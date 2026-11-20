@@ -146,6 +146,6 @@ public class CreditPaymentService {
      * возвращает (ANO-224).
      */
     Category creditCategory() {
-        return categoryService.systemCategory(SystemCategory.CREDIT_NAME);
+        return categoryService.systemCategory(SystemCategory.CREDIT);
     }
 }

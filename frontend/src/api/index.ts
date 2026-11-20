@@ -2,6 +2,9 @@ import { get, post, put, patch, del } from './client';
 import type { AttemptKeys } from '../lib/attemptKey';
 import type {
     EventWishlistParams,
+    EventType,
+    FactPreview,
+    Priority,
     FundWishlistParams,
     Account,
     AccountCreateDto,
@@ -56,10 +59,10 @@ export const fetchMe = () => get<Me>('/me');
 export const fetchCategories = () => get<Category[]>('/categories');
 
 /** Создаёт новую категорию доходов или расходов. */
-export const createCategory = (body: Omit<Category, 'id' | 'isSystem'>) => post<Category>('/categories', body);
+export const createCategory = (body: Omit<Category, 'id' | 'isSystem' | 'systemKind'>) => post<Category>('/categories', body);
 
 /** Полностью обновляет категорию (имя, тип, обязательность). */
-export const updateCategory = (id: string, body: Omit<Category, 'id' | 'isSystem'>) => put<Category>(`/categories/${id}`, body);
+export const updateCategory = (id: string, body: Omit<Category, 'id' | 'isSystem' | 'systemKind'>) => put<Category>(`/categories/${id}`, body);
 
 /** Удаляет категорию (soft delete). */
 export const deleteCategory = (id: string) => del(`/categories/${id}`);
@@ -83,6 +86,10 @@ export const fetchEvents = (startDate: string, endDate: string) =>
 
 /** Месяцы года со строками журнала, с единицы — точки в сетке месяцев (срез 3, п. 7). */
 export const fetchEventMonths = (year: number) => get<number[]>(`/events/months?year=${year}`);
+
+/** К какой строке ожидания встанет запись; `undefined` — ни к какой (срез 3 п. 12). */
+export const fetchFactPreview = (q: { categoryId: string; date: string; type: EventType; priority: Priority }) =>
+    get<FactPreview | undefined>(`/events/fact-preview?${new URLSearchParams(q)}`);
 
 /**
  * Запись денег с ключом попытки (ANO-192): повтор после сбоя уходит с тем же ключом, и сервер

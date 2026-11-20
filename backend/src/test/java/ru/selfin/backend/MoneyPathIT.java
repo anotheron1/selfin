@@ -361,7 +361,7 @@ class MoneyPathIT {
 
     String expenseCategory(int n) {
         return jdbc.queryForList("SELECT id::text FROM categories WHERE type = 'EXPENSE' AND is_deleted = false"
-                + " AND name NOT IN ('Хотелки', 'Цели', 'Переводы в копилки', 'Кредит') ORDER BY name", String.class).get(n);
+                + " AND system_kind IS NULL ORDER BY name", String.class).get(n);
     }
 
     void anchor(LocalDate date, String amount) throws Exception {
@@ -400,5 +400,40 @@ class MoneyPathIT {
     BigDecimal pocket() throws Exception {
         return new BigDecimal(json(mockMvc.perform(get("/api/v1/pocket")).andExpect(status().isOk()))
                 .get("pocket").asText());
+    }
+
+    // ── п. 12: что будет со «Свободно» — строка ожидания по правилу п. 1 ─────
+
+    @Test
+    @DisplayName("п. 12: fact-preview называет строку, к которой встанет запись, и сколько к ней уже записано")
+    void factPreview_namesExpectationLine() throws Exception {
+        String category = expenseCategory(0);
+        String plan = createPlan(today, "6000", "MEDIUM", category);
+        standaloneFact(category, today, "1200", "MEDIUM").andExpect(status().isCreated());
+
+        JsonNode line = json(preview(category, today, "MEDIUM").andExpect(status().isOk()));
+
+        assertThat(line.get("id").asText()).isEqualTo(plan);
+        assertThat(line.get("name").asText()).isEqualTo("план");
+        assertThat(line.get("date").asText()).isEqualTo(today.toString());
+        assertThat(new BigDecimal(line.get("plannedAmount").asText())).isEqualByComparingTo("6000");
+        assertThat(new BigDecimal(line.get("recorded").asText())).isEqualByComparingTo("1200");
+    }
+
+    @Test
+    @DisplayName("п. 12: бронь той же категории и запись с характером «Бронь» — строки нет, ответ без тела")
+    void factPreview_nothingForBookingOrHighRecord() throws Exception {
+        String category = expenseCategory(0);
+        createPlan(today, "6000", "HIGH", category);
+        preview(category, today, "MEDIUM").andExpect(status().isNoContent());
+
+        createPlan(today, "6000", "MEDIUM", category);
+        preview(category, today, "HIGH").andExpect(status().isNoContent());
+    }
+
+    ResultActions preview(String categoryId, LocalDate date, String priority) throws Exception {
+        return mockMvc.perform(get("/api/v1/events/fact-preview")
+                .param("categoryId", categoryId).param("date", date.toString())
+                .param("type", "EXPENSE").param("priority", priority));
     }
 }

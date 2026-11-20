@@ -245,6 +245,23 @@ public class FinancialEventService {
     }
 
     /**
+     * К какой строке ожидания встанет запись (срез 3 п. 12) — тем же правилом, что {@link #createStandaloneFact}:
+     * по ответу форма «+» говорит, что будет со «Свободно», и правило на клиенте не повторяется. Категория
+     * удалена или не найдена, запись — перевод: строки нет.
+     */
+    public Optional<FactPreviewDto> factPreview(UUID categoryId, LocalDate date, EventType type, Priority priority) {
+        if (type == EventType.FUND_TRANSFER) return Optional.empty();
+        Category category = categoryRepository.findById(categoryId).filter(c -> !c.isDeleted()).orElse(null);
+        if (category == null) return Optional.empty();
+        return expectationFor(date, category, type, priority != null ? priority : category.getPriority(), null)
+                .map(line -> new FactPreviewDto(line.getId(),
+                        line.getDescription() != null && !line.getDescription().isBlank() ? line.getDescription() : category.getName(),
+                        line.getDate(), line.getPlannedAmount(),
+                        PlanRemainder.settledByAggregates(eventRepository.findFactAggregatesByPlanIds(List.of(line.getId())))
+                                .getOrDefault(line.getId(), BigDecimal.ZERO)));
+    }
+
+    /**
      * Строка ожидания, к которой встаёт запись без брони (срез 3 п. 1); правило — в {@link ExpectationMatch}.
      *
      * @param fact уже записанная запись при правке, иначе {@code null}. Её собственная сумма из погашения
@@ -917,7 +934,7 @@ public class FinancialEventService {
      */
     @Transactional
     public FinancialEventDto createWishlistItem(WishlistCreateDto dto) {
-        Category category = categoryService.systemCategory(SystemCategory.WISHLIST_NAME);
+        Category category = categoryService.systemCategory(SystemCategory.WISHLIST);
 
         FinancialEvent event = FinancialEvent.builder()
                 .eventKind(EventKind.PLAN)

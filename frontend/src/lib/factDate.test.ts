@@ -110,7 +110,7 @@ describe('экраны берут «сегодня» одним способом
     // вчерашнее число и не давали выбрать сегодняшнее (ANO-220). Сторож читает исходник:
     // поведенческого теста на это нет — компонентных тестов в проекте нет.
     const forms = [
-        ['../components/Fab.tsx', 'latestAllowedIso('], ['../components/FactCreateSheet.tsx', 'latestAllowedIso('],
+        ['../components/Fab.tsx', 'latestAllowedIso('], ['../components/PlanFactSheet.tsx', 'latestAllowedIso('],
         ['../components/CapitalSheet.tsx', 'latestAllowedIso('], ['../pages/Settings.tsx', 'latestAllowedIso('],
         ['../components/CapitalTrajectoryChart.tsx', 'todayIso('],
         ['../components/pocket/ReanchorSheet.tsx', 'latestAllowedIso('], ['../pages/Budget.tsx', 'latestAllowedIso('],
@@ -127,7 +127,7 @@ describe('экраны берут «сегодня» одним способом
     // сверка собирала её вручную — getFullYear() та же местная дата.
     it.each([
         '../components/CapitalSheet.tsx', '../pages/Settings.tsx',
-        '../components/Fab.tsx', '../components/FactCreateSheet.tsx', '../components/pocket/ReanchorSheet.tsx',
+        '../components/Fab.tsx', '../components/PlanFactSheet.tsx', '../components/pocket/ReanchorSheet.tsx',
     ])('%s — не позже даты сервера, а не просто местная дата', (file) => {
         const src = readFileSync(new URL(file, import.meta.url), 'utf8');
         expect(src).not.toMatch(/\btodayIso\(/);

@@ -74,9 +74,6 @@ public class TargetFundService {
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
 
-    /** Системное имя фонда-кармашка. */
-    private static final String POCKET_NAME = "POCKET";
-
     /**
      * Возвращает обзор фондов: список активных целевых фондов с прогнозом достижения цели.
      * Кармашек в обзор больше не входит — фронт берёт его из {@code GET /api/v1/pocket}.
@@ -85,7 +82,7 @@ public class TargetFundService {
      */
     public FundsOverviewDto getOverview() {
         List<TargetFundDto> fundDtos = fundRepository.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc().stream()
-                .filter(f -> !POCKET_NAME.equals(f.getName()))
+                .filter(f -> !f.isService())
                 .map(this::toDto)
                 .toList();
         return new FundsOverviewDto(fundDtos);
@@ -359,7 +356,7 @@ public class TargetFundService {
                             .status(EventStatus.EXECUTED)
                             .factAmount(recorded)
                             .date(today)
-                            .category(categoryService.systemCategory(SystemCategory.GOAL_SPENDING_NAME))
+                            .category(categoryService.systemCategory(SystemCategory.GOAL_SPENDING))
                             .description(fund.getName())
                             .idempotencyKey(key)
                             .build());
@@ -709,11 +706,11 @@ public class TargetFundService {
     }
 
     /**
-     * Системная категория «Переводы в копилки» — через неё идут все пути перевода: карточка и быстрый
+     * Системная категория «Накопление» — через неё идут все пути перевода: карточка и быстрый
      * ввод фактом, план из быстрого ввода, правка плана без категории. Удалённую возвращает (ANO-224).
      */
     Category getOrCreateFundTransferCategory() {
-        return categoryService.systemCategory(SystemCategory.FUND_TRANSFER_NAME);
+        return categoryService.systemCategory(SystemCategory.FUND_TRANSFER);
     }
 
     /**

@@ -14,7 +14,7 @@ import { latestAllowedIso, todayIso } from '../lib/factDate';
 import { PRIORITY_DOT_CONFIG } from '../lib/priority';
 import { type JournalOpen, readJournalPosition, saveJournalPosition, sessionStore } from '../lib/screenSync';
 import EditEventSheet from '../components/EditEventSheet';
-import FactCreateSheet from '../components/FactCreateSheet';
+import PlanFactSheet from '../components/PlanFactSheet';
 import QuickAddModal from '../components/Fab';
 import { DayHint } from '../components/today/HintBubble';
 import ExpectationCircles from '../components/journal/ExpectationCircles';
@@ -30,10 +30,6 @@ function getDisplayName(event: FinancialEvent): string {
     if (event.type === 'FUND_TRANSFER') return event.targetFundName ?? 'Копилка';
     return event.description || event.rawInput || event.categoryName || '';
 }
-
-/** «23 сент.» */
-const shortDate = (s: string) =>
-    new Date(s + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 
 /**
  * «Журнал» (срез 3, п. 6–8; доски Zh2-J8, Zh2-J8b, левая колонка S3-W1d). Дни — lib/journalSections, вид списка —
@@ -69,10 +65,8 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     const [failedKey, setFailedKey] = useState<string | null>(null);
     const failed = !fetching && failedKey === shownKey;
     const [selectedEvent, setSelectedEvent] = useState<FinancialEvent | null>(null);
-    // Запись к плану открывается из «своё» и из «Оплачено» брони до сверки.
-    const [factSheet, setFactSheet] = useState<{
-        planId: string; hint?: string; amount?: number; requireDate?: boolean;
-    } | null>(null);
+    // Запись к плану (PlanFactSheet) открывается из «своё», из «Записать» ожидания и из «Оплачено» брони до сверки.
+    const [factSheet, setFactSheet] = useState<{ planId: string; anchorDate?: string } | null>(null);
     // Ожидания (пп. 10–11): лист на телефоне, нажатая клетка сетки на 1440 — своя у месяца, форма «+» с категорией.
     const [sheetKey, setSheetKey] = useState<string | null>(null);
     const [cell, setCell] = useState<{ key: string; row: number; col: number } | null>(null);
@@ -191,13 +185,8 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
 
     const onPaid = (plan: FinancialEvent, d: QuickClose) => {
         if (d.kind === 'tap') closePlan(plan, d.amount, d.date);
-        if (d.kind === 'askDate') {
-            const income = plan.type === 'INCOME';
-            setFactSheet({
-                planId: plan.id, amount: d.amount, requireDate: true,
-                hint: `Была сверка остатка ${shortDate(d.anchorDate)} — когда ${income ? 'пришли' : 'ушли'} деньги?`,
-            });
-        }
+        // Бронь раньше сверки: деньги ушли до неё или после — вопрос вместо поля даты (S3-F6b).
+        if (d.kind === 'askDate') setFactSheet({ planId: plan.id, anchorDate: d.anchorDate });
     };
 
     // Фоновое обновление после записи через «+» и после возврата на вкладку (без сброса прокрутки)
@@ -318,21 +307,13 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             )}
             {adding && <QuickAddModal preset={adding} onClose={() => setAdding(null)} onSuccess={() => {}} />}
             {factSheet && (() => {
-                const plan = events.find(e => e.id === factSheet.planId);
-                const title = plan ? getDisplayName(plan) : 'План';
-                return (
-                    <FactCreateSheet
-                        key={factSheet.planId}
-                        planId={factSheet.planId}
-                        planDescription={title}
-                        planPriority={plan?.priority ?? 'MEDIUM'}
-                        open
-                        hint={factSheet.hint}
-                        defaultAmount={factSheet.amount}
-                        requireDate={factSheet.requireDate}
+                // Строка ожидания может быть из шести дней после месяца (afterMonth) — ищется и там.
+                const plan = events.find(e => e.id === factSheet.planId) ?? after.find(e => e.id === factSheet.planId);
+                return plan && (
+                    <PlanFactSheet key={factSheet.planId} plan={plan} name={getDisplayName(plan)}
+                        askDate={factSheet.anchorDate ? { anchorDate: factSheet.anchorDate } : undefined}
                         onClose={() => setFactSheet(null)}
-                        onCreated={() => { load(true).catch(console.error); setFactSheet(null); }}
-                    />
+                        onCreated={() => { load(true).catch(console.error); setFactSheet(null); }} />
                 );
             })()}
         </>

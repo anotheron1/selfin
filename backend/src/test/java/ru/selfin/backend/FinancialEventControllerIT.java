@@ -366,8 +366,9 @@ class FinancialEventControllerIT {
 
     @Test
     void createWishlistItem_revivesDeletedWishlistCategory() throws Exception {
-        Category wishlist = categoryRepository.findByName("Хотелки")
-                .orElseGet(() -> Category.builder().name("Хотелки").type(CategoryType.EXPENSE).system(true).build());
+        Category wishlist = categoryRepository.findBySystemKind(ru.selfin.backend.model.enums.SystemCategory.WISHLIST)
+                .orElseGet(() -> Category.builder().name("Хотелки").type(CategoryType.EXPENSE).system(true)
+                        .systemKind(ru.selfin.backend.model.enums.SystemCategory.WISHLIST).build());
         wishlist.setDeleted(true);
         UUID deletedId = categoryRepository.save(wishlist).getId();
 
