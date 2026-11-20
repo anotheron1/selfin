@@ -294,7 +294,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 </div>
             </div>
             {card && (() => {
-                const pay = card.eventKind === 'PLAN' ? quickClose(card, allowedToday, anchorDate) : undefined;
+                const pay = quickClose(card, allowedToday, anchorDate);
                 return (
                     <EventCard key={card.id} event={card} today={allowedToday} pay={pay} held={guard.held(card.id)}
                         onClose={() => setCard(null)}

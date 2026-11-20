@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FinancialEvent } from '../types/api';
 import {
-    categoryLocked, dayLabel, duplicateOf, editChips, endSeriesDto, factEditPatch, factNote, nextDates, planEditDto, seriesOf,
+    categoryLocked, dayLabel, duplicateOf, editChips, eventName, endSeriesDto, factEditPatch, factNote, nextDates, planEditDto, seriesOf,
     withCurrent,
 } from './eventCard';
 
@@ -141,6 +141,9 @@ describe('planEditDto', () => {
             { ...form, date: '2026-12-01', endDate: '2030-12-01', scope: 'ALL' }).recurring)
             .toEqual({ frequency: 'YEARLY', dayOfMonth: 1, monthOfYear: 12, endDate: '2030-12-01' });
     });
+    it('копилка — только у перевода: у расхода её нет и с формой', () => {
+        expect(planEditDto(ev({}), { ...form, fundId: 'f', scope: 'THIS' }).targetFundId).toBeUndefined();
+    });
     it('перевод — копилка из формы, тип прежний', () => {
         expect(planEditDto(ev({ type: 'FUND_TRANSFER' }), { ...form, type: 'EXPENSE', fundId: 'f', scope: 'THIS' }))
             .toMatchObject({ type: 'FUND_TRANSFER', targetFundId: 'f' });
@@ -195,6 +198,16 @@ describe('factNote', () => {
     it('у перевода и у плана — нет', () => {
         expect(factNote(fact({ type: 'FUND_TRANSFER' }))).toBeNull();
         expect(factNote(ev({}))).toBeNull();
+    });
+});
+
+/** Как строка названа в журнале (был getDisplayName в pages/Budget.tsx). */
+describe('eventName', () => {
+    it('перевод — копилкой; иначе название, выражение суммы, категория', () => {
+        expect(eventName(fact({ type: 'FUND_TRANSFER', targetFundName: 'Отпуск' }))).toBe('Отпуск');
+        expect(eventName(fact({ type: 'FUND_TRANSFER' }))).toBe('Копилка');
+        expect(eventName(fact({ description: null, rawInput: '1000+240' }))).toBe('1000+240');
+        expect(eventName(fact({ description: null }))).toBe('Продукты');
     });
 });
 

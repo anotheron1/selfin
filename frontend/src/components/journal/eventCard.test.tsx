@@ -59,6 +59,15 @@ describe('карточка записи (S3-E2a)', () => {
     });
 });
 
+describe('карточка: доход и перевод', () => {
+    it('доход — «+» и «доход»; перевод — «в копилку»', () => {
+        const inc = card({ ...FACT, type: 'INCOME', factAmount: 75000, parentEventId: null });
+        expect(inc).toContain('запись · доход');
+        expect(inc).toContain('+75 000');
+        expect(card({ ...FACT, type: 'FUND_TRANSFER', targetFundName: 'Отпуск' })).toContain('запись · в копилку');
+    });
+});
+
 describe('карточка плана из серии (S3-E2b)', () => {
     const tap: QuickClose = { kind: 'tap', amount: 25000, date: TODAY };
     const t = card(SERIES, tap);
@@ -93,6 +102,7 @@ describe('карточка плана из серии (S3-E2b)', () => {
     it('план без серии — «Изменить», без «Пропустить» и блока серии', () => {
         const one = card(ev({}));
         expect(one).toContain('Изменить');
+        expect(one).not.toContain('Изменить этот');
         expect(one).not.toContain('Пропустить');
         expect(one).not.toContain('Каждый месяц');
     });
@@ -124,6 +134,19 @@ describe('правка той же формой (S3-E1a, S3-E1b)', () => {
     it('«Только этот» — повтора в форме нет: меняется одна строка', () => {
         expect(form(SERIES, 'THIS')).not.toContain('Каждый месяц');
         expect(form(SERIES, 'FOLLOWING')).toContain('Каждый месяц, 12-го');
+    });
+    it('план без серии — ни повтора, ни «Изменить: …»', () => {
+        const one = form(ev({}));
+        expect(one).not.toContain('Только этот');
+        expect(one).not.toContain('Каждый месяц');
+        expect(text(one)).toContain('План · 12 нояб.');
+    });
+    it('перевод-план — тип не правится', () => {
+        expect(form(ev({ type: 'FUND_TRANSFER' }))).not.toContain('Расход или доход');
+        expect(form(ev({}))).toContain('Расход или доход');
+    });
+    it('строка 28 февр. серии 31-го — повтор подписан по правилу', () => {
+        expect(form({ ...SERIES, date: '2027-02-28', recurringDayOfMonth: 31 })).toContain('Каждый месяц, 31-го');
     });
     it('сумма и название заполнены', () => {
         const html = form(SERIES);

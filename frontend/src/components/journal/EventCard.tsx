@@ -110,7 +110,7 @@ export default function EventCard({ event: e, today, pay, held, onClose, onEdit,
     const amount = (fact ? e.factAmount : e.plannedAmount) ?? 0;
     const Icon = iconOf(e);
     const series = fact ? null : seriesOf(e);
-    const pays = !fact && pay != null && (pay.kind === 'tap' || pay.kind === 'askDate');
+    const pays = pay?.kind === 'tap' || pay?.kind === 'askDate';
     const income = e.type === 'INCOME';
     const what = e.type === 'FUND_TRANSFER' ? (amount < 0 ? 'из копилки' : 'в копилку') : income ? 'доход' : 'трата';
     const sub = fact ? `запись · ${what}` : `план · ${kind}${e.date ? ` · ${dayLabel(e.date, today)}` : ''}`;
