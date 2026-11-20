@@ -45,13 +45,13 @@ export default function PlanFactSheet({ plan, name, askDate, checkpointDate, onC
     const [error, setError] = useState<string | null>(null);
     // ANO-192, ревью #104: память попытки живёт, пока лист открыт; новое открытие — новый лист (key в журнале).
     const [attempts] = useState(() => new AttemptKeys());
-    // До какого дня считается «Свободно»: без него строка о нём не обещает (бронь может быть за концом расчёта).
-    const [horizonEnd, setHorizonEnd] = useState<string | null>(null);
-    useEffect(() => { fetchPocket().then(p => setHorizonEnd(p.horizon.endDate)).catch(() => {}); }, []);
+    // Конец расчёта и траектория «Свободно»: без них строка о нём не обещает (бронь за концом расчёта, после минимума).
+    const [pocket, setPocket] = useState<{ horizonEnd: string; trajectory: { date: string; balance: number }[] } | null>(null);
+    useEffect(() => { fetchPocket().then(p => setPocket({ horizonEnd: p.horizon.endDate, trajectory: p.trajectory })).catch(() => {}); }, []);
 
     const amount = amountValue(amountRaw);
     const question = restQuestion(plan, amount);
-    const effect = horizonEnd ? ownEffect(plan, amount, choice, checkpointDate, date, horizonEnd) : null;
+    const effect = pocket ? ownEffect(plan, amount, choice, checkpointDate, date, pocket) : null;
     const priority = plan.priority ?? 'MEDIUM';
     const label = `Записать к ${TITLE[priority]} «${name}»`;
     const choices = askDate ? askDateChoices(plan, today) : [];

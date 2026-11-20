@@ -72,13 +72,26 @@ describe('ownEffect', () => {
         expect(ownEffect(plan(), 10000, 'close', '2026-11-11')).toContain('вернутся в «Свободно»');
         expect(ownEffect(plan(), 10000, 'close', '2026-11-11', '2026-11-10')).toBeNull();
         expect(ownEffect(plan(), 10000, 'close', '2026-11-11', '2026-11-11')).toContain('вернутся в «Свободно»');
-        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('ownEffect(plan, amount, choice, checkpointDate, date, horizonEnd)');
+        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('ownEffect(plan, amount, choice, checkpointDate, date, pocket)');
         expect(readFileSync('src/pages/Budget.tsx', 'utf8')).toContain('checkpointDate={anchor.loaded ? anchor.date : undefined}');
     });
     it('бронь за концом расчёта «Свободно» не держит — строки нет; без горизонта лист её не показывает (ревью Codex #235)', () => {
-        expect(ownEffect(plan(), 10000, 'close', null, undefined, '2026-11-11')).toBeNull();
-        expect(ownEffect(plan(), 10000, 'close', null, undefined, '2026-11-12')).toContain('вернутся в «Свободно»');
-        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('const effect = horizonEnd ? ownEffect(');
+        expect(ownEffect(plan(), 10000, 'close', null, undefined, { horizonEnd: '2026-11-11', trajectory: [] })).toBeNull();
+        expect(ownEffect(plan(), 10000, 'close', null, undefined, { horizonEnd: '2026-11-12', trajectory: [] })).toContain('вернутся в «Свободно»');
+        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('const effect = pocket ? ownEffect(');
+        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('trajectory: p.trajectory');
+    });
+    it('бронь после минимума траектории «Свободно» не поднимает — обещания «вернутся» нет (ревью Codex #235)', () => {
+        const at = (trajectory: { date: string; balance: number }[]) => ({ horizonEnd: '2026-11-30', trajectory });
+        // 10 000 сегодня, зарплата завтра, бронь 25 000 послезавтра: минимум — сегодня, закрытие брони его не поднимает.
+        const afterMin = at([{ date: '2026-11-10', balance: 10000 }, { date: '2026-11-11', balance: 40000 }, { date: '2026-11-12', balance: 15000 }]);
+        expect(ownEffect(plan(), 10000, 'close', null, '2026-11-10', afterMin)).toBe('Бронь закроется на 10 000 ₽ — «Свободно» меньше на 10 000 ₽.');
+        // Минимум после брони — остаток возвращается целиком.
+        const beforeMin = at([{ date: '2026-11-10', balance: 30000 }, { date: '2026-11-12', balance: 5000 }]);
+        expect(ownEffect(plan(), 10000, 'close', null, '2026-11-10', beforeMin)).toBe('Бронь закроется на 10 000 ₽ — остальные 15 000 ₽ вернутся в «Свободно».');
+        // Переплата после минимума — «Свободно» меньше на всю запись, а не на сверх брони.
+        expect(ownEffect(plan(), 26000, 'later', null, '2026-11-10', afterMin)).toBe('Бронь оплачена; «Свободно» меньше на 26 000 ₽.');
+        expect(ownEffect(plan(), 26000, 'later', null, '2026-11-10', beforeMin)).toBe('Бронь оплачена; сверх неё — «Свободно» меньше на 1 000 ₽.');
     });
     it('после неудачной отмены срок строки идёт заново — строка не повисает (ревью Codex #235)', () => {
         const toast = readFileSync('src/components/UndoToast.tsx', 'utf8');

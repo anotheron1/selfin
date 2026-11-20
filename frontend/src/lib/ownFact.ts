@@ -1,5 +1,6 @@
 import type { FinancialEvent } from '../types/api';
 import { fmtDayShort, fmtRub } from './format';
+import { trajectoryShift } from './quickAdd';
 
 /**
  * Запись к плану — «своё» и «Оплачено» брони раньше сверки (срез 3 п. 3, решения 32 и 52; доски S3-F6, S3-F9,
@@ -30,21 +31,24 @@ export const closePlanOf = (p: FinancialEvent, amount: number | null, choice: Re
  * не позже сверки «Свободно» не держит (сверка уже её съела), и обещать «вернутся» нечего — строки нет (ревью Codex #235).
  */
 export function ownEffect(p: FinancialEvent, amount: number | null, choice: RestChoice, checkpointDate?: string | null,
-                          paidOn?: string, horizonEnd?: string): string | null {
+                          paidOn?: string, pocket?: { horizonEnd: string; trajectory: { date: string; balance: number }[] }): string | null {
     if (p.priority !== 'HIGH' || p.type !== 'EXPENSE' || amount == null || amount <= 0) return null;
     if (checkpointDate != null && p.date != null && p.date <= checkpointDate) return null;
     // Оплата раньше сверки уже в остатке банка — освободится больше, чем остаток после неё (ревью Codex #235): строки нет.
     if (checkpointDate != null && paidOn && paidOn < checkpointDate) return null;
     // Бронь за концом расчёта «Свободно» не держит — «вернутся» не про неё (ревью Codex #235).
-    if (horizonEnd && p.date != null && p.date > horizonEnd) return null;
+    if (pocket && p.date != null && p.date > pocket.horizonEnd) return null;
     const rest = planRest(p);
     const q = restQuestion(p, amount);
-    if (q) {
-        return choice === 'close'
-            ? `Бронь закроется на ${fmtRub(amount + (p.linkedFactsAmount ?? 0))} — остальные ${fmtRub(q.rest)} вернутся в «Свободно».`
-            : `Остальные ${fmtRub(q.rest)} держатся бронью, пока не доплатишь или не обновишь остаток.`;
-    }
-    return amount === rest ? 'Бронь оплачена целиком.' : `Бронь оплачена; сверх неё — «Свободно» меньше на ${fmtRub(amount - rest)}.`;
+    if (q && choice === 'later') return `Остальные ${fmtRub(q.rest)} держатся бронью, пока не доплатишь или не обновишь остаток.`;
+    if (!q && amount === rest) return 'Бронь оплачена целиком.';
+    // Запись уменьшает остаток с даты оплаты, бронь перестаёт держать весь остаток со своей даты; «Свободно» меняется на
+    // сдвиг минимума траектории — бронь после минимума его не поднимает (ревью Codex #235).
+    const d = trajectoryShift(pocket?.trajectory, pocket?.horizonEnd, [{ from: paidOn ?? '', by: -amount }, { from: p.date ?? '', by: rest }]);
+    const free = d === 0 ? '«Свободно» не изменится' : d > 0 ? `«Свободно» больше на ${fmtRub(d)}` : `«Свободно» меньше на ${fmtRub(-d)}`;
+    if (!q) return d === rest - amount ? `Бронь оплачена; сверх неё — «Свободно» меньше на ${fmtRub(amount - rest)}.` : `Бронь оплачена; ${free}.`;
+    const head = `Бронь закроется на ${fmtRub(amount + (p.linkedFactsAmount ?? 0))}`;
+    return d === q.rest ? `${head} — остальные ${fmtRub(q.rest)} вернутся в «Свободно».` : `${head} — ${free}.`;
 }
 
 /**

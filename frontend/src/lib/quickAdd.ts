@@ -73,6 +73,22 @@ export function categoryChips(categories: Category[], type: 'EXPENSE' | 'INCOME'
     };
 }
 
+/** Сдвиг остатка: с какого дня и на сколько. */
+export type Shift = { from: string; by: number };
+
+/**
+ * «Свободно» — самый низкий остаток до конца расчёта: изменение сдвигает остаток со своей даты, а «Свободно» — на столько,
+ * на сколько сдвинулся минимум (ревью Codex #235: трата или возврат после минимума его не трогают). Нет траектории —
+ * сумма сдвигов, как если бы минимум был в конце.
+ */
+export function trajectoryShift(trajectory: { date: string; balance: number }[] | undefined, horizonEnd: string | undefined,
+                                shifts: Shift[]): number {
+    const points = (trajectory ?? []).filter(t => horizonEnd == null || t.date <= horizonEnd);
+    if (points.length === 0) return shifts.reduce((s, x) => s + x.by, 0);
+    const at = (t: { date: string; balance: number }) => t.balance + shifts.filter(s => s.from <= t.date).reduce((s, x) => s + x.by, 0);
+    return Math.min(...points.map(at)) - Math.min(...points.map(t => t.balance));
+}
+
 /** Что будет со «Свободно»: с чего начать фразу, на сколько оно изменится и, если надо, своими словами — как. */
 export interface FreeEffect { lead: string; delta: number; tail?: string }
 
@@ -107,14 +123,7 @@ export function freeEffect(p: {
     const a = p.amount;
     if (a == null || a <= 0) return null;
     const inRange = (d: string) => p.horizon == null || d <= p.horizon.endDate;
-    // «Свободно» — самый низкий остаток до конца расчёта: изменение сдвигает остаток с своей даты, а «Свободно» —
-    // на столько, на сколько сдвинулся минимум (ревью Codex #235: трата после минимума его не трогает).
-    const minShift = (shifts: { from: string; by: number }[]) => {
-        const points = (p.trajectory ?? []).filter(t => inRange(t.date));
-        if (points.length === 0) return shifts.reduce((s, x) => s + x.by, 0);
-        const at = (t: { date: string; balance: number }) => t.balance + shifts.filter(s => s.from <= t.date).reduce((s, x) => s + x.by, 0);
-        return Math.min(...points.map(at)) - Math.min(...points.map(t => t.balance));
-    };
+    const minShift = (shifts: Shift[]) => trajectoryShift(p.trajectory, p.horizon?.endDate, shifts);
     // ponytail: у копилки с взносами строки нет — перевод пересчитывает взносы (ревью Codex #235); посчитать — когда понадобится
     if (p.action === 'transfer' && p.fundReserved) return null;
     if (p.action === 'transfer') return { lead: `В копилку «${p.fundName ?? ''}»`, delta: minShift([{ from: p.today, by: -a }]) };
