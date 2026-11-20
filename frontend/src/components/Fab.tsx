@@ -15,7 +15,7 @@ import { latestAllowedIso } from '../lib/factDate';
 import { fmtDayShort, fmtRub } from '../lib/format';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../lib/priority';
 import {
-    ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, kindOf,
+    ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, fundReserved, kindOf,
     repeatLabel, repeatOf, transferFundChoice, type FormAction,
 } from '../lib/quickAdd';
 import { writeFailure } from '../lib/writeFailure';
@@ -104,7 +104,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
         ? freeEffect({
             action: transfer && action === 'record' ? 'transfer' : action, type, kind, amount, date, today,
             checkpointDate: pocket.checkpointDate, horizon: pocket.horizon, line: action === 'record' ? lineNow : null,
-            fundName: fund?.name, trajectory: pocket.trajectory, repeat: repeatOn,
+            fundName: fund?.name, fundReserved: fundReserved(fund), trajectory: pocket.trajectory, repeat: repeatOn,
         })
         : null;
     const effect = effectOf(main);

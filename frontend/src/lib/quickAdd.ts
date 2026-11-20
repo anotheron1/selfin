@@ -59,6 +59,10 @@ export const TOP_CATEGORIES = 6;
  * Fab.tsx:75): шесть первых на виду, остальные — по алфавиту. У расходов есть «Накопление» (ANO-259): системная
  * стоит на своём месте, а пока её нет — последней.
  */
+/** Копилка, на которую «Свободно» само держит взносы (PocketInputAssembler, п. 2а): зафиксированная цель-накопление с датой и суммой. */
+export const fundReserved = (f: TargetFund | undefined) =>
+    f != null && f.wishlistStatus === 'FIXED' && f.purchaseType === 'SAVINGS' && f.targetDate != null && f.targetAmount != null;
+
 export function categoryChips(categories: Category[], type: 'EXPENSE' | 'INCOME'): { top: CategoryChip[]; rest: CategoryChip[] } {
     const chips: CategoryChip[] = categories.filter(c => c.type === type)
         .map(c => ({ id: c.id, name: c.name, transfer: c.systemKind === 'FUND_TRANSFER' }));
@@ -97,6 +101,8 @@ export function freeEffect(p: {
     trajectory?: { date: string; balance: number }[];
     /** План с повтором: серия заводится целиком, и в расчёт могут войти несколько платежей. */
     repeat?: boolean;
+    /** Копилка, на которую движок сам держит взносы: перевод их уменьшит, и «Свободно» изменится не на сумму. */
+    fundReserved?: boolean;
 }): FreeEffect | null {
     const a = p.amount;
     if (a == null || a <= 0) return null;
@@ -109,6 +115,8 @@ export function freeEffect(p: {
         const at = (t: { date: string; balance: number }) => t.balance + shifts.filter(s => s.from <= t.date).reduce((s, x) => s + x.by, 0);
         return Math.min(...points.map(at)) - Math.min(...points.map(t => t.balance));
     };
+    // ponytail: у копилки с взносами строки нет — перевод пересчитывает взносы (ревью Codex #235); посчитать — когда понадобится
+    if (p.action === 'transfer' && p.fundReserved) return null;
     if (p.action === 'transfer') return { lead: `В копилку «${p.fundName ?? ''}»`, delta: minShift([{ from: p.today, by: -a }]) };
     if (p.action === 'plan') {
         if (p.type === 'INCOME') return null;

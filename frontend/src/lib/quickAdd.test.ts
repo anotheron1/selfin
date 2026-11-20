@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
     ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect,
-    kindOf, repeatLabel, repeatOf, transferFundChoice,
+    fundReserved, kindOf, repeatLabel, repeatOf, transferFundChoice,
 } from './quickAdd';
 import type { Category, TargetFund } from '../types/api';
 
@@ -186,6 +186,18 @@ describe('freeEffect', () => {
     it('«Отложить» в копилку — меньше на сумму', () => {
         expect(effectLine(freeEffect({ ...base, action: 'transfer', fundName: 'Отпуск', amount: 5000 })))
             .toBe('В копилку «Отпуск» — «Свободно» меньше на 5 000 ₽.');
+    });
+
+    it('в копилку с взносами — строки нет: перевод уменьшит и взносы (ревью Codex #235)', () => {
+        expect(freeEffect({ ...base, action: 'transfer', fundName: 'Отпуск', amount: 5000, fundReserved: true })).toBeNull();
+        const f = { wishlistStatus: 'FIXED', purchaseType: 'SAVINGS', targetDate: '2027-06-01', targetAmount: 100000 } as TargetFund;
+        expect(fundReserved(f)).toBe(true);
+        expect(fundReserved({ ...f, wishlistStatus: null })).toBe(false);
+        expect(fundReserved({ ...f, purchaseType: 'CREDIT' })).toBe(false);
+        expect(fundReserved({ ...f, targetDate: null })).toBe(false);
+        expect(fundReserved({ ...f, targetAmount: null })).toBe(false);
+        expect(fundReserved(undefined)).toBe(false);
+        expect(readFileSync('src/components/Fab.tsx', 'utf8')).toContain('fundReserved: fundReserved(fund)');
     });
 
     it('доход без строки — больше на сумму; доход к строке — строки нет: горизонт может сдвинуться', () => {
