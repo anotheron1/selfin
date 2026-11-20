@@ -551,4 +551,16 @@ class TargetFundAccountTest {
                 .isInstanceOf(ru.selfin.backend.exception.ResourceNotFoundException.class);
         verify(fundRepo, never()).save(any());
     }
+
+    @Test
+    @DisplayName("Служебная копилка в обзоре не видна (V37 is_service)")
+    void overviewHidesServiceFund() {
+        TargetFund pocket = fund(null, "0");
+        pocket.setName("POCKET");
+        pocket.setService(true);
+        TargetFund trip = vacation("0");
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(pocket, trip));
+
+        assertThat(service.getOverview().funds()).extracting(TargetFundDto::name).containsExactly("Отпуск");
+    }
 }

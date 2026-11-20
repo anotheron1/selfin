@@ -13,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.FactCreateDto;
 import ru.selfin.backend.dto.FactPreviewDto;
 import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
@@ -51,7 +52,7 @@ public class FinancialEventController {
             @Parameter(description = "Конец периода, формат YYYY-MM-DD")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @Parameter(description = "Фильтр по приоритету (HIGH, MEDIUM, LOW)")
-            @RequestParam(required = false) ru.selfin.backend.model.enums.Priority priority) {
+            @RequestParam(required = false) Priority priority) {
         if (priority != null && startDate == null && endDate == null) {
             return eventService.findByPriority(priority);
         }
@@ -77,7 +78,7 @@ public class FinancialEventController {
             @RequestParam UUID categoryId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam EventType type,
-            @RequestParam(required = false) ru.selfin.backend.model.enums.Priority priority) {
+            @RequestParam Priority priority) {
         return eventService.factPreview(categoryId, date, type, priority)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());

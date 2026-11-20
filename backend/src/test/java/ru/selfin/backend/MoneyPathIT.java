@@ -19,6 +19,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -429,6 +431,49 @@ class MoneyPathIT {
 
         createPlan(today, "6000", "MEDIUM", category);
         preview(category, today, "HIGH").andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("п. 12: строка без названия зовётся по категории")
+    void factPreview_unnamedLineTakesCategoryName() throws Exception {
+        String category = expenseCategory(0);
+        String plan = createPlan(today, "6000", "MEDIUM", category);
+        jdbc.update("UPDATE financial_events SET description = NULL WHERE id = ?::uuid", plan);
+
+        JsonNode line = json(preview(category, today, "MEDIUM").andExpect(status().isOk()));
+
+        assertThat(line.get("name").asText())
+                .isEqualTo(jdbc.queryForObject("SELECT name FROM categories WHERE id = ?::uuid", String.class, category));
+    }
+
+    @Test
+    @DisplayName("п. 12: удалённая категория — строки нет")
+    void factPreview_nothingForDeletedCategory() throws Exception {
+        String category = expenseCategory(0);
+        createPlan(today, "6000", "MEDIUM", category);
+        jdbc.update("UPDATE categories SET is_deleted = TRUE WHERE id = ?::uuid", category);
+        try {
+            preview(category, today, "MEDIUM").andExpect(status().isNoContent());
+        } finally {
+            jdbc.update("UPDATE categories SET is_deleted = FALSE WHERE id = ?::uuid", category);
+        }
+    }
+
+    @Test
+    @DisplayName("п. 14: порядок категорий — по живым строкам за 90 дней назад и 30 вперёд")
+    void categoriesOrder_countsLiveRowsInWindow() throws Exception {
+        String busy = expenseCategory(1);
+        String idle = expenseCategory(0);
+        createPlan(today, "100", "MEDIUM", busy);
+        for (LocalDate d : List.of(today, today, today.minusDays(91), today.minusDays(91), today.plusDays(31), today.plusDays(31))) {
+            createPlan(d, "100", "MEDIUM", idle);
+        }
+        jdbc.update("UPDATE financial_events SET is_deleted = TRUE WHERE category_id = ?::uuid AND date = ?", UUID.fromString(idle), today);
+
+        List<String> ids = new ArrayList<>();
+        json(mockMvc.perform(get("/api/v1/categories")).andExpect(status().isOk())).forEach(c -> ids.add(c.get("id").asText()));
+
+        assertThat(ids.indexOf(busy)).isLessThan(ids.indexOf(idle));
     }
 
     ResultActions preview(String categoryId, LocalDate date, String priority) throws Exception {

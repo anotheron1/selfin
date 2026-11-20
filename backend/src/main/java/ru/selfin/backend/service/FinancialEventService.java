@@ -250,10 +250,9 @@ public class FinancialEventService {
      * удалена или не найдена, запись — перевод: строки нет.
      */
     public Optional<FactPreviewDto> factPreview(UUID categoryId, LocalDate date, EventType type, Priority priority) {
-        if (type == EventType.FUND_TRANSFER) return Optional.empty();
         Category category = categoryRepository.findById(categoryId).filter(c -> !c.isDeleted()).orElse(null);
         if (category == null) return Optional.empty();
-        return expectationFor(date, category, type, priority != null ? priority : category.getPriority(), null)
+        return expectationFor(date, category, type, priority, null)
                 .map(line -> new FactPreviewDto(line.getId(),
                         line.getDescription() != null && !line.getDescription().isBlank() ? line.getDescription() : category.getName(),
                         line.getDate(), line.getPlannedAmount(),
