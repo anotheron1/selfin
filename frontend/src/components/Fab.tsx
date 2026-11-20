@@ -94,13 +94,17 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
     }, [previewKey]);
     const lineNow = previewKey && line?.key === previewKey ? line.value : null;
     const canSubmit = canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer, fundId: fund?.id });
-    // Строка — когда форма собрана: без категории или копилки сказать нечего (стенд PR 4).
-    const effect = pocket && canSubmit && (transfer || previewKey == null || line?.key === previewKey)
+    // Строка — когда форма собрана: без категории или копилки сказать нечего (стенд PR 4). Над кнопками — по главной,
+    // после записи — по нажатой: «Запланировать» рядом с «Записать» держит сумму, строка ожидания ему ни при чём.
+    const effectOf = (action: FormAction) => pocket && canSubmit
+        && (transfer || action === 'plan' || previewKey == null || line?.key === previewKey)
         ? freeEffect({
-            action: transfer && main === 'record' ? 'transfer' : main, type, kind, amount, date, today,
-            checkpointDate: pocket.checkpointDate, horizon: pocket.horizon, line: lineNow, fundName: fund?.name,
+            action: transfer && action === 'record' ? 'transfer' : action, type, kind, amount, date, today,
+            checkpointDate: pocket.checkpointDate, horizon: pocket.horizon, line: action === 'record' ? lineNow : null,
+            fundName: fund?.name,
         })
         : null;
+    const effect = effectOf(main);
 
     const pickCategory = (id: string) => {
         setCategoryId(id);
@@ -120,7 +124,10 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
                 // ANO-169: «Отложить» — тот же перевод, что «Пополнить»: одна запись, копилка растёт. Без вопроса
                 // «отложить всё равно?»: человек записывает то, что уже сделал (правило 5).
                 await transferToFund(attempts, fundId!, amount!, true, undefined, date);
-                undo = () => undoTransfer(fundId!, amount, date);
+                // Запись ищется сразу и запоминается: повтор «Отменить» после потерянного ответа снимает её же,
+                // а не более ранний такой же перевод (ревью Codex #235).
+                const id = await transferEventId(fundId!, amount, date);
+                undo = () => (id ? deleteEvent(id) : Promise.reject(new Error('перевод не найден')));
             } else if (action === 'record') {
                 const fact = await createStandaloneFact(attempts, {
                     date, categoryId: chosen!.id, type, factAmount: amount, description: description || undefined,
@@ -138,7 +145,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
                     });
                 undo = () => deleteEvent(plan.id, repeatOn ? 'ALL' : 'THIS');
             }
-            const after = afterLine(effect);
+            const after = afterLine(effectOf(action));
             setWritten({
                 text: `${action === 'plan' ? 'Запланировано' : 'Записано'}: ${name}, ${fmtRub(amount)}.${after ? ` ${after}` : ''}`,
                 undo,
@@ -231,15 +238,14 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
 }
 
 /**
- * «Отменить» у перевода: ручка перевода отвечает копилкой, а не записью, — запись ищется по копилке, сумме и дню,
- * последняя записанная. Удаление перевода забирает деньги и из копилки (ANO-201).
+ * Запись только что сделанного перевода: ручка перевода отвечает копилкой, а не записью, — запись ищется по копилке,
+ * сумме и дню, последняя записанная. Удаление перевода забирает деньги и из копилки (ANO-201).
  */
-async function undoTransfer(fundId: string, amount: number, date: string) {
-    // ponytail: поиск по копилке, сумме и дню; два одинаковых перевода за секунды — снимется последний, что и нужно
+async function transferEventId(fundId: string, amount: number, date: string): Promise<string | undefined> {
+    // ponytail: поиск сразу после записи; такой же перевод из другой вкладки в ту же секунду — ответ ручки без id записи
     const mine = (await fetchEvents(date, date))
         .filter((e: FinancialEvent) => e.type === 'FUND_TRANSFER' && e.targetFundId === fundId && e.factAmount === amount);
-    const last = mine.reduce<FinancialEvent | undefined>((a, e) => (!a || (e.createdAt ?? '') > (a.createdAt ?? '') ? e : a), undefined);
-    if (last) await deleteEvent(last.id);
+    return mine.reduce<FinancialEvent | undefined>((a, e) => (!a || (e.createdAt ?? '') > (a.createdAt ?? '') ? e : a), undefined)?.id;
 }
 
 /** Меню повтора (S3-F8): не повторять, каждый месяц или год — число из даты; когда закончить. */

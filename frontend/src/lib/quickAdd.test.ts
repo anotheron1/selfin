@@ -225,6 +225,16 @@ describe('форма «+» (срез 3 п. 12)', () => {
     });
 
     it('строка о «Свободно» — только у собранной формы: без категории или копилки её нет', () => {
-        expect(src).toContain('const effect = pocket && canSubmit &&');
+        expect(src).toContain('pocket && canSubmit');
+    });
+
+    it('строка после записи — по нажатой кнопке, а не по главной (ревью Codex #235)', () => {
+        expect(src).toContain('afterLine(effectOf(action))');
+        expect(src).toContain("line: action === 'record' ? lineNow : null");
+    });
+
+    it('«Отменить» у перевода снимает запись, найденную сразу после перевода, — повтор её же (ревью Codex #235)', () => {
+        expect(src).toContain('const id = await transferEventId(');
+        expect(src).toContain('deleteEvent(id)');
     });
 });
