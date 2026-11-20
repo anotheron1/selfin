@@ -236,5 +236,6 @@ describe('форма «+» (срез 3 п. 12)', () => {
     it('«Отменить» у перевода снимает запись, найденную сразу после перевода, — повтор её же (ревью Codex #235)', () => {
         expect(src).toContain('const id = await transferEventId(');
         expect(src).toContain('deleteEvent(id)');
+        expect(src).toContain('e instanceof ApiError && e.status === 404');
     });
 });

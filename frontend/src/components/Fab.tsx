@@ -10,6 +10,7 @@ import { amountRawInput, amountValue } from './ui/amount-input';
 import { AmountField, DateChips } from './formParts';
 import FormSheet from './FormSheet';
 import UndoToast from './UndoToast';
+import { ApiError } from '../api/client';
 import { latestAllowedIso } from '../lib/factDate';
 import { fmtDayShort, fmtRub } from '../lib/format';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../lib/priority';
@@ -161,7 +162,9 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
     };
 
     if (written) {
-        return <UndoToast text={written.text} onUndo={() => written.undo().then(onSuccess)} onDone={onClose} />;
+        // 404 — запись уже снята: повтор после потерянного ответа — тоже отмена (ревью Codex #235).
+        const undo = () => written.undo().catch(e => { if (!(e instanceof ApiError && e.status === 404)) throw e; });
+        return <UndoToast text={written.text} onUndo={() => undo().then(onSuccess)} onDone={onClose} />;
     }
 
     const label = (a: FormAction) => (a === 'plan' ? 'Запланировать' : transfer ? 'Отложить' : 'Записать');
