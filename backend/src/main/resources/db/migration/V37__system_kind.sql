@@ -19,8 +19,7 @@ UPDATE categories c
            WHEN 'Цели' THEN 'GOAL_SPENDING'
            WHEN 'Кредит' THEN 'CREDIT'
        END
- WHERE c.system_kind IS NULL
-   AND c.name IN ('Хотелки', 'Переводы в копилки', 'Цели', 'Кредит');
+ WHERE c.name IN ('Хотелки', 'Переводы в копилки', 'Цели', 'Кредит');
 
 -- У человека одна категория каждого вида.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_categories_owner_system_kind ON categories (user_id, system_kind)
