@@ -111,6 +111,29 @@ describe('freeEffect', () => {
     const line = (date: string, plannedAmount = 6000, recorded = 0) =>
         ({ id: 'p', name: 'Продукты', date, plannedAmount, recorded });
 
+    // Ревью Codex #235: «Свободно» — самый низкий остаток до конца расчёта; сдвигается минимум, а не каждая точка.
+    const trajectory = [
+        { date: TODAY, balance: 10000 }, { date: '2026-11-22', balance: 9000 }, { date: '2026-11-25', balance: 14000 },
+        { date: '2026-11-30', balance: 1000 },
+    ];
+    it('план в день дохода, после минимума — «Свободно» не изменится', () => {
+        expect(effectLine(freeEffect({ ...base, action: 'plan', date: '2026-11-25', amount: 2000, trajectory })))
+            .toBe('Ожидание на 25 нояб. — «Свободно» не изменится.');
+    });
+    it('план до минимума — меньше на сумму; минимум сдвинулся частично — на сдвиг', () => {
+        expect(freeEffect({ ...base, action: 'plan', date: '2026-11-21', amount: 2000, trajectory })!.delta).toBe(-2000);
+        expect(freeEffect({ ...base, action: 'plan', date: '2026-11-25', amount: 6000, trajectory })!.delta).toBe(-1000);
+    });
+    it('точки после конца расчёта в минимум не входят', () => {
+        expect(freeEffect({ ...base, action: 'plan', date: '2026-11-21', amount: 500, trajectory })!.delta).toBe(-500);
+        expect(freeEffect({ ...base, action: 'record', amount: 500, trajectory })!.delta).toBe(-500);
+    });
+    it('запись к строке впереди, минимум раньше строки — «Свободно» меньше на сумму', () => {
+        const t = [{ date: TODAY, balance: 10000 }, { date: '2026-11-21', balance: 4000 }, { date: '2026-11-23', balance: 7000 }];
+        expect(freeEffect({ ...base, action: 'record', line: line('2026-11-23'), trajectory: t })!.delta).toBe(-1200);
+        expect(freeEffect({ ...base, action: 'record', line: line('2026-11-23'), trajectory: [t[0], { date: '2026-11-23', balance: 3000 }] })!.delta).toBe(0);
+    });
+
     it('запись без строки после сверки — «Свободно» меньше на сумму', () => {
         expect(effectLine(freeEffect({ ...base, action: 'record' }))).toBe('В плане этого не было — «Свободно» меньше на 1 200 ₽.');
     });
@@ -234,7 +257,8 @@ describe('форма «+» (срез 3 п. 12)', () => {
     });
 
     it('«Отменить» у перевода снимает запись, найденную сразу после перевода, — повтор её же (ревью Codex #235)', () => {
-        expect(src).toContain('const id = await transferEventId(');
+        expect(src).toContain('const id = await transferEventId(fundId!, amount, date).catch(() => undefined)');
+        expect(src).toContain('trajectory: pocket.trajectory');
         expect(src).toContain('deleteEvent(id)');
         expect(src).toContain('e instanceof ApiError && e.status === 404');
     });

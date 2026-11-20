@@ -53,7 +53,9 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
     const [moreOpen, setMoreOpen] = useState(false);
     const [categories, setCategories] = useState<Category[] | null>(null);
     const [funds, setFunds] = useState<TargetFund[] | null>(null);
-    const [pocket, setPocket] = useState<{ checkpointDate: string | null; horizon: { endDate: string; label: string } } | null>(null);
+    const [pocket, setPocket] = useState<{
+        checkpointDate: string | null; horizon: { endDate: string; label: string }; trajectory: { date: string; balance: number }[];
+    } | null>(null);
     const [line, setLine] = useState<{ key: string; value: FactPreview | null } | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
 
     useEffect(() => { fetchCategories().then(setCategories).catch(() => setCategories([])); }, []);
     // Для строки о «Свободно»: дата сверки и до какого дня оно считается. Не пришло — строки нет.
-    useEffect(() => { fetchPocket().then(p => setPocket({ checkpointDate: p.checkpointDate, horizon: p.horizon })).catch(() => {}); }, []);
+    useEffect(() => { fetchPocket().then(p => setPocket({ checkpointDate: p.checkpointDate, horizon: p.horizon, trajectory: p.trajectory })).catch(() => {}); }, []);
 
     const chips = categoryChips(categories ?? [], type);
     const all = [...chips.top, ...chips.rest];
@@ -102,7 +104,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
         ? freeEffect({
             action: transfer && action === 'record' ? 'transfer' : action, type, kind, amount, date, today,
             checkpointDate: pocket.checkpointDate, horizon: pocket.horizon, line: action === 'record' ? lineNow : null,
-            fundName: fund?.name,
+            fundName: fund?.name, trajectory: pocket.trajectory,
         })
         : null;
     const effect = effectOf(main);
@@ -127,7 +129,8 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
                 await transferToFund(attempts, fundId!, amount!, true, undefined, date);
                 // Запись ищется сразу и запоминается: повтор «Отменить» после потерянного ответа снимает её же,
                 // а не более ранний такой же перевод (ревью Codex #235).
-                const id = await transferEventId(fundId!, amount, date);
+                // Перевод уже записан: сбой поиска не отправляет форму на повтор — иначе второй перевод (ревью Codex #235).
+                const id = await transferEventId(fundId!, amount, date).catch(() => undefined);
                 undo = () => (id ? deleteEvent(id) : Promise.reject(new Error('перевод не найден')));
             } else if (action === 'record') {
                 const fact = await createStandaloneFact(attempts, {

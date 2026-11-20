@@ -93,24 +93,37 @@ export function freeEffect(p: {
     horizon: { endDate: string; label: string } | null;
     line: FactPreview | null;
     fundName?: string;
+    /** Траектория «Свободно» (`/pocket`): по ней — сдвиг минимума. Нет — сумма сдвигов, как если бы минимум был в конце. */
+    trajectory?: { date: string; balance: number }[];
 }): FreeEffect | null {
     const a = p.amount;
     if (a == null || a <= 0) return null;
     const inRange = (d: string) => p.horizon == null || d <= p.horizon.endDate;
-    if (p.action === 'transfer') return { lead: `В копилку «${p.fundName ?? ''}»`, delta: -a };
+    // «Свободно» — самый низкий остаток до конца расчёта: изменение сдвигает остаток с своей даты, а «Свободно» —
+    // на столько, на сколько сдвинулся минимум (ревью Codex #235: трата после минимума его не трогает).
+    const minShift = (shifts: { from: string; by: number }[]) => {
+        const points = (p.trajectory ?? []).filter(t => inRange(t.date));
+        if (points.length === 0) return shifts.reduce((s, x) => s + x.by, 0);
+        const at = (t: { date: string; balance: number }) => t.balance + shifts.filter(s => s.from <= t.date).reduce((s, x) => s + x.by, 0);
+        return Math.min(...points.map(at)) - Math.min(...points.map(t => t.balance));
+    };
+    if (p.action === 'transfer') return { lead: `В копилку «${p.fundName ?? ''}»`, delta: minShift([{ from: p.today, by: -a }]) };
     if (p.action === 'plan') {
         if (p.type === 'INCOME') return null;
         const lead = `${PRIORITY_DOT_CONFIG[p.kind].name} на ${fmtDayShort(p.date)}`;
-        return inRange(p.date)
-            ? { lead, delta: -a, tail: `меньше уже сейчас, на ${fmtRub(a)}` }
-            : { lead, delta: 0, tail: `сейчас не изменится: оно считается ${p.horizon!.label}` };
+        if (!inRange(p.date)) return { lead, delta: 0, tail: `сейчас не изменится: оно считается ${p.horizon!.label}` };
+        const delta = minShift([{ from: p.date, by: -a }]);
+        return delta < 0 ? { lead, delta, tail: `меньше уже сейчас, на ${fmtRub(-delta)}` } : { lead, delta };
     }
     const sign = p.type === 'INCOME' ? 1 : -1;
     if (p.type === 'INCOME' && p.line) return null;
     const before = p.checkpointDate != null && p.date < p.checkpointDate;
     const held = p.line != null && p.line.date >= p.today && inRange(p.line.date);
     const rest = held ? Math.max(0, p.line!.plannedAmount - p.line!.recorded) : 0;
-    const delta = (before ? 0 : sign * a) - sign * Math.min(a, rest);
+    const delta = minShift([
+        ...(before ? [] : [{ from: p.today, by: sign * a }]),
+        ...(rest > 0 ? [{ from: p.line!.date, by: -sign * Math.min(a, rest) }] : []),
+    ]);
     const lead = p.line ? `Трата встанет к ожиданию «${p.line.name}»`
         : before ? `Это было до сверки остатка ${fmtDayShort(p.checkpointDate!)}`
         : 'В плане этого не было';
