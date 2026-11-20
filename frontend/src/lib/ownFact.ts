@@ -25,9 +25,13 @@ export function restQuestion(p: FinancialEvent, amount: number | null): { rest: 
 export const closePlanOf = (p: FinancialEvent, amount: number | null, choice: RestChoice): true | undefined =>
     restQuestion(p, amount) && choice === 'close' ? true : undefined;
 
-/** Строка над кнопкой у брони расхода (S3-F9, S3-F9b): что будет с остатком. У дохода и не брони — нет. */
-export function ownEffect(p: FinancialEvent, amount: number | null, choice: RestChoice): string | null {
+/**
+ * Строка над кнопкой у брони расхода (S3-F9, S3-F9b): что будет с остатком. У дохода и не брони — нет. Бронь с датой
+ * не позже сверки «Свободно» не держит (сверка уже её съела), и обещать «вернутся» нечего — строки нет (ревью Codex #235).
+ */
+export function ownEffect(p: FinancialEvent, amount: number | null, choice: RestChoice, checkpointDate?: string | null): string | null {
     if (p.priority !== 'HIGH' || p.type !== 'EXPENSE' || amount == null || amount <= 0) return null;
+    if (checkpointDate != null && p.date != null && p.date <= checkpointDate) return null;
     const rest = planRest(p);
     const q = restQuestion(p, amount);
     if (q) {

@@ -22,12 +22,14 @@ const TITLE = { HIGH: 'брони', MEDIUM: 'ожиданию', LOW: 'хотел
  * дохода, «Оплачено» брони раньше сверки, «Записать» ожидания, которое к строке встаёт только так (перевод в копилку,
  * архивная категория, категория-бронь — lib/journalSections recordTo). Категория и вид — от плана (решение 51).
  */
-export default function PlanFactSheet({ plan, name, askDate, onClose, onCreated }: {
+export default function PlanFactSheet({ plan, name, askDate, checkpointDate, onClose, onCreated }: {
     plan: FinancialEvent;
     /** Как план назван в журнале. */
     name: string;
     /** Бронь раньше сверки (lib/quickClose): вместо поля даты — «До или после?». */
     askDate?: { anchorDate: string };
+    /** Дата последней сверки: бронь не позже неё «Свободно» не держит — строки о нём нет. */
+    checkpointDate?: string | null;
     onClose: () => void;
     onCreated: () => void;
 }) {
@@ -46,7 +48,7 @@ export default function PlanFactSheet({ plan, name, askDate, onClose, onCreated 
 
     const amount = amountValue(amountRaw);
     const question = restQuestion(plan, amount);
-    const effect = ownEffect(plan, amount, choice);
+    const effect = ownEffect(plan, amount, choice, checkpointDate);
     const priority = plan.priority ?? 'MEDIUM';
     const label = `Записать к ${TITLE[priority]} «${name}»`;
     const choices = askDate ? askDateChoices(plan, today) : [];

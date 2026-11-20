@@ -312,6 +312,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 return plan && (
                     <PlanFactSheet key={factSheet.planId} plan={plan} name={getDisplayName(plan)}
                         askDate={factSheet.anchorDate ? { anchorDate: factSheet.anchorDate } : undefined}
+                        checkpointDate={anchor.loaded ? anchor.date : undefined}
                         onClose={() => setFactSheet(null)}
                         onCreated={() => { load(true).catch(console.error); setFactSheet(null); }} />
                 );
