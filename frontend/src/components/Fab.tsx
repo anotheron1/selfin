@@ -124,7 +124,9 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [previewKey]);
     const lineNow = previewKey && line?.key === previewKey ? line.value : null;
-    const canSubmit = canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer, fundId: fund?.id });
+    const canSubmit = canSubmitQuickAdd({ amount, categoryId: chosen && !transfer ? chosen.id : undefined, transfer,
+        // У записи-перевода копилка не правится (PATCH её не берёт) и может быть уже удалена — выбор ей не нужен.
+        fundId: fact ? fundId : fund?.id });
     // Строка — когда форма собрана: без категории или копилки сказать нечего (стенд PR 4). Над кнопками — по главной,
     // после записи — по нажатой: «Запланировать» рядом с «Записать» держит сумму, строка ожидания ему ни при чём.
     // У правки строки нет: что изменится со «Свободно», в спеке не задано.

@@ -206,6 +206,14 @@ describe('сторожа по исходнику: нажатия проверя�
     it('правка плана — PUT со своим scope у серии, «Только этот» у разовой', () => {
         expect(fab).toContain("}), series ? scope : 'THIS');");
     });
+    it('карточка — по перечитанной строке: оплата в другой вкладке видна, снятая строка закрывает', () => {
+        expect(page).toContain('const live = events.find(e => e.id === card.id) ?? after.find(e => e.id === card.id);');
+        expect(page).toContain('if (!live) return null;');
+        expect(page).toContain('quickClose(live, allowedToday, anchorDate)');
+    });
+    it('запись-перевод в удалённую копилку сохраняется: копилку PATCH не правит, выбор ей не нужен', () => {
+        expect(fab).toContain('fundId: fact ? fundId : fund?.id });');
+    });
     it('нажатие на строку журнала — карточка, не форма', () => {
         expect(page).toContain('onRow: setCard,');
         expect(page).not.toContain('EditEventSheet');

@@ -294,13 +294,17 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 </div>
             </div>
             {card && (() => {
-                const pay = quickClose(card, allowedToday, anchorDate);
+                // Строка — из перечитанного журнала: оплату в другой вкладке карточка видит, снятая строка карточку
+                // закрывает (ревью Codex #236) — иначе «Оплачено» записало бы старый остаток второй раз.
+                const live = events.find(e => e.id === card.id) ?? after.find(e => e.id === card.id);
+                if (!live) return null;
+                const pay = quickClose(live, allowedToday, anchorDate);
                 return (
-                    <EventCard key={card.id} event={card} today={allowedToday} pay={pay} held={guard.held(card.id)}
+                    <EventCard key={live.id} event={live} today={allowedToday} pay={pay} held={guard.held(live.id)}
                         onClose={() => setCard(null)}
-                        onEdit={(scope) => { setCard(null); setEditing({ event: card, scope }); }}
-                        onPaid={() => { if (pay) onPaid(card, pay); }}
-                        onOwn={() => setFactSheet({ planId: card.id })}
+                        onEdit={(scope) => { setCard(null); setEditing({ event: live, scope }); }}
+                        onPaid={() => { if (pay) onPaid(live, pay); }}
+                        onOwn={() => setFactSheet({ planId: live.id })}
                         onWritten={setWritten} />
                 );
             })()}
