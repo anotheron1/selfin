@@ -125,7 +125,7 @@ export default function EventCard({ event: e, today, pay, held, onClose, onEdit,
     };
     const line = (k: string, v: string) => (
         <button type="button" key={k} onClick={() => onEdit('FOLLOWING')}
-            className="flex min-h-[52px] items-center justify-between gap-2.5 border-b border-sf-rule px-1 text-left">
+            className="flex min-h-[52px] items-center justify-between gap-2.5 border-b border-sf-rule px-1 text-left outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-sf-accent">
             <span className="text-sf-note text-sf-muted">{k}</span>
             <span className="flex min-w-0 items-center gap-1.5 text-sf-body">
                 <span className="truncate">{v}</span><ChevronRight size={16} strokeWidth={2} className="shrink-0 text-sf-muted" />
@@ -134,7 +134,7 @@ export default function EventCard({ event: e, today, pay, held, onClose, onEdit,
     );
 
     return (
-        <FormSheet label={`${fact ? 'Запись' : 'План'} «${name}»`} onClose={onClose}>
+        <FormSheet label={`${fact ? 'Запись' : 'План'} «${name}»`} onClose={onClose} focusSheet>
             <div className="flex items-center gap-3.5 px-1 pr-10 pt-1">
                 <KindMark kind={KIND[e.priority ?? 'MEDIUM']} fact={fact} icon={<Icon strokeWidth={1.6} />} className="size-12" />
                 <div className="flex min-w-0 flex-1 flex-col">
