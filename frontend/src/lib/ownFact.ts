@@ -29,9 +29,12 @@ export const closePlanOf = (p: FinancialEvent, amount: number | null, choice: Re
  * Строка над кнопкой у брони расхода (S3-F9, S3-F9b): что будет с остатком. У дохода и не брони — нет. Бронь с датой
  * не позже сверки «Свободно» не держит (сверка уже её съела), и обещать «вернутся» нечего — строки нет (ревью Codex #235).
  */
-export function ownEffect(p: FinancialEvent, amount: number | null, choice: RestChoice, checkpointDate?: string | null): string | null {
+export function ownEffect(p: FinancialEvent, amount: number | null, choice: RestChoice, checkpointDate?: string | null,
+                          paidOn?: string): string | null {
     if (p.priority !== 'HIGH' || p.type !== 'EXPENSE' || amount == null || amount <= 0) return null;
     if (checkpointDate != null && p.date != null && p.date <= checkpointDate) return null;
+    // Оплата раньше сверки уже в остатке банка — освободится больше, чем остаток после неё (ревью Codex #235): строки нет.
+    if (checkpointDate != null && paidOn && paidOn < checkpointDate) return null;
     const rest = planRest(p);
     const q = restQuestion(p, amount);
     if (q) {

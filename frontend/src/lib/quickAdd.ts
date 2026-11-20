@@ -95,6 +95,8 @@ export function freeEffect(p: {
     fundName?: string;
     /** Траектория «Свободно» (`/pocket`): по ней — сдвиг минимума. Нет — сумма сдвигов, как если бы минимум был в конце. */
     trajectory?: { date: string; balance: number }[];
+    /** План с повтором: серия заводится целиком, и в расчёт могут войти несколько платежей. */
+    repeat?: boolean;
 }): FreeEffect | null {
     const a = p.amount;
     if (a == null || a <= 0) return null;
@@ -112,6 +114,8 @@ export function freeEffect(p: {
         if (p.type === 'INCOME') return null;
         const lead = `${PRIORITY_DOT_CONFIG[p.kind].name} на ${fmtDayShort(p.date)}`;
         if (!inRange(p.date)) return { lead, delta: 0, tail: `сейчас не изменится: оно считается ${p.horizon!.label}` };
+        // ponytail: у серии строки нет — платежей до конца расчёта может быть несколько (ревью Codex #235); посчитать — когда понадобится
+        if (p.repeat) return null;
         const delta = minShift([{ from: p.date, by: -a }]);
         return delta < 0 ? { lead, delta, tail: `меньше уже сейчас, на ${fmtRub(-delta)}` } : { lead, delta };
     }

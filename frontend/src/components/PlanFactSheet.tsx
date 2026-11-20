@@ -48,7 +48,7 @@ export default function PlanFactSheet({ plan, name, askDate, checkpointDate, onC
 
     const amount = amountValue(amountRaw);
     const question = restQuestion(plan, amount);
-    const effect = ownEffect(plan, amount, choice, checkpointDate);
+    const effect = ownEffect(plan, amount, choice, checkpointDate, date);
     const priority = plan.priority ?? 'MEDIUM';
     const label = `Записать к ${TITLE[priority]} «${name}»`;
     const choices = askDate ? askDateChoices(plan, today) : [];

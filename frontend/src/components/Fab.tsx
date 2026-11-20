@@ -104,7 +104,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset }: {
         ? freeEffect({
             action: transfer && action === 'record' ? 'transfer' : action, type, kind, amount, date, today,
             checkpointDate: pocket.checkpointDate, horizon: pocket.horizon, line: action === 'record' ? lineNow : null,
-            fundName: fund?.name, trajectory: pocket.trajectory,
+            fundName: fund?.name, trajectory: pocket.trajectory, repeat: repeatOn,
         })
         : null;
     const effect = effectOf(main);

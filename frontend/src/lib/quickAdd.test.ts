@@ -124,6 +124,11 @@ describe('freeEffect', () => {
         expect(freeEffect({ ...base, action: 'plan', date: '2026-11-21', amount: 2000, trajectory })!.delta).toBe(-2000);
         expect(freeEffect({ ...base, action: 'plan', date: '2026-11-25', amount: 6000, trajectory })!.delta).toBe(-1000);
     });
+    it('план с повтором — строки нет: платежей до конца расчёта может быть несколько (ревью Codex #235)', () => {
+        expect(freeEffect({ ...base, action: 'plan', date: '2026-11-21', amount: 2000, trajectory, repeat: true })).toBeNull();
+        expect(freeEffect({ ...base, action: 'plan', date: '2026-12-01', amount: 2000, trajectory, repeat: true })!.delta).toBe(0);
+        expect(readFileSync(new URL('../components/Fab.tsx', import.meta.url), 'utf8')).toContain('repeat: repeatOn');
+    });
     it('точки после конца расчёта в минимум не входят', () => {
         expect(freeEffect({ ...base, action: 'plan', date: '2026-11-21', amount: 500, trajectory })!.delta).toBe(-500);
         expect(freeEffect({ ...base, action: 'record', amount: 500, trajectory })!.delta).toBe(-500);

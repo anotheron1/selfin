@@ -70,8 +70,10 @@ describe('ownEffect', () => {
         expect(ownEffect(plan(), 10000, 'close', '2026-11-12')).toBeNull();
         expect(ownEffect(plan(), 10000, 'close', '2026-11-15')).toBeNull();
         expect(ownEffect(plan(), 10000, 'close', '2026-11-11')).toContain('вернутся в «Свободно»');
+        expect(ownEffect(plan(), 10000, 'close', '2026-11-11', '2026-11-10')).toBeNull();
+        expect(ownEffect(plan(), 10000, 'close', '2026-11-11', '2026-11-11')).toContain('вернутся в «Свободно»');
+        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('ownEffect(plan, amount, choice, checkpointDate, date)');
         expect(readFileSync('src/pages/Budget.tsx', 'utf8')).toContain('checkpointDate={anchor.loaded ? anchor.date : undefined}');
-        expect(readFileSync('src/components/PlanFactSheet.tsx', 'utf8')).toContain('ownEffect(plan, amount, choice, checkpointDate)');
     });
     it('лист записи — Radix Dialog: фокус в окне, фон инертен (ревью Codex #235)', () => {
         expect(readFileSync('src/components/FormSheet.tsx', 'utf8')).toContain('<Dialog.Content');
