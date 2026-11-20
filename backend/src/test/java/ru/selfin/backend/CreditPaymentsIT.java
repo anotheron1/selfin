@@ -153,8 +153,9 @@ class CreditPaymentsIT {
     @DisplayName("ANO-224: удалённая «Кредит» — «Зафиксировать» ставит график и возвращает её, а не падает на уникальности имени")
     void sandboxFix_revivesDeletedCreditCategory() throws Exception {
         // «Настройки» системную удалить не дают, а сервер удаляет любую категорию.
-        Category creditCategory = categoryRepository.findByName("Кредит")
-                .orElseGet(() -> Category.builder().name("Кредит").type(CategoryType.EXPENSE).system(true).build());
+        Category creditCategory = categoryRepository.findBySystemKind(ru.selfin.backend.model.enums.SystemCategory.CREDIT)
+                .orElseGet(() -> Category.builder().name("Кредит").type(CategoryType.EXPENSE).system(true)
+                        .systemKind(ru.selfin.backend.model.enums.SystemCategory.CREDIT).build());
         creditCategory.setDeleted(true);
         UUID deletedId = categoryRepository.save(creditCategory).getId();
         TargetFund c = credit(WishlistStatus.OPEN, purchase);

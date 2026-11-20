@@ -40,7 +40,7 @@ class WishlistConversionServiceTest {
     private final WishlistConversionService service =
             new WishlistConversionService(eventRepo, fundRepo,
                     new CreditPaymentService(eventRepo, recurringRuleService,
-                            new CategoryService(categoryRepo, eventRepo, mock(AccountService.class)), Clock.systemDefaultZone()),
+                            new CategoryService(categoryRepo, eventRepo, mock(AccountService.class), Clock.systemDefaultZone()), Clock.systemDefaultZone()),
                     new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, mock(FundTransactionRepository.class)),
                     Clock.systemDefaultZone());
 

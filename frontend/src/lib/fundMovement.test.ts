@@ -53,8 +53,8 @@ describe('fundMovementMessage', () => {
 describe('формы журнала показывают отказ (ANO-169, ANO-201)', () => {
     const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
-    it('«Записать факт» — причина отказа или «Не записалось»', () => {
-        const src = read('../components/FactCreateSheet.tsx');
+    it('запись к плану — причина отказа или «Не записалось»', () => {
+        const src = read('../components/PlanFactSheet.tsx');
         expect(src).toContain("setError(fundMovementMessage(err) ?? 'Не записалось — попробуйте ещё раз')");
         expect(src).toContain('{error && (');
     });

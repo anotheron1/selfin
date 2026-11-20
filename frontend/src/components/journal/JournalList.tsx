@@ -59,7 +59,7 @@ export interface JournalHandlers {
     onRow: (e: FinancialEvent) => void;
     /** «Оплачено» / «Получено» — одним касанием или с вопросом о дате, если раньше сверки. */
     onPaid: (e: FinancialEvent, d: QuickClose) => void;
-    /** «своё» — запись к этому плану (FactCreateSheet до PR 4). */
+    /** «своё» — запись к этому плану (PlanFactSheet). */
     onOwn: (e: FinancialEvent) => void;
     /** Кружок вида у плана — сменить вид. */
     onCycle: (e: FinancialEvent) => void;

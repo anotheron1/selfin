@@ -29,6 +29,20 @@ export interface Category {
      * (ANO-35). Только для INCOME. Пока не отмечена ни одна — берётся любой доход.
      */
     primaryIncome: boolean;
+    /** Вид системной категории (срез 3 п. 13): по нему форма узнаёт «Накопление»; null — своя категория. */
+    systemKind: SystemKind | null;
+}
+
+export type SystemKind = 'WISHLIST' | 'FUND_TRANSFER' | 'GOAL_SPENDING' | 'CREDIT';
+
+/** Строка ожидания, к которой встанет запись (срез 3 п. 12, `GET /events/fact-preview`). */
+export interface FactPreview {
+    id: string;
+    name: string;
+    date: string;
+    plannedAmount: number;
+    /** Сколько к строке уже записано. */
+    recorded: number;
 }
 
 export interface FinancialEvent {
@@ -91,6 +105,8 @@ export interface FactCreateDto {
     priority?: Priority;
     /** Исходный текст суммы, если её ввели выражением («450+1230+890», ANO-33). */
     rawInput?: string;
+    /** «Больше не нужно» (срез 3 п. 3): бронь закрывается на заплаченном. Только у брони. */
+    closePlan?: boolean;
 }
 
 export interface StandaloneFactCreateDto {

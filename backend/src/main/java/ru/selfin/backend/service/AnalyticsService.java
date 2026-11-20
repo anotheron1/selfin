@@ -244,7 +244,7 @@ public class AnalyticsService {
         categoryRows.stream().filter(r -> r.categoryType() == CategoryType.INCOME).forEach(result::add);
         result.add(buildTotalRow(RowType.TOTAL_EXPENSE, "Расходы", null, monthLabels, totalExpensePlanned, totalExpenseActual));
         categoryRows.stream().filter(r -> r.categoryType() == CategoryType.EXPENSE).forEach(result::add);
-        result.add(buildTotalRow(RowType.TOTAL_FUND_TRANSFER, "Переводы в копилки", null, monthLabels, totalFundTransferPlanned, totalFundTransferActual));
+        result.add(buildTotalRow(RowType.TOTAL_FUND_TRANSFER, "Накопление", null, monthLabels, totalFundTransferPlanned, totalFundTransferActual));
 
         // Р4 (ANO-206): строка считает ровно то, что написано. «Баланс» в банке — остаток на счёте,
         // а перевод в свою копилку — не расход: переводы стоят своей строкой прямо над ней.

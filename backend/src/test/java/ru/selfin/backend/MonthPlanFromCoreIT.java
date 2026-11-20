@@ -173,7 +173,7 @@ class MonthPlanFromCoreIT {
                 .isEqualByComparingTo("90000");
         assertThat(value.get("actual").decimalValue()).as("факт: 100 000 − 0; перевод не расход")
                 .isEqualByComparingTo("100000");
-        assertThat(planned(row(rows, "TOTAL_FUND_TRANSFER", "Переводы в копилки"))).as("переводы — своей строкой")
+        assertThat(planned(row(rows, "TOTAL_FUND_TRANSFER", "Накопление"))).as("переводы — своей строкой")
                 .isEqualByComparingTo("5000");
 
         JsonNode planFact = json("/api/v1/analytics/report?date=" + today).get("planFact");

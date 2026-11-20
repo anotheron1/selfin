@@ -37,7 +37,7 @@ describe('фраза отказа записи', () => {
     });
 
     it('те же слова, что в «Записать факт» и листе правки: одна фраза на один случай', () => {
-        expect(read('../components/FactCreateSheet.tsx')).toContain(`'${WRITE_FAILED}'`);
+        expect(read('../components/PlanFactSheet.tsx')).toContain(`'${WRITE_FAILED}'`);
         expect(read('../components/EditEventSheet.tsx')).toContain(`'${WRITE_FAILED}'`);
         expect(read('../components/EditEventSheet.tsx')).toContain(`'${DELETE_FAILED}'`);
     });

@@ -61,6 +61,11 @@ public class TargetFund {
     @Builder.Default
     private boolean deleted = false;
 
+    /** Служебная копилка — кармашек первых версий «POCKET»: в обзоре копилок её нет (V37). */
+    @Column(name = "is_service", nullable = false)
+    @Builder.Default
+    private boolean service = false;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "purchase_type", nullable = false)
     @Builder.Default

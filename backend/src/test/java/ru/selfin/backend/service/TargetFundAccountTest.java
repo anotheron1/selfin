@@ -79,7 +79,7 @@ class TargetFundAccountTest {
 
     /** Настоящий сервис категорий поверх мока: системную категорию он ищет и среди удалённых (ANO-224). */
     private CategoryService categoryService() {
-        return new CategoryService(categoryRepo, eventRepo, mock(AccountService.class));
+        return new CategoryService(categoryRepo, eventRepo, mock(AccountService.class), java.time.Clock.systemDefaultZone());
     }
 
     private static TargetFund fund(UUID accountId, String storedBalance) {
@@ -260,9 +260,9 @@ class TargetFundAccountTest {
         UUID key = UUID.randomUUID();
         when(txRepo.findByIdempotencyKey(key)).thenReturn(Optional.empty());
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
-        when(categoryRepo.findByName("Переводы в копилки"))
+        when(categoryRepo.findBySystemKind(ru.selfin.backend.model.enums.SystemCategory.FUND_TRANSFER))
                 .thenReturn(Optional.of(ru.selfin.backend.model.Category.builder()
-                        .id(UUID.randomUUID()).name("Переводы в копилки").build()));
+                        .id(UUID.randomUUID()).name("Накопление").build()));
 
         // ANO-157: подтверждения тут больше не нужно, и это предмет проверки. У этого
         // AccountBalanceService нет ни счетов, ни фактов — оснований судить об остатке нет,
@@ -550,5 +550,17 @@ class TargetFundAccountTest {
                 new FundWishlistParamsDto(BigDecimal.TEN, null, null, null)))
                 .isInstanceOf(ru.selfin.backend.exception.ResourceNotFoundException.class);
         verify(fundRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Служебная копилка в обзоре не видна (V37 is_service)")
+    void overviewHidesServiceFund() {
+        TargetFund pocket = fund(null, "0");
+        pocket.setName("POCKET");
+        pocket.setService(true);
+        TargetFund trip = vacation("0");
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(pocket, trip));
+
+        assertThat(service.getOverview().funds()).extracting(TargetFundDto::name).containsExactly("Отпуск");
     }
 }

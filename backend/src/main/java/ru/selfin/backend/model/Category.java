@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.TenantId;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.Priority;
+import ru.selfin.backend.model.enums.SystemCategory;
 
 import java.util.UUID;
 
@@ -45,6 +46,11 @@ public class Category {
     @Column(name = "is_system", nullable = false)
     @Builder.Default
     private boolean system = false;
+
+    /** Вид системной категории — по нему продукт её находит (V37); {@code null} у своей категории. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "system_kind", length = 32)
+    private SystemCategory systemKind;
 
     @Column(name = "forecast_enabled", nullable = false)
     @Builder.Default

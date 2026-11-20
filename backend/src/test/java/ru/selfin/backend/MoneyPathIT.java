@@ -19,6 +19,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,6 +79,25 @@ class MoneyPathIT {
         assertThat(pocket())
                 .as("на счёте 58 800, держится 4 800")
                 .isEqualByComparingTo("54000");
+    }
+
+    @Test
+    @DisplayName("п. 3: просроченная бронь, оплаченная частью, держит остаток; оплаченная целиком — ничего")
+    void overdueBookingPaidInPart_holdsRemainder() throws Exception {
+        anchor(today.minusDays(10), "60000");
+        String plan = createPlan(today.minusDays(3), "8000", "HIGH", expenseCategory(0));
+        BigDecimal before = pocket();
+
+        linkedFact(plan, today, "3000").andExpect(status().isOk());
+        assertThat(pocket()).as("«Доплачу позже»: 3 000 ушли со счёта, 5 000 держатся бронью").isEqualByComparingTo(before);
+
+        linkedFact(plan, today, "5000").andExpect(status().isOk());
+        assertThat(pocket()).as("бронь погашена: держать нечего").isEqualByComparingTo(before);
+
+        // Данные до ANO-155: погашенный план мог остаться PLANNED — в списке просрочки ему не место.
+        jdbc.update("UPDATE financial_events SET status = 'PLANNED' WHERE id = ?::uuid", UUID.fromString(plan));
+        JsonNode upcoming = json(mockMvc.perform(get("/api/v1/pocket")).andExpect(status().isOk())).get("upcoming");
+        assertThat(upcoming.findValuesAsText("id")).doesNotContain(plan);
     }
 
     // ── п. 1: трата встаёт к ожиданию сама ───────────────────────────────────
@@ -361,7 +382,7 @@ class MoneyPathIT {
 
     String expenseCategory(int n) {
         return jdbc.queryForList("SELECT id::text FROM categories WHERE type = 'EXPENSE' AND is_deleted = false"
-                + " AND name NOT IN ('Хотелки', 'Цели', 'Переводы в копилки', 'Кредит') ORDER BY name", String.class).get(n);
+                + " AND system_kind IS NULL ORDER BY name", String.class).get(n);
     }
 
     void anchor(LocalDate date, String amount) throws Exception {
@@ -400,5 +421,83 @@ class MoneyPathIT {
     BigDecimal pocket() throws Exception {
         return new BigDecimal(json(mockMvc.perform(get("/api/v1/pocket")).andExpect(status().isOk()))
                 .get("pocket").asText());
+    }
+
+    // ── п. 12: что будет со «Свободно» — строка ожидания по правилу п. 1 ─────
+
+    @Test
+    @DisplayName("п. 12: fact-preview называет строку, к которой встанет запись, и сколько к ней уже записано")
+    void factPreview_namesExpectationLine() throws Exception {
+        String category = expenseCategory(0);
+        String plan = createPlan(today, "6000", "MEDIUM", category);
+        standaloneFact(category, today, "1200", "MEDIUM").andExpect(status().isCreated());
+
+        JsonNode line = json(preview(category, today, "MEDIUM").andExpect(status().isOk()));
+
+        assertThat(line.get("id").asText()).isEqualTo(plan);
+        assertThat(line.get("name").asText()).isEqualTo("план");
+        assertThat(line.get("date").asText()).isEqualTo(today.toString());
+        assertThat(new BigDecimal(line.get("plannedAmount").asText())).isEqualByComparingTo("6000");
+        assertThat(new BigDecimal(line.get("recorded").asText())).isEqualByComparingTo("1200");
+    }
+
+    @Test
+    @DisplayName("п. 12: бронь той же категории и запись с характером «Бронь» — строки нет, ответ без тела")
+    void factPreview_nothingForBookingOrHighRecord() throws Exception {
+        String category = expenseCategory(0);
+        createPlan(today, "6000", "HIGH", category);
+        preview(category, today, "MEDIUM").andExpect(status().isNoContent());
+
+        createPlan(today, "6000", "MEDIUM", category);
+        preview(category, today, "HIGH").andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("п. 12: строка без названия зовётся по категории")
+    void factPreview_unnamedLineTakesCategoryName() throws Exception {
+        String category = expenseCategory(0);
+        String plan = createPlan(today, "6000", "MEDIUM", category);
+        jdbc.update("UPDATE financial_events SET description = NULL WHERE id = ?::uuid", plan);
+
+        JsonNode line = json(preview(category, today, "MEDIUM").andExpect(status().isOk()));
+
+        assertThat(line.get("name").asText())
+                .isEqualTo(jdbc.queryForObject("SELECT name FROM categories WHERE id = ?::uuid", String.class, category));
+    }
+
+    @Test
+    @DisplayName("п. 12: удалённая категория — строки нет")
+    void factPreview_nothingForDeletedCategory() throws Exception {
+        String category = expenseCategory(0);
+        createPlan(today, "6000", "MEDIUM", category);
+        jdbc.update("UPDATE categories SET is_deleted = TRUE WHERE id = ?::uuid", category);
+        try {
+            preview(category, today, "MEDIUM").andExpect(status().isNoContent());
+        } finally {
+            jdbc.update("UPDATE categories SET is_deleted = FALSE WHERE id = ?::uuid", category);
+        }
+    }
+
+    @Test
+    @DisplayName("п. 14: порядок категорий — по живым строкам за 90 дней назад и 30 вперёд")
+    void categoriesOrder_countsLiveRowsInWindow() throws Exception {
+        String busy = expenseCategory(1);
+        String idle = expenseCategory(0);
+        createPlan(today, "100", "MEDIUM", busy);
+        for (LocalDate d : List.of(today, today, today.minusDays(91), today.minusDays(91), today.plusDays(31), today.plusDays(31))) {
+            createPlan(d, "100", "MEDIUM", idle);
+        }
+        jdbc.update("UPDATE financial_events SET is_deleted = TRUE WHERE category_id = ?::uuid AND date = ?", UUID.fromString(idle), today);
+
+        List<String> ids = new ArrayList<>();
+        json(mockMvc.perform(get("/api/v1/categories")).andExpect(status().isOk())).forEach(c -> ids.add(c.get("id").asText()));
+
+        assertThat(ids.indexOf(busy)).isLessThan(ids.indexOf(idle));
+    }
+
+    ResultActions preview(String categoryId, LocalDate date, String priority) throws Exception {
+        return mockMvc.perform(get("/api/v1/events/fact-preview")
+                .param("categoryId", categoryId).param("date", date.toString())
+                .param("type", "EXPENSE").param("priority", priority));
     }
 }

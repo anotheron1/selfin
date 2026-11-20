@@ -33,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -234,8 +235,11 @@ public class PocketInputAssembler {
         // 3. Просрочка (без границы месяца, но строго ПОСЛЕ якоря — ANO-28: план старше
         //    чекпоинта уже «съеден» числом из банка, резерв был бы задвоением)
         //    и хотелки (отдельные выборки, спека §3.1, §3.4)
-        List<FinancialEvent> overdueEvents = eventRepository.findOverdueMandatoryExpenses(from, asOfDate);
-        List<EventSnapshot> overdue = overdueEvents.stream().map(EventSnapshot::from).toList();
+        //    Бронь, оплаченная частью, держит остаток (срез 3 п. 3, «Доплачу позже»), погашенная — ничего.
+        List<FinancialEvent> overdueFound = eventRepository.findOverdueMandatoryExpenses(from, asOfDate);
+        List<EventSnapshot> overdue = unsettled(overdueFound);
+        Set<UUID> overdueIds = overdue.stream().map(EventSnapshot::id).collect(java.util.stream.Collectors.toSet());
+        List<FinancialEvent> overdueEvents = overdueFound.stream().filter(e -> overdueIds.contains(e.getId())).toList();
 
         // ANO-79: та же выборка при других границах даёт ДОПОЛНИТЕЛЬНОЕ множество — просрочку,
         // которую последний ре-якорь удержал вне резерва. Движок её не вычитает, а объясняет:
@@ -256,8 +260,7 @@ public class PocketInputAssembler {
                     .map(BalanceCheckpoint::getDate).orElse(EPOCH);
             LocalDate through = cp.getDate().plusDays(1);
             if (through.isAfter(asOfDate)) through = asOfDate;
-            return eventRepository.findOverdueMandatoryExpenses(previousAnchor, through)
-                    .stream().map(EventSnapshot::from).toList();
+            return unsettled(eventRepository.findOverdueMandatoryExpenses(previousAnchor, through));
         }).orElse(List.of());
         List<EventSnapshot> wishlist = eventRepository
                 .findByWishlistStatusInAndDeletedFalse(EnumSet.of(WishlistStatus.OPEN, WishlistStatus.FIXED))
@@ -316,6 +319,17 @@ public class PocketInputAssembler {
                 planSettled(events));
         return new Assembled(input, baselineRefs, allIncomes, forecastByCategory,
                 reservable.stream().map(TargetFund::getId).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    /** Просроченные брони суммой непогашенного остатка; погашенные целиком выпадают. */
+    private List<EventSnapshot> unsettled(List<FinancialEvent> plans) {
+        if (plans.isEmpty()) return List.of();
+        Map<UUID, BigDecimal> settled = PlanRemainder.settledByAggregates(
+                eventRepository.findFactAggregatesByPlanIds(plans.stream().map(FinancialEvent::getId).toList()));
+        return plans.stream()
+                .map(e -> EventSnapshot.from(e, PlanRemainder.of(e.getPlannedAmount(), settled.get(e.getId()))))
+                .filter(s -> s.plannedAmount().signum() > 0)
+                .toList();
     }
 
     /**

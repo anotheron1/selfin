@@ -16,9 +16,13 @@ import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.text.Collator;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -37,9 +41,18 @@ public class CategoryService {
     private final CategoryRepository categoryRepository;
     private final FinancialEventRepository eventRepository;
     private final AccountService accountService;
+    /** «Сегодня» окна порядка категорий (ClockInjectionGuardTest). */
+    private final Clock clock;
+
+    /** Окно порядка категорий (срез 3 п. 14): строки с датой от стольких дней назад до стольких вперёд. */
+    static final int ORDER_DAYS_BACK = 90;
+    static final int ORDER_DAYS_AHEAD = 30;
 
     /**
-     * Возвращает все активные (не удалённые) категории.
+     * Живые категории в одном порядке для формы «+» и «Настроек» (срез 3 п. 14, ANO-255): расходы, затем доходы;
+     * внутри типа первыми — у кого больше живых строк, записей и планов, с датой от 90 дней назад до 30 вперёд.
+     * Планы считаются, чтобы новый человек сразу после первого входа видел свои. При равенстве — как раньше:
+     * характер, потом алфавит.
      *
      * @return список DTO категорий; пустой список если ни одной категории нет
      */
@@ -47,9 +60,15 @@ public class CategoryService {
         Collator collator = Collator.getInstance(new Locale("ru", "RU"));
         List<Integer> priorityOrder = List.of(
                 Priority.HIGH.ordinal(), Priority.MEDIUM.ordinal(), Priority.LOW.ordinal());
+        LocalDate today = LocalDate.now(clock);
+        Map<UUID, Long> rows = new HashMap<>();
+        for (Object[] r : categoryRepository.countRowsByCategory(today.minusDays(ORDER_DAYS_BACK), today.plusDays(ORDER_DAYS_AHEAD))) {
+            rows.put((UUID) r[0], ((Number) r[1]).longValue());
+        }
         return categoryRepository.findAllByDeletedFalse().stream()
                 .sorted(Comparator
                         .comparing((Category c) -> c.getType().name())
+                        .thenComparing((Category c) -> rows.getOrDefault(c.getId(), 0L), Comparator.reverseOrder())
                         .thenComparingInt(c -> priorityOrder.indexOf(c.getPriority().ordinal()))
                         .thenComparing(Category::getName, collator::compare))
                 .map(this::toDto)
@@ -57,19 +76,18 @@ public class CategoryService {
     }
 
     /**
-     * Создаёт новую категорию с заданными именем, типом и флагом обязательности.
+     * Создаёт новую категорию с заданными именем, типом и флагом обязательности. Своя категория с именем
+     * системной системной не становится (срез 3 п. 13): системную продукт находит по признаку вида.
      *
      * @param dto данные для создания категории
      * @return созданная категория
      */
     @Transactional
     public CategoryDto create(CategoryCreateDto dto) {
-        boolean isSystem = SystemCategory.WISHLIST_NAME.equals(dto.name());
         Category category = Category.builder()
                 .name(dto.name())
                 .type(dto.type())
                 .priority(dto.priority() != null ? dto.priority() : Priority.MEDIUM)
-                .system(isSystem)
                 .build();
         category.setForecastEnabled(dto.forecastEnabled() != null && dto.forecastEnabled());
         category.setPrimaryIncome(resolvePrimaryIncome(dto, dto.type(), false));
@@ -141,23 +159,23 @@ public class CategoryService {
     }
 
     /**
-     * Системная категория по имени — в неё продукт пишет сам: переводы в копилки, траты на цели,
-     * хотелки, платежи по кредиту ({@link SystemCategory}).
+     * Системная категория этого вида — в неё продукт пишет сам: переводы в копилки, траты на цели,
+     * хотелки, платежи по кредиту ({@link SystemCategory}). Ищется по признаку вида (срез 3 п. 13), а не
+     * по имени: своя категория с именем системной системной не становится.
      *
-     * <p>Имя уникально во всей таблице, вместе с удалёнными, а удаляет категории сам человек. Поиск
-     * только среди живых удалённую не находил, а вторую с тем же именем не давала завести база:
-     * удалённая «Переводы в копилки» срывала каждый перевод в копилку (ANO-224), «Цели» — удаление
-     * копилки (ревью Codex на #139). Удалённая возвращается, отсутствующая заводится — системной
-     * категорией расходов; признак основного дохода снимается, иначе тип расходов не сохранить
-     * ({@code chk_primary_income_only_income}). Живая категория человека с этим именем берётся как есть.
+     * <p>Удаляет категории сам человек, а признак у владельца один (вместе с удалёнными): удалённая
+     * «Переводы в копилки» срывала каждый перевод в копилку (ANO-224), «Цели» — удаление копилки (ревью
+     * Codex на #139). Удалённая возвращается, отсутствующая заводится — системной категорией расходов;
+     * признак основного дохода снимается, иначе тип расходов не сохранить
+     * ({@code chk_primary_income_only_income}).
      *
-     * @param name имя из {@link SystemCategory}
-     * @return живая категория с этим именем
+     * @param kind вид системной категории
+     * @return живая категория этого вида
      */
     @Transactional
-    public Category systemCategory(String name) {
-        Category category = categoryRepository.findByName(name)
-                .orElseGet(() -> Category.builder().name(name).build());
+    public Category systemCategory(SystemCategory kind) {
+        Category category = categoryRepository.findBySystemKind(kind)
+                .orElseGet(() -> Category.builder().name(freeName(kind)).systemKind(kind).build());
         if (category.getId() != null && !category.isDeleted()) return category;
         category.setDeleted(false);
         category.setSystem(true);
@@ -167,6 +185,16 @@ public class CategoryService {
         // а выключателя у системной категории на экране нет (ревью Codex на #139).
         category.setForecastEnabled(false);
         return categoryRepository.save(category);
+    }
+
+    /**
+     * Имя новой системной категории: имя у владельца уникально (uq_categories_owner_name), а своя категория
+     * с ним может уже быть. «Накопление» тогда — под старым именем, как в V37; остальные — с «2».
+     */
+    private String freeName(SystemCategory kind) {
+        if (!categoryRepository.existsByName(kind.title)) return kind.title;
+        // ponytail: одна запасная попытка; занято и запасное имя — вставка откажет, как отказывала и до V37
+        return kind == SystemCategory.FUND_TRANSFER ? "Переводы в копилки" : kind.title + " 2";
     }
 
     /**
@@ -202,6 +230,6 @@ public class CategoryService {
      */
     public CategoryDto toDto(Category c) {
         return new CategoryDto(c.getId(), c.getName(), c.getType(), c.getPriority(), c.isSystem(),
-                c.isForecastEnabled(), c.isPrimaryIncome());
+                c.isForecastEnabled(), c.isPrimaryIncome(), c.getSystemKind());
     }
 }
