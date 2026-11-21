@@ -274,6 +274,8 @@ class TwoPeopleIsolationIT {
                 "/api/v1/events?priority=LOW", "/api/v1/events/months?year=" + TODAY.getYear(), "/api/v1/funds", "/api/v1/funds/planner", "/api/v1/hello",
                 "/api/v1/me", "/api/v1/pocket", "/api/v1/settings/wishlist", "/api/v1/settings/pocket",
                 "/api/v1/settings/hints", "/api/v1/strategy/timeline", "/api/v1/version", "/api/v1/wishlist/simulation",
+                // Поиск по журналу без слов — все строки человека (срез 3 п. 9): чужие не находятся.
+                "/api/v1/events/search",
                 "/api/v1/events/fact-preview?categoryId=" + p.id("category") + "&date=" + TODAY + "&type=EXPENSE&priority=MEDIUM")) {
             answers.put("GET " + uri, readOk(p, GET, uri, null));
         }
