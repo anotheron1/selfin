@@ -101,6 +101,29 @@ class CashCardMigrationIT {
         assertThat(categories(income, "Наличные")).containsExactly("INCOME");
     }
 
+    @Test
+    @DisplayName("база из дампа без умолчаний столбцов — миграция проходит (стенд 21.11: у categories.is_deleted "
+            + "умолчания нет)")
+    void noColumnDefaults() {
+        UUID person = person();
+        List<Map<String, Object>> defaults = jdbc.queryForList("""
+                SELECT table_name, column_name, column_default FROM information_schema.columns
+                 WHERE table_schema = current_schema() AND table_name IN ('categories', 'accounts')
+                   AND column_default IS NOT NULL
+                """);
+        defaults.forEach(d -> jdbc.execute("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT"
+                .formatted(d.get("table_name"), d.get("column_name"))));
+        try {
+            applyMigration();
+        } finally {
+            defaults.forEach(d -> jdbc.execute("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s"
+                    .formatted(d.get("table_name"), d.get("column_name"), d.get("column_default"))));
+        }
+
+        assertThat(cash(person)).extracting(r -> r.get("name"), r -> r.get("track_balance"), r -> r.get("category"))
+                .containsExactly(tuple("Наличные", false, "Наличные"));
+    }
+
     private UUID person() {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO users (id, external_id) VALUES (?, ?)", id, "cash-" + id);
