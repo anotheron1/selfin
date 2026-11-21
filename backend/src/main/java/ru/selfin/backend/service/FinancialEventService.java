@@ -72,18 +72,58 @@ public class FinancialEventService {
         List<FinancialEvent> events =
                 eventRepository.findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(start, end)
                         .stream().filter(e -> !e.outsideMonthPlan()).toList();
+        return enrich(events, aggregates(events));
+    }
 
-        // Aggregate fact counts/amounts for PLAN enrichment
+    /** Сколько строк поиск отдаёт: найденное сверх — только числом и суммой. */
+    static final int SEARCH_LIMIT = 200;
+
+    /**
+     * Поиск по журналу за все месяцы (срез 3, п. 9, ANO-126): строки те же, что показывает журнал, — живые, с датой,
+     * без хотелок вне плана и без плана, целиком закрытого записями: его несут они. Что подходит — {@link EventSearch}.
+     *
+     * @return до {@value #SEARCH_LIMIT} строк, свежие первыми; сколько нашлось всего и сколько в найденном записано
+     */
+    public JournalSearchDto search(String q, LocalDate from, LocalDate to, UUID categoryId, Priority priority,
+                                   boolean factsOnly) {
+        EventSearch search = EventSearch.of(q, from, to, categoryId, priority, factsOnly);
+        Map<UUID, String> fundNames = targetFundRepository.findAll().stream()
+                .collect(Collectors.toMap(TargetFund::getId, TargetFund::getName));
+        // ponytail: все живые строки человека в памяти — тысячи; станет тесно — условия в запрос.
+        List<FinancialEvent> matched = eventRepository.findAllLiveWithCategory().stream()
+                .filter(e -> e.getDate() != null && !e.outsideMonthPlan())
+                .filter(e -> search.test(e, e.getTargetFundId() == null ? null : fundNames.get(e.getTargetFundId())))
+                .toList();
+        Map<UUID, FactAggregateProjection> agg = aggregates(matched);
+        List<FinancialEvent> found = matched.stream()
+                .filter(e -> !settledByFacts(e, agg.get(e.getId())))
+                .sorted(EventSearch.NEWEST_FIRST)
+                .toList();
+        BigDecimal recorded = found.stream().map(EventSearch::toFree).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new JournalSearchDto(enrich(found.stream().limit(SEARCH_LIMIT).toList(), agg), found.size(), recorded);
+    }
+
+    /** План закрыт своими записями — журнал его не рисует (journalSections, settledByFacts). */
+    private static boolean settledByFacts(FinancialEvent e, FactAggregateProjection agg) {
+        return e.getEventKind() == EventKind.PLAN && e.getPlannedAmount() != null && agg != null
+                && agg.getCount() > 0
+                && PlanRemainder.of(e.getPlannedAmount(), agg.getTotalAmount()).signum() <= 0;
+    }
+
+    /** Число и сумма живых записей у каждого плана из списка. */
+    private Map<UUID, FactAggregateProjection> aggregates(List<FinancialEvent> events) {
         List<UUID> planIds = events.stream()
                 .filter(e -> e.getEventKind() == EventKind.PLAN)
                 .map(FinancialEvent::getId)
                 .toList();
-
-        Map<UUID, FactAggregateProjection> aggByPlan = planIds.isEmpty()
+        return planIds.isEmpty()
                 ? Collections.emptyMap()
                 : eventRepository.findFactAggregatesByPlanIds(planIds).stream()
                         .collect(Collectors.toMap(FactAggregateProjection::getParentEventId, p -> p));
+    }
 
+    /** Строки в ответ: у плана — записи к нему, у записи — её план, у перевода — копилка; всё пачкой, без N+1. */
+    private List<FinancialEventDto> enrich(List<FinancialEvent> events, Map<UUID, FactAggregateProjection> aggByPlan) {
         // Load parent plans for FACT enrichment (parentPlanDescription)
         Set<UUID> parentIds = events.stream()
                 .filter(e -> e.getEventKind() == EventKind.FACT && e.getParentEventId() != null)
