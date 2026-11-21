@@ -117,8 +117,11 @@ describe('дорожка экранов раздела', () => {
 describe('ширина «Настроек» на телефоне (ANO-231)', () => {
     it('поле названия категории не раздвигает страницу', async () => {
         const { readFileSync } = await import('node:fs');
-        const src = readFileSync(new URL('../../pages/Settings.tsx', import.meta.url), 'utf8');
-        expect(src).toMatch(/placeholder="Название категории"[\s\S]{0,200}className="w-0 flex-1/);
+        // С среза 3 (п. 15) поле — Field системы в листе «Новая категория»: его input сжимается сам (w-0 min-w-0).
+        const src = readFileSync(new URL('../CategoriesSection.tsx', import.meta.url), 'utf8');
+        const ds = readFileSync(new URL('../../ds/index.tsx', import.meta.url), 'utf8');
+        expect(src).toMatch(/<Field aria-label="Название категории" placeholder="Название категории"/);
+        expect(ds).toMatch(/<input ref=\{ref\} aria-invalid=\{invalid \|\| undefined\}\s*className="h-full w-0 min-w-0 flex-1/);
     });
 });
 
