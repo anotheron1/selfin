@@ -71,6 +71,9 @@ class JournalSearchIT {
                 "description":"Мобильник"}""".formatted(other2));
         String phoneFact = create(me, "/api/v1/events/" + phone + "/facts", """
                 {"date":"2025-09-15","factAmount":500,"description":"Мобильник"}""");
+        // Обсуждаемая хотелка — не строка журнала (Р4, ANO-206): поиск её не находит.
+        create(me, "/api/v1/events/wishlist", """
+                {"description":"Велосипед","plannedAmount":40000,"date":"2025-09-09"}""");
         create(other, "/api/v1/events/facts",
                 fact("2025-10-09", categories(other, "EXPENSE").get(0), "EXPENSE", "1240", "Пятерочка"));
 
@@ -83,6 +86,7 @@ class JournalSearchIT {
         assertThat(ids(search(me, Map.of("q", "мобил")))).containsExactly(phoneFact);
         assertThat(ids(search(me, Map.of("q", "аренда")))).containsExactly(rent);
         assertThat(ids(search(me, Map.of("q", "аренда", "factsOnly", "true")))).isEmpty();
+        assertThat(ids(search(me, Map.of("q", "велосипед")))).isEmpty();
         assertThat(ids(search(me, Map.of("q", "пятёр", "from", "2025-04-01", "to", "2025-12-31")))).containsExactly(newer);
         assertThat(ids(search(me, Map.of("q", "пятёр", "categoryId", other2)))).isEmpty();
         assertThat(ids(search(me, Map.of("q", "аренда", "priority", "MEDIUM")))).isEmpty();
