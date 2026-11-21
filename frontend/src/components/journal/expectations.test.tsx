@@ -160,7 +160,7 @@ describe('журнал: старые карточки ожиданий ушли,
     it('«Записать» идёт через recordTo: перевод в копилку — лист записи к строке (ревью Codex на #233)', () => {
         expect(page).toMatch(/const record = \(g: ExpectationGroup, line\?: FinancialEvent\) => \{\s*const to = recordTo\(g, line, viaForm \?\? undefined\);/);
         // Форма «+» пишет ожиданием только живые категории не «брони» (ревью Codex на #233, круги 3 и 4).
-        expect(page).toMatch(/fetchCategories\(\)\.then\(c => setViaForm\(new Set\(c\.filter\(x => x\.priority !== 'HIGH'\)\.map\(x => x\.id\)\)\)\)/);
+        expect(page).toMatch(/fetchCategories\(\)\.then\(c => \{[^}]*setViaForm\(new Set\(c\.filter\(x => x\.priority !== 'HIGH'\)\.map\(x => x\.id\)\)\)/);
         expect(page).toMatch(/'planId' in to \? setFactSheet\(\{ planId: to\.planId \}\) : setAdding\(to\.preset\)/);
         expect(page).not.toMatch(/setAdding\(g\.preset\)|setAdding\(sheetGroup\.preset\)/);
         // Лист и сетка отдают выбранную строку.

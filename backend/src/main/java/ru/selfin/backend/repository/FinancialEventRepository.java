@@ -35,6 +35,10 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
     List<FinancialEvent> findAllByDeletedFalseAndDateBetweenOrderByDateAscCreatedAtAscIdAsc(
             LocalDate start, LocalDate end);
 
+    /** Все живые строки человека с категорией одним запросом — для поиска по журналу (срез 3, п. 9). */
+    @Query("SELECT e FROM FinancialEvent e JOIN FETCH e.category WHERE e.deleted = false")
+    List<FinancialEvent> findAllLiveWithCategory();
+
     boolean existsByCategoryIdAndDeletedFalse(UUID categoryId);
 
     List<FinancialEvent> findAllByDeletedFalseAndDateBetween(LocalDate start, LocalDate end);

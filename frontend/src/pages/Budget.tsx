@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useState, useCallback, useReducer, useRef }
 import { useSearchParams } from 'react-router-dom';
 import { fetchEvents, fetchEventMonths, cycleEventPriority, createLinkedFact, fetchCheckpoints, fetchAccounts, fetchCategories } from '../api';
 import { CHANGED } from '../api/client';
-import type { FinancialEvent, HintsSettings, ScopeEnum } from '../types/api';
+import type { Category, FinancialEvent, HintsSettings, ScopeEnum } from '../types/api';
 import { afterMonth, expectationGroups, expectationsHeader, journalDate, journalView, recordTo, type ExpectationGroup } from '../lib/journalSections';
 import { weekGrid } from '../lib/weekGrid';
 import {
@@ -25,6 +25,11 @@ import ExpectationSheet from '../components/journal/ExpectationSheet';
 import JournalList from '../components/journal/JournalList';
 import MonthPicker from '../components/journal/MonthPicker';
 import WeekGrid from '../components/journal/WeekGrid';
+import { SearchChips, SearchField, SearchResults, useJournalSearch } from '../components/journal/JournalSearch';
+import { NO_SEARCH } from '../lib/journalSearch';
+import { IconButton } from '@/ds';
+import { cn } from '@/lib/utils';
+import { Search } from 'lucide-react';
 
 const iso = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -76,9 +81,35 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     // Категории, которые форма «+» запишет ожиданием: живые и не «брони». Ожидание из других — к строке (recordTo).
     // Не пришли — форма «+».
     const [viaForm, setViaForm] = useState<Set<string> | null>(null);
+    // Категории — и для чипа «Категория» поиска, в порядке сервера (п. 14).
+    const [categories, setCategories] = useState<Category[]>([]);
     useEffect(() => {
-        fetchCategories().then(c => setViaForm(new Set(c.filter(x => x.priority !== 'HIGH').map(x => x.id)))).catch(console.error);
+        fetchCategories().then(c => {
+            setCategories(c);
+            setViaForm(new Set(c.filter(x => x.priority !== 'HIGH').map(x => x.id)));
+        }).catch(console.error);
     }, [refreshSignal]);
+    // Поиск (п. 9, S3-S1, S3-W6): на телефоне открывается лупой, на 1440 — полем в строке месяца. Пока ищем, журнал
+    // месяца спрятан, а не снят: крестик возвращает его с раскрытым и прокруткой, как были.
+    const [searching, setSearching] = useState(false);
+    const [criteria, setCriteria] = useState(NO_SEARCH);
+    const found = useJournalSearch(criteria, searching, today, refreshSignal);
+    const searchRef = useRef<HTMLInputElement>(null);
+    const scrollBefore = useRef(0);
+    const searchingNow = useRef(false);
+    searchingNow.current = searching;
+    const openSearch = () => {
+        if (searchingNow.current) return;
+        scrollBefore.current = window.scrollY;
+        setSearching(true);
+    };
+    const closeSearch = () => {
+        setSearching(false);
+        setCriteria(NO_SEARCH);
+        searchRef.current?.blur();
+        requestAnimationFrame(() => window.scrollTo(0, scrollBefore.current));
+    };
+    useEffect(() => { if (searching) searchRef.current?.focus(); }, [searching]);
     // Подсказки первого журнала (ANO-59) — ключ и выключатель те же, что у «Сегодня».
     const [hints, setHints] = useState<HintsSettings | null>(null);
     useEffect(() => { loadHints().then(setHints).catch(() => setHints(null)); }, []);
@@ -162,7 +193,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     // Раскрытое — вместе с ней: иначе журнал вернулся бы свёрнутым и прокрутка попала бы не туда (ревью Codex на #232).
     const openNow = useRef<JournalOpen | undefined>(undefined);
     const savePosition = useCallback(() => {
-        if (placed.current) saveJournalPosition(sessionStore(), { year, month, scroll: window.scrollY, open: openNow.current });
+        if (placed.current && !searchingNow.current) saveJournalPosition(sessionStore(), { year, month, scroll: window.scrollY, open: openNow.current });
     }, [year, month]);
     useLayoutEffect(() => {
         savePosition();
@@ -233,9 +264,27 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 <div className="min-w-0">
                     {/* Телефон: строка месяца и кружки ожиданий стоят, список листается под ними (ANO-227 п. 1). */}
                     <div ref={topRef} className="sticky top-0 z-30 -mx-4 bg-sf-page px-4 pb-2 pt-3 lg:static">
-                        <MonthPicker year={year} month={month} loadMonths={fetchEventMonths}
-                            onChange={(y, m) => { setYear(y); setMonth(m); }} />
-                        {!loading && header && (
+                        <div className="flex items-center gap-3">
+                            <div className={cn(searching && 'hidden lg:block')}>
+                                <MonthPicker year={year} month={month} loadMonths={fetchEventMonths}
+                                    onChange={(y, m) => { setYear(y); setMonth(m); }} />
+                            </div>
+                            {!searching && (
+                                <IconButton aria-label="Поиск по журналу" onClick={openSearch}
+                                    className="ml-auto bg-sf-chip hover:bg-sf-chip-hover lg:hidden">
+                                    <Search size={18} strokeWidth={1.8} />
+                                </IconButton>
+                            )}
+                            <SearchField ref={searchRef} value={criteria.q} open={searching}
+                                onChange={q => setCriteria(c => ({ ...c, q }))} onOpen={openSearch} onClose={closeSearch}
+                                className={cn('flex-1 lg:max-w-[440px]', !searching && 'hidden lg:flex')} />
+                        </div>
+                        {searching && (
+                            <div className="mt-3">
+                                <SearchChips criteria={criteria} categories={categories} onChange={setCriteria} />
+                            </div>
+                        )}
+                        {!searching && !loading && header && (
                             <div className="mt-3 lg:hidden">
                                 <div className="mb-2.5 flex items-baseline justify-between gap-2">
                                     <span className="shrink-0 whitespace-nowrap text-sf-button font-semibold">{expTitle}</span>
@@ -247,6 +296,11 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                         )}
                     </div>
 
+                    {searching && (
+                        <SearchResults criteria={criteria} result={found.result} fresh={found.fresh} failed={found.failed}
+                            onRetry={found.retry} onRow={setCard} />
+                    )}
+                    <div className={cn(searching && 'hidden')}>
                     {loading
                         ? failed
                             ? (
@@ -275,6 +329,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                                 onCycle: (plan) => { cycleEventPriority(plan.id).then(() => load(true)).catch(console.error); },
                                 onRefresh: () => { load(true).catch(console.error); },
                             }} />}
+                    </div>
                 </div>
 
                 {/* 1440: сетка недель колонкой 480 справа, листается сама (п. 11, решение 53). */}
@@ -296,11 +351,16 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             {card && (() => {
                 // Строка — из перечитанного журнала: оплату в другой вкладке карточка видит, снятая строка карточку
                 // закрывает (ревью Codex #236) — иначе «Оплачено» записало бы старый остаток второй раз.
-                const live = events.find(e => e.id === card.id) ?? after.find(e => e.id === card.id);
+                // Из поиска — строка любого месяца: ищется и в найденном, которое тоже перечитывается.
+                const inMonth = events.find(e => e.id === card.id) ?? after.find(e => e.id === card.id);
+                const live = inMonth ?? found.result?.rows.find(e => e.id === card.id);
                 if (!live) return null;
                 const pay = quickClose(live, allowedToday, anchorDate);
+                // Строка только из найденного: месяц её не перечитывает, и бронь занята, пока поиск не перечитан после
+                // записи — иначе после «Оплачено» карточка снова показала бы старый остаток (ревью Codex #237).
+                const held = guard.held(live.id) || (!inMonth && !found.fresh);
                 return (
-                    <EventCard key={live.id} event={live} today={allowedToday} pay={pay} held={guard.held(live.id)}
+                    <EventCard key={live.id} event={live} today={allowedToday} pay={pay} held={held}
                         onClose={() => setCard(null)}
                         onEdit={(scope) => { setCard(null); setEditing({ event: live, scope }); }}
                         onPaid={() => { if (pay) onPaid(live, pay); }}
@@ -324,7 +384,8 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             {adding && <QuickAddModal preset={adding} onClose={() => setAdding(null)} onSuccess={() => {}} />}
             {factSheet && (() => {
                 // Строка ожидания может быть из шести дней после месяца (afterMonth) — ищется и там.
-                const plan = events.find(e => e.id === factSheet.planId) ?? after.find(e => e.id === factSheet.planId);
+                const plan = events.find(e => e.id === factSheet.planId) ?? after.find(e => e.id === factSheet.planId)
+                    ?? found.result?.rows.find(e => e.id === factSheet.planId);
                 return plan && (
                     <PlanFactSheet key={factSheet.planId} plan={plan} name={eventName(plan)}
                         askDate={factSheet.anchorDate ? { anchorDate: factSheet.anchorDate } : undefined}

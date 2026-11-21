@@ -35,6 +35,16 @@ export interface Category {
 
 export type SystemKind = 'WISHLIST' | 'FUND_TRANSFER' | 'GOAL_SPENDING' | 'CREDIT';
 
+/** Найденное поиском по журналу (срез 3 п. 9, `GET /events/search`). */
+export interface SearchResult {
+    /** До 200 строк, свежие первыми. */
+    rows: FinancialEvent[];
+    /** Сколько нашлось всего. */
+    total: number;
+    /** Записанное в найденном со знаком для свободных: доход — плюс, расход — минус. */
+    recorded: number;
+}
+
 /** Строка ожидания, к которой встанет запись (срез 3 п. 12, `GET /events/fact-preview`). */
 export interface FactPreview {
     id: string;

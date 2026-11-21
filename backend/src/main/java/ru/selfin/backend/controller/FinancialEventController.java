@@ -17,6 +17,7 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
+import ru.selfin.backend.dto.JournalSearchDto;
 import ru.selfin.backend.dto.StandaloneFactCreateDto;
 import ru.selfin.backend.dto.WishlistCreateDto;
 import ru.selfin.backend.model.enums.ScopeEnum;
@@ -68,6 +69,20 @@ public class FinancialEventController {
     @GetMapping("/months")
     public List<Integer> monthsWithRows(@RequestParam int year) {
         return eventService.monthsWithRows(year);
+    }
+
+    @Operation(summary = "Поиск по журналу за все месяцы",
+            description = "Число — по сумме строки, слова — по названию и категории. До 200 строк, свежие первыми; "
+                    + "сколько нашлось всего и сколько в найденном записано (доход — плюс, расход — минус).")
+    @GetMapping("/search")
+    public JournalSearchDto search(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) Priority priority,
+            @RequestParam(defaultValue = "false") boolean factsOnly) {
+        return eventService.search(q, from, to, categoryId, priority, factsOnly);
     }
 
     @Operation(summary = "К какой строке ожидания встанет запись",

@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
-    fetchCategories, createCategory, updateCategory, deleteCategory, cycleCategoryPriority,
+    fetchCategories,
     fetchCheckpoints, createCheckpoint, updateCheckpoint, deleteCheckpoint,
     fetchAccounts,
     fetchForecastReadiness,
     fetchPocketSettings,
 } from '../api';
-import type { Account, BalanceCheckpoint, Category, CategoryType, ForecastReadiness } from '../types/api';
-import PriorityButton from '../components/PriorityButton';
+import type { Account, BalanceCheckpoint, Category, ForecastReadiness } from '../types/api';
+import CategoriesSection from '../components/CategoriesSection';
 import AccountsSection from '../components/accounts/AccountsSection';
 import NzForm from '../components/pocket/NzForm';
 import HintsSection from '../components/HintsSection';
@@ -24,34 +24,9 @@ const inputStyle = {
 };
 const today = () => latestAllowedIso(new Date());
 
-const MONTHS_GENITIVE = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-
-/** '2026-11' → 'ноября'. Родительный падеж: подставляется в «с ноября». */
-const monthLabel = (yearMonth: string) =>
-    MONTHS_GENITIVE[Number(yearMonth.slice(5, 7)) - 1] ?? yearMonth;
-
-/**
- * ANO-80. Три факта, о которые иначе спотыкаются: откуда берётся прогноз, почему может
- * не появиться сразу и что главное число кармашка он не трогает. Подписью, а не модалкой:
- * модалка читается как предупреждение о риске, а предупреждать тут не о чем.
- */
-const FORECAST_HINT = 'Считает, сколько обычно уходит в эту категорию за месяц — по последним '
-    + 'месяцам, включая те, когда трат не было. Нужно три месяца наблюдений. На свободные деньги '
-    + 'не влияет: показывается отдельным числом рядом.';
-
 export default function Settings() {
     // --- Categories ---
     const [categories, setCategories] = useState<Category[]>([]);
-    const [name, setName] = useState('');
-    const [type, setType] = useState<CategoryType>('EXPENSE');
-    const [editCatId, setEditCatId] = useState<string | null>(null);
-    const [editCatName, setEditCatName] = useState('');
-    const [editCatType, setEditCatType] = useState<CategoryType>('EXPENSE');
-    const [editCatForecast, setEditCatForecast] = useState(false);
-    const [createForecast, setCreateForecast] = useState(false);
-    const [editCatPrimaryIncome, setEditCatPrimaryIncome] = useState(false);
-    const [createPrimaryIncome, setCreatePrimaryIncome] = useState(false);
     /** ANO-80: когда прогноз станет доступен — чтобы «включил, а пусто» не читалось как поломка. */
     const [readiness, setReadiness] = useState<ForecastReadiness | null>(null);
 
@@ -91,60 +66,6 @@ export default function Settings() {
      */
     const reloadAccounts = async () => { await loadAccounts(); await loadCheckpoints(); };
 
-    // --- Category handlers ---
-    const handleCreate = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!name.trim()) return;
-        await createCategory({
-            name: name.trim(),
-            type,
-            priority: 'MEDIUM',
-            forecastEnabled: type === 'EXPENSE' ? createForecast : false,
-            primaryIncome: type === 'INCOME' ? createPrimaryIncome : false,
-        });
-        setName('');
-        setCreateForecast(false);
-        setCreatePrimaryIncome(false);
-        load();
-        showToast('Категория добавлена');
-    };
-
-    const handleCyclePriority = async (id: string) => {
-        await cycleCategoryPriority(id);
-        load();
-    };
-
-    const startEditCat = (cat: Category) => {
-        setEditCatId(cat.id);
-        setEditCatName(cat.name);
-        setEditCatType(cat.type);
-        setEditCatForecast(cat.forecastEnabled);
-        setEditCatPrimaryIncome(cat.primaryIncome);
-    };
-
-    const cancelEditCat = () => setEditCatId(null);
-
-    const handleUpdateCategory = async (cat: Category) => {
-        if (!editCatName.trim()) return;
-        await updateCategory(cat.id, {
-            name: editCatName.trim(),
-            type: editCatType,
-            priority: cat.priority,
-            forecastEnabled: editCatType === 'EXPENSE' ? editCatForecast : false,
-            primaryIncome: editCatType === 'INCOME' ? editCatPrimaryIncome : false,
-        });
-        setEditCatId(null);
-        load();
-        showToast('Категория обновлена');
-    };
-
-    const handleDeleteCategory = async (id: string) => {
-        if (!confirm('Удалить категорию? Связанные события сохранятся.')) return;
-        await deleteCategory(id);
-        load();
-        showToast('Категория удалена');
-    };
-
     // --- Checkpoint handlers ---
     const handleCreateCheckpoint = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -179,11 +100,6 @@ export default function Settings() {
         await deleteCheckpoint(id);
         loadCheckpoints();
         showToast('Запись удалена');
-    };
-
-    const grouped = {
-        EXPENSE: categories.filter(c => c.type === 'EXPENSE'),
-        INCOME: categories.filter(c => c.type === 'INCOME'),
     };
 
     const fmtDate = (d: string) =>
@@ -363,195 +279,8 @@ export default function Settings() {
                     ))}
                 </div>
 
-                {/* Создание категории */}
-                <div className="rounded-2xl p-5 space-y-4"
-                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                    <h2 className="font-semibold text-sm" style={{ color: 'var(--color-text-muted)' }}>ДОБАВИТЬ КАТЕГОРИЮ</h2>
-                    <form onSubmit={handleCreate} className="flex flex-col gap-2">
-                        <div className="flex gap-2">
-                            <input
-                                value={name}
-                                onChange={e => setName(e.target.value)}
-                                placeholder="Название категории"
-                                // w-0: своя ширина поля по умолчанию раздвигала «Настройки» до 448 px на 375 (ANO-231)
-                                className="w-0 flex-1 rounded-lg px-3 py-2 text-sm"
-                                style={inputStyle}
-                            />
-                            <select
-                                value={type}
-                                onChange={e => setType(e.target.value as CategoryType)}
-                                className="rounded-lg px-3 py-2 text-sm"
-                                style={inputStyle}>
-                                <option value="EXPENSE">Расход</option>
-                                <option value="INCOME">Доход</option>
-                            </select>
-                            <button type="submit"
-                                className="rounded-lg px-3 py-2"
-                                style={{ background: 'var(--color-accent)', color: '#fff' }}>
-                                <Plus size={18} />
-                            </button>
-                        </div>
-                        {type === 'EXPENSE' && (
-                            <>
-                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
-                                style={{ color: 'var(--color-text-muted)' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={createForecast}
-                                    onChange={e => setCreateForecast(e.target.checked)}
-                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
-                                />
-                                <span className="text-xs">Отслеживать прогноз</span>
-                            </label>
-                            <p className="text-[11px] leading-snug mt-1 max-w-[28rem] px-1"
-                                style={{ color: 'var(--color-text-muted)' }}>
-                                {FORECAST_HINT}
-                            </p>
-                            </>
-                        )}
-                        {type === 'INCOME' && (
-                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
-                                style={{ color: 'var(--color-text-muted)' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={createPrimaryIncome}
-                                    onChange={e => setCreatePrimaryIncome(e.target.checked)}
-                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
-                                />
-                                <span className="text-xs">Основной доход (до него считаются свободные деньги)</span>
-                            </label>
-                        )}
-                    </form>
-                </div>
-
-                {/* Список категорий */}
-                {(['EXPENSE', 'INCOME'] as CategoryType[]).map(t => (
-                    <div key={t} className="rounded-2xl p-5 space-y-2"
-                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                        <h2 className="font-semibold text-sm mb-3" style={{ color: 'var(--color-text-muted)' }}>
-                            {t === 'EXPENSE' ? '📤 РАСХОДЫ' : '📥 ДОХОДЫ'}
-                        </h2>
-                        {grouped[t].length === 0 ? (
-                            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Нет категорий</p>
-                        ) : grouped[t].map(c => (
-                            <div key={c.id}>
-                                {editCatId === c.id ? (
-                                    <div className="flex flex-col gap-2 py-1.5">
-                                        <div className="flex gap-2">
-                                            <input
-                                                autoFocus
-                                                value={editCatName}
-                                                onChange={e => setEditCatName(e.target.value)}
-                                                className="flex-1 rounded-lg px-3 py-1.5 text-sm"
-                                                style={inputStyle}
-                                            />
-                                            <select
-                                                value={editCatType}
-                                                onChange={e => setEditCatType(e.target.value as CategoryType)}
-                                                className="rounded-lg px-3 py-1.5 text-sm"
-                                                style={inputStyle}>
-                                                <option value="EXPENSE">Расход</option>
-                                                <option value="INCOME">Доход</option>
-                                            </select>
-                                            <button onClick={() => handleUpdateCategory(c)}
-                                                className="p-1.5 rounded-lg"
-                                                style={{ background: 'var(--color-accent)', color: '#fff' }}>
-                                                <Check size={16} />
-                                            </button>
-                                            <button onClick={cancelEditCat}
-                                                className="p-1.5 rounded-lg"
-                                                style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
-                                                <X size={16} />
-                                            </button>
-                                        </div>
-                                        {editCatType === 'EXPENSE' && (
-                                            <>
-                                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
-                                                style={{ color: 'var(--color-text-muted)' }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editCatForecast}
-                                                    onChange={e => setEditCatForecast(e.target.checked)}
-                                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
-                                                />
-                                                <span className="text-xs">Отслеживать прогноз</span>
-                                            </label>
-                                            <p className="text-[11px] leading-snug mt-1 max-w-[28rem] px-1"
-                                                style={{ color: 'var(--color-text-muted)' }}>
-                                                {FORECAST_HINT}
-                                            </p>
-                                            </>
-                                        )}
-                                        {editCatType === 'INCOME' && (
-                                            <label className="flex items-center gap-2 px-1 cursor-pointer select-none"
-                                                style={{ color: 'var(--color-text-muted)' }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editCatPrimaryIncome}
-                                                    onChange={e => setEditCatPrimaryIncome(e.target.checked)}
-                                                    className="accent-[var(--color-accent)] w-3.5 h-3.5"
-                                                />
-                                                <span className="text-xs">Основной доход (до него считаются свободные деньги)</span>
-                                            </label>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center justify-between py-2.5 px-1"
-                                        style={{ borderBottom: '1px solid var(--color-border)' }}>
-                                        <div className="flex items-center gap-2">
-                                            {c.isSystem ? (
-                                                <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                                                    {c.name}
-                                                    <span className="text-xs ml-1" style={{ color: 'var(--color-text-muted)' }}>· системная</span>
-                                                </span>
-                                            ) : (
-                                                <span className="text-sm">
-                                                    {c.name}
-                                                    {c.forecastEnabled && (
-                                                        // ANO-80: галочка стоит, а прогноза ещё нет — иначе это
-                                                        // читается как поломка. Говорим, когда он появится.
-                                                        <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>
-                                                            {readiness?.readyFrom
-                                                                ? `· прогноз — с ${monthLabel(readiness.readyFrom)}`
-                                                                : '· прогноз'}
-                                                        </span>
-                                                    )}
-                                                    {c.primaryIncome && (
-                                                        <span className="text-xs ml-1.5" style={{ color: 'var(--color-accent)', opacity: 0.7 }}>· основной</span>
-                                                    )}
-                                                </span>
-                                            )}
-                                            <PriorityButton
-                                                priority={c.priority}
-                                                onCycle={() => handleCyclePriority(c.id)}
-                                            />
-                                        </div>
-                                        <div className="flex gap-1">
-                                            {!c.isSystem && (
-                                                <button
-                                                    onClick={() => startEditCat(c)}
-                                                    title="Редактировать"
-                                                    className="p-1.5 rounded-lg"
-                                                    style={{ color: 'var(--color-text-muted)' }}>
-                                                    <Pencil size={14} />
-                                                </button>
-                                            )}
-                                            {!c.isSystem && (
-                                                <button
-                                                    onClick={() => handleDeleteCategory(c.id)}
-                                                    title="Удалить"
-                                                    className="p-1.5 rounded-lg"
-                                                    style={{ color: 'var(--color-danger)' }}>
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                ))}
+                {/* Категории (срез 3, п. 15): «Расходы | Доходы», прогноз галочкой, правило у «Новая категория». */}
+                <CategoriesSection categories={categories} readiness={readiness} onChanged={load} showToast={showToast} />
 
                 <SignOutSection />
             </div>
