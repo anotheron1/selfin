@@ -1,0 +1,77 @@
+/**
+ * Поиск на экране (срез 3, п. 9; доски S3-S1, S3-W6): поле, чипы, «Нашлось …», найденное по месяцам; нажатие —
+ * карточка, крестик — обратно к месяцу. Состояние — у страницы, сторож по её исходнику.
+ */
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { Category, FinancialEvent } from '../../types/api';
+import { NO_SEARCH } from '../../lib/journalSearch';
+import { SearchChips, SearchField, SearchResults } from './JournalSearch';
+
+const ev = (over: Partial<FinancialEvent>): FinancialEvent => ({
+    id: 'e', date: '2026-11-12', categoryId: 'c', categoryName: 'Продукты', type: 'EXPENSE', plannedAmount: null,
+    factAmount: 1240, status: 'EXECUTED', priority: 'MEDIUM', description: 'Пятёрочка', rawInput: null,
+    createdAt: '2026-11-12T09:00:00', eventKind: 'FACT', parentEventId: null, linkedFactsCount: 0,
+    linkedFactsAmount: null, parentPlanDescription: null, ...over,
+});
+const cat = (id: string, name: string, type: Category['type']): Category =>
+    ({ id, name, type, priority: 'MEDIUM', isSystem: false, forecastEnabled: false, primaryIncome: false, systemKind: null });
+const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').replace(/ /g, ' ');
+const Q = { ...NO_SEARCH, q: 'пятёр' };
+
+describe('поиск на экране', () => {
+    it('поле: лупа, «Название, категория, сумма»; крестик — только пока ищем', () => {
+        const closed = renderToStaticMarkup(<SearchField value="" open={false} onChange={() => {}} onOpen={() => {}} onClose={() => {}} />);
+        expect(closed).toContain('aria-label="Поиск по журналу"');
+        expect(closed).toContain('placeholder="Название, категория, сумма"');
+        expect(closed).not.toContain('Закрыть поиск');
+        expect(renderToStaticMarkup(<SearchField value="п" open onChange={() => {}} onOpen={() => {}} onClose={() => {}} />))
+            .toContain('aria-label="Закрыть поиск"');
+    });
+
+    it('чипы: «За всё время», «Категория», «Вид», «Только записи» — включён; выбранное — подписью', () => {
+        const cats = [cat('food', 'Продукты', 'EXPENSE'), cat('sal', 'Зарплата', 'INCOME')];
+        const html = renderToStaticMarkup(<SearchChips criteria={NO_SEARCH} categories={cats} onChange={() => {}} />);
+        const t = text(html);
+        expect(t.indexOf('За всё время')).toBeLessThan(t.indexOf('Категория'));
+        expect(t.indexOf('Категория')).toBeLessThan(t.indexOf('Вид'));
+        expect(t.indexOf('Вид')).toBeLessThan(t.indexOf('Только записи'));
+        expect(html).toContain('aria-pressed="true"');
+        expect(html).toMatch(/<optgroup label="Расходы"><option value="food">Продукты<\/option><\/optgroup><optgroup label="Доходы"><option value="sal">Зарплата/);
+        const chosen = text(renderToStaticMarkup(<SearchChips categories={cats} onChange={() => {}}
+            criteria={{ ...NO_SEARCH, period: 'year', categoryId: 'food', priority: 'HIGH', factsOnly: false }} />));
+        expect(chosen).toContain('Этот год');
+        expect(chosen).toContain('Продукты');
+        expect(chosen).toContain('Бронь');
+    });
+
+    it('«Нашлось 2 записи · 2 220 ₽ за всё время», месяцы, строки — кнопки', () => {
+        const html = renderToStaticMarkup(<SearchResults criteria={Q} fresh failed={false} onRetry={() => {}} onRow={() => {}}
+            result={{ total: 2, recorded: -2220, rows: [ev({ id: 'a' }), ev({ id: 'b', date: '2026-10-29', factAmount: 980 })] }} />);
+        expect(text(html)).toContain('Нашлось 2 записи · 2 220 ₽ за всё время');
+        expect(text(html)).toMatch(/Ноябрь 2026 · 1 .*Пятёрочка 12 нояб\. · Продукты 1 240 ₽ .*Октябрь 2026 · 1/);
+        expect(html.match(/<button type="button"/g)).toHaveLength(2);
+    });
+
+    it('пусто, ошибка, ожидание и «ещё не что искать» — словами', () => {
+        const at = (props: Partial<Parameters<typeof SearchResults>[0]>) => text(renderToStaticMarkup(
+            <SearchResults criteria={Q} result={null} fresh failed={false} onRetry={() => {}} onRow={() => {}} {...props} />));
+        expect(at({ result: { rows: [], total: 0, recorded: 0 } })).toContain('Ничего не нашлось за всё время');
+        expect(at({ failed: true })).toContain('Поиск не удался — повторить');
+        expect(at({})).toContain('Загрузка…');
+        expect(at({ criteria: NO_SEARCH })).toContain('Название, категория или сумма — по всем месяцам.');
+    });
+
+    it('страница: лупа открывает поиск, крестик — к месяцу и прокрутке; журнал месяца прячется, а не снимается; карточка — и из найденного', () => {
+        const page = readFileSync(new URL('../../pages/Budget.tsx', import.meta.url), 'utf8');
+        expect(page).toMatch(/aria-label="Поиск по журналу" onClick=\{openSearch\}/);
+        expect(page).toMatch(/onClose=\{closeSearch\}/);
+        expect(page).toMatch(/const closeSearch = \(\) => \{[^}]*setSearching\(false\);[^}]*setCriteria\(NO_SEARCH\);[^}]*scrollTo\(0, scrollBefore\.current\)/);
+        expect(page).toMatch(/<div className=\{cn\(searching && 'hidden'\)\}>\s*\{loading/);
+        expect(page).toMatch(/onRetry=\{found\.retry\} onRow=\{setCard\}/);
+        expect(page).toMatch(/const live = events\.find[^;]*\?\? found\.result\?\.rows\.find\(e => e\.id === card\.id\)/);
+        expect(page).toMatch(/const plan = events\.find[^;]*\?\? found\.result\?\.rows\.find\(e => e\.id === factSheet\.planId\)/);
+        expect(page).toMatch(/if \(placed\.current && !searchingNow\.current\) saveJournalPosition/);
+    });
+});

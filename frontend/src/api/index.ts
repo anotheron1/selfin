@@ -4,6 +4,7 @@ import type {
     EventWishlistParams,
     EventType,
     FactPreview,
+    SearchResult,
     Priority,
     FundWishlistParams,
     Account,
@@ -86,6 +87,9 @@ export const fetchEvents = (startDate: string, endDate: string) =>
 
 /** Месяцы года со строками журнала, с единицы — точки в сетке месяцев (срез 3, п. 7). */
 export const fetchEventMonths = (year: number) => get<number[]>(`/events/months?year=${year}`);
+
+/** Поиск по журналу за все месяцы (срез 3, п. 9); параметры — lib/journalSearch, searchParams. */
+export const searchEvents = (params: URLSearchParams) => get<SearchResult>(`/events/search?${params}`);
 
 /** К какой строке ожидания встанет запись; `undefined` — ни к какой (срез 3 п. 12). */
 export const fetchFactPreview = (q: { categoryId: string; date: string; type: EventType; priority: Priority }) =>

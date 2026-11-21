@@ -207,7 +207,7 @@ describe('сторожа по исходнику: нажатия проверя�
         expect(fab).toContain("}), series ? scope : 'THIS');");
     });
     it('карточка — по перечитанной строке: оплата в другой вкладке видна, снятая строка закрывает', () => {
-        expect(page).toContain('const live = events.find(e => e.id === card.id) ?? after.find(e => e.id === card.id);');
+        expect(page).toMatch(/const live = events\.find\(e => e\.id === card\.id\) \?\? after\.find\(e => e\.id === card\.id\)\s*\?\? found\.result\?\.rows\.find\(e => e\.id === card\.id\);/);
         expect(page).toContain('if (!live) return null;');
         expect(page).toContain('quickClose(live, allowedToday, anchorDate)');
     });
