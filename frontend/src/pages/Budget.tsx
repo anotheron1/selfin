@@ -352,12 +352,15 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
                 // Строка — из перечитанного журнала: оплату в другой вкладке карточка видит, снятая строка карточку
                 // закрывает (ревью Codex #236) — иначе «Оплачено» записало бы старый остаток второй раз.
                 // Из поиска — строка любого месяца: ищется и в найденном, которое тоже перечитывается.
-                const live = events.find(e => e.id === card.id) ?? after.find(e => e.id === card.id)
-                    ?? found.result?.rows.find(e => e.id === card.id);
+                const inMonth = events.find(e => e.id === card.id) ?? after.find(e => e.id === card.id);
+                const live = inMonth ?? found.result?.rows.find(e => e.id === card.id);
                 if (!live) return null;
                 const pay = quickClose(live, allowedToday, anchorDate);
+                // Строка только из найденного: месяц её не перечитывает, и бронь занята, пока поиск не перечитан после
+                // записи — иначе после «Оплачено» карточка снова показала бы старый остаток (ревью Codex #237).
+                const held = guard.held(live.id) || (!inMonth && !found.fresh);
                 return (
-                    <EventCard key={live.id} event={live} today={allowedToday} pay={pay} held={guard.held(live.id)}
+                    <EventCard key={live.id} event={live} today={allowedToday} pay={pay} held={held}
                         onClose={() => setCard(null)}
                         onEdit={(scope) => { setCard(null); setEditing({ event: live, scope }); }}
                         onPaid={() => { if (pay) onPaid(live, pay); }}

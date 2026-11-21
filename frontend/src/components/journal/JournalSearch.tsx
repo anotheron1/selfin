@@ -26,8 +26,9 @@ const PAUSE_MS = 250;
  */
 export function useJournalSearch(c: SearchCriteria, active: boolean, today: string) {
     const key = searchKey(c, active, today);
-    const [state, setState] = useState<{ key: string; result: SearchResult | null; failed: boolean }>(
-        { key: '', result: null, failed: false });
+    // tick — номер чтения: запись в любой вкладке его сдвигает, и найденное несвежее, пока не перечитано после неё.
+    const [state, setState] = useState<{ key: string; tick: number; result: SearchResult | null; failed: boolean }>(
+        { key: '', tick: -1, result: null, failed: false });
     const [tick, setTick] = useState(0);
     useEffect(() => {
         const again = () => setTick(t => t + 1);
@@ -39,16 +40,18 @@ export function useJournalSearch(c: SearchCriteria, active: boolean, today: stri
         let live = true;
         const t = setTimeout(() => {
             searchEvents(new URLSearchParams(key)).then(
-                result => { if (live) setState({ key, result, failed: false }); },
-                () => { if (live) setState(s => ({ key, result: s.result, failed: true })); },
+                result => { if (live) setState({ key, tick, result, failed: false }); },
+                () => { if (live) setState(s => ({ key, tick, result: s.result, failed: true })); },
             );
         }, PAUSE_MS);
         return () => { live = false; clearTimeout(t); };
     }, [key, tick]);
+    const read = key !== '' && state.key === key && state.tick === tick;
     return {
         result: key ? state.result : null,
-        fresh: key !== '' && state.key === key,
-        failed: key !== '' && state.key === key && state.failed,
+        /** Найденное прочитано для этих критериев и после последней записи. */
+        fresh: read && !state.failed,
+        failed: read && state.failed,
         retry: () => setTick(t => t + 1),
     };
 }

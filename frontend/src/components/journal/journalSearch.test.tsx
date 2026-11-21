@@ -87,7 +87,11 @@ describe('поиск на экране', () => {
         expect(page).toMatch(/const closeSearch = \(\) => \{[^}]*setSearching\(false\);[^}]*setCriteria\(NO_SEARCH\);[^}]*scrollTo\(0, scrollBefore\.current\)/);
         expect(page).toMatch(/<div className=\{cn\(searching && 'hidden'\)\}>\s*\{loading/);
         expect(page).toMatch(/onRetry=\{found\.retry\} onRow=\{setCard\}/);
-        expect(page).toMatch(/const live = events\.find[^;]*\?\? found\.result\?\.rows\.find\(e => e\.id === card\.id\)/);
+        expect(page).toMatch(/const inMonth = events\.find\(e => e\.id === card\.id\) \?\? after\.find\(e => e\.id === card\.id\);/);
+        expect(page).toMatch(/const live = inMonth \?\? found\.result\?\.rows\.find\(e => e\.id === card\.id\)/);
+        // Ревью Codex #237: строка только из найденного занята, пока поиск не перечитан после записи.
+        expect(page).toMatch(/const held = guard\.held\(live\.id\) \|\| \(!inMonth && !found\.fresh\);/);
+        expect(page).toMatch(/<EventCard key=\{live\.id\} event=\{live\} today=\{allowedToday\} pay=\{pay\} held=\{held\}/);
         expect(page).toMatch(/const plan = events\.find[^;]*\?\? found\.result\?\.rows\.find\(e => e\.id === factSheet\.planId\)/);
         expect(page).toMatch(/if \(placed\.current && !searchingNow\.current\) saveJournalPosition/);
         // Телефон: пока ищем, строки месяца и кружков нет, поле — вместо них; на 1440 строка месяца стоит.
@@ -103,6 +107,10 @@ describe('поиск на экране', () => {
         const src = readFileSync(new URL('./JournalSearch.tsx', import.meta.url), 'utf8');
         expect(src).toMatch(/window\.addEventListener\(CHANGED, again\)/);
         expect(src).toMatch(/\}, \[key, tick\]\);/);
+        // Свежее — только чтение этих критериев после последней записи (tick в состоянии).
+        expect(src).toContain('result => { if (live) setState({ key, tick, result, failed: false }); }');
+        expect(src).toContain('const read = key !== \'\' && state.key === key && state.tick === tick;');
+        expect(src).toContain('fresh: read && !state.failed,');
         expect(src).toContain('onChange={e => { onChange(e.target.value); onOpen(); }} onFocus={onOpen}');
         expect(src).toContain(`onKeyDown={e => { if (e.key === 'Escape') onClose(); }}`);
     });
