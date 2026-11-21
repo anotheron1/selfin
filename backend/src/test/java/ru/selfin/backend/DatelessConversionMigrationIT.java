@@ -42,7 +42,9 @@ class DatelessConversionMigrationIT {
     void cleanDb() {
         jdbc.update("UPDATE financial_events SET converted_to_event_id = NULL");
         jdbc.update("DELETE FROM financial_events");
-        jdbc.update("DELETE FROM categories");
+        // Категорию карты «Наличные» (V38) держит счёт — она остаётся.
+        jdbc.update("DELETE FROM categories WHERE id NOT IN (SELECT purpose_category_id FROM accounts "
+                + "WHERE purpose_category_id IS NOT NULL)");
     }
 
     @Test

@@ -9,6 +9,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import ru.selfin.backend.dto.BalanceCheckpointCreateDto;
 import ru.selfin.backend.dto.BalanceCheckpointDto;
+import ru.selfin.backend.dto.BalanceSheetDto;
 import ru.selfin.backend.service.BalanceCheckpointService;
 
 import java.util.List;
@@ -27,6 +28,26 @@ public class BalanceCheckpointController {
     @GetMapping
     public List<BalanceCheckpointDto> getAll() {
         return service.findAll();
+    }
+
+    @Operation(summary = "Лист «Обновить остатки»", description = "Карты с остатком: «по записям» и дата обновления")
+    @GetMapping("/sheet")
+    public BalanceSheetDto sheet() {
+        return service.sheet();
+    }
+
+    @Operation(summary = "Пакет обновлений", description = "Все числа листа одной транзакцией, пустые пропущены")
+    @WritesData
+    @PostMapping("/batch")
+    public BalanceSheetDto.Result batch(@Valid @RequestBody BalanceSheetDto.Batch dto) {
+        return service.batch(dto);
+    }
+
+    @Operation(summary = "Предпросмотр пакета", description = "То же, что пакет, без записи")
+    @WritesData(false)
+    @PostMapping("/preview")
+    public BalanceSheetDto.Result preview(@Valid @RequestBody BalanceSheetDto.Batch dto) {
+        return service.preview(dto);
     }
 
     @Operation(summary = "Создать чекпоинт", description = "Фиксирует реальный остаток на счёте на указанную дату")

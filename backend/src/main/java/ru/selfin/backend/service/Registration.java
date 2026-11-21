@@ -82,6 +82,10 @@ public class Registration {
         // Как сид V20: счёт-приёмник безадресных операций — ввод остатка без выбора счёта идёт сюда.
         accounts.save(Account.builder().name("Основная карта").kind(AccountKind.DEBIT).trackBalance(true)
                 .defaultAccount(true).sortOrder(0).build());
+        // Срез 4, п. 5 (решение 59): наличные — карта для трат, как у старых людей после V38.
+        Category cash = categories.save(new Seed("Наличные", EXPENSE, MEDIUM).category());
+        accounts.save(Account.builder().name("Наличные").kind(AccountKind.CASH).trackBalance(false)
+                .purposeCategory(cash).build());
         return true;
     }
 

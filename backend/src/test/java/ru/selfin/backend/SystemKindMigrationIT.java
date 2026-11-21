@@ -37,7 +37,9 @@ class SystemKindMigrationIT {
 
     @AfterEach
     void cleanDb() {
-        jdbc.update("DELETE FROM categories");
+        // Категорию карты «Наличные» (V38) держит счёт — она остаётся.
+        jdbc.update("DELETE FROM categories WHERE id NOT IN (SELECT purpose_category_id FROM accounts "
+                + "WHERE purpose_category_id IS NOT NULL)");
         jdbc.update("DELETE FROM target_funds");
     }
 

@@ -191,9 +191,13 @@ class TwoPeopleIsolationIT {
                 {"name":"Аванс","type":"INCOME"}""", null));
         p.save("account", ok(p, POST, "/api/v1/accounts", """
                 {"name":"Карта","kind":"DEBIT","trackBalance":true}""", null));
-        ok(p, PATCH, "/api/v1/accounts/" + p.id("account") + "/default", null, null);
         p.save("checkpoint", ok(p, POST, "/api/v1/balance-checkpoints", """
                 {"date":"%s","amount":%d,"accountId":"%s"}""".formatted(TODAY.minusDays(1), 50_000 * k, p.id("account")), null));
+        // Основной становится карта с обновлением (срез 4, п. 12): без него смена — 400.
+        ok(p, PATCH, "/api/v1/accounts/" + p.id("account") + "/default", null, null);
+        // Пакет обновлений листа (срез 4, п. 3) — тем же числом: остаток прежний.
+        ok(p, POST, "/api/v1/balance-checkpoints/batch", """
+                {"entries":[{"accountId":"%s","amount":%d}]}""".formatted(p.id("account"), 50_000 * k), null);
         p.save("item", ok(p, POST, "/api/v1/capital/items", """
                 {"kind":"ASSET","name":"Квартира","initialValue":%d,"initialValuedAt":"%s"}"""
                 .formatted(5_000_000 * k, TODAY.minusMonths(1)), null));
@@ -276,11 +280,16 @@ class TwoPeopleIsolationIT {
                 "/api/v1/settings/hints", "/api/v1/strategy/timeline", "/api/v1/version", "/api/v1/wishlist/simulation",
                 // Поиск по журналу без слов — все строки человека (срез 3 п. 9): чужие не находятся.
                 "/api/v1/events/search",
+                // Лист «Обновить остатки» (срез 4, п. 3): чужих карт в нём нет.
+                "/api/v1/balance-checkpoints/sheet",
                 "/api/v1/events/fact-preview?categoryId=" + p.id("category") + "&date=" + TODAY + "&type=EXPENSE&priority=MEDIUM")) {
             answers.put("GET " + uri, readOk(p, GET, uri, null));
         }
         // Расчёты «что если» — POST, но ничего не пишут: те же чтения.
         answers.put("POST /api/v1/pocket/sandbox", readOk(p, POST, "/api/v1/pocket/sandbox", "{}"));
+        answers.put("POST /api/v1/balance-checkpoints/preview", readOk(p, POST, "/api/v1/balance-checkpoints/preview",
+                """
+                {"entries":[{"accountId":"%s","amount":1}]}""".formatted(p.id("account"))));
         answers.put("POST /api/v1/wishlist/simulation/recompute", readOk(p, POST,
                 "/api/v1/wishlist/simulation/recompute", """
                         {"kind":"SAVINGS","amount":40000,"targetDate":"%s"}""".formatted(TODAY.plusMonths(6))));
@@ -414,6 +423,10 @@ class TwoPeopleIsolationIT {
                         {"name":"Чужая цель","kind":"DEBIT","purposeCategoryId":"%s"}"""),
                 new Hit(POST, "/api/v1/balance-checkpoints", "account", """
                         {"date":"2026-01-01","amount":1,"accountId":"%s"}"""),
+                new Hit(POST, "/api/v1/balance-checkpoints/batch", "account", """
+                        {"entries":[{"accountId":"%s","amount":1}]}"""),
+                new Hit(POST, "/api/v1/balance-checkpoints/preview", "account", """
+                        {"entries":[{"accountId":"%s","amount":1}]}"""),
                 new Hit(POST, "/api/v1/funds", "account", """
                         {"name":"На чужом счёте","targetAmount":1,"accountId":"%s"}"""),
                 new Hit(POST, "/api/v1/events", "fund", """
