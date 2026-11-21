@@ -195,8 +195,9 @@ class AccountControllerIT {
     @DisplayName("Смена счёта по умолчанию проходит мимо частичного уникального индекса: "
             + "старый теряет флаг, новый получает, двух дефолтных не возникает ни на миг")
     void makeDefault_movesFlagWithoutViolatingUniqueIndex() throws Exception {
+        // С остатком: карту без обновления основной не сделать (срез 4, п. 12).
         String id = createAccount("""
-                {"name":"Новая основная","kind":"DEBIT"}
+                {"name":"Новая основная","kind":"DEBIT","balance":10000}
                 """);
         UUID seededId = seeded().getId();
 

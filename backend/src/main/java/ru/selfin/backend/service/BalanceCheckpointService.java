@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.dto.BalanceCheckpointCreateDto;
 import ru.selfin.backend.dto.BalanceCheckpointDto;
+import ru.selfin.backend.dto.BalanceSheetDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
@@ -15,6 +16,7 @@ import ru.selfin.backend.repository.FinancialEventRepository;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +34,81 @@ public class BalanceCheckpointService {
     private final AccountRepository accountRepository;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
+    /** «по записям» карты листа — то же правило, что у остатка счёта (срез 4, п. 3). */
+    private final AccountBalanceService balances;
+    /** «Свободно» до и после пакета — то же число, что {@code GET /pocket}. */
+    private final PocketService pocketService;
+
+    /** Лист «Обновить остатки» (срез 4, п. 3): карты с остатком — основная, вторая «на всё», накопительные, кредитки. */
+    public BalanceSheetDto sheet() {
+        LocalDate today = LocalDate.now(clock);
+        return new BalanceSheetDto(balances.active().stream()
+                .filter(Account::isTrackBalance)
+                .sorted(java.util.Comparator.comparingInt(BalanceCheckpointService::sheetGroup))
+                .map(a -> {
+                    BalanceCheckpoint anchor = balances.anchorAt(a, today).orElse(null);
+                    return new BalanceSheetDto.Card(a.getId(), a.getName(), a.getKind(), a.isDefaultAccount(),
+                            byRecords(a, today, anchor), anchor != null ? anchor.getDate() : null);
+                })
+                .toList());
+    }
+
+    /** Порядок листа; внутри группы — порядок {@code active()}: сортировка устойчивая. */
+    private static int sheetGroup(Account a) {
+        if (a.isDefaultAccount()) return 0;
+        return switch (a.getKind()) {
+            case DEBIT, CASH -> 1;
+            case DEPOSIT -> 2;
+            case CREDIT -> 3;
+        };
+    }
+
+    private BigDecimal byRecords(Account a, LocalDate today, BalanceCheckpoint anchor) {
+        return anchor != null ? balances.balanceAt(a, today, anchor) : null;
+    }
+
+    /** Пакет обновлений листа: все числа — одной транзакцией, ошибка одного не пишет ни одного. */
+    @Transactional
+    public BalanceSheetDto.Result batch(BalanceSheetDto.Batch dto) {
+        return write(dto);
+    }
+
+    /** Предпросмотр — тот же {@link #write} в транзакции с откатом: итог совпадает с записью по построению. */
+    @Transactional
+    public BalanceSheetDto.Result preview(BalanceSheetDto.Batch dto) {
+        BalanceSheetDto.Result result = write(dto);
+        org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+        return result;
+    }
+
+    /** Старые обновления не правятся и не удаляются: пакет только добавляет обновление на сегодня. */
+    private BalanceSheetDto.Result write(BalanceSheetDto.Batch dto) {
+        LocalDate today = LocalDate.now(clock);
+        BigDecimal freeBefore = free(today);
+        java.util.Set<UUID> seen = new java.util.HashSet<>();
+        List<BalanceSheetDto.Change> cards = new java.util.ArrayList<>();
+        for (BalanceSheetDto.Entry e : dto.entries()) {
+            if (!seen.add(e.accountId())) throw badRequest("A card appears twice in the batch");
+            if (e.amount() == null) continue; // пустое поле — карта не обновляется
+            Account account = resolveAccount(e.accountId());
+            if (!account.isTrackBalance()) throw badRequest("This card has no balance to update");
+            BigDecimal records = byRecords(account, today, balances.anchorAt(account, today).orElse(null));
+            repository.save(BalanceCheckpoint.builder().date(today).amount(e.amount()).account(account).build());
+            cards.add(new BalanceSheetDto.Change(account.getId(),
+                    records != null ? e.amount().subtract(records) : null));
+        }
+        repository.flush();
+        return new BalanceSheetDto.Result(freeBefore, free(today), cards);
+    }
+
+    private BigDecimal free(LocalDate today) {
+        return pocketService.getPocket(null, today).pocket();
+    }
+
+    private static org.springframework.web.server.ResponseStatusException badRequest(String message) {
+        return new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, message);
+    }
 
     /**
      * История чекпоинтов, от свежих к старым, с дрейфом каждого интервала (ANO-15 §4):

@@ -150,13 +150,14 @@ class VisitDaysIT {
                         })));
 
         assertThat(unmarked).as("меняющие ручки без разметки — пишет или нет").isEmpty();
-        assertThat(marks).as("сторож не холостой: меняющих ручек 41").hasSize(41);
+        assertThat(marks).as("сторож не холостой: меняющих ручек 43").hasSize(43);
         // Закрыть подсказку — не запись (срез 2, п. 12): иначе крестик засчитался бы днём ввода (ANO-78).
         assertThat(marks).as("не пишут: примерка, пересчёт, согласие до входа, подсказки")
                 .containsEntry("POST /api/v1/pocket/sandbox", false)
                 .containsEntry("POST /api/v1/wishlist/simulation/recompute", false)
                 .containsEntry("POST /api/v1/consent", false)
-                .containsEntry("PUT /api/v1/settings/hints", false);
-        assertThat(marks.values().stream().filter(writes -> !writes)).as("не пишут только эти четыре").hasSize(4);
+                .containsEntry("PUT /api/v1/settings/hints", false)
+                .containsEntry("POST /api/v1/balance-checkpoints/preview", false);
+        assertThat(marks.values().stream().filter(writes -> !writes)).as("не пишут только эти пять").hasSize(5);
     }
 }
