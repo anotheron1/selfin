@@ -93,7 +93,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
     // месяца спрятан, а не снят: крестик возвращает его с раскрытым и прокруткой, как были.
     const [searching, setSearching] = useState(false);
     const [criteria, setCriteria] = useState(NO_SEARCH);
-    const found = useJournalSearch(criteria, searching, today);
+    const found = useJournalSearch(criteria, searching, today, refreshSignal);
     const searchRef = useRef<HTMLInputElement>(null);
     const scrollBefore = useRef(0);
     const searchingNow = useRef(false);

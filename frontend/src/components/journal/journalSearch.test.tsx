@@ -111,6 +111,10 @@ describe('поиск на экране', () => {
         expect(src).toContain('result => { if (live) setState({ key, tick, result, failed: false }); }');
         expect(src).toContain('const read = key !== \'\' && state.key === key && state.tick === tick;');
         expect(src).toContain('fresh: read && !state.failed,');
+        // Ревью Codex #237: возврат в приложение (запись с другого устройства) — тоже заново.
+        expect(src).toContain('useEffect(() => { if (refresh) setTick(t => t + 1); }, [refresh]);');
+        const page = readFileSync(new URL('../../pages/Budget.tsx', import.meta.url), 'utf8');
+        expect(page).toContain('useJournalSearch(criteria, searching, today, refreshSignal);');
         expect(src).toContain('onChange={e => { onChange(e.target.value); onOpen(); }} onFocus={onOpen}');
         expect(src).toContain(`onKeyDown={e => { if (e.key === 'Escape') onClose(); }}`);
     });

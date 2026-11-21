@@ -22,9 +22,9 @@ const PAUSE_MS = 250;
 
 /**
  * Найденное по критериям: пока ищется новое, видно прежнее. Запись в этой вкладке или в другой (`selfin:changed`)
- * ищет заново — карточка из найденного видит свежую строку.
+ * и возврат в приложение ищут заново — карточка из найденного видит свежую строку.
  */
-export function useJournalSearch(c: SearchCriteria, active: boolean, today: string) {
+export function useJournalSearch(c: SearchCriteria, active: boolean, today: string, refresh?: number) {
     const key = searchKey(c, active, today);
     // tick — номер чтения: запись в любой вкладке его сдвигает, и найденное несвежее, пока не перечитано после неё.
     const [state, setState] = useState<{ key: string; tick: number; result: SearchResult | null; failed: boolean }>(
@@ -35,6 +35,8 @@ export function useJournalSearch(c: SearchCriteria, active: boolean, today: stri
         window.addEventListener(CHANGED, again);
         return () => window.removeEventListener(CHANGED, again);
     }, []);
+    // Возврат в приложение (refreshSignal): запись с другого устройства CHANGED не шлёт — найденное несвежее, пока не перечитано.
+    useEffect(() => { if (refresh) setTick(t => t + 1); }, [refresh]);
     useEffect(() => {
         if (!key) return;
         let live = true;
