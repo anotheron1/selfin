@@ -66,6 +66,7 @@ class AccountServiceTest {
     @Mock FinancialEventRepository eventRepo;
     @Mock FundTransactionRepository fundTxRepo;
     @Mock TargetFundRepository fundRepo;
+    @Mock BalanceCheckpointService checkpointService;
 
     private AccountService service;
 
@@ -74,7 +75,7 @@ class AccountServiceTest {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo);
         service = new AccountService(accountRepo, categoryRepo, eventRepo, checkpointRepo,
-                fundRepo, balanceService, Clock.systemDefaultZone());
+                fundRepo, balanceService, checkpointService, Clock.systemDefaultZone());
     }
 
     private void savePassesThrough() {
@@ -131,6 +132,130 @@ class AccountServiceTest {
 
         assertThat(service.create(dto("Бензин", AccountKind.DEBIT, false)).trackBalance()).isFalse();
         assertThat(service.create(dto("Копилка налом", AccountKind.CASH, true)).trackBalance()).isTrue();
+    }
+
+    // === Срез 4, п. 4: «Для чего эта карта?» и остаток при заведении ===
+
+    private static AccountCreateDto answer(AccountCreateDto.Purpose purpose, UUID category,
+                                           String limit, String floor, String balance) {
+        // kind и trackBalance нарочно чужие: при ответе их решает сервер, а не запрос.
+        return new AccountCreateDto("Карта", AccountKind.CASH, false, category,
+                limit != null ? new BigDecimal(limit) : null, floor != null ? new BigDecimal(floor) : null,
+                null, purpose, balance != null ? new BigDecimal(balance) : null);
+    }
+
+    private void saveGivesId() {
+        when(accountRepo.save(any(Account.class))).thenAnswer(inv -> {
+            Account a = inv.getArgument(0);
+            a.setId(UUID.randomUUID());
+            return a;
+        });
+    }
+
+    @Test
+    @DisplayName("«для отдельных трат» — DEBIT без остатка со своей категорией; обновления нет")
+    void create_spend_isUntrackedDebitWithCategory() {
+        saveGivesId();
+        Category petrol = category("Бензин");
+        when(categoryRepo.findById(petrol.getId())).thenReturn(Optional.of(petrol));
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        AccountDto out = service.create(answer(AccountCreateDto.Purpose.SPEND, petrol.getId(), null, null, null));
+
+        assertThat(out.kind()).isEqualTo(AccountKind.DEBIT);
+        assertThat(out.trackBalance()).isFalse();
+        assertThat(out.purposeCategoryId()).isEqualTo(petrol.getId());
+        assertThat(out.isDefault()).isFalse();
+        verify(checkpointService, never()).create(any());
+    }
+
+    @Test
+    @DisplayName("«накопительная» — DEPOSIT с остатком, категории нет; остаток — первое обновление сегодня")
+    void create_savings_isTrackedDepositWithFirstUpdate() {
+        saveGivesId();
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        AccountDto out = service.create(answer(AccountCreateDto.Purpose.SAVINGS, null, null, null, "60000"));
+
+        assertThat(out.kind()).isEqualTo(AccountKind.DEPOSIT);
+        assertThat(out.trackBalance()).isTrue();
+        assertThat(out.purposeCategoryId()).isNull();
+        verify(checkpointService).create(new ru.selfin.backend.dto.BalanceCheckpointCreateDto(
+                LocalDate.now(), new BigDecimal("60000"), out.id()));
+    }
+
+    @Test
+    @DisplayName("«кредитка» — CREDIT с остатком: лимит, «возвращаю до», доступное — первое обновление")
+    void create_credit_isTrackedCreditWithLimitFloorAndAvailable() {
+        saveGivesId();
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        AccountDto out = service.create(answer(AccountCreateDto.Purpose.CREDIT, null, "100000", "90000", "85000"));
+
+        assertThat(out.kind()).isEqualTo(AccountKind.CREDIT);
+        assertThat(out.trackBalance()).isTrue();
+        assertThat(out.creditLimit()).isEqualByComparingTo("100000");
+        assertThat(out.availableFloor()).isEqualByComparingTo("90000");
+        verify(checkpointService).create(new ru.selfin.backend.dto.BalanceCheckpointCreateDto(
+                LocalDate.now(), new BigDecimal("85000"), out.id()));
+    }
+
+    @Test
+    @DisplayName("«для отдельных трат» без категории — 400")
+    void create_spendWithoutCategory_rejected() {
+        assertThatThrownBy(() -> service.create(answer(AccountCreateDto.Purpose.SPEND, null, null, null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("«для отдельных трат» с доходной категорией — 400")
+    void create_spendWithIncomeCategory_rejected() {
+        Category salary = Category.builder().id(UUID.randomUUID()).name("Зарплата")
+                .type(CategoryType.INCOME).priority(Priority.HIGH).build();
+        when(categoryRepo.findById(salary.getId())).thenReturn(Optional.of(salary));
+
+        assertThatThrownBy(() -> service.create(answer(AccountCreateDto.Purpose.SPEND, salary.getId(), null, null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("остаток у карты для трат — 400: у неё остатка нет")
+    void create_spendWithBalance_rejected() {
+        Category petrol = category("Бензин");
+        when(categoryRepo.findById(petrol.getId())).thenReturn(Optional.of(petrol));
+
+        assertThatThrownBy(() -> service.create(answer(AccountCreateDto.Purpose.SPEND, petrol.getId(), null, null, "5000")))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        verify(accountRepo, never()).save(any());
+        verify(checkpointService, never()).create(any());
+    }
+
+    @Test
+    @DisplayName("кредитка без лимита — 400")
+    void create_creditWithoutLimit_rejected() {
+        assertThatThrownBy(() -> service.create(answer(AccountCreateDto.Purpose.CREDIT, null, null, null, "85000")))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("кредитка: «возвращаю до» выше лимита — 400 теми же словами, что и прежний путь")
+    void create_creditFloorAboveLimit_rejectedWithSameWords() {
+        assertThatThrownBy(() -> service.create(answer(AccountCreateDto.Purpose.CREDIT, null, "100000", "120000", null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST))
+                .hasMessageContaining("Available floor must not exceed the credit limit");
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("прежний путь без природы — 400, а не 500 от базы")
+    void create_legacyWithoutKind_rejected() {
+        assertThatThrownBy(() -> service.create(dto("Карта", null, true)))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        verify(accountRepo, never()).save(any());
     }
 
     // === §8: краевые случаи ===

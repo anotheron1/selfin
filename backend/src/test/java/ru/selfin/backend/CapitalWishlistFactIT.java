@@ -69,7 +69,9 @@ class CapitalWishlistFactIT {
     void cleanDb() {
         eventRepository.deleteAll();
         checkpointRepository.deleteAll();
-        categoryRepository.deleteAll();
+        // Категорию карты «Наличные» (V38) держит счёт — она остаётся.
+        categoryRepository.deleteAll(categoryRepository.findAll().stream()
+                .filter(c -> !"Наличные".equals(c.getName())).toList());
     }
 
     @Test

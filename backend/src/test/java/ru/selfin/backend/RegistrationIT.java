@@ -89,7 +89,9 @@ class RegistrationIT {
                             tuple("Прочее", "EXPENSE", "MEDIUM"),
                             tuple("Зарплата", "INCOME", "HIGH"),
                             tuple("Подработка", "INCOME", "MEDIUM"),
-                            tuple("Прочий доход", "INCOME", "MEDIUM"));
+                            tuple("Прочий доход", "INCOME", "MEDIUM"),
+                            // Срез 4, п. 5: категория карты «Наличные» — не ядро, но заводится вместе с ним.
+                            tuple("Наличные", "EXPENSE", "MEDIUM"));
             assertThat(categories).as("без прогноза (решение 05.09), без основного дохода, не системные")
                     .allSatisfy(c -> assertThat(c).containsEntry("forecastEnabled", false)
                             .containsEntry("primaryIncome", false).containsEntry("isSystem", false));
@@ -97,13 +99,18 @@ class RegistrationIT {
     }
 
     @Test
-    @DisplayName("новый человек — счёт «Основная карта» по умолчанию: остаток вводится без выбора счёта")
+    @DisplayName("новый человек — «Основная карта» по умолчанию и «Наличные» для трат (срез 4, п. 5); "
+            + "остаток вводится без выбора счёта")
     void newPersonGetsDefaultAccount() throws Exception {
         consent("account-person");
         List<Map<String, Object>> accounts = JsonPath.read(ok(get("/api/v1/accounts"), "account-person"), "$");
-        assertThat(accounts).singleElement().satisfies(a -> assertThat(a)
-                .containsEntry("name", "Основная карта").containsEntry("kind", "DEBIT")
-                .containsEntry("trackBalance", true).containsEntry("isDefault", true));
+        assertThat(accounts).hasSize(2);
+        assertThat(accounts).filteredOn(a -> Boolean.TRUE.equals(a.get("isDefault"))).singleElement()
+                .satisfies(a -> assertThat(a).containsEntry("name", "Основная карта").containsEntry("kind", "DEBIT")
+                        .containsEntry("trackBalance", true));
+        assertThat(accounts).filteredOn(a -> "CASH".equals(a.get("kind"))).singleElement()
+                .satisfies(a -> assertThat(a).containsEntry("name", "Наличные").containsEntry("trackBalance", false)
+                        .containsEntry("isDefault", false).containsEntry("purposeCategoryName", "Наличные"));
 
         String checkpoint = ok(post("/api/v1/balance-checkpoints").contentType(MediaType.APPLICATION_JSON).content("""
                 {"date":"%s","amount":15000}""".formatted(LocalDate.now().minusDays(1))), "account-person");

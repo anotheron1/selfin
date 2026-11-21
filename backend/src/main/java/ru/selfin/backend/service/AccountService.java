@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import ru.selfin.backend.dto.BalanceCheckpointCreateDto;
 import ru.selfin.backend.dto.account.AccountCreateDto;
 import ru.selfin.backend.dto.account.AccountDto;
 import ru.selfin.backend.exception.ResourceNotFoundException;
@@ -12,6 +13,7 @@ import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.enums.AccountKind;
+import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
@@ -48,6 +50,8 @@ public class AccountService {
     private final BalanceCheckpointRepository checkpointRepository;
     private final TargetFundRepository fundRepository;
     private final AccountBalanceService accountBalanceService;
+    /** Первое обновление при заведении и обновления при смене основной (срез 4, пп. 4, 12). */
+    private final BalanceCheckpointService checkpointService;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
 
@@ -62,11 +66,16 @@ public class AccountService {
         return toDto(activeById(id), LocalDate.now(clock));
     }
 
+    /**
+     * Заводит счёт. С ответом на «Для чего эта карта?» оси раскладывает {@link #byPurpose}; остаток, если он
+     * пришёл, — первое обновление на сегодня в той же транзакции (срез 4, п. 4): ошибка обновления не оставляет
+     * карты без остатка, который человек ввёл.
+     */
     @Transactional
     public AccountDto create(AccountCreateDto dto) {
-        Account account = Account.builder()
+        Account account = dto.purpose() != null ? byPurpose(dto) : Account.builder()
                 .name(dto.name())
-                .kind(dto.kind())
+                .kind(requireKind(dto))
                 .trackBalance(dto.trackBalance() != null ? dto.trackBalance() : defaultTracking(dto.kind()))
                 .purposeCategory(resolveCategory(dto.purposeCategoryId()))
                 .creditLimit(dto.creditLimit())
@@ -74,13 +83,21 @@ public class AccountService {
                 .sortOrder(dto.sortOrder() != null ? dto.sortOrder() : 100)
                 .build();
         validate(account);
-        return toDto(accountRepository.save(account), LocalDate.now(clock));
+        if (dto.balance() != null && !account.isTrackBalance()) {
+            throw badRequest("A card without a tracked balance takes no balance");
+        }
+        Account saved = accountRepository.save(account);
+        LocalDate today = LocalDate.now(clock);
+        if (dto.balance() != null) {
+            checkpointService.create(new BalanceCheckpointCreateDto(today, dto.balance(), saved.getId()));
+        }
+        return toDto(saved, today);
     }
 
     @Transactional
     public AccountDto update(UUID id, AccountCreateDto dto) {
         Account account = activeById(id);
-        rejectCreditBoundaryChange(account, dto.kind());
+        rejectCreditBoundaryChange(account, requireKind(dto));
         account.setName(dto.name());
         account.setKind(dto.kind());
         account.setTrackBalance(dto.trackBalance() != null ? dto.trackBalance() : defaultTracking(dto.kind()));
@@ -157,6 +174,44 @@ public class AccountService {
     }
 
     // === инварианты ===
+
+    /**
+     * Ответ на «Для чего эта карта?» — по осям счёта, таблица п. 4 спеки среза 4. Основной среди ответов нет:
+     * она одна и меняется только {@link #makeDefault}. Наличные — CASH, но их заводят миграция и регистрация, а
+     * не этот вопрос.
+     */
+    private Account byPurpose(AccountCreateDto dto) {
+        Account.AccountBuilder account = Account.builder()
+                .name(dto.name())
+                .creditLimit(dto.creditLimit())
+                .availableFloor(dto.availableFloor())
+                .sortOrder(dto.sortOrder() != null ? dto.sortOrder() : 100);
+        return switch (dto.purpose()) {
+            case SPEND -> account.kind(AccountKind.DEBIT).trackBalance(false)
+                    .purposeCategory(spendingCategory(dto.purposeCategoryId())).build();
+            case SAVINGS -> account.kind(AccountKind.DEPOSIT).trackBalance(true).build();
+            case CREDIT -> {
+                if (dto.creditLimit() == null) throw badRequest("A credit card needs its credit limit");
+                yield account.kind(AccountKind.CREDIT).trackBalance(true).build();
+            }
+        };
+    }
+
+    /** Карта для трат пишет траты в свою категорию — значит, категория есть и она расходная. */
+    private Category spendingCategory(UUID categoryId) {
+        if (categoryId == null) throw badRequest("A spending card needs its expense category");
+        Category category = resolveCategory(categoryId);
+        if (category.getType() != CategoryType.EXPENSE) {
+            throw badRequest("A spending card needs an expense category, not an income one");
+        }
+        return category;
+    }
+
+    /** Без ответа на вопрос природа обязательна: прежний путь создания и обновление. */
+    private static AccountKind requireKind(AccountCreateDto dto) {
+        if (dto.kind() == null) throw badRequest("Account kind is required");
+        return dto.kind();
+    }
 
     /** Дефолт тумблера по природе счёта (§3.1). CASH без слежения — «расход при снятии». */
     private static boolean defaultTracking(AccountKind kind) {
