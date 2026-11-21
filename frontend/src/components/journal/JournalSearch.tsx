@@ -7,7 +7,7 @@ import { CHANGED } from '../../api/client';
 import type { Category, Priority, SearchResult } from '../../types/api';
 import type { FinancialEvent } from '../../types/api';
 import {
-    foundByMonth, foundHeader, PERIODS, searchParams, searchReady, type Period, type SearchCriteria,
+    foundByMonth, foundHeader, PERIODS, searchKey, searchReady, type Period, type SearchCriteria,
 } from '../../lib/journalSearch';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from '../../lib/priority';
 import { iconOf } from './JournalList';
@@ -25,7 +25,7 @@ const PAUSE_MS = 250;
  * ищет заново — карточка из найденного видит свежую строку.
  */
 export function useJournalSearch(c: SearchCriteria, active: boolean, today: string) {
-    const key = active && searchReady(c) ? searchParams(c, today).toString() : '';
+    const key = searchKey(c, active, today);
     const [state, setState] = useState<{ key: string; result: SearchResult | null; failed: boolean }>(
         { key: '', result: null, failed: false });
     const [tick, setTick] = useState(0);
@@ -169,15 +169,17 @@ export function SearchResults({ criteria, result, fresh, failed, onRetry, onRow 
                             const Icon = iconOf(r.event);
                             const fact = r.event.factAmount != null;
                             return (
-                                <button key={r.event.id} type="button" onClick={() => onRow(r.event)}
-                                    className="flex w-full items-center gap-3 rounded-sf-field px-2 py-2.5 text-left transition-colors hover:bg-sf-plate">
-                                    <KindMark kind={KIND[r.event.priority]} fact={fact} icon={<Icon strokeWidth={1.7} />} />
-                                    <span className="min-w-0 flex-1">
-                                        <span className="block truncate text-sf-body">{r.name}</span>
-                                        <span className="block truncate text-sf-label text-sf-muted">{r.sub}</span>
-                                    </span>
-                                    <span className={cn('shrink-0 text-sf-body tabular-nums', fact && 'font-medium')}>{r.amount}</span>
-                                </button>
+                                <div key={r.event.id}>
+                                    <button type="button" onClick={() => onRow(r.event)}
+                                        className="flex w-full items-center gap-3 rounded-sf-field px-2 py-2.5 text-left transition-colors hover:bg-sf-plate">
+                                        <KindMark kind={KIND[r.event.priority]} fact={fact} icon={<Icon strokeWidth={1.7} />} />
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-sf-body">{r.name}</span>
+                                            <span className="block truncate text-sf-label text-sf-muted">{r.sub}</span>
+                                        </span>
+                                        <span className={cn('shrink-0 text-sf-body tabular-nums', fact && 'font-medium')}>{r.amount}</span>
+                                    </button>
+                                </div>
                             );
                         })}
                     </div>

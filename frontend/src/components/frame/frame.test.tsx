@@ -121,6 +121,8 @@ describe('ширина «Настроек» на телефоне (ANO-231)', ()
         const src = readFileSync(new URL('../CategoriesSection.tsx', import.meta.url), 'utf8');
         const ds = readFileSync(new URL('../../ds/index.tsx', import.meta.url), 'utf8');
         expect(src).toMatch(/<Field aria-label="Название категории" placeholder="Название категории"/);
+        // Имя категории в строке списка — тоже: «Техника и все для нее» раздвигало раздел до 413 на 390.
+        expect(src).toMatch(/<span className="w-0 min-w-0 flex-1">\s*<span className="block truncate text-sf-body">\{c\.name\}/);
         expect(ds).toMatch(/<input ref=\{ref\} aria-invalid=\{invalid \|\| undefined\}\s*className="h-full w-0 min-w-0 flex-1/);
     });
 });

@@ -39,11 +39,13 @@ describe('поиск на экране', () => {
         expect(t.indexOf('Вид')).toBeLessThan(t.indexOf('Только записи'));
         expect(html).toContain('aria-pressed="true"');
         expect(html).toMatch(/<optgroup label="Расходы"><option value="food">Продукты<\/option><\/optgroup><optgroup label="Доходы"><option value="sal">Зарплата/);
-        const chosen = text(renderToStaticMarkup(<SearchChips categories={cats} onChange={() => {}}
-            criteria={{ ...NO_SEARCH, period: 'year', categoryId: 'food', priority: 'HIGH', factsOnly: false }} />));
-        expect(chosen).toContain('Этот год');
-        expect(chosen).toContain('Продукты');
-        expect(chosen).toContain('Бронь');
+        // Подпись чипа — выбранное (в списке выбора те же слова есть всегда).
+        const chosen = renderToStaticMarkup(<SearchChips categories={cats} onChange={() => {}}
+            criteria={{ ...NO_SEARCH, period: 'year', categoryId: 'food', priority: 'HIGH', factsOnly: false }} />);
+        for (const label of ['Этот год', 'Продукты', 'Бронь']) expect(chosen).toContain(`<span class="max-w-[180px] truncate">${label}</span>`);
+        // Выбранное — залито: три чипа с выбором; по умолчанию — только «Только записи».
+        expect(chosen.match(/bg-sf-accent font-medium/g)).toHaveLength(3);
+        expect(html.match(/bg-sf-accent font-medium/g)).toHaveLength(1);
     });
 
     it('«Нашлось 2 записи · 2 220 ₽ за всё время», месяцы, строки — кнопки', () => {
@@ -52,6 +54,21 @@ describe('поиск на экране', () => {
         expect(text(html)).toContain('Нашлось 2 записи · 2 220 ₽ за всё время');
         expect(text(html)).toMatch(/Ноябрь 2026 · 1 .*Пятёрочка 12 нояб\. · Продукты 1 240 ₽ .*Октябрь 2026 · 1/);
         expect(html.match(/<button type="button"/g)).toHaveLength(2);
+        // Запись — кружок залит, план — обводкой.
+        expect(html).toContain('bg-sf-kind-ozh-bg');
+        const plan = renderToStaticMarkup(<SearchResults criteria={Q} fresh failed={false} onRetry={() => {}} onRow={() => {}}
+            result={{ total: 1, recorded: 0, rows: [ev({ eventKind: 'PLAN', factAmount: null, plannedAmount: 900 })] }} />);
+        expect(plan).not.toContain('bg-sf-kind-ozh-bg');
+    });
+
+    it('пока ищется новое — прежнее приглушено; нашлось больше, чем пришло, — «Показаны N свежих»', () => {
+        const html = renderToStaticMarkup(<SearchResults criteria={Q} fresh={false} failed={false} onRetry={() => {}} onRow={() => {}}
+            result={{ total: 340, recorded: -1000, rows: [ev({})] }} />);
+        expect(html).toContain('opacity-60');
+        expect(html).toContain('aria-busy="true"');
+        expect(text(html)).toContain('Показаны 1 свежих');
+        expect(renderToStaticMarkup(<SearchResults criteria={Q} fresh failed={false} onRetry={() => {}} onRow={() => {}}
+            result={{ total: 1, recorded: -1000, rows: [ev({})] }} />)).not.toContain('opacity-60');
     });
 
     it('пусто, ошибка, ожидание и «ещё не что искать» — словами', () => {
@@ -73,5 +90,20 @@ describe('поиск на экране', () => {
         expect(page).toMatch(/const live = events\.find[^;]*\?\? found\.result\?\.rows\.find\(e => e\.id === card\.id\)/);
         expect(page).toMatch(/const plan = events\.find[^;]*\?\? found\.result\?\.rows\.find\(e => e\.id === factSheet\.planId\)/);
         expect(page).toMatch(/if \(placed\.current && !searchingNow\.current\) saveJournalPosition/);
+        // Телефон: пока ищем, строки месяца и кружков нет, поле — вместо них; на 1440 строка месяца стоит.
+        expect(page).toMatch(/<div className=\{cn\(searching && 'hidden lg:block'\)\}>\s*<MonthPicker/);
+        expect(page).toMatch(/\{!searching && !loading && header && \(/);
+        expect(page).toMatch(/className=\{cn\('flex-1 lg:max-w-\[440px\]', !searching && 'hidden lg:flex'\)\}/);
+        // Повторное открытие (фокус в поле на 1440) не перетирает прокрутку месяца; лупа ставит фокус в поле.
+        expect(page).toMatch(/const openSearch = \(\) => \{\s*if \(searchingNow\.current\) return;\s*scrollBefore\.current = window\.scrollY;/);
+        expect(page).toMatch(/useEffect\(\(\) => \{ if \(searching\) searchRef\.current\?\.focus\(\); \}, \[searching\]\);/);
+    });
+
+    it('поиск заново после записи в этой вкладке и в другой; ввод открывает поиск, Esc закрывает', () => {
+        const src = readFileSync(new URL('./JournalSearch.tsx', import.meta.url), 'utf8');
+        expect(src).toMatch(/window\.addEventListener\(CHANGED, again\)/);
+        expect(src).toMatch(/\}, \[key, tick\]\);/);
+        expect(src).toContain('onChange={e => { onChange(e.target.value); onOpen(); }} onFocus={onOpen}');
+        expect(src).toContain(`onKeyDown={e => { if (e.key === 'Escape') onClose(); }}`);
     });
 });

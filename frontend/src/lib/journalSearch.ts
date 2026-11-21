@@ -58,6 +58,10 @@ export function searchParams(c: SearchCriteria, today: string): URLSearchParams 
     return p;
 }
 
+/** Что искать сейчас — строкой запроса; пусто — не искать: поиск закрыт или искать нечего. */
+export const searchKey = (c: SearchCriteria, open: boolean, today: string): string =>
+    open && searchReady(c) ? searchParams(c, today).toString() : '';
+
 const rub = (n: number) => `${Math.round(n).toLocaleString('ru-RU').replace(/\s/g, ' ')} ₽`;
 
 /** Сумма со знаком, как в журнале: «+» у пришедшего, у ушедшего знака нет. */

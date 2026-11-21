@@ -3,6 +3,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button, Choices, Field, Flag, IconButton } from '@/ds';
 import { cn } from '@/lib/utils';
 import { createCategory, cycleCategoryPriority, deleteCategory, updateCategory } from '../api';
+import { ApiError } from '../api/client';
 import type { Category, CategoryType, ForecastReadiness } from '../types/api';
 import FormSheet from './FormSheet';
 import { CATEGORY_RULE, CATEGORY_SPLIT, CATEGORY_SPLIT_LEAD, CATEGORY_SPLIT_TAIL, CATEGORY_SPLIT_TITLE } from '../lib/categoryRule';
@@ -46,18 +47,71 @@ const body = (d: Draft) => ({
     primaryIncome: d.type === 'INCOME' ? d.primary : false,
 });
 
+/** Строка категории: кружок вида — сменить вид; «прогноз» — у своей категории расхода; правка и удаление — у своей. */
+export function CategoryRow({ c, readiness, onCycle, onForecast, onEdit, onRemove }: {
+    c: Category;
+    readiness: ForecastReadiness | null;
+    onCycle: () => void;
+    onForecast: (on: boolean) => void;
+    onEdit: () => void;
+    onRemove: () => void;
+}) {
+    const sub = [
+        c.isSystem ? 'системная' : null,
+        c.forecastEnabled && readiness?.readyFrom ? `прогноз — с ${monthLabel(readiness.readyFrom)}` : null,
+        c.primaryIncome ? 'основной доход' : null,
+    ].filter(Boolean).join(' · ');
+    return (
+        <li className="flex min-h-[52px] items-center gap-1 border-b border-sf-rule">
+            <button type="button" title={priorityTitle(c.priority)}
+                aria-label={`Вид: ${PRIORITY_DOT_CONFIG[c.priority].name.toLowerCase()}. Нажми — сменить`}
+                onClick={onCycle}
+                className="-ml-3 flex size-11 shrink-0 items-center justify-center rounded-sf-pill hover:bg-sf-chip">
+                <span aria-hidden="true" className={cn('size-3 rounded-full shadow-[inset_0_0_0_1.5px_currentColor]', DOT[c.priority])} />
+            </button>
+            {/* w-0: длинное имя иначе раздвигает «Настройки» за край телефона — ScrollArea меряет по содержимому (ANO-231). */}
+            <span className="w-0 min-w-0 flex-1">
+                <span className="block truncate text-sf-body">{c.name}</span>
+                {sub && <span className="block truncate text-sf-label text-sf-muted">{sub}</span>}
+            </span>
+            {c.type === 'EXPENSE' && !c.isSystem && (
+                <label title={FORECAST_HINT} className="flex min-h-[44px] cursor-pointer select-none items-center gap-1.5 px-1 text-sf-label text-sf-muted">
+                    <input type="checkbox" checked={c.forecastEnabled} className="size-4 accent-[var(--sf-accent)]"
+                        onChange={e => onForecast(e.target.checked)} />
+                    прогноз
+                </label>
+            )}
+            {!c.isSystem && <>
+                <IconButton aria-label={`Изменить «${c.name}»`} onClick={onEdit} className="size-9 text-sf-muted">
+                    <Pencil size={15} />
+                </IconButton>
+                <IconButton aria-label={`Удалить «${c.name}»`} onClick={onRemove} className="size-9 text-sf-muted">
+                    <Trash2 size={15} />
+                </IconButton>
+            </>}
+        </li>
+    );
+}
+
+/**
+ * Отказ сохранения словами. 409 — имя держит категория, в том числе удалённая (ограничение базы): повтор не поможет,
+ * поэтому без «попробуйте ещё раз».
+ */
+export const saveFailure = (err: unknown): string =>
+    err instanceof ApiError && err.status === 409 ? 'Такое имя у категории уже было — выбери другое' : WRITE_FAILED;
+
 /** Новая категория и правка — одна форма листом: имя, расход или доход, прогноз или «основной доход». */
-function CategorySheet({ start, onClose, onSaved }: { start: Draft; onClose: () => void; onSaved: (created: boolean) => void }) {
+export function CategorySheet({ start, onClose, onSaved }: { start: Draft; onClose: () => void; onSaved: (created: boolean) => void }) {
     const [d, setD] = useState(start);
     const [saving, setSaving] = useState(false);
-    const [failed, setFailed] = useState(false);
+    const [failed, setFailed] = useState<string | null>(null);
     const save = (e: React.FormEvent) => {
         e.preventDefault();
         if (!d.name.trim() || saving) return;
         setSaving(true);
-        setFailed(false);
+        setFailed(null);
         (d.id ? updateCategory(d.id, body(d)) : createCategory(body(d)))
-            .then(() => onSaved(d.id == null), () => { setFailed(true); setSaving(false); });
+            .then(() => onSaved(d.id == null), (err) => { setFailed(saveFailure(err)); setSaving(false); });
     };
     return (
         <FormSheet label={d.id ? 'Изменить категорию' : 'Новая категория'} onClose={onClose}>
@@ -80,7 +134,7 @@ function CategorySheet({ start, onClose, onSaved }: { start: Draft; onClose: () 
                         Основной доход (до него считаются свободные деньги)
                     </Flag>
                 )}
-                {failed && <p className="text-sf-label text-sf-error">{WRITE_FAILED}</p>}
+                {failed && <p className="text-sf-label text-sf-error">{failed}</p>}
                 <Button type="submit" disabled={!d.name.trim() || saving}>{saving ? 'Сохраняем…' : 'Сохранить'}</Button>
             </form>
         </FormSheet>
@@ -122,45 +176,14 @@ export default function CategoriesSection({ categories, readiness, onChanged, sh
                 ? <p className="py-2 text-sf-note text-sf-muted">Нет категорий</p>
                 : (
                     <ul className="flex flex-col">
-                        {list.map(c => {
-                            const sub = [
-                                c.isSystem ? 'системная' : null,
-                                c.forecastEnabled && readiness?.readyFrom ? `прогноз — с ${monthLabel(readiness.readyFrom)}` : null,
-                                c.primaryIncome ? 'основной доход' : null,
-                            ].filter(Boolean).join(' · ');
-                            return (
-                                <li key={c.id} className="flex min-h-[52px] items-center gap-1 border-b border-sf-rule">
-                                    <button type="button" title={priorityTitle(c.priority)}
-                                        aria-label={`Вид: ${PRIORITY_DOT_CONFIG[c.priority].name.toLowerCase()}. Нажми — сменить`}
-                                        onClick={() => act(cycleCategoryPriority(c.id), null, WRITE_FAILED)}
-                                        className="-ml-3 flex size-11 shrink-0 items-center justify-center rounded-sf-pill hover:bg-sf-chip">
-                                        <span aria-hidden="true" className={cn('size-3 rounded-full shadow-[inset_0_0_0_1.5px_currentColor]', DOT[c.priority])} />
-                                    </button>
-                                    <span className="min-w-0 flex-1">
-                                        <span className="block truncate text-sf-body">{c.name}</span>
-                                        {sub && <span className="block truncate text-sf-label text-sf-muted">{sub}</span>}
-                                    </span>
-                                    {c.type === 'EXPENSE' && !c.isSystem && (
-                                        <label title={FORECAST_HINT} className="flex min-h-[44px] cursor-pointer select-none items-center gap-1.5 px-1 text-sf-label text-sf-muted">
-                                            <input type="checkbox" checked={c.forecastEnabled} className="size-4 accent-[var(--sf-accent)]"
-                                                onChange={e => act(updateCategory(c.id, body({
-                                                    id: c.id, name: c.name, type: c.type, priority: c.priority,
-                                                    forecast: e.target.checked, primary: c.primaryIncome,
-                                                })), null, WRITE_FAILED)} />
-                                            прогноз
-                                        </label>
-                                    )}
-                                    {!c.isSystem && <>
-                                        <IconButton aria-label={`Изменить «${c.name}»`} onClick={() => edit(c)} className="size-9 text-sf-muted">
-                                            <Pencil size={15} />
-                                        </IconButton>
-                                        <IconButton aria-label={`Удалить «${c.name}»`} onClick={() => remove(c)} className="size-9 text-sf-muted">
-                                            <Trash2 size={15} />
-                                        </IconButton>
-                                    </>}
-                                </li>
-                            );
-                        })}
+                        {list.map(c => (
+                            <CategoryRow key={c.id} c={c} readiness={readiness}
+                                onCycle={() => act(cycleCategoryPriority(c.id), null, WRITE_FAILED)}
+                                onForecast={on => act(updateCategory(c.id, body({
+                                    id: c.id, name: c.name, type: c.type, priority: c.priority, forecast: on, primary: c.primaryIncome,
+                                })), null, WRITE_FAILED)}
+                                onEdit={() => edit(c)} onRemove={() => remove(c)} />
+                        ))}
                     </ul>
                 )}
             {failed && <p className="text-sf-label text-sf-error">{failed}</p>}

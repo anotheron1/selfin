@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FinancialEvent } from '../types/api';
-import { foundByMonth, foundHeader, NO_SEARCH, periodRange, searchParams, searchReady } from './journalSearch';
+import { foundByMonth, foundHeader, NO_SEARCH, periodRange, searchKey, searchParams, searchReady } from './journalSearch';
 
 const ev = (over: Partial<FinancialEvent>): FinancialEvent => ({
     id: 'e', date: '2026-11-12', categoryId: 'c', categoryName: 'Продукты', type: 'EXPENSE', plannedAmount: null,
@@ -70,5 +70,11 @@ describe('поиск по журналу', () => {
             ['Отпуск', '1 окт. · Накопление', '+3 000 ₽'],
             ['Аренда', '1 окт. · Жильё и быт', '25 000 ₽'],
         ]);
+    });
+
+    it('ключ поиска: закрыт или искать нечего — пусто, иначе — строка запроса', () => {
+        expect(searchKey({ ...NO_SEARCH, q: 'пятёр' }, false, '2026-11-21')).toBe('');
+        expect(searchKey(NO_SEARCH, true, '2026-11-21')).toBe('');
+        expect(searchKey({ ...NO_SEARCH, q: 'пятёр' }, true, '2026-11-21')).toBe(searchParams({ ...NO_SEARCH, q: 'пятёр' }, '2026-11-21').toString());
     });
 });
