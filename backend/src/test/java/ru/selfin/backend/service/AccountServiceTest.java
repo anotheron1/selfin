@@ -67,6 +67,7 @@ class AccountServiceTest {
     @Mock FundTransactionRepository fundTxRepo;
     @Mock TargetFundRepository fundRepo;
     @Mock BalanceCheckpointService checkpointService;
+    @Mock PocketService pocketService;
 
     private AccountService service;
 
@@ -75,7 +76,16 @@ class AccountServiceTest {
         AccountBalanceService balanceService =
                 new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo);
         service = new AccountService(accountRepo, categoryRepo, eventRepo, checkpointRepo,
-                fundRepo, balanceService, checkpointService, Clock.systemDefaultZone());
+                fundRepo, balanceService, checkpointService, pocketService, Clock.systemDefaultZone());
+    }
+
+    /** «Свободно» до и после смены основной: {@code before}, затем {@code after}. */
+    private void free(String before, String after) {
+        ru.selfin.backend.dto.pocket.PocketResultDto first = org.mockito.Mockito.mock(ru.selfin.backend.dto.pocket.PocketResultDto.class);
+        ru.selfin.backend.dto.pocket.PocketResultDto second = org.mockito.Mockito.mock(ru.selfin.backend.dto.pocket.PocketResultDto.class);
+        when(first.pocket()).thenReturn(new BigDecimal(before));
+        when(second.pocket()).thenReturn(new BigDecimal(after));
+        when(pocketService.getPocket(org.mockito.ArgumentMatchers.isNull(), any())).thenReturn(first, second);
     }
 
     private void savePassesThrough() {
@@ -355,6 +365,7 @@ class AccountServiceTest {
         // Обновление у новой основной обязано быть (срез 4, п. 12).
         when(checkpointRepo.findLatestForAccountAt(any(), any()))
                 .thenAnswer(inv -> Optional.of(checkpoint(target, LocalDate.now().minusDays(1), "5000")));
+        free("1000", "1000");
 
         AccountDto out = service.makeDefault(target.getId());
 
@@ -383,6 +394,7 @@ class AccountServiceTest {
                 .thenReturn(Optional.of(checkpoint(oldDefault, today.minusDays(10), "60000")));
         when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any()))
                 .thenReturn(List.of(expenseFact(today.minusDays(5), category("Продукты"), "1500")));
+        free("63500", "63500");
 
         service.makeDefault(target.getId());
 
@@ -390,6 +402,25 @@ class AccountServiceTest {
                 today, new BigDecimal("58500"), oldDefault.getId()));
         verify(checkpointService).create(new ru.selfin.backend.dto.BalanceCheckpointCreateDto(
                 today, new BigDecimal("5000"), target.getId()));
+    }
+
+    @Test
+    @DisplayName("срез 4, п. 12, вариант Б: смена сдвинула бы «Свободно» (бронь с прошедшей датой отпустилась бы) — "
+            + "400 «Сначала обнови остатки»")
+    void makeDefault_freeWouldMove_rejected() {
+        Account oldDefault = AccountFixtures.defaultAccount();
+        Account target = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        when(accountRepo.findById(target.getId())).thenReturn(Optional.of(target));
+        when(accountRepo.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.of(oldDefault));
+        when(accountRepo.saveAndFlush(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        savePassesThrough();
+        when(checkpointRepo.findLatestForAccountAt(any(), any()))
+                .thenAnswer(inv -> Optional.of(checkpoint(target, LocalDate.now().minusDays(1), "5000")));
+        free("-283712", "25000");
+
+        assertThatThrownBy(() -> service.makeDefault(target.getId()))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST))
+                .hasMessageContaining("Update balances first");
     }
 
     @Test

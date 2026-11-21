@@ -215,6 +215,60 @@ class BalanceSheetIT {
     }
 
     @Test
+    @DisplayName("«Сделать основной»: у прежней основной обновлений нет — её остаток все записи с нуля, как у движка; "
+            + "«Свободно» прежнее")
+    void makeDefault_oldMainWithoutUpdate_keepsRecords() throws Exception {
+        String main = mainCard();
+        String salary = json(mvc.perform(post("/api/v1/categories").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Проба дохода листа\",\"type\":\"INCOME\"}"))
+                .andExpect(status().is2xxSuccessful())).get("id").asText();
+        mvc.perform(post("/api/v1/events/facts").header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"date":"%s","categoryId":"%s","type":"INCOME","factAmount":10000,
+                                 "priority":"MEDIUM","description":"доход"}""".formatted(today.minusDays(3), salary)))
+                .andExpect(status().is2xxSuccessful());
+        String wallet = create("""
+                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+        anchor(wallet, today.minusDays(2), "5000");
+        BigDecimal before = pocket();
+
+        mvc.perform(patch("/api/v1/accounts/{id}/default", wallet)).andExpect(status().isOk());
+
+        assertThat(pocket()).isEqualByComparingTo(before);
+        assertThat(checkpointOn(main, today)).isEqualByComparingTo("10000");
+    }
+
+    @Test
+    @DisplayName("«Сделать основной» при брони с прошедшей датой — 400: обновление сегодня отпустило бы её, "
+            + "«Свободно» выросло бы. После «Обновить остатки» смена проходит, «Свободно» прежнее")
+    void makeDefault_heldOverdueBooking_rejectedUntilBalancesUpdated() throws Exception {
+        String main = mainCard();
+        anchor(null, today.minusDays(10), "60000");
+        mvc.perform(post("/api/v1/events").header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"date":"%s","categoryId":"%s","type":"EXPENSE","plannedAmount":8000,
+                                 "priority":"HIGH","description":"Аренда"}""".formatted(today.minusDays(3), category())))
+                .andExpect(status().is2xxSuccessful());
+        String wallet = create("""
+                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+        anchor(wallet, today.minusDays(2), "5000");
+        BigDecimal before = pocket();
+
+        mvc.perform(patch("/api/v1/accounts/{id}/default", wallet)).andExpect(status().isBadRequest());
+
+        assertThat(mainCard()).isEqualTo(main);
+        assertThat(checkpoints(main)).containsExactly("60000.00");
+        assertThat(checkpoints(wallet)).containsExactly("5000.00");
+        assertThat(pocket()).isEqualByComparingTo(before);
+
+        batch("batch", main, "52000", wallet, "5000").andExpect(status().isOk());
+        BigDecimal updated = pocket();
+        mvc.perform(patch("/api/v1/accounts/{id}/default", wallet)).andExpect(status().isOk());
+        assertThat(mainCard()).isEqualTo(wallet);
+        assertThat(pocket()).isEqualByComparingTo(updated);
+    }
+
+    @Test
     @DisplayName("«Сделать основной» у карты без обновления — 400: основная прежняя, обновлений не прибавилось")
     void makeDefault_cardWithoutUpdate_rejected() throws Exception {
         String main = mainCard();

@@ -52,6 +52,8 @@ public class AccountService {
     private final AccountBalanceService accountBalanceService;
     /** Первое обновление при заведении и обновления при смене основной (срез 4, пп. 4, 12). */
     private final BalanceCheckpointService checkpointService;
+    /** «Свободно» до и после смены основной (срез 4, п. 12). */
+    private final PocketService pocketService;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
 
@@ -146,6 +148,11 @@ public class AccountService {
      * флаг — записи после последнего обновления прежней основной ушли бы с неё на новую. Поэтому в той же транзакции
      * обе карты получают обновление на сегодня — свои нынешние остатки, посчитанные до перестановки, — и только потом
      * флаг. У новой основной обновление обязано быть: иначе записи пошли бы на остаток, которого никто не вводил.
+     *
+     * <p>Обновлений «сегодня» мало: брони с прошедшей датой держатся с даты обновления основной, и обновление сегодня
+     * их отпустило бы, хотя из банка ничего не вводили. Поэтому обещание проверяется тем же расчётом: «Свободно» до
+     * смены и после, в одной транзакции; разошлось — смена отменяется, 400 «Сначала обнови остатки» (решение владельца
+     * 21.11, вариант Б). После настоящего обновления листом смена проходит.
      */
     @Transactional
     public AccountDto makeDefault(UUID id) {
@@ -158,21 +165,33 @@ public class AccountService {
         BalanceCheckpoint targetAnchor = accountBalanceService.anchorAt(target, today).orElseThrow(() -> badRequest(
                 "Update this card's balance first: records would land on a balance nobody entered"));
         BigDecimal targetBalance = accountBalanceService.balanceAt(target, today, targetAnchor);
-        accountRepository.findByDefaultAccountTrueAndDeletedFalse().ifPresent(old -> {
-            // Без обновления у прежней основной остаток — все записи с нуля, как у движка (ANO-28).
-            BigDecimal oldBalance = accountBalanceService.anchorAt(old, today).isPresent()
-                    ? accountBalanceService.balanceAt(old, today)
-                    : accountBalanceService.noAnchorFallbackAt(today);
-            if (oldBalance.signum() < 0) {
-                throw badRequest("Update balances first: the main card is below zero by records");
-            }
-            checkpointService.create(new BalanceCheckpointCreateDto(today, oldBalance, old.getId()));
-            old.setDefaultAccount(false);
-            accountRepository.saveAndFlush(old);
+        Optional<Account> old = accountRepository.findByDefaultAccountTrueAndDeletedFalse();
+        // Без обновления у прежней основной остаток — все записи с нуля, как у движка (ANO-28).
+        BigDecimal oldBalance = old.map(o -> accountBalanceService.anchorAt(o, today).isPresent()
+                ? accountBalanceService.balanceAt(o, today)
+                : accountBalanceService.noAnchorFallbackAt(today)).orElse(null);
+        if (oldBalance != null && oldBalance.signum() < 0) {
+            throw badRequest("Update balances first: the main card is below zero by records");
+        }
+        BigDecimal freeBefore = free(today);
+        old.ifPresent(o -> {
+            checkpointService.create(new BalanceCheckpointCreateDto(today, oldBalance, o.getId()));
+            o.setDefaultAccount(false);
+            accountRepository.saveAndFlush(o);
         });
         checkpointService.create(new BalanceCheckpointCreateDto(today, targetBalance, target.getId()));
         target.setDefaultAccount(true);
-        return toDto(accountRepository.save(target), today);
+        Account saved = accountRepository.save(target);
+        accountRepository.flush();
+        if (free(today).compareTo(freeBefore) != 0) {
+            throw badRequest("Update balances first: switching the main card would change free money");
+        }
+        return toDto(saved, today);
+    }
+
+    /** «Свободно» — то же число, что {@code GET /pocket}. */
+    private BigDecimal free(LocalDate today) {
+        return pocketService.getPocket(null, today).pocket();
     }
 
     /**
