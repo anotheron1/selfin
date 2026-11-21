@@ -141,20 +141,38 @@ public class AccountService {
      * сбрасывается в базу ({@code saveAndFlush}), и только потом ставится новому: частичный
      * уникальный индекс {@code uq_accounts_single_default} отвергает промежуточное состояние
      * с двумя дефолтными, а порядок записи внутри одной транзакции JPA сама не гарантирует.
+     *
+     * <p><b>«Свободно» не сдвигается (срез 4, п. 12).</b> Записи без карты идут только на основную: переставь один
+     * флаг — записи после последнего обновления прежней основной ушли бы с неё на новую. Поэтому в той же транзакции
+     * обе карты получают обновление на сегодня — свои нынешние остатки, посчитанные до перестановки, — и только потом
+     * флаг. У новой основной обновление обязано быть: иначе записи пошли бы на остаток, которого никто не вводил.
      */
     @Transactional
     public AccountDto makeDefault(UUID id) {
         Account target = activeById(id);
         requireEligibleAsDefault(target);
+        LocalDate today = LocalDate.now(clock);
         if (target.isDefaultAccount()) {
-            return toDto(target, LocalDate.now(clock));
+            return toDto(target, today);
         }
+        BalanceCheckpoint targetAnchor = accountBalanceService.anchorAt(target, today).orElseThrow(() -> badRequest(
+                "Update this card's balance first: records would land on a balance nobody entered"));
+        BigDecimal targetBalance = accountBalanceService.balanceAt(target, today, targetAnchor);
         accountRepository.findByDefaultAccountTrueAndDeletedFalse().ifPresent(old -> {
+            // Без обновления у прежней основной остаток — все записи с нуля, как у движка (ANO-28).
+            BigDecimal oldBalance = accountBalanceService.anchorAt(old, today).isPresent()
+                    ? accountBalanceService.balanceAt(old, today)
+                    : accountBalanceService.noAnchorFallbackAt(today);
+            if (oldBalance.signum() < 0) {
+                throw badRequest("Update balances first: the main card is below zero by records");
+            }
+            checkpointService.create(new BalanceCheckpointCreateDto(today, oldBalance, old.getId()));
             old.setDefaultAccount(false);
             accountRepository.saveAndFlush(old);
         });
+        checkpointService.create(new BalanceCheckpointCreateDto(today, targetBalance, target.getId()));
         target.setDefaultAccount(true);
-        return toDto(accountRepository.save(target), LocalDate.now(clock));
+        return toDto(accountRepository.save(target), today);
     }
 
     /**

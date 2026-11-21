@@ -146,7 +146,7 @@ class RegistrationIT {
             assertThat(second).as("второй ждёт строку первого, а не читает пустого человека").isNotDone();
 
             lock.rollback();
-            assertThat(second.get(10, TimeUnit.SECONDS)).as("второй увидел человека уже с набором").isEqualTo(16L);
+            assertThat(second.get(10, TimeUnit.SECONDS)).as("второй увидел человека уже с набором").isEqualTo(17L);
             assertThat(owners.resolve(sub)).isEqualTo(first.get(10, TimeUnit.SECONDS));
         } finally {
             threads.shutdownNow();

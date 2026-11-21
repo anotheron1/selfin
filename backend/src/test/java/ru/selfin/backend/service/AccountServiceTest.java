@@ -352,7 +352,9 @@ class AccountServiceTest {
         when(accountRepo.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.of(oldDefault));
         when(accountRepo.saveAndFlush(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
         savePassesThrough();
-        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+        // Обновление у новой основной обязано быть (срез 4, п. 12).
+        when(checkpointRepo.findLatestForAccountAt(any(), any()))
+                .thenAnswer(inv -> Optional.of(checkpoint(target, LocalDate.now().minusDays(1), "5000")));
 
         AccountDto out = service.makeDefault(target.getId());
 
@@ -363,6 +365,65 @@ class AccountServiceTest {
         InOrder order = inOrder(accountRepo);
         order.verify(accountRepo).saveAndFlush(oldDefault);
         order.verify(accountRepo).save(target);
+    }
+
+    @Test
+    @DisplayName("срез 4, п. 12: смена основной пишет обеим картам обновление на сегодня — остатки до перестановки")
+    void makeDefault_writesTodayUpdateToBothCards() {
+        Account oldDefault = AccountFixtures.defaultAccount();
+        Account target = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        LocalDate today = LocalDate.now();
+        when(accountRepo.findById(target.getId())).thenReturn(Optional.of(target));
+        when(accountRepo.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.of(oldDefault));
+        when(accountRepo.saveAndFlush(any(Account.class))).thenAnswer(inv -> inv.getArgument(0));
+        savePassesThrough();
+        when(checkpointRepo.findLatestForAccountAt(target.getId(), today))
+                .thenReturn(Optional.of(checkpoint(target, today.minusDays(2), "5000")));
+        when(checkpointRepo.findLatestForAccountAt(oldDefault.getId(), today))
+                .thenReturn(Optional.of(checkpoint(oldDefault, today.minusDays(10), "60000")));
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(expenseFact(today.minusDays(5), category("Продукты"), "1500")));
+
+        service.makeDefault(target.getId());
+
+        verify(checkpointService).create(new ru.selfin.backend.dto.BalanceCheckpointCreateDto(
+                today, new BigDecimal("58500"), oldDefault.getId()));
+        verify(checkpointService).create(new ru.selfin.backend.dto.BalanceCheckpointCreateDto(
+                today, new BigDecimal("5000"), target.getId()));
+    }
+
+    @Test
+    @DisplayName("срез 4, п. 12: у прежней основной по записям меньше нуля — 400: такое обновление не записать")
+    void makeDefault_oldMainBelowZero_rejected() {
+        Account oldDefault = AccountFixtures.defaultAccount();
+        Account target = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        LocalDate today = LocalDate.now();
+        when(accountRepo.findById(target.getId())).thenReturn(Optional.of(target));
+        when(accountRepo.findByDefaultAccountTrueAndDeletedFalse()).thenReturn(Optional.of(oldDefault));
+        when(checkpointRepo.findLatestForAccountAt(target.getId(), today))
+                .thenReturn(Optional.of(checkpoint(target, today.minusDays(2), "5000")));
+        when(checkpointRepo.findLatestForAccountAt(oldDefault.getId(), today))
+                .thenReturn(Optional.of(checkpoint(oldDefault, today.minusDays(10), "1000")));
+        when(eventRepo.findAllByDeletedFalseAndDateBetween(any(), any()))
+                .thenReturn(List.of(expenseFact(today.minusDays(5), category("Продукты"), "1500")));
+
+        assertThatThrownBy(() -> service.makeDefault(target.getId()))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        verify(accountRepo, never()).saveAndFlush(any());
+        verify(checkpointService, never()).create(any());
+    }
+
+    @Test
+    @DisplayName("срез 4, п. 12: у карты без обновления — 400, флаг не трогается")
+    void makeDefault_cardWithoutUpdate_rejected() {
+        Account target = AccountFixtures.account(AccountKind.DEBIT, true).build();
+        when(accountRepo.findById(target.getId())).thenReturn(Optional.of(target));
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.makeDefault(target.getId()))
+                .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
+        verify(accountRepo, never()).saveAndFlush(any());
+        verify(checkpointService, never()).create(any());
     }
 
     @Test

@@ -189,7 +189,52 @@ class BalanceSheetIT {
         assertThat(checkpoints(deposit)).containsExactly("100000.00");
     }
 
+    // ── «Сделать основной» (п. 12) ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("«Сделать основной»: запись после обновления прежней основной — «Свободно» прежнее; обеим картам "
+            + "обновление сегодня их нынешним остатком; следующая запись идёт на новую основную")
+    void makeDefault_keepsFree() throws Exception {
+        String main = mainCard();
+        anchor(null, today.minusDays(10), "60000");
+        fact(today.minusDays(5), "1500");
+        String wallet = create("""
+                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+        anchor(wallet, today.minusDays(2), "5000");
+        BigDecimal before = pocket();
+
+        mvc.perform(patch("/api/v1/accounts/{id}/default", wallet)).andExpect(status().isOk());
+
+        assertThat(mainCard()).isEqualTo(wallet);
+        assertThat(pocket()).as("запись 1 500 осталась на прежней основной").isEqualByComparingTo(before);
+        assertThat(checkpointOn(main, today)).isEqualByComparingTo("58500");
+        assertThat(checkpointOn(wallet, today)).isEqualByComparingTo("5000");
+
+        fact(today, "700");
+        assertThat(pocket()).isEqualByComparingTo(before.subtract(new BigDecimal("700")));
+    }
+
+    @Test
+    @DisplayName("«Сделать основной» у карты без обновления — 400: основная прежняя, обновлений не прибавилось")
+    void makeDefault_cardWithoutUpdate_rejected() throws Exception {
+        String main = mainCard();
+        anchor(null, today.minusDays(1), "60000");
+        String wallet = create("""
+                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+
+        mvc.perform(patch("/api/v1/accounts/{id}/default", wallet)).andExpect(status().isBadRequest());
+
+        assertThat(mainCard()).isEqualTo(main);
+        assertThat(checkpoints(main)).containsExactly("60000.00");
+        assertThat(checkpoints(wallet)).isEmpty();
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
+
+    private BigDecimal checkpointOn(String account, LocalDate date) {
+        return jdbc.queryForObject("SELECT amount FROM balance_checkpoints WHERE account_id = ?::uuid AND date = ?",
+                BigDecimal.class, account, date);
+    }
 
     private ResultActions batch(String path, String first, String firstAmount, String second, String secondAmount)
             throws Exception {
