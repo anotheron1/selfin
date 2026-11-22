@@ -49,8 +49,8 @@ import static org.mockito.Mockito.when;
  *
  * <p>Два режима копилки. Без {@code accountId} — виртуальный конверт, как раньше: своё поле
  * {@code currentBalance}, пополняется переводом. С {@code accountId} — цель и дата поверх
- * чужого остатка: собственный баланс перестаёт быть источником правды, а перевод запрещён.
- * Иначе два числа за одни деньги неизбежно разъедутся.
+ * чужого остатка: собственный баланс перестаёт быть источником правды, а перевод уводит деньги
+ * с основной на этот счёт (срез 4, п. 6). Иначе два числа за одни деньги неизбежно разъедутся.
  */
 @ExtendWith(MockitoExtension.class)
 class TargetFundAccountTest {
@@ -71,7 +71,7 @@ class TargetFundAccountTest {
     @BeforeEach
     void setUp() {
         AccountBalanceService balanceService =
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo);
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo, linkRepo);
         service = new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryService(),
                 accountRepo, balanceService, mock(WishlistArtifactService.class),
                 mock(CreditPaymentService.class), pocketService, Clock.systemDefaultZone());
@@ -160,7 +160,7 @@ class TargetFundAccountTest {
     private TargetFundService serviceOn(LocalDate today) {
         ZoneId zone = ZoneId.systemDefault();
         return new TargetFundService(fundRepo, txRepo, linkRepo, eventRepo, categoryService(), accountRepo,
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo),
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, txRepo, org.mockito.Mockito.mock(ru.selfin.backend.repository.FundAccountLinkRepository.class)),
                 mock(WishlistArtifactService.class), mock(CreditPaymentService.class), pocketService,
                 Clock.fixed(today.atStartOfDay(zone).toInstant(), zone));
     }
@@ -237,12 +237,17 @@ class TargetFundAccountTest {
     }
 
     @Test
-    @DisplayName("§3.3: перевод в копилку на счёте — 400: деньги двигаются на самом счёте")
-    void transferToAccountBackedFund_rejected() {
-        TargetFund f = fund(UUID.randomUUID(), "0");
+    @DisplayName("срез 4 п. 6: перевод в копилку на счёте без обновления — 400: деньги ушли бы с карты в никуда")
+    void transferToFundOnNeverUpdatedAccount_rejected() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        TargetFund f = fund(deposit.getId(), "0");
         UUID key = UUID.randomUUID();
         when(txRepo.findByIdempotencyKey(key)).thenReturn(Optional.empty());
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        // Копилка на вкладе с сегодняшнего дня — отказ именно за счёт без обновления, а не за день перевода.
+        when(linkRepo.findAll()).thenReturn(List.of(ru.selfin.backend.model.FundAccountLink.builder()
+                .fundId(f.getId()).accountId(deposit.getId()).linkedFrom(LocalDate.now()).build()));
 
         assertThatThrownBy(() -> service.transferToPocket(f.getId(), key, new BigDecimal("5000")))
                 .isInstanceOf(ResponseStatusException.class)
@@ -268,6 +273,7 @@ class TargetFundAccountTest {
         // AccountBalanceService нет ни счетов, ни фактов — оснований судить об остатке нет,
         // а значит нет и мнения. До ANO-157 перевод упирался в предупреждение из пустоты, и
         // тест обходил его через confirm=true: костыль в тесте вместо починки в продукте.
+        when(txRepo.sumEnvelopeMovesByFundId(f.getId())).thenReturn(new BigDecimal("6000"));
         service.transferToPocket(f.getId(), key, new BigDecimal("5000"));
 
         assertThat(f.getCurrentBalance()).isEqualByComparingTo("6000");
@@ -340,7 +346,7 @@ class TargetFundAccountTest {
         TargetFund f = fund(deposit.getId(), "0");
 
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
-        when(txRepo.sumLiveByFundId(f.getId())).thenReturn(new BigDecimal("20000"));
+        when(txRepo.sumEnvelopeMovesByFundId(f.getId())).thenReturn(new BigDecimal("20000"));
         when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
 
         TargetFundDto out = service.update(f.getId(), new TargetFundCreateDto("На квартиру",
@@ -363,7 +369,7 @@ class TargetFundAccountTest {
         TargetFund f = fund(deposit.getId(), "0");
 
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
-        when(txRepo.sumLiveByFundId(f.getId())).thenReturn(BigDecimal.ZERO);
+        when(txRepo.sumEnvelopeMovesByFundId(f.getId())).thenReturn(BigDecimal.ZERO);
         when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.update(f.getId(), new TargetFundCreateDto("На квартиру",
@@ -382,7 +388,7 @@ class TargetFundAccountTest {
         f.setStatus(FundStatus.REACHED);
 
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
-        when(txRepo.sumLiveByFundId(f.getId())).thenReturn(new BigDecimal("20000"));
+        when(txRepo.sumEnvelopeMovesByFundId(f.getId())).thenReturn(new BigDecimal("20000"));
         when(fundRepo.save(any(TargetFund.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.update(f.getId(), new TargetFundCreateDto("На квартиру",
@@ -408,7 +414,7 @@ class TargetFundAccountTest {
                 new BigDecimal("1000000"), null, null, null, null, null, deposit.getId()));
 
         assertThat(f.getCurrentBalance()).isEqualByComparingTo("7000");
-        verify(txRepo, never()).sumLiveByFundId(any());
+        verify(txRepo, never()).sumEnvelopeMovesByFundId(any());
     }
 
     @Test
@@ -426,7 +432,7 @@ class TargetFundAccountTest {
                 new BigDecimal("1000000"), null, null, null, null, null, null));
 
         assertThat(f.getCurrentBalance()).isEqualByComparingTo("7000");
-        verify(txRepo, never()).sumLiveByFundId(any());
+        verify(txRepo, never()).sumEnvelopeMovesByFundId(any());
     }
 
     @Test
@@ -453,6 +459,7 @@ class TargetFundAccountTest {
         Account defaultAccount = AccountFixtures.defaultAccount();
         when(txRepo.findByIdempotencyKey(key)).thenReturn(Optional.empty());
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        when(txRepo.sumEnvelopeMovesByFundId(f.getId())).thenReturn(new BigDecimal("5000"));
         when(accountRepo.findAllByDeletedFalseOrderBySortOrderAscNameAsc())
                 .thenReturn(List.of(defaultAccount));
         when(checkpointRepo.findLatestForAccountAt(any(), any()))

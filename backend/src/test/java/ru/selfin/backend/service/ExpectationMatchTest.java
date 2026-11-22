@@ -37,7 +37,16 @@ class ExpectationMatchTest {
     }
 
     static Optional<FinancialEvent> pick(List<FinancialEvent> rows, Map<UUID, BigDecimal> settled, Priority priority) {
-        return ExpectationMatch.pick(REC, PRODUCTS.getId(), EventType.EXPENSE, priority, rows, settled);
+        return ExpectationMatch.pick(REC, PRODUCTS.getId(), EventType.EXPENSE, priority, false, rows, settled);
+    }
+
+    @Test
+    @DisplayName("срез 4 п. 1: запись «в кредит» к строке своей недели не встаёт")
+    void onCredit_skipsExpectation() {
+        FinancialEvent own = row(REC.minusDays(1));
+        assertThat(pick(List.of(own))).as("без отметки встаёт").contains(own);
+        assertThat(ExpectationMatch.pick(REC, PRODUCTS.getId(), EventType.EXPENSE, Priority.MEDIUM, true,
+                List.of(own), Map.of())).isEmpty();
     }
 
     @Test
@@ -81,9 +90,9 @@ class ExpectationMatchTest {
     void oneOffAtMonthEnd_collectsEarlierRecords() {
         FinancialEvent oneOff = row(LocalDate.of(2026, 11, 30));
         assertThat(ExpectationMatch.pick(LocalDate.of(2026, 11, 2), PRODUCTS.getId(), EventType.EXPENSE,
-                Priority.MEDIUM, List.of(oneOff), Map.of())).contains(oneOff);
+                Priority.MEDIUM, false, List.of(oneOff), Map.of())).contains(oneOff);
         assertThat(ExpectationMatch.pick(LocalDate.of(2026, 11, 30), PRODUCTS.getId(), EventType.EXPENSE,
-                Priority.MEDIUM, List.of(oneOff), Map.of())).contains(oneOff);
+                Priority.MEDIUM, false, List.of(oneOff), Map.of())).contains(oneOff);
     }
 
     @Test
@@ -139,6 +148,6 @@ class ExpectationMatchTest {
         FinancialEvent income = row(REC);
         income.setType(EventType.INCOME);
         assertThat(ExpectationMatch.pick(REC, PRODUCTS.getId(), EventType.INCOME, Priority.MEDIUM,
-                List.of(row(REC), income), Map.of())).contains(income);
+                false, List.of(row(REC), income), Map.of())).contains(income);
     }
 }

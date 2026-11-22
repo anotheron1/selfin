@@ -19,6 +19,9 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
     /** Живые движения одной копилки — темп на «Целях» (Р9) ищет в них первый день пополнений. */
     List<FundTransaction> findByFundIdAndDeletedFalse(UUID fundId);
 
+    /** Было ли у копилки живое движение в этот день — смену её счёта такой день не пускает (срез 4, п. 6). */
+    boolean existsByFund_IdAndDeletedFalseAndTransactionDate(UUID fundId, LocalDate date);
+
     /**
      * Суммарный баланс копилок-конвертов на дату {@code date} — сколько денег основной карты уже
      * отложено (Р10-А, ANO-212; {@code AccountBalanceService.envelopesAt}). Ядро вычитает его из
@@ -51,6 +54,11 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
      * — он снова сломает историю; если удалённая копилка вдруг снова начнёт вычитаться из
      * свободных, причину искать в отсутствующей компенсации, а не здесь.
      */
+    /*
+     * Срез 4, п. 6 (ANO-262): движение, сделанное в день, когда копилка лежала на счёте, — деньги, ушедшие с карты на
+     * тот счёт. Отложенными на карте их нет ни тогда, ни после отвязки: иначе отвязанная копилка держала бы деньги,
+     * которых на карте нет (ANO-163). Поэтому второе условие — по дню движения.
+     */
     @Query("""
             SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
             WHERE t.deleted = false
@@ -60,18 +68,25 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
                     WHERE l.fundId = t.fund.id
                       AND l.linkedFrom <= :date
                       AND (l.linkedTo IS NULL OR l.linkedTo > :date))
+              AND NOT EXISTS (
+                    SELECT 1 FROM FundAccountLink l
+                    WHERE l.fundId = t.fund.id
+                      AND l.linkedFrom <= t.transactionDate
+                      AND (l.linkedTo IS NULL OR l.linkedTo > t.transactionDate))
             """)
     BigDecimal sumEnvelopeFundsByTransactionDateLessThanEqual(@Param("date") LocalDate date);
 
     /**
-     * Сумма живых движений ОДНОЙ копилки (ANO-156, найдено ревью PR #42).
+     * Сколько ОДНА копилка держит конвертом: живые движения, сделанные не на счёте (ANO-156, найдено ревью PR #42;
+     * срез 4, п. 6).
      *
      * <p>Выбытие копилки обязано обнулить именно эту сумму: её складывает
      * {@link #sumEnvelopeFundsByTransactionDateLessThanEqual}, и с ANO-156 фильтра по
-     * удалённости там нет — любой остаток виден в капитале навсегда, за каждую дату.
+     * удалённости там нет — любой остаток виден в капитале навсегда, за каждую дату. Отвязка от счёта
+     * возвращает копилке её же (ANO-158): переводы, сделанные на счёт, остались на счёте.
      *
      * <p><b>Поле {@code current_balance} для этого не годится.</b> Оно может разойтись с
-     * движениями: {@code TargetFundService.update} при отвязке копилки от счёта переносит в
+     * движениями: {@code TargetFundService.update} при отвязке копилки от счёта переносил в
      * поле остаток СЧЁТА, не создавая движения. Компенсация по полю оставляла разницу —
      * замерено на живой базе: −460 000 вместо нуля.
      */
@@ -79,6 +94,11 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
             SELECT COALESCE(SUM(t.amount), 0) FROM FundTransaction t
             WHERE t.fund.id = :fundId
               AND t.deleted = false
+              AND NOT EXISTS (
+                    SELECT 1 FROM FundAccountLink l
+                    WHERE l.fundId = t.fund.id
+                      AND l.linkedFrom <= t.transactionDate
+                      AND (l.linkedTo IS NULL OR l.linkedTo > t.transactionDate))
             """)
-    BigDecimal sumLiveByFundId(@Param("fundId") UUID fundId);
+    BigDecimal sumEnvelopeMovesByFundId(@Param("fundId") UUID fundId);
 }

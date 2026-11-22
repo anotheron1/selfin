@@ -61,7 +61,7 @@ class CapitalServiceLiquidTest {
     @BeforeEach
     void setUp() {
         AccountBalanceService accountBalanceService =
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo);
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo, org.mockito.Mockito.mock(ru.selfin.backend.repository.FundAccountLinkRepository.class));
         service = new CapitalService(itemRepo, revRepo, checkpointRepo,
                 accountBalanceService, Clock.systemDefaultZone());
     }

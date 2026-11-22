@@ -153,13 +153,29 @@ class AnchorWindowTest {
     @DisplayName("Р10-А: доход двигает остаток вверх, расход вниз, перевод в копилку — никак")
     void balanceEffect_transferToEnvelopeLeavesBalance() {
         BigDecimal amount = new BigDecimal("10000");
-        assertThat(AnchorWindow.balanceEffect(EventType.INCOME, amount)).isEqualByComparingTo("10000");
-        assertThat(AnchorWindow.balanceEffect(EventType.EXPENSE, amount)).isEqualByComparingTo("-10000");
-        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, amount))
+        assertThat(AnchorWindow.balanceEffect(EventType.INCOME, amount, false, false)).isEqualByComparingTo("10000");
+        assertThat(AnchorWindow.balanceEffect(EventType.EXPENSE, amount, false, false)).isEqualByComparingTo("-10000");
+        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, amount, false, false))
                 .as("копилка без счёта — доля основной карты: деньги с карты не уходят (ANO-212)")
                 .isEqualByComparingTo("0");
-        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, amount.negate()))
+        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, amount.negate(), false, false))
                 .as("снятие из копилки — тоже: деньги и не уходили")
                 .isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("срез 4 п. 1: расход «в кредит» остаток основной не двигает — деньги не с карты")
+    void balanceEffect_onCreditExpenseLeavesBalance() {
+        assertThat(AnchorWindow.balanceEffect(EventType.EXPENSE, new BigDecimal("30000"), true, false))
+                .isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("срез 4 п. 6: перевод в копилку на своём счёте уменьшает основную, снятие — увеличивает")
+    void balanceEffect_transferToFundOnAccountMovesMoneyOffCard() {
+        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, new BigDecimal("8000"), false, true))
+                .as("деньги ушли с карты на счёт копилки").isEqualByComparingTo("-8000");
+        assertThat(AnchorWindow.balanceEffect(EventType.FUND_TRANSFER, new BigDecimal("-3000"), false, true))
+                .as("снятие — зеркально: со счёта копилки на карту").isEqualByComparingTo("3000");
     }
 }

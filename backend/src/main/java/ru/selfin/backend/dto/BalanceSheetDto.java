@@ -14,18 +14,29 @@ import java.util.UUID;
  * Лист «Обновить остатки» (срез 4, п. 3; доска `S4-U1`): карты, у которых есть остаток, — основная, вторая
  * «на всё», накопительные, кредитки, в этом порядке. Карт для трат в листе нет: остатка у них нет.
  *
- * @param cards карты листа
+ * @param cards    карты листа
+ * @param onCredit «с 12 нояб. в кредит записано 4 500 ₽» под кредитками (срез 4, п. 2; решения 57, 60): одна сумма на
+ *                 все кредитки — у записи нет карты (решение 18). {@code null} — кредитки с обновлением нет
  */
-public record BalanceSheetDto(List<Card> cards) {
+public record BalanceSheetDto(List<Card> cards, OnCredit onCredit) {
+
+    /**
+     * @param since  дата самого старого из последних обновлений кредиток
+     * @param amount записи «в кредит» с этого обновления; граница — {@code AnchorWindow}, как у остатка
+     */
+    public record OnCredit(LocalDate since, BigDecimal amount) {}
 
     /**
      * @param byRecords «по записям» на сегодня — правило {@code AccountBalanceService.balanceAt}: у основной
-     *                  обновление плюс записи, у прочих — обновление. У кредитки — доступное. {@code null} — карту
+     *                  обновление плюс записи, у прочих — обновление плюс переводы в их копилки после него. У кредитки — доступное. {@code null} — карту
      *                  ещё не обновляли («первое обновление»)
      * @param updatedOn дата последнего обновления; {@code null} — обновлений нет
+     * @param transfersSinceUpdate переводы в копилку этой карты после обновления (срез 4, п. 6), ноль — копилки или переводов нет:
+     *                  «по записям» — обновление плюс они, и разница с банком — рост сверх переводов, «обычно это
+     *                  проценты». {@code null} у основной, у кредитки и у карты без обновления
      */
     public record Card(UUID accountId, String name, AccountKind kind, boolean isDefault,
-                       BigDecimal byRecords, LocalDate updatedOn) {}
+                       BigDecimal byRecords, LocalDate updatedOn, BigDecimal transfersSinceUpdate) {}
 
     /**
      * Введённые числа листа — одним пакетом, обновлением на сегодня. Пустое поле ({@code amount == null})

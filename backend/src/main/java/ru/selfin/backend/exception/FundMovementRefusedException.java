@@ -20,8 +20,6 @@ public class FundMovementRefusedException extends RuntimeException {
     /** Баланс копилки ушёл бы в минус: из неё уже взяли часть этих денег (арифметика ANO-87). */
     public static final String HOLDS_LESS = "FUND_HOLDS_LESS";
 
-    /** Копилка лежит на счёте: её деньги двигаются на самом счёте (§3.3, ANO-158). */
-    public static final String ON_ACCOUNT = "FUND_ON_ACCOUNT";
 
     /** Копилка удалена: её переводы закрыты вместе с ней и остаются историей. */
     public static final String CLOSED = "FUND_CLOSED";
@@ -39,12 +37,6 @@ public class FundMovementRefusedException extends RuntimeException {
         return new FundMovementRefusedException(HOLDS_LESS,
                 "Fund '" + fundName + "' holds only " + holds.toPlainString(),
                 List.of("fund:" + fundName, "holds:" + holds.toPlainString()));
-    }
-
-    public static FundMovementRefusedException onAccount(String fundName) {
-        return new FundMovementRefusedException(ON_ACCOUNT,
-                "Fund '" + fundName + "' lives on an account: move the money on the account itself",
-                List.of("fund:" + fundName));
     }
 
     public static FundMovementRefusedException closed(String fundName) {

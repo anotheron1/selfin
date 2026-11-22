@@ -20,6 +20,7 @@ import java.util.UUID;
  * @param categoryId категория записи — живая и того же типа; у записи к брони и у перевода в копилку
  *                   не меняется; {@code null} — без изменений
  * @param priority   вид записи; {@code null} — без изменений
+ * @param onCredit   «в кредит» (срез 4, п. 1): только у расхода без брони; {@code null} — без изменений
  */
 public record FinancialEventUpdateFactDto(
         @PositiveOrZero BigDecimal factAmount,
@@ -27,5 +28,12 @@ public record FinancialEventUpdateFactDto(
         String rawInput,
         LocalDate date,
         UUID categoryId,
-        Priority priority) {
+        Priority priority,
+        Boolean onCredit) {
+
+    /** Без правки отметки «в кредит». */
+    public FinancialEventUpdateFactDto(BigDecimal factAmount, String description, String rawInput, LocalDate date,
+                                       UUID categoryId, Priority priority) {
+        this(factAmount, description, rawInput, date, categoryId, priority, null);
+    }
 }

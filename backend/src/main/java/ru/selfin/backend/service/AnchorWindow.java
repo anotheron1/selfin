@@ -94,12 +94,21 @@ public final class AnchorWindow {
      * сверка числом банка возвращала эти деньги на карту, а копилка держала их же: капитал рос на
      * сумму копилки, дрейф показывал расхождение, которого нет. Свободные копилки теперь вычитает
      * строка ядра «Уже в копилках», а не остаток.
+     *
+     * <p>Срез 4, п. 1 (ANO-261): расход «в кредит» остаток не двигает — деньги ушли с кредитки, а не с карты; долг
+     * виден обновлением кредитки. Срез 4, п. 6 (ANO-262): перевод в копилку, которая в день записи лежала на своём
+     * счёте, — деньги ушли с карты на тот счёт; снятие — обратно. Остаток счёта копилки берёт те же переводы
+     * ({@link AccountBalanceService#balanceAt}), и капитал не меняется.
+     *
+     * @param onCredit       отметка «в кредит» у записи
+     * @param toFundOnAccount перевод в копилку, лежавшую в день записи на своём счёте ({@link FundLinks#leavesCard})
      */
-    public static BigDecimal balanceEffect(EventType type, BigDecimal amount) {
+    public static BigDecimal balanceEffect(EventType type, BigDecimal amount, boolean onCredit,
+                                           boolean toFundOnAccount) {
         return switch (type) {
             case INCOME -> amount;
-            case EXPENSE -> amount.negate();
-            case FUND_TRANSFER -> BigDecimal.ZERO;
+            case EXPENSE -> onCredit ? BigDecimal.ZERO : amount.negate();
+            case FUND_TRANSFER -> toFundOnAccount ? amount.negate() : BigDecimal.ZERO;
         };
     }
 }

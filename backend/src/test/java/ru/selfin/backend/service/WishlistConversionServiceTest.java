@@ -41,7 +41,7 @@ class WishlistConversionServiceTest {
             new WishlistConversionService(eventRepo, fundRepo,
                     new CreditPaymentService(eventRepo, recurringRuleService,
                             new CategoryService(categoryRepo, eventRepo, mock(AccountService.class), Clock.systemDefaultZone()), Clock.systemDefaultZone()),
-                    new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, mock(FundTransactionRepository.class)),
+                    new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, mock(FundTransactionRepository.class), org.mockito.Mockito.mock(ru.selfin.backend.repository.FundAccountLinkRepository.class)),
                     Clock.systemDefaultZone());
 
     private FinancialEvent openWishlist(UUID id) {

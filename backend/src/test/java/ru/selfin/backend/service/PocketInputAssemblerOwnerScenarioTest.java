@@ -65,7 +65,7 @@ class PocketInputAssemblerOwnerScenarioTest {
         checkpointRepository = mock(BalanceCheckpointRepository.class);
         eventRepository = mock(FinancialEventRepository.class);
         AccountBalanceService accountBalanceService =
-                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class));
+                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class), org.mockito.Mockito.mock(ru.selfin.backend.repository.FundAccountLinkRepository.class));
 
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
         CategoryRepository categoryRepository = mock(CategoryRepository.class);

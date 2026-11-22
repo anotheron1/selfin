@@ -117,6 +117,15 @@ public class FinancialEvent implements FinancialRecord {
     private boolean deleted = false;
 
     /**
+     * Расход «в кредит» (срез 4, п. 1; ANO-261): деньги ушли с кредитки, а не с основной. Запись остаётся в журнале
+     * и аналитике, остаток основной её не вычитает ({@code AnchorWindow.balanceEffect}), к ожиданию она не встаёт
+     * ({@code ExpectationMatch}). Бывает только у расхода без плана.
+     */
+    @Column(name = "on_credit", nullable = false)
+    @Builder.Default
+    private boolean onCredit = false;
+
+    /**
      * Статус item'а в модуле /wishlist. NULL — обычное событие, не хотелка.
      * Не-NULL допустим только при priority=LOW (DB constraint chk_wishlist_status_only_low).
      */
