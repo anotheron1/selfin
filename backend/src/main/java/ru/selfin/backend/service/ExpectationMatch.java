@@ -26,6 +26,8 @@ import java.util.UUID;
  *       не удалённые и не погашенные целиком;</li>
  *   <li>встаёт только запись с характером «Ожидание»: бронь гасит «Оплачено» или «своё», хотелке
  *       в ожидании не место;</li>
+ *   <li>запись «в кредит» не встаёт (срез 4, п. 1): иначе строка погасилась бы деньгами с кредитки, и «Свободно»
+ *       выросло бы на сумму покупки;</li>
  *   <li>сначала — последняя строка с датой не позже записи и не раньше, чем за шесть дней до неё:
  *       строка своей недели;</li>
  *   <li>иначе — ближайшая строка позже записи в том же месяце: разовое ожидание собирает траты до
@@ -45,8 +47,9 @@ public final class ExpectationMatch {
      * @param settled сколько по каждой строке погашено всеми её живыми фактами
      */
     public static Optional<FinancialEvent> pick(LocalDate date, UUID categoryId, EventType type, Priority priority,
-                                                List<FinancialEvent> rows, Map<UUID, BigDecimal> settled) {
-        if (priority != Priority.MEDIUM || date == null) return Optional.empty();
+                                                boolean onCredit, List<FinancialEvent> rows,
+                                                Map<UUID, BigDecimal> settled) {
+        if (priority != Priority.MEDIUM || date == null || onCredit) return Optional.empty();
         List<FinancialEvent> open = rows.stream()
                 .filter(r -> isCandidate(r, categoryId, type, settled))
                 .toList();

@@ -259,11 +259,13 @@ public class FinancialEventService {
                 .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Category", dto.categoryId()));
         requireNotFuture(dto.date());
+        boolean onCredit = Boolean.TRUE.equals(dto.onCredit());
+        requireCreditOnlyForExpense(onCredit, dto.type());
 
         Priority priority = dto.priority() != null ? dto.priority() : category.getPriority();
         // Срез 3 п. 1: трата встаёт к строке ожидания сама и гасит её, как факт к брони, —
         // «Свободно» не меняется: трата уже была в плане.
-        FinancialEvent expectation = expectationFor(dto.date(), category, dto.type(), priority, null)
+        FinancialEvent expectation = expectationFor(dto.date(), category, dto.type(), priority, onCredit, null)
                 .orElse(null);
         FinancialEvent fact = FinancialEvent.builder()
                 .idempotencyKey(idempotencyKey)
@@ -277,11 +279,22 @@ public class FinancialEventService {
                 .status(EventStatus.EXECUTED)
                 .description(dto.description())
                 .rawInput(dto.rawInput())        // ANO-33: «450+1230+890», если сумму ввели выражением
+                .onCredit(onCredit)
                 .build();
 
         FinancialEvent saved = eventRepository.save(fact);
         if (expectation != null) resettlePlan(expectation);
         return toDto(saved, null, expectation);
+    }
+
+    /**
+     * «В кредит» — только у расхода (срез 4, п. 1): доход и перевод с кредитки не приходят. Отказ — до записи.
+     */
+    private static void requireCreditOnlyForExpense(boolean onCredit, EventType type) {
+        if (onCredit && type != EventType.EXPENSE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "onCredit applies to an expense only, not to " + type);
+        }
     }
 
     /**
@@ -292,7 +305,7 @@ public class FinancialEventService {
     public Optional<FactPreviewDto> factPreview(UUID categoryId, LocalDate date, EventType type, Priority priority) {
         Category category = categoryRepository.findById(categoryId).filter(c -> !c.isDeleted()).orElse(null);
         if (category == null) return Optional.empty();
-        return expectationFor(date, category, type, priority, null)
+        return expectationFor(date, category, type, priority, false, null)
                 .map(line -> new FactPreviewDto(line.getId(),
                         line.getDescription() != null && !line.getDescription().isBlank() ? line.getDescription() : category.getName(),
                         line.getDate(), line.getPlannedAmount(),
@@ -308,7 +321,7 @@ public class FinancialEventService {
      *             кандидатов, и запись уходила бы от своей строки при любой правке
      */
     private Optional<FinancialEvent> expectationFor(LocalDate date, Category category, EventType type,
-                                                    Priority priority, FinancialEvent fact) {
+                                                    Priority priority, boolean onCredit, FinancialEvent fact) {
         List<FinancialEvent> rows = eventRepository.findPlanRowsOfCategory(category.getId(), type,
                 date.minusDays(ExpectationMatch.OWN_WEEK_DAYS_BACK), date.withDayOfMonth(date.lengthOfMonth()));
         if (rows.isEmpty()) return Optional.empty();
@@ -317,7 +330,7 @@ public class FinancialEventService {
         if (fact != null && fact.getParentEventId() != null && fact.getFactAmount() != null) {
             settled.computeIfPresent(fact.getParentEventId(), (id, sum) -> sum.subtract(fact.getFactAmount()));
         }
-        return ExpectationMatch.pick(date, category.getId(), type, priority, rows, settled);
+        return ExpectationMatch.pick(date, category.getId(), type, priority, onCredit, rows, settled);
     }
 
     /**
@@ -494,6 +507,11 @@ public class FinancialEventService {
         var recorded = eventRepository.findByIdempotencyKey(idempotencyKey);
         if (recorded.isPresent()) return toDto(recorded.get(), null, plan);
         requireNotFuture(dto.date());
+        // Срез 4, п. 1: запись к плану — уже в плане, «в кредит» у неё не бывает.
+        if (Boolean.TRUE.equals(dto.onCredit())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "onCredit applies to a record without a plan, not to a fact for plan " + planId);
+        }
         boolean closePlan = Boolean.TRUE.equals(dto.closePlan());
         // Срез 3 п. 3: «Больше не нужно» закрывает только бронь — ожидание и так не держится после
         // своей даты, а о хотелке решают на её экране.
@@ -675,18 +693,25 @@ public class FinancialEventService {
         LocalDate date = dto.date() != null ? dto.date() : event.getDate();
         Category category = categoryForFact(event, dto.categoryId(), heldByPlan);
         Priority priority = dto.priority() != null ? dto.priority() : event.getPriority();
+        // Срез 4, п. 1: отметка правится только у расхода без брони — запись к брони уже в плане.
+        boolean onCredit = dto.onCredit() != null ? dto.onCredit() : event.isOnCredit();
+        requireCreditOnlyForExpense(onCredit, event.getType());
+        if (onCredit && heldByPlan) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A record to a booking cannot be on credit");
+        }
         boolean moved = !Objects.equals(date, event.getDate()) || category != event.getCategory()
-                || priority != event.getPriority();
+                || priority != event.getPriority() || onCredit != event.isOnCredit();
         // Правило п. 1 заново — только у правленой записи: старые записи не перепривязываются.
         // Зовётся до смены суммы: собственный вклад записи вычитается из погашения её строки.
         UUID parentId = event.getParentEventId();
         if (moved && !heldByPlan && event.getType() != EventType.FUND_TRANSFER) {
-            parentId = expectationFor(date, category, event.getType(), priority, event)
+            parentId = expectationFor(date, category, event.getType(), priority, onCredit, event)
                     .map(FinancialEvent::getId).orElse(null);
         }
         event.setDate(date);
         event.setCategory(category);
         event.setPriority(priority);
+        event.setOnCredit(onCredit);
         event.setParentEventId(parentId);
 
         BigDecimal oldFact = event.getFactAmount();
@@ -958,7 +983,7 @@ public class FinancialEventService {
                 parentPlan != null ? parentPlan.getPriority() : null,
                 recurringRuleId, recurringFrequency, recurringDayOfMonth, recurringMonthOfYear,
                 recurringStartDate, recurringEndDate,
-                e.getWishlistStatus());
+                e.getWishlistStatus(), e.isOnCredit());
     }
 
     /**

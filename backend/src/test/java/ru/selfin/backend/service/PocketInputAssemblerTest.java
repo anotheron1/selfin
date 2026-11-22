@@ -49,6 +49,7 @@ class PocketInputAssemblerTest {
         fundRepository = mock(TargetFundRepository.class);
         categoryRepository = mock(CategoryRepository.class);
         accountBalanceService = mock(AccountBalanceService.class);
+        when(accountBalanceService.fundLinks()).thenReturn(new FundLinks(List.of(), null));
         UserSettingsService settingsService = mock(UserSettingsService.class);
         predictionService = mock(PredictionService.class);
         RecurringRuleService recurringRuleService = mock(RecurringRuleService.class);

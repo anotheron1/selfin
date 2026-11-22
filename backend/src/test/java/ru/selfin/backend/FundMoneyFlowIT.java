@@ -240,6 +240,9 @@ class FundMoneyFlowIT {
         anchorDefaultAccount("500000");
         String fundId = createFund("Отпуск");
         transfer(fundId, new BigDecimal("20000"), null).andExpect(status().isOk());
+        // Перевод — вчера: в день движения счёт копилки не меняется (срез 4, п. 6, решение владельца 22.11).
+        jdbc.update("UPDATE fund_transactions SET transaction_date = CURRENT_DATE - 1 WHERE fund_id = ?::uuid", fundId);
+        jdbc.update("UPDATE financial_events SET date = CURRENT_DATE - 1 WHERE target_fund_id = ?::uuid", fundId);
 
         String accountId = jdbc.queryForObject(
                 "SELECT id::text FROM accounts WHERE is_default = true AND is_deleted = false",

@@ -50,7 +50,14 @@ class BalanceCheckpointServiceTest {
         accountRepository = mock(AccountRepository.class);
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
         service = new BalanceCheckpointService(repository, eventRepository, accountRepository,
-                Clock.systemDefaultZone(), null, null);
+                Clock.systemDefaultZone(), noLinks(), null);
+    }
+
+    /** Остаток и «Свободно» этим тестам не нужны — только история привязок копилок для дрейфа (срез 4, п. 6). */
+    private static AccountBalanceService noLinks() {
+        AccountBalanceService balances = mock(AccountBalanceService.class);
+        when(balances.fundLinks()).thenReturn(new FundLinks(List.of(), null));
+        return balances;
     }
 
     private static BalanceCheckpoint cp(LocalDate date, long amount, LocalDateTime createdAt) {
@@ -132,6 +139,20 @@ class BalanceCheckpointServiceTest {
         assertThat(d3.drift()).isEqualByComparingTo(BigDecimal.valueOf(-1_000));
         assertThat(d1.computedBalance()).isNull();
         assertThat(d1.drift()).isNull();
+    }
+
+    @Test
+    @DisplayName("срез 4 п. 1: расход «в кредит» дрейф основной не двигает — деньги не с карты")
+    void drift_ignoresOnCreditExpense() {
+        BalanceCheckpoint c1 = cp(LocalDate.of(2026, 9, 1), 10_000, LocalDateTime.of(2026, 9, 1, 10, 0));
+        BalanceCheckpoint c2 = cp(LocalDate.of(2026, 9, 5), 10_000, LocalDateTime.of(2026, 9, 5, 12, 0));
+        when(repository.findAllByOrderByDateDesc()).thenReturn(List.of(c2, c1));
+        FinancialEvent onCredit = fact(LocalDate.of(2026, 9, 3), EventType.EXPENSE, 3_000);
+        onCredit.setOnCredit(true);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5)))
+                .thenReturn(List.of(onCredit));
+
+        assertThat(find(service.findAll(), c2.getId()).drift()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     @Test

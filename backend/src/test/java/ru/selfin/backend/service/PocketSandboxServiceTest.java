@@ -74,7 +74,7 @@ class PocketSandboxServiceTest {
         accountRepository = mock(ru.selfin.backend.repository.AccountRepository.class);
         checkpointRepository = mock(ru.selfin.backend.repository.BalanceCheckpointRepository.class);
         service = new PocketSandboxService(assembler, eventRepository, fundRepository,
-                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class)));
+                new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class), org.mockito.Mockito.mock(ru.selfin.backend.repository.FundAccountLinkRepository.class)));
     }
 
     // ── фикстуры ────────────────────────────────────────────────────────────

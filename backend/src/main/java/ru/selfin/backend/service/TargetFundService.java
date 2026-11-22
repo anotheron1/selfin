@@ -154,12 +154,17 @@ public class TargetFundService {
         // Следствие названо владельцу и принято: копилка, жившая на счёте с рождения, после
         // отвязки пуста. Строка §8 спеки ANO-9 («накопленное переносится в собственное поле»)
         // отменена решением от 16.09.2026 — см. поправку в самой спеке.
-        if (fund.getAccountId() != null && dto.accountId() == null) {
-            fund.setCurrentBalance(transactionRepository.sumLiveByFundId(id));
-        }
+        //
+        // Срез 4, п. 6: переводы, сделанные на счёт, остались на счёте — копилке возвращаются только движения вне
+        // привязки. Считается после закрытия привязки: перевод дня отвязки — уже день конверта.
+        boolean unlinking = fund.getAccountId() != null && dto.accountId() == null;
         UUID accountId = validateAccountLink(dto.accountId(), fund.getId());
+        if (!Objects.equals(fund.getAccountId(), accountId)) requireNoMovementToday(fund);
         recordAccountLink(fund.getId(), fund.getAccountId(), accountId);
         fund.setAccountId(accountId);
+        if (unlinking) {
+            fund.setCurrentBalance(transactionRepository.sumEnvelopeMovesByFundId(id));
+        }
         // ANO-199: статус — производная от накопленного И цели, а правка меняет цель. Раньше он
         // пересчитывался только при отвязке, и поднятая цель оставляла «Цель достигнута» при 50%
         // без кнопки пополнения. У копилки на счёте поле баланса — не её деньги (§3.3), статус по
@@ -326,7 +331,7 @@ public class TargetFundService {
             //
             // Для «вернуть» это ещё и вопрос честности: со счёта ушло ровно записанное, и
             // вернуть надо его. Возврат по раздутому полю создал бы деньги, которых не было.
-            BigDecimal recorded = transactionRepository.sumLiveByFundId(id);
+            BigDecimal recorded = transactionRepository.sumEnvelopeMovesByFundId(id);
             fund.setCurrentBalance(recorded);
 
             if (disposal == FundMoneyDisposal.RETURN) {
@@ -513,7 +518,6 @@ public class TargetFundService {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
-        rejectTransferToAccountBackedFund(fund);
 
         if (amount.signum() == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -535,12 +539,14 @@ public class TargetFundService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "A withdrawal from a fund is recorded today, not on " + day);
         }
+        requireMovementDay(fund, day);
         // ANO-87 (спека §4.1). Снять можно только то, что накоплено. Это не запрет, а
         // арифметика: в копилке столько физически нет. В отличие от перевода СВЕРХ остатка
-        // счёта, здесь подтверждать нечего — отказ безусловный.
-        if (amount.signum() < 0 && amount.negate().compareTo(fund.getCurrentBalance()) > 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Fund holds only " + fund.getCurrentBalance());
+        // счёта, здесь подтверждать нечего — отказ безусловный. У копилки на счёте накоплено — остаток
+        // счёта (§3.3, срез 4 п. 6).
+        BigDecimal oldBalance = accountBalanceService.fundBalanceAt(fund, today);
+        if (amount.signum() < 0 && amount.negate().compareTo(oldBalance) > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Fund holds only " + oldBalance);
         }
         // ANO-87 (спека §4.2). Переложить больше, чем свободно, можно — но только
         // осознанно. Остаток в продукте не банковская истина, а якорь плюс введённое: он
@@ -558,11 +564,7 @@ public class TargetFundService {
         boolean askIfShort = amount.signum() > 0 && !confirm
                 && accountBalanceService.knowsFreeMoneyAt(today);
 
-        BigDecimal oldBalance = fund.getCurrentBalance();
         BigDecimal newBalance = oldBalance.add(amount);
-        fund.setCurrentBalance(newBalance);
-        applyStatusByBalance(fund);
-        fundRepository.save(fund);
 
         // Сохраняем транзакцию для истории и расчёта прогноза
         FundTransaction tx = FundTransaction.builder()
@@ -572,6 +574,7 @@ public class TargetFundService {
                 .transactionDate(day)
                 .build();
         transactionRepository.save(tx);
+        settleEnvelope(fund);
 
         // Создаём EXECUTED FACT-событие типа FUND_TRANSFER для видимости в бюджете
         Category category = getOrCreateFundTransferCategory();
@@ -640,14 +643,17 @@ public class TargetFundService {
      * удаление. До ANO-201 они писали только первую запись: деньги пропадали или появлялись
      * из воздуха (замер — спека {@code 2026-09-27-fund-transfer-fact-design.md}).
      *
-     * <p>Когда копилка сдвинуться не может, отказ бросается ДО любой записи, и транзакция
-     * вызывающего откатывает факт вместе с ней — факт и копилка меняются только вместе:
+     * <p>Когда копилка сдвинуться не может, отказ бросается, и транзакция вызывающего откатывает факт вместе с
+     * движением — факт и копилка меняются только вместе:
      * <ul>
      *   <li>копилка удалена — её переводы история: «вернуть» закрыло её обратным переводом,
      *       «потрачено» — списанием, и правка после этого оставила бы деньги-призраки;</li>
-     *   <li>копилка на счёте — её деньги двигаются на самом счёте (§3.3, ANO-158);</li>
-     *   <li>баланс ушёл бы в минус — та же арифметика, что снятие сверх накопленного (ANO-87).</li>
+     *   <li>счёт копилки без обновления — перевод ушёл бы с основной в никуда ({@link #requireAccountUpdated});</li>
+     *   <li>конверт ушёл бы в минус — та же арифметика, что снятие сверх накопленного (ANO-87).</li>
      * </ul>
+     *
+     * <p>Копилка на своём счёте движение принимает (срез 4, п. 6): факт перевода уводит деньги с основной на её счёт,
+     * движение — история копилки.
      *
      * @param fundId  копилка перевода
      * @param key     ключ события — он же ключ движения
@@ -661,24 +667,29 @@ public class TargetFundService {
         FundTransaction tx = transactionRepository.findByIdempotencyKey(key).orElse(null);
         BigDecimal current = tx != null && !tx.isDeleted() ? tx.getAmount() : BigDecimal.ZERO;
         BigDecimal delta = desired.subtract(current);
-        if (delta.signum() == 0) {
-            // Срез 3 п. 2: у перевода правится дата — движение идёт за ней, иначе капитал за прошлые
-            // даты разошёлся бы со счётом.
-            if (tx != null && !tx.isDeleted() && !date.equals(tx.getTransactionDate())) {
-                tx.setTransactionDate(date);
-                transactionRepository.save(tx);
-            }
-            return;
-        }
+        // Срез 3 п. 2: у перевода правится дата — движение идёт за ней, иначе капитал за прошлые даты разошёлся бы со
+        // счётом.
+        LocalDate oldDate = tx != null && !tx.isDeleted() ? tx.getTransactionDate() : null;
+        boolean dateMoved = oldDate != null && !date.equals(oldDate);
+        if (delta.signum() == 0 && !dateMoved) return;
 
         // Деньги уже лежат в копилке движения — она и двигается; копилка события — для нового.
         TargetFund fund = tx != null ? tx.getFund() : fundRepository.findById(fundId)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
-        if (fund.isDeleted()) throw FundMovementRefusedException.closed(fund.getName());
-        if (fund.getAccountId() != null) throw FundMovementRefusedException.onAccount(fund.getName());
-        BigDecimal newBalance = fund.getCurrentBalance().add(delta);
-        if (newBalance.signum() < 0) {
-            throw FundMovementRefusedException.holdsLess(fund.getName(), fund.getCurrentBalance());
+        // Срез 4, п. 6, решение владельца 22.11 (вариант А): дата перевода не переезжает ни с дня, ни на день копилки на
+        // счёте. Привязка помнит день, обновление счёта — минуту: перенос переписывал бы чужие остатки (ревью Codex
+        // и Gemini на #240). Удалить и записать заново — можно.
+        if (dateMoved) {
+            FundLinks links = accountBalanceService.fundLinks();
+            if (links.accountOn(fund.getId(), oldDate) != null || links.accountOn(fund.getId(), date) != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A transfer of a goal on an account keeps its date: delete it and record it again");
+            }
+        }
+        if (delta.signum() != 0) {
+            if (fund.isDeleted()) throw FundMovementRefusedException.closed(fund.getName());
+            // Деньги ложатся в день движения — его и проверить; снятое движение никуда не ложится.
+            if (desired.signum() != 0) requireMovementDay(fund, date);
         }
 
         if (tx == null) {
@@ -696,13 +707,27 @@ public class TargetFundService {
             tx.setTransactionDate(date);   // срез 3 п. 2: сумма и дата правятся вместе (ревью Codex на #230)
         }
         transactionRepository.save(tx);
-
-        fund.setCurrentBalance(newBalance);
-        applyStatusByBalance(fund);
-        fundRepository.save(fund);
+        settleEnvelope(fund);
+        if (delta.signum() < 0) requireAccountKeepsMoney(fund, date, delta.negate());
 
         log.info("fund_movement_sync fund_id={} key={} movement={} delta={} balance_after={}",
-                fund.getId(), key, desired, delta, newBalance);
+                fund.getId(), key, desired, delta, fund.getCurrentBalance());
+    }
+
+    /**
+     * Поле конверта — его движения вне привязки к счёту (срез 4, п. 6): одно число за одни деньги, как у выбытия и
+     * отвязки ({@code sumEnvelopeMovesByFundId}). Ушло бы в минус — отказ, и транзакция вызывающего откатывает
+     * движение вместе с фактом (арифметика ANO-87). У копилки на счёте поле — не её деньги (§3.3): её остаток —
+     * остаток счёта, а поле держит то, что ей вернёт отвязка; движения на счёте его не меняют.
+     */
+    private void settleEnvelope(TargetFund fund) {
+        BigDecimal held = transactionRepository.sumEnvelopeMovesByFundId(fund.getId());
+        if (held.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), fund.getCurrentBalance());
+        fund.setCurrentBalance(held);
+        // У копилки на счёте поле — не её деньги: статус по нему не выводится, как в update и applyWishlistParams
+        // (ревью Gemini на #240).
+        if (fund.getAccountId() == null) applyStatusByBalance(fund);
+        fundRepository.save(fund);
     }
 
     /**
@@ -731,15 +756,69 @@ public class TargetFundService {
     }
 
     /**
-     * Перевод в копилку, лежащую на счёте, запрещён (§3.3): деньги двигаются на самом счёте,
-     * а перевод создал бы вторую запись за те же рубли — ровно то задвоение, ради защиты от
-     * которого копилка со счётом и теряет собственный баланс.
+     * Уменьшенный или удалённый перевод не уводит в минус счёт, на котором копилка лежала в день движения (срез 4, п. 6;
+     * ревью Codex на #240). Поле конверта движения на счёте не держит, и {@link #settleEnvelope} такой минус не видит —
+     * та же арифметика, что снятие сверх остатка в {@link #doTransfer}. Конверт — мимо: его держит своё правило.
+     *
+     * @param removed сколько ушло со счёта — в словах отказа «было столько»
      */
-    private static void rejectTransferToAccountBackedFund(TargetFund fund) {
-        if (fund.getAccountId() != null) {
+    private void requireAccountKeepsMoney(TargetFund fund, LocalDate day, BigDecimal removed) {
+        UUID accountId = accountBalanceService.fundLinks().accountOn(fund.getId(), day);
+        if (accountId == null) return;
+        accountRepository.findById(accountId).filter(a -> !a.isDeleted()).ifPresent(a -> {
+            BigDecimal left = accountBalanceService.balanceAt(a, LocalDate.now(clock));
+            if (left.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), left.add(removed));
+        });
+    }
+
+    /**
+     * Решение владельца 22.11 (вариант А): счёт копилки не меняется в день, когда у неё уже есть движение. Привязка
+     * помнит день, а обновление счёта — минуту, и смена привязки переносила бы переводы дня с одного счёта на другой:
+     * капитал задваивался или терял деньги (ревью Codex и Gemini на #240). Завтра — можно.
+     */
+    private void requireNoMovementToday(TargetFund fund) {
+        if (transactionRepository.existsByFund_IdAndDeletedFalseAndTransactionDate(fund.getId(), LocalDate.now(clock))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "This goal lives on an account: move the money on the account itself "
-                            + "and re-anchor its balance, do not transfer into the goal");
+                    "The goal already moved money today: change its account tomorrow");
+        }
+    }
+
+    /**
+     * День, в который ложатся деньги движения (ревью без контекста и Gemini на #240): копилка лежала там же, где сейчас,
+     * — иначе перевод задним числом лёг бы конвертом у копилки на счёте (невидимый «Уже в копилках») или на прежний
+     * счёт; не на основной; счёт обновлён ({@link #requireAccountUpdated}).
+     */
+    private void requireMovementDay(TargetFund fund, LocalDate day) {
+        FundLinks links = accountBalanceService.fundLinks();
+        UUID onDay = links.accountOn(fund.getId(), day);
+        if (!Objects.equals(onDay, fund.getAccountId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "On " + day + " the goal lay elsewhere than now: record the transfer on a day since its last move");
+        }
+        // Копилка на основной — доля её остатка: перевод ничего не двигает. Её правила — НЗ, PR 6; до него — отказ, как
+        // до среза 4.
+        if (onDay != null && onDay.equals(links.defaultAccountId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A goal on the main card takes no transfers");
+        }
+        requireAccountUpdated(fund);
+    }
+
+    /**
+     * Копилка на своём счёте принимает перевод (срез 4, п. 6; ANO-262): деньги уходят с основной на её счёт, и остаток
+     * счёта — его обновление плюс переводы после него ({@link AccountBalanceService#balanceAt}). Счёт без обновления
+     * перевод не примет: остаток копилки на нём — ноль (§8), и деньги ушли бы с основной в никуда — капитал
+     * уменьшился бы на сумму перевода.
+     */
+    private void requireAccountUpdated(TargetFund fund) {
+        if (fund.getAccountId() == null) return;
+        boolean updated = accountRepository.findById(fund.getAccountId())
+                .filter(a -> !a.isDeleted())
+                .flatMap(a -> accountBalanceService.anchorAt(a, LocalDate.now(clock)))
+                .isPresent();
+        if (!updated) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Update the balance of the goal's account first: a transfer onto a balance nobody entered "
+                            + "would leave the card and land nowhere");
         }
     }
 

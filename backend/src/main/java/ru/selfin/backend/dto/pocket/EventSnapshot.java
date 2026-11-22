@@ -24,6 +24,9 @@ import java.util.UUID;
  * @param parentEventId у факта — план, который он гасит (ANO-155). Движку нужно, чтобы
  *                      считать непогашенный остаток плана: факт не замещает обязательство,
  *                      а уменьшает его на свою сумму. {@code null} у планов и у синтетики.
+ * @param onCredit      расход «в кредит» (срез 4, п. 1): остаток основной он не двигает
+ * @param toFundOnAccount перевод в копилку, лежавшую в день записи на своём счёте (срез 4, п. 6): деньги ушли с
+ *                      основной. Считает сборщик по истории привязок — {@code FundLinks#leavesCard}
  */
 public record EventSnapshot(
         UUID id,
@@ -39,8 +42,20 @@ public record EventSnapshot(
         String description,
         SyntheticKind syntheticKind,
         LocalDateTime createdAt,
-        UUID parentEventId
+        UUID parentEventId,
+        boolean onCredit,
+        boolean toFundOnAccount
 ) {
+    /** Сигнатура до среза 4 — запись не в кредит и не перевод на счёт копилки. */
+    public EventSnapshot(UUID id, LocalDate date, EventType type, EventKind eventKind,
+                         EventStatus status, Priority priority, BigDecimal plannedAmount,
+                         BigDecimal factAmount, WishlistStatus wishlistStatus,
+                         boolean converted, String description, SyntheticKind syntheticKind,
+                         LocalDateTime createdAt, UUID parentEventId) {
+        this(id, date, type, eventKind, status, priority, plannedAmount, factAmount,
+                wishlistStatus, converted, description, syntheticKind, createdAt, parentEventId, false, false);
+    }
+
     /** Сигнатура до ANO-155 — у таких вызовов родителя нет. */
     public EventSnapshot(UUID id, LocalDate date, EventType type, EventKind eventKind,
                          EventStatus status, Priority priority, BigDecimal plannedAmount,
@@ -75,10 +90,20 @@ public record EventSnapshot(
 
     /** Событие с другой суммой плана — просроченная бронь своим непогашенным остатком (срез 3 п. 3). */
     public static EventSnapshot from(FinancialEvent e, BigDecimal plannedAmount) {
+        return from(e, plannedAmount, false);
+    }
+
+    /** Событие для шага 1 движка: перевод знает, ушли ли его деньги с основной (срез 4, п. 6). */
+    public static EventSnapshot from(FinancialEvent e, boolean toFundOnAccount) {
+        return from(e, e.getPlannedAmount(), toFundOnAccount);
+    }
+
+    private static EventSnapshot from(FinancialEvent e, BigDecimal plannedAmount, boolean toFundOnAccount) {
         return new EventSnapshot(
                 e.getId(), e.getDate(), e.getType(), e.getEventKind(), e.getStatus(),
                 e.getPriority(), plannedAmount, e.getFactAmount(), e.getWishlistStatus(),
                 e.convertedToArtifact(),
-                e.getDescription(), null, e.getCreatedAt(), e.getParentEventId());
+                e.getDescription(), null, e.getCreatedAt(), e.getParentEventId(),
+                e.isOnCredit(), toFundOnAccount);
     }
 }
