@@ -162,7 +162,11 @@ public class TargetFundService {
         recordAccountLink(fund.getId(), fund.getAccountId(), accountId);
         fund.setAccountId(accountId);
         if (unlinking) {
-            fund.setCurrentBalance(transactionRepository.sumEnvelopeMovesByFundId(id));
+            // Ревью Codex на #240: снятие в день отвязки становится движением конверта — конверт ушёл бы в минус, и
+            // «Уже в копилках» прибавило бы деньги к «Свободно». Отказ откатывает и закрытие привязки.
+            BigDecimal held = transactionRepository.sumEnvelopeMovesByFundId(id);
+            if (held.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), held);
+            fund.setCurrentBalance(held);
         }
         // ANO-199: статус — производная от накопленного И цели, а правка меняет цель. Раньше он
         // пересчитывался только при отвязке, и поднятая цель оставляла «Цель достигнута» при 50%

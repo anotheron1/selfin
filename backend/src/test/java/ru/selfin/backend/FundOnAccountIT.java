@@ -242,6 +242,23 @@ class FundOnAccountIT {
                 .isFalse();
     }
 
+    @Test
+    @DisplayName("ревью Codex на #240: снятие и отвязка в один день — 409, копилка осталась на счёте, «Свободно» прежнее")
+    void unlinkSameDayAfterWithdraw_refused() throws Exception {
+        String fund = fund("Квартира", deposit);
+        transfer(fund, "-3000", null).andExpect(status().isOk());
+        BigDecimal free0 = pocket();
+
+        mvc.perform(put("/api/v1/funds/{id}", fund).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Квартира\",\"targetAmount\":1000000}"))
+                .andExpect(status().isConflict());
+
+        assertThat(jdbc.queryForObject("SELECT account_id::text FROM target_funds WHERE id = ?::uuid", String.class, fund))
+                .isEqualTo(deposit);
+        assertThat(balances.envelopesAt(today)).isEqualByComparingTo("0");
+        assertThat(pocket()).isEqualByComparingTo(free0);
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
 
     private String transferEvent(String amount) {
