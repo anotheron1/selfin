@@ -8,7 +8,7 @@ import { CHANGED } from '../../api/client';
 import ReanchorSheet from '../pocket/ReanchorSheet';
 import type { PocketResponse } from '../../types/api';
 import { FAR, MID, TREES } from './miniLandscape';
-import { SECTIONS, headerLine, sectionOf, shortDate, showsHeader } from './sections';
+import { SECTIONS, headerLine, sectionOf, shortDate, showsCards, showsHeader } from './sections';
 
 /**
  * Каркас приложения — срез 1 вехи «Дизайн» (спека 2026-11-15-slice1-app-frame-design.md).
@@ -17,6 +17,9 @@ import { SECTIONS, headerLine, sectionOf, shortDate, showsHeader } from './secti
  */
 
 const ICONS = { today: Sun, journal: List, goals: Target, money: CreditCard } as const;
+
+/** «Обновить остатки» на «Деньгах» открывает лист шапки — до PR 5 среза 4 это прежний лист остатка основной. */
+export const REANCHOR = 'selfin:reanchor';
 
 /** Ширина каркаса на компьютере: поля 130 px на 1440 (Zh2-1440-7t). */
 const WIDTH = 'mx-auto w-full max-w-[1180px]';
@@ -72,8 +75,13 @@ export function FrameNav({ onAdd }: { onAdd: () => void }) {
     );
 }
 
-/** Шапка Ш1: «Свободно до …» и число — на «Сегодня»; «на картах» — обновить остаток; профиль — на телефоне. */
-export function FrameHeader({ pocket, onReanchor }: { pocket: PocketResponse | null; onReanchor: () => void }) {
+/**
+ * Шапка Ш1: «Свободно до …» и число — на «Сегодня»; «на картах» — обновить остаток; профиль — на телефоне.
+ * На «Деньгах» плитки «на картах» нет — она вела бы туда же (срез 4, решение 55).
+ */
+export function FrameHeader({ pocket, onReanchor, cards: showCards = true }: {
+    pocket: PocketResponse | null; onReanchor: () => void; cards?: boolean;
+}) {
     const line = pocket && headerLine(pocket);
     const cards = pocket && num(pocket.currentBalance);
     const updated = pocket?.checkpointDate ? shortDate(pocket.checkpointDate) : null;
@@ -87,7 +95,7 @@ export function FrameHeader({ pocket, onReanchor }: { pocket: PocketResponse | n
                     <Money value={num(line.amount)} size="s" />
                 </>}
             </Link>
-            {pocket && (
+            {pocket && showCards && (
                 <Tile icon={<CreditCard strokeWidth={1.7} />} value={`${cards} ₽`} onClick={onReanchor}
                     caption={updated && <><RefreshCw strokeWidth={2.4} />{updated}</>}
                     aria-label={cardsLabel} />
@@ -152,6 +160,11 @@ export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: 
         window.addEventListener(CHANGED, load);
         return () => window.removeEventListener(CHANGED, load);
     }, [header, load]);
+    useEffect(() => {
+        const open = () => setReanchor(true);
+        window.addEventListener(REANCHOR, open);
+        return () => window.removeEventListener(REANCHOR, open);
+    }, []);
 
     return (
         <div className="min-h-dvh bg-sf-page font-sf text-sf-ink" style={{ paddingBottom: 'var(--nav-height)' }}>
@@ -162,7 +175,7 @@ export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: 
                 {header && <MiniLandscape />}
                 <div className={cn(WIDTH, 'relative px-sf-gutter', header && 'pb-3.5')}>
                     <FrameNav onAdd={onAdd} />
-                    {header && <FrameHeader pocket={pocket} onReanchor={() => setReanchor(true)} />}
+                    {header && <FrameHeader pocket={pocket} onReanchor={() => setReanchor(true)} cards={showsCards(path)} />}
                 </div>
             </div>
             <div className={cn('relative', header && '-mt-3.5 rounded-t-sf-page bg-sf-page')}>

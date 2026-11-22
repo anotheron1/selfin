@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom/server';
-import { SECTIONS, headerLine, sectionOf, showsHeader } from './sections';
+import { SECTIONS, headerLine, sectionOf, showsCards, showsHeader } from './sections';
 import { FrameHeader, FrameNav, SectionTrack } from './AppFrame';
 import type { PocketResponse } from '../../types/api';
 
@@ -33,6 +33,10 @@ describe('разделы', () => {
 
     it('шапка — на всех экранах, кроме «Сегодня»', () => {
         expect(SCREENS.filter(showsHeader)).toEqual(SCREENS.slice(1));
+    });
+
+    it('плитка «на картах» — везде, кроме «Деньги» (срез 4, решение 55)', () => {
+        expect(SCREENS.filter(p => !showsCards(p))).toEqual(['/capital']);
     });
 });
 
@@ -137,6 +141,13 @@ describe('шапка', () => {
         expect(html).toContain('aria-label="На картах 48 800 ₽, обновлён 12 нояб. Обновить"');
     });
 
+    it('на «Деньгах» — без плитки: число «Свободно» и профиль остаются', () => {
+        const html = render('/capital', <FrameHeader pocket={pocket({})} onReanchor={() => {}} cards={false} />);
+        expect(html).toContain('Свободно до 25 нояб.');
+        expect(html).not.toContain('На картах');
+        expect(html).toContain('aria-label="Профиль и настройки"');
+    });
+
     it('без данных — без чисел, но с профилем', () => {
         const html = header(null);
         expect(html).not.toContain('₽');
@@ -150,6 +161,13 @@ describe('после записи — свежие числа (ревью Codex 
     it('остаток из шапки перечитывает и экран — через общий сигнал обновления', async () => {
         expect(await read('./AppFrame.tsx')).toMatch(/<ReanchorSheet[\s\S]*?onSuccess=\{onChanged\}/);
         expect(await read('../../App.tsx')).toMatch(/<AppFrame .*onChanged=\{handleSuccess\}/);
+    });
+
+    it('«Обновить остатки» на «Деньгах» открывает лист шапки, плитки там нет', async () => {
+        const src = await read('./AppFrame.tsx');
+        expect(src).toContain('window.addEventListener(REANCHOR, open)');
+        expect(src).toContain('cards={showsCards(path)}');
+        expect(await read('../../pages/Capital.tsx')).toContain('window.dispatchEvent(new Event(REANCHOR))');
     });
 
     it('шапка слушает удачные записи любого экрана', async () => {

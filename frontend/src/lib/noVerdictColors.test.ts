@@ -29,10 +29,13 @@ describe('цвет — не приговор (ANO-123)', () => {
         expect(src).not.toContain('>Δ</th>');
     });
 
-    it('прирост капитала — без зелёного и красного, направление показывает стрелка (Р7)', () => {
-        const src = read('../components/CapitalSummaryCard.tsx');
-        expect(src).not.toMatch(VERDICT);
-        expect(src).toMatch(/TrendingUp/);
+    it('прирост капитала — без зелёного и красного, направление показывает знак (Р7; срез 4, «Деньги»)', () => {
+        for (const file of ['../components/money/MoneyView.tsx', '../components/money/MoneyChart.tsx']) {
+            const src = read(file);
+            expect(src).not.toMatch(VERDICT);
+            expect(src).not.toMatch(/sf-error/);
+            expect(src).toMatch(/fmtSigned\(/);
+        }
     });
 
     it('таблица за месяцы: «Доходы минус расходы» — без красного фона и без красного и зелёного (Р4)', () => {

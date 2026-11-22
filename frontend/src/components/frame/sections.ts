@@ -27,6 +27,9 @@ export const sectionOf = (path: string): Section | null =>
 /** На «Сегодня» число уже на карточке; раскрытая шапка там — срез 2. */
 export const showsHeader = (path: string) => path !== '/';
 
+/** Плитка «на картах» в шапке — не на «Деньгах»: она вела бы туда же (срез 4, п. 9, решение 55). */
+export const showsCards = (path: string) => path !== '/capital';
+
 const shortDate = fmtDayShort;
 
 /** Строка шапки — те же слова и сумма без минуса, что у итога карточки (pocketResult), и конец срока. */
