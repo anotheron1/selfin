@@ -707,10 +707,9 @@ public class TargetFundService {
      * Поле конверта — его движения вне привязки к счёту (срез 4, п. 6): одно число за одни деньги, как у выбытия и
      * отвязки ({@code sumEnvelopeMovesByFundId}). Ушло бы в минус — отказ, и транзакция вызывающего откатывает
      * движение вместе с фактом (арифметика ANO-87). У копилки на счёте поле — не её деньги (§3.3): её остаток —
-     * остаток счёта, движение двигает его через перевод.
+     * остаток счёта, а поле держит то, что ей вернёт отвязка; движения на счёте его не меняют.
      */
     private void settleEnvelope(TargetFund fund) {
-        if (fund.getAccountId() != null) return;
         BigDecimal held = transactionRepository.sumEnvelopeMovesByFundId(fund.getId());
         if (held.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), fund.getCurrentBalance());
         fund.setCurrentBalance(held);

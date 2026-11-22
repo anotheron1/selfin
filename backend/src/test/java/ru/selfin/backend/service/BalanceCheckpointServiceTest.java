@@ -142,6 +142,20 @@ class BalanceCheckpointServiceTest {
     }
 
     @Test
+    @DisplayName("срез 4 п. 1: расход «в кредит» дрейф основной не двигает — деньги не с карты")
+    void drift_ignoresOnCreditExpense() {
+        BalanceCheckpoint c1 = cp(LocalDate.of(2026, 9, 1), 10_000, LocalDateTime.of(2026, 9, 1, 10, 0));
+        BalanceCheckpoint c2 = cp(LocalDate.of(2026, 9, 5), 10_000, LocalDateTime.of(2026, 9, 5, 12, 0));
+        when(repository.findAllByOrderByDateDesc()).thenReturn(List.of(c2, c1));
+        FinancialEvent onCredit = fact(LocalDate.of(2026, 9, 3), EventType.EXPENSE, 3_000);
+        onCredit.setOnCredit(true);
+        when(eventRepository.findAllByDeletedFalseAndDateBetween(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 5)))
+                .thenReturn(List.of(onCredit));
+
+        assertThat(find(service.findAll(), c2.getId()).drift()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
     @DisplayName("ANO-82: дрейф считает факт дня предыдущего якоря, записанный после него")
     void drift_countsFactRecordedAfterPreviousAnchor() {
         // Два якоря: 01.09 введён в 10:00, 05.09 — позже. Факт 01.09 записан в 18:00, то есть
