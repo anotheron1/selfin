@@ -155,6 +155,8 @@ class FundOnAccountIT {
     void transferBeforeLink_staysOnCard() throws Exception {
         String fund = fund("Отпуск", null);
         LocalDate past = today.minusDays(2);
+        // Вклад обновлён раньше перевода: перевод в окне его обновления, и решает только день привязки.
+        jdbc.update("UPDATE balance_checkpoints SET date = CURRENT_DATE - 3 WHERE account_id = ?::uuid", deposit);
         transfer(fund, "20000", past).andExpect(status().isOk());
         BigDecimal card0 = byRecords(mainCard()), dep0 = byRecords(deposit);
         BigDecimal liquidPast = capital.liquidAt(past), envelopesPast = balances.envelopesAt(past);
