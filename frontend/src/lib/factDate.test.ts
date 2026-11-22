@@ -111,8 +111,8 @@ describe('экраны берут «сегодня» одним способом
     // поведенческого теста на это нет — компонентных тестов в проекте нет.
     const forms = [
         ['../components/Fab.tsx', 'latestAllowedIso('], ['../components/PlanFactSheet.tsx', 'latestAllowedIso('],
-        ['../components/CapitalSheet.tsx', 'latestAllowedIso('], ['../pages/Settings.tsx', 'latestAllowedIso('],
-        ['../components/CapitalTrajectoryChart.tsx', 'todayIso('],
+        ['../components/money/CapitalItemSheet.tsx', 'latestAllowedIso('], ['../pages/Settings.tsx', 'latestAllowedIso('],
+        ['../pages/Capital.tsx', 'todayIso('],
         ['../components/pocket/ReanchorSheet.tsx', 'latestAllowedIso('], ['../pages/Budget.tsx', 'latestAllowedIso('],
     ];
 
@@ -126,7 +126,7 @@ describe('экраны берут «сегодня» одним способом
     // ночью для него будущая (ревью Codex на #177). Формы факта и сверка на карточке брали её до ANO-235;
     // сверка собирала её вручную — getFullYear() та же местная дата.
     it.each([
-        '../components/CapitalSheet.tsx', '../pages/Settings.tsx',
+        '../components/money/CapitalItemSheet.tsx', '../pages/Settings.tsx',
         '../components/Fab.tsx', '../components/PlanFactSheet.tsx', '../components/pocket/ReanchorSheet.tsx',
     ])('%s — не позже даты сервера, а не просто местная дата', (file) => {
         const src = readFileSync(new URL(file, import.meta.url), 'utf8');

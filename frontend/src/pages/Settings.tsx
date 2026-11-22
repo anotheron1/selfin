@@ -8,7 +8,6 @@ import {
 } from '../api';
 import type { Account, BalanceCheckpoint, Category, ForecastReadiness } from '../types/api';
 import CategoriesSection from '../components/CategoriesSection';
-import AccountsSection from '../components/accounts/AccountsSection';
 import NzForm from '../components/pocket/NzForm';
 import HintsSection from '../components/HintsSection';
 import SignOutSection from '../components/SignOutSection';
@@ -58,13 +57,8 @@ export default function Settings() {
     const loadAccounts = () => fetchAccounts().then(setAccounts);
     const loadNz = () => fetchPocketSettings().then(s => setNz(s.bufferAmount));
 
+    // Счета — только выбор в записи остатка ниже; сами карты — на «Деньгах» (срез 4, задача 3.5).
     useEffect(() => { load(); loadCheckpoints(); loadAccounts(); loadReadiness(); loadNz(); }, []);
-
-    /**
-     * Правка счетов меняет и историю остатков: удалённый счёт уходит из выбора, переименованный
-     * меняет подпись у своих записей. Поэтому после любой правки перечитываются оба списка.
-     */
-    const reloadAccounts = async () => { await loadAccounts(); await loadCheckpoints(); };
 
     // --- Checkpoint handlers ---
     const handleCreateCheckpoint = async (e: React.FormEvent) => {
@@ -113,13 +107,6 @@ export default function Settings() {
         <ScrollArea>
             <div className="pl-4 pr-5 py-6 space-y-6">
                 <h1 className="text-xl font-bold">Настройки</h1>
-
-                <AccountsSection
-                    accounts={accounts}
-                    categories={categories}
-                    onChanged={reloadAccounts}
-                    showToast={showToast}
-                />
 
                 {/*
                   НЗ кармашка (ANO-92): здесь его ищут; быстро — со строки в «почему столько».

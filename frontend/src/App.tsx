@@ -19,12 +19,12 @@ import Wishlist from './pages/Wishlist';
 
 /**
  * Журнал на широком экране — две колонки, основной список и ожидания (ANO-176), и в прежние
- * 672 px они не помещаются. «Сегодня» (срез 2) раскладывает ширину сам: небо и пейзаж — во всю ширину окна.
- * Остальные экраны раскладываются под ширину в своих срезах.
+ * 672 px они не помещаются; «Деньги» (срез 4) — тоже две колонки. «Сегодня» (срез 2) раскладывает ширину сам: небо и
+ * пейзаж — во всю ширину окна. Остальные экраны раскладываются под ширину в своих срезах.
  */
 function Main({ children }: { children: React.ReactNode }) {
   const path = useLocation().pathname;
-  const width = path === '/' ? undefined : path === '/budget' ? undefined : 'max-w-2xl mx-auto';
+  const width = ['/', '/budget', '/capital'].includes(path) ? undefined : 'max-w-2xl mx-auto';
   return <main className={width}><SectionTrack />{children}</main>;
 }
 

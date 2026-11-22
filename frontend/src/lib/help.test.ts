@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HELP, NZ_MEANING } from './help';
 import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER } from './priority';
-import { CARD_DEBT_ROW, MONEY_ROW } from './capitalRows';
 import { ENVELOPE_ROW } from './breakdownRows';
 
 /** Весь текст справки одной строкой: заголовок, подзаголовки, абзацы. */
@@ -45,14 +44,5 @@ describe('справка (ANO-186)', () => {
         expect(pocket).toContain(`«${ENVELOPE_ROW}»`);
         expect(pocket).toContain('лежат на основной карте');
         expect(pocket).toContain('как есть');
-    });
-
-    it('справка «Капитала» называет строки, которые считаются сами, именами с экрана (Р7)', () => {
-        // Старая формула «… + деньги в наличии» ставила деньги вне активов, а долг по кредитке из
-        // «Счетов» предлагала ввести вручную — второй раз к строке «Долги по картам».
-        const capital = text('capital');
-        expect(capital.toLowerCase()).toContain(MONEY_ROW.toLowerCase());
-        expect(capital).toContain(`«${CARD_DEBT_ROW}»`);
-        expect(capital).not.toContain('деньги в наличии');
     });
 });

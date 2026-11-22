@@ -56,14 +56,14 @@ describe('текст ошибки на экран не идёт (ANO-245)', () =
 
 describe('места ANO-245 говорят словами экрана', () => {
     it('счета: форма проверяет до отправки и отвечает словами; удаление — про копилку; остальное — writeFailure', () => {
-        const src = read('components/accounts/AccountsSection.tsx');
+        const src = read('components/accounts/AccountSheet.tsx');
         expect(src).toMatch(/const problem = accountFormProblem\(dto, null\);/);
-        expect(src).toMatch(/const problem = accountFormProblem\(dto, editing\);/);
+        expect(src).toMatch(/const problem = accountFormProblem\(dto, account\);/);
         expect(src.match(/if \(problem\) \{ setFormError\(problem\); return; \}/g)).toHaveLength(2);
         expect(src).toMatch(/setFormError\(writeFailure\(e\)\)/);
-        expect(src).toMatch(/setFormError\(accountWriteFailure\(e, dto, editing\)\)/);
-        expect(src).toMatch(/showToast\(accountDeleteFailure\(e\)\)/);
-        expect(src.match(/showToast\(writeFailure\(e\)\)/g)).toHaveLength(3);
+        expect(src).toMatch(/setFormError\(accountWriteFailure\(e, dto, account\)\)/);
+        expect(src).toMatch(/setNotice\(accountDeleteFailure\(e\)\)/);
+        expect(src.match(/setNotice\(writeFailure\(e\)\)/g)).toHaveLength(3);
     });
 
     it('НЗ, сверка остатка и пороги «Хотелок» — writeFailure', () => {

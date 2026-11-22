@@ -160,7 +160,7 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
             }
             case 'CREDIT_RESTORE':
                 caveats.push(row('caveat', CREDIT_ROW, fmtC(l.amount),
-                    'столько внести на карты, чтобы доступное дошло до планки из «Счетов»'));
+                    'столько внести на карты, чтобы доступное дошло до планки карты на «Деньгах»'));
                 break;
             case 'WISHLIST_INFO':
                 caveats.push(row('caveat', 'Хотелки', fmtC(l.amount), 'не входят, пока не зафиксированы с датой'));

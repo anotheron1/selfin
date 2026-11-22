@@ -1,106 +1,95 @@
-import { useEffect, useState, useCallback } from 'react';
-import { HelpCircle } from 'lucide-react';
-import { fetchCapitalSummary } from '../api';
-import type { CapitalSummary, CapitalItem, CapitalItemKind } from '../types/api';
-import CapitalSummaryCard from '../components/CapitalSummaryCard';
-import { capitalIsEmpty, computedRow } from '../lib/capitalRows';
-import CapitalItemList from '../components/CapitalItemList';
-import CapitalSheet, { type CapitalSheetMode } from '../components/CapitalSheet';
-import CapitalTrajectoryChart from '../components/CapitalTrajectoryChart';
-import HelpDialog from '../components/HelpDialog';
-import { Button } from '../components/ui/button';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchAccounts, fetchCapitalSummary, fetchCapitalTrajectory, fetchCategories, fetchFunds } from '../api';
+import type { Account, CapitalSummary, CapitalTrajectory, Category, TargetFund } from '../types/api';
+import { Button } from '@/ds';
+import MoneyView from '../components/money/MoneyView';
+import CapitalItemSheet, { type ItemSheetMode } from '../components/money/CapitalItemSheet';
+import AccountSheet, { type AccountSheetMode } from '../components/accounts/AccountSheet';
+import { REANCHOR } from '../components/frame/AppFrame';
+import { CHANGED } from '../api/client';
+import { todayIso } from '../lib/factDate';
 
-interface Props {
-    refreshSignal?: number;
+/**
+ * «Деньги» (срез 4, п. 9). Адрес /capital прежний, страница новая: группы карт, капитал, имущество и долги, график.
+ * Вид — components/money/MoneyView; здесь чтения и листы. «Обновить остатки» до PR 5 открывает прежний лист остатка
+ * основной — тот же, что плитка «на картах» в шапке (`REANCHOR`, AppFrame), «Добавить карту» и лист карты до PR 4 — прежние формы «Счетов» (`AccountSheet`).
+ */
+interface Data {
+    summary: CapitalSummary;
+    accounts: Account[];
+    funds: TargetFund[];
+    points: CapitalTrajectory['points'];
+    categories: Category[];
 }
 
-export default function Capital({ refreshSignal }: Props) {
-    const [summary, setSummary] = useState<CapitalSummary | null>(null);
+export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
+    const [data, setData] = useState<Data | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
-    const [sheetMode, setSheetMode] = useState<CapitalSheetMode | null>(null);
-    const [theoryOpen, setTheoryOpen] = useState(false);
-    const [refreshTick, setRefreshTick] = useState(0);
+    const [itemSheet, setItemSheet] = useState<ItemSheetMode | null>(null);
+    const [cardSheet, setCardSheet] = useState<AccountSheetMode | null>(null);
+    const [toast, setToast] = useState<string | null>(null);
 
+    // Две записи подряд — два перечитывания; ответ первого может прийти последним (ревью #241).
+    const seq = useRef(0);
+    const loaded = useRef(false);
     const reload = useCallback(() => {
+        const n = ++seq.current;
         setLoadFailed(false);
-        fetchCapitalSummary()
-            .then(setSummary)
-            .catch(() => setLoadFailed(true));
+        Promise.all([fetchCapitalSummary(), fetchAccounts(), fetchFunds(), fetchCapitalTrajectory(), fetchCategories()])
+            .then(([summary, accounts, funds, trajectory, categories]) => {
+                if (n !== seq.current) return;
+                loaded.current = true;
+                setData({ summary, accounts, funds: funds.funds, points: trajectory.points, categories });
+            })
+            .catch(() => {
+                if (n !== seq.current) return;
+                // Фоновое перечитывание не стирает экран с открытым листом: остаются прежние числа.
+                if (!loaded.current) setLoadFailed(true);
+            });
     }, []);
 
-    useEffect(() => { reload(); }, [reload, refreshSignal, refreshTick]);
-
-    const onChanged = () => setRefreshTick(t => t + 1);
-    const openCreate = (kind: CapitalItemKind) => setSheetMode({ type: 'create', kind });
-    const openView = (item: CapitalItem) => setSheetMode({ type: 'view', itemId: item.id });
+    useEffect(() => { reload(); }, [reload, refreshSignal]);
+    // Любая удачная запись — листы этой страницы, остаток, «+» — меняет капитал и карты (событие api/client).
+    useEffect(() => {
+        window.addEventListener(CHANGED, reload);
+        return () => window.removeEventListener(CHANGED, reload);
+    }, [reload]);
+    useEffect(() => {
+        if (!toast) return;
+        const t = setTimeout(() => setToast(null), 3000);
+        return () => clearTimeout(t);
+    }, [toast]);
 
     // ANO-245: «Ошибка: Error: API error: …» — текст сервера по-английски; что сделать, не говорил.
     if (loadFailed) return (
-        <div className="p-6 text-center">
-            <p className="text-sm mb-3">Не удалось загрузить капитал</p>
-            <Button onClick={() => reload()} size="sm">Повторить</Button>
+        <div className="p-6 text-center font-sf text-sf-ink">
+            <p className="mb-3 text-sf-body">Не удалось загрузить капитал</p>
+            <Button size="s" onClick={() => reload()}>Повторить</Button>
         </div>
     );
-    if (!summary) return <div className="p-4 text-sm" style={{ color: 'var(--color-text-muted)' }}>Загрузка…</div>;
+    if (!data) return <div className="p-4 font-sf text-sf-note text-sf-muted">Загрузка…</div>;
 
-    const isEmpty = capitalIsEmpty(summary);
 
     return (
-        <div className="max-w-2xl mx-auto p-4 space-y-4 pb-24">
-            <header className="flex items-center justify-between">
-                <h1 className="text-xl font-semibold">Капитал</h1>
-                <Button variant="ghost" size="icon" aria-label="Что такое капитал?" onClick={() => setTheoryOpen(true)}>
-                    <HelpCircle size={20} />
-                </Button>
-            </header>
+        <>
+            <MoneyView summary={data.summary} accounts={data.accounts} funds={data.funds} points={data.points}
+                today={todayIso(new Date())}
+                onUpdate={() => window.dispatchEvent(new Event(REANCHOR))}
+                onAddCard={preset => setCardSheet({ type: 'create', preset })}
+                onAccount={account => setCardSheet({ type: 'view', account })}
+                onItem={item => setItemSheet({ type: 'view', item })}
+                onAddItem={() => setItemSheet({ type: 'create' })} />
 
-            {isEmpty ? (
-                <EmptyState onCreate={openCreate} onTheory={() => setTheoryOpen(true)} />
-            ) : (
-                <>
-                    <CapitalSummaryCard summary={summary} />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <CapitalItemList
-                            kind="ASSET"
-                            computed={computedRow('ASSET', summary)}
-                            items={summary.items.filter(i => i.kind === 'ASSET')}
-                            onItemClick={openView}
-                            onCreate={() => openCreate('ASSET')} />
-                        <CapitalItemList
-                            kind="LIABILITY"
-                            computed={computedRow('LIABILITY', summary)}
-                            items={summary.items.filter(i => i.kind === 'LIABILITY')}
-                            onItemClick={openView}
-                            onCreate={() => openCreate('LIABILITY')} />
-                    </div>
-                    <CapitalTrajectoryChart refreshSignal={refreshTick} />
-                </>
+            {itemSheet && <CapitalItemSheet key={itemSheet.type === 'view' ? itemSheet.item.id : 'new'} mode={itemSheet}
+                onClose={() => setItemSheet(null)} />}
+            {cardSheet && <AccountSheet key={cardSheet.type === 'view' ? cardSheet.account.id : 'new'} mode={cardSheet}
+                categories={data.categories} onClose={() => setCardSheet(null)} onChanged={setToast} />}
+
+            {toast && (
+                <div role="status" className="fixed inset-x-4 bottom-[96px] z-40 mx-auto max-w-[420px] rounded-sf-plate bg-sf-ink px-4 py-3 text-center font-sf text-sf-note text-sf-page lg:bottom-6">
+                    {toast}
+                </div>
             )}
-
-            <CapitalSheet
-                open={sheetMode !== null}
-                mode={sheetMode}
-                onClose={() => setSheetMode(null)}
-                onChanged={onChanged}
-            />
-            <HelpDialog topic="capital" open={theoryOpen} onOpenChange={setTheoryOpen} />
-        </div>
-    );
-}
-
-function EmptyState({ onCreate, onTheory }: { onCreate: (k: CapitalItemKind) => void; onTheory: () => void }) {
-    return (
-        <div className="text-center py-16 px-4">
-            <h2 className="text-lg font-semibold mb-2">Здесь будет ваш капитал</h2>
-            <p className="text-sm mb-6 max-w-md mx-auto" style={{ color: 'var(--color-text-muted)' }}>
-                Добавьте первый актив (квартира, авто, валюта, ценное имущество) или обязательство (ипотека, кредит).
-                Деньги на счетах и копилки уже считаются автоматически.
-            </p>
-            <div className="flex gap-2 justify-center flex-wrap">
-                <Button onClick={() => onCreate('ASSET')}>+ Добавить актив</Button>
-                <Button variant="outline" onClick={() => onCreate('LIABILITY')}>+ Добавить обязательство</Button>
-                <Button variant="ghost" onClick={onTheory}>Что такое капитал? →</Button>
-            </div>
-        </div>
+        </>
     );
 }

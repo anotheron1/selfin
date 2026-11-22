@@ -17,30 +17,33 @@ const defaultTracking = (kind: AccountKind) => kind !== 'CASH';
  * «в начале настраивать нечего»). Кредитные поля появляются только у кредитки, потому что
  * на других счетах база их всё равно отвергнет.
  */
-export default function AccountForm({ initial, categories, onSubmit, onCancel, error }: {
+export default function AccountForm({ initial, preset, categories, onSubmit, onCancel, error }: {
     initial: Account | null;
+    /** «+» в группе «Денег» уже знает ответ (срез 4, S4-A3): природа и слежение новой карты. */
+    preset?: { kind: AccountKind; trackBalance: boolean };
     categories: Category[];
     onSubmit: (dto: AccountCreateDto) => void;
     onCancel: () => void;
     error: string | null;
 }) {
     const [name, setName] = useState('');
-    const [kind, setKind] = useState<AccountKind>('DEBIT');
-    const [trackBalance, setTrackBalance] = useState(true);
+    // Первый вид — уже с ответом «+» в группе: без мигания формы до эффекта ниже.
+    const [kind, setKind] = useState<AccountKind>(preset?.kind ?? 'DEBIT');
+    const [trackBalance, setTrackBalance] = useState(preset?.trackBalance ?? true);
     const [purposeCategoryId, setPurposeCategoryId] = useState('');
     const [creditLimit, setCreditLimit] = useState('');
     const [availableFloor, setAvailableFloor] = useState('');
-    const [expanded, setExpanded] = useState(false);
+    const [expanded, setExpanded] = useState(preset != null);
 
     useEffect(() => {
         setName(initial?.name ?? '');
-        setKind(initial?.kind ?? 'DEBIT');
-        setTrackBalance(initial ? initial.trackBalance : true);
+        setKind(initial?.kind ?? preset?.kind ?? 'DEBIT');
+        setTrackBalance(initial ? initial.trackBalance : preset?.trackBalance ?? true);
         setPurposeCategoryId(initial?.purposeCategoryId ?? '');
         setCreditLimit(initial?.creditLimit != null ? String(initial.creditLimit) : '');
         setAvailableFloor(initial?.availableFloor != null ? String(initial.availableFloor) : '');
-        setExpanded(initial != null);
-    }, [initial]);
+        setExpanded(initial != null || preset != null);
+    }, [initial, preset]);
 
     /** Смена природы переставляет тумблер на её дефолт — но только при создании: у живого
      *  счёта пользователь свой выбор уже сделал, и перетирать его молча нельзя. */
