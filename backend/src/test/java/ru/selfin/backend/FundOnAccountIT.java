@@ -259,6 +259,43 @@ class FundOnAccountIT {
         assertThat(pocket()).isEqualByComparingTo(free0);
     }
 
+    @Test
+    @DisplayName("ревью Codex на #240: перенос даты не возвращает денег удалённой копилке — 409, «Уже в копилках» 0")
+    void dateMove_revivingDeletedFund_refused() throws Exception {
+        String fund = fund("Квартира", deposit);
+        jdbc.update("UPDATE fund_account_links SET linked_from = CURRENT_DATE - 3 WHERE fund_id = ?::uuid", fund);
+        jdbc.update("UPDATE balance_checkpoints SET date = CURRENT_DATE - 3 WHERE account_id = ?::uuid", deposit);
+        transfer(fund, "8000", today.minusDays(1)).andExpect(status().isOk());
+        link(fund, null);
+        mvc.perform(delete("/api/v1/funds/{id}", fund).param("money", "RETURN")).andExpect(status().isNoContent());
+
+        mvc.perform(patch("/api/v1/events/{id}/fact", transferEvent("8000")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"factAmount\":8000,\"date\":\"" + today + "\"}"))
+                .andExpect(status().isConflict());
+
+        assertThat(balances.envelopesAt(today)).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("ревью Codex на #240: перенос копилки на другой счёт уводит его в минус переводами дня — 409, копилка на месте")
+    void relink_makingNewAccountNegative_refused() throws Exception {
+        String fund = fund("Квартира", deposit);
+        // Малый вклад обновлён раньше снятия: обновление позже само включало бы снятие дня.
+        String small = id(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name":"Малый вклад","purpose":"SAVINGS","balance":1000}"""))
+                .andExpect(status().isCreated()));
+        transfer(fund, "-3000", null).andExpect(status().isOk());
+
+        mvc.perform(put("/api/v1/funds/{id}", fund).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Квартира\",\"targetAmount\":1000000,\"accountId\":\"" + small + "\"}"))
+                .andExpect(status().isConflict());
+
+        assertThat(jdbc.queryForObject("SELECT account_id::text FROM target_funds WHERE id = ?::uuid", String.class, fund))
+                .isEqualTo(deposit);
+        assertThat(byRecords(small)).isEqualByComparingTo("1000");
+        assertThat(byRecords(deposit)).isEqualByComparingTo("97000");
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
 
     private String transferEvent(String amount) {
