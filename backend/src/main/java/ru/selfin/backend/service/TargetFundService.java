@@ -666,21 +666,20 @@ public class TargetFundService {
         FundTransaction tx = transactionRepository.findByIdempotencyKey(key).orElse(null);
         BigDecimal current = tx != null && !tx.isDeleted() ? tx.getAmount() : BigDecimal.ZERO;
         BigDecimal delta = desired.subtract(current);
-        if (delta.signum() == 0) {
-            // Срез 3 п. 2: у перевода правится дата — движение идёт за ней, иначе капитал за прошлые
-            // даты разошёлся бы со счётом.
-            if (tx != null && !tx.isDeleted() && !date.equals(tx.getTransactionDate())) {
-                tx.setTransactionDate(date);
-                transactionRepository.save(tx);
-            }
-            return;
-        }
+        // Срез 3 п. 2: у перевода правится дата — движение идёт за ней, иначе капитал за прошлые даты разошёлся бы со
+        // счётом. Срез 4, п. 6 (ревью Codex на #240): дата может перенести движение через границу привязки к счёту —
+        // конверт и счёт пересчитываются, как при смене суммы.
+        LocalDate oldDate = tx != null && !tx.isDeleted() ? tx.getTransactionDate() : null;
+        boolean dateMoved = oldDate != null && !date.equals(oldDate);
+        if (delta.signum() == 0 && !dateMoved) return;
 
         // Деньги уже лежат в копилке движения — она и двигается; копилка события — для нового.
         TargetFund fund = tx != null ? tx.getFund() : fundRepository.findById(fundId)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
-        if (fund.isDeleted()) throw FundMovementRefusedException.closed(fund.getName());
-        requireAccountUpdated(fund);
+        if (delta.signum() != 0) {
+            if (fund.isDeleted()) throw FundMovementRefusedException.closed(fund.getName());
+            requireAccountUpdated(fund);
+        }
 
         if (tx == null) {
             tx = FundTransaction.builder()
@@ -698,6 +697,10 @@ public class TargetFundService {
         }
         transactionRepository.save(tx);
         settleEnvelope(fund);
+        // Со счёта деньги уходят только в день прежнего движения: новый день счёт лишь пополняет.
+        if (delta.signum() < 0 || dateMoved) {
+            requireAccountKeepsMoney(fund, oldDate != null ? oldDate : date, delta.signum() < 0 ? delta.negate() : current);
+        }
 
         log.info("fund_movement_sync fund_id={} key={} movement={} delta={} balance_after={}",
                 fund.getId(), key, desired, delta, fund.getCurrentBalance());
@@ -740,6 +743,25 @@ public class TargetFundService {
                 f.getTargetDate(), calcEstimatedCompletion(f, balance),
                 f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths(),
                 f.getWishlistStatus());
+    }
+
+    /**
+     * Уменьшенный, перенесённый или удалённый перевод не уводит в минус счёт, на котором копилка лежала в день движения
+     * (срез 4, п. 6; ревью Codex на #240). Поле конверта движения на счёте не держит, и {@link #settleEnvelope} такой
+     * минус не видит — та же арифметика, что снятие сверх остатка в {@link #doTransfer}. Основная и конверт — мимо:
+     * их остатки держат свои правила.
+     *
+     * @param removed сколько ушло со счёта — для слов отказа «было столько»
+     */
+    private void requireAccountKeepsMoney(TargetFund fund, LocalDate day, BigDecimal removed) {
+        if (day == null) return;
+        FundLinks links = accountBalanceService.fundLinks();
+        UUID accountId = links.accountOn(fund.getId(), day);
+        if (accountId == null || accountId.equals(links.defaultAccountId())) return;
+        accountRepository.findById(accountId).filter(a -> !a.isDeleted()).ifPresent(a -> {
+            BigDecimal left = accountBalanceService.balanceAt(a, LocalDate.now(clock));
+            if (left.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), left.add(removed));
+        });
     }
 
     /**

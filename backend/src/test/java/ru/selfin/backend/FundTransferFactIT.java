@@ -161,6 +161,28 @@ class FundTransferFactIT {
         assertThat(liquid(TODAY)).isEqualByComparingTo(liquidBefore);
     }
 
+    @Test
+    @DisplayName("у перевода удалённой копилки дата правится, как и раньше: сумма та же, копилка не тронута")
+    void transferFactOfDeletedFund_dateStillMoves() throws Exception {
+        String fundId = createFund("Отпуск");
+        transfer(fundId, "100", true, null).andExpect(status().isOk());
+        String factId = transferFactOf(fundId);
+        mockMvc.perform(delete("/api/v1/funds/{id}", fundId).param("money", "RETURN"))
+                .andExpect(status().isNoContent());
+        String status0 = jdbc.queryForObject("SELECT status FROM target_funds WHERE id = ?::uuid", String.class, fundId);
+        BigDecimal liquidBefore = liquid(TODAY);
+
+        mockMvc.perform(patch("/api/v1/events/{id}/fact", factId).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"factAmount\": 100, \"date\": \"%s\"}".formatted(TODAY.minusDays(1))))
+                .andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("SELECT date FROM financial_events WHERE id = ?::uuid", LocalDate.class, factId))
+                .isEqualTo(TODAY.minusDays(1));
+        assertThat(jdbc.queryForObject("SELECT status FROM target_funds WHERE id = ?::uuid", String.class, fundId))
+                .isEqualTo(status0);
+        assertThat(liquid(TODAY)).isEqualByComparingTo(liquidBefore);
+    }
+
     /** Р3 (ANO-25): факт к плану — отдельная запись; строке плана PATCH отказывает и сегодняшней датой. */
     @Test
     @DisplayName("старый путь PATCH на плане перевода — 400 и сегодняшней датой, копилка не тронута")

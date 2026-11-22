@@ -25,7 +25,9 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -206,7 +208,46 @@ class FundOnAccountIT {
         assertThat(byRecords(mainCard())).isEqualByComparingTo(card0);
     }
 
+    @Test
+    @DisplayName("ревью Codex на #240: дата перевода перенесена с дня на счёте на день конверта — конверт и поле сходятся")
+    void dateOnlyEdit_acrossUnlink_settlesEnvelope() throws Exception {
+        String fund = fund("Квартира", deposit);
+        jdbc.update("UPDATE fund_account_links SET linked_from = CURRENT_DATE - 3 WHERE fund_id = ?::uuid", fund);
+        jdbc.update("UPDATE balance_checkpoints SET date = CURRENT_DATE - 3 WHERE account_id = ?::uuid", deposit);
+        transfer(fund, "8000", today.minusDays(1)).andExpect(status().isOk());
+        link(fund, null);
+        BigDecimal capital0 = capitalTotal();
+
+        mvc.perform(patch("/api/v1/events/{id}/fact", transferEvent("8000")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"factAmount\":8000,\"date\":\"" + today + "\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(balances.envelopesAt(today)).as("перевод сегодня — конвертом").isEqualByComparingTo("8000");
+        assertThat(fundBalance(fund)).as("поле копилки — те же деньги").isEqualByComparingTo("8000");
+        assertThat(capitalTotal()).isEqualByComparingTo(capital0);
+    }
+
+    @Test
+    @DisplayName("ревью Codex на #240: удалить перевод, после которого со счёта копилки сняли всё, — 409, счёт не в минус")
+    void deleteTransfer_wouldMakeAccountNegative_refused() throws Exception {
+        String fund = fund("Квартира", deposit);
+        transfer(fund, "8000", null).andExpect(status().isOk());
+        transfer(fund, "-108000", null).andExpect(status().isOk());
+        String event = transferEvent("8000");
+
+        mvc.perform(delete("/api/v1/events/{id}", event)).andExpect(status().isConflict());
+
+        assertThat(byRecords(deposit)).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT is_deleted FROM financial_events WHERE id = ?::uuid", Boolean.class, event))
+                .isFalse();
+    }
+
     // ── оснастка ─────────────────────────────────────────────────────────────
+
+    private String transferEvent(String amount) {
+        return jdbc.queryForObject("SELECT id::text FROM financial_events WHERE type = 'FUND_TRANSFER' AND fact_amount = ?",
+                String.class, new BigDecimal(amount));
+    }
 
     private String fund(String name, String accountId) throws Exception {
         return id(mvc.perform(post("/api/v1/funds").contentType(MediaType.APPLICATION_JSON)
