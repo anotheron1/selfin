@@ -48,7 +48,7 @@ class AccountBalanceServiceTest {
         accountRepository = mock(AccountRepository.class);
         checkpointRepository = mock(BalanceCheckpointRepository.class);
         eventRepository = mock(FinancialEventRepository.class);
-        service = new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class));
+        service = new AccountBalanceService(accountRepository, checkpointRepository, eventRepository, mock(FundTransactionRepository.class), org.mockito.Mockito.mock(ru.selfin.backend.repository.FundAccountLinkRepository.class));
     }
 
     // ── хелперы ──────────────────────────────────────────────────────────────

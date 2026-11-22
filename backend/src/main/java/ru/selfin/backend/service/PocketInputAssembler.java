@@ -168,9 +168,10 @@ public class PocketInputAssembler {
         Optional<BalanceCheckpoint> checkpoint = accountBalanceService.defaultAccount()
                 .flatMap(a -> accountBalanceService.anchorAt(a, asOfDate));
         LocalDate from = checkpoint.map(BalanceCheckpoint::getDate).orElse(EPOCH);
+        FundLinks links = accountBalanceService.fundLinks();
         List<EventSnapshot> events = new ArrayList<>(eventRepository
                 .findAllByDeletedFalseAndDateBetween(from, PocketEngine.trajectoryEnd(asOfDate, horizonEnd))
-                .stream().map(EventSnapshot::from).toList());
+                .stream().map(e -> EventSnapshot.from(e, links.leavesCard(e))).toList());
 
         // Операциональные refs baseline (§9 sandbox): датированные FIXED-неконвертированные
         // события-хотелки, реально сидящие в траектории. Фильтр обязан зеркалить движковый

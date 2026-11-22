@@ -43,6 +43,11 @@ public interface FinancialEventRepository extends JpaRepository<FinancialEvent, 
 
     List<FinancialEvent> findAllByDeletedFalseAndDateBetween(LocalDate start, LocalDate end);
 
+    /** Переводы в эти копилки за даты — остаток счёта копилки (срез 4, п. 6; {@code AccountBalanceService.balanceAt}). */
+    List<FinancialEvent> findAllByDeletedFalseAndTypeAndTargetFundIdInAndDateBetween(
+            ru.selfin.backend.model.enums.EventType type, java.util.Collection<UUID> fundIds,
+            LocalDate start, LocalDate end);
+
     Optional<FinancialEvent> findByIdempotencyKey(UUID idempotencyKey);
 
     /** All non-deleted events with given priority, ordered by createdAt. */

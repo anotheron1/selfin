@@ -50,7 +50,14 @@ class BalanceCheckpointServiceTest {
         accountRepository = mock(AccountRepository.class);
         when(eventRepository.findAllByDeletedFalseAndDateBetween(any(), any())).thenReturn(List.of());
         service = new BalanceCheckpointService(repository, eventRepository, accountRepository,
-                Clock.systemDefaultZone(), null, null);
+                Clock.systemDefaultZone(), noLinks(), null);
+    }
+
+    /** Остаток и «Свободно» этим тестам не нужны — только история привязок копилок для дрейфа (срез 4, п. 6). */
+    private static AccountBalanceService noLinks() {
+        AccountBalanceService balances = mock(AccountBalanceService.class);
+        when(balances.fundLinks()).thenReturn(new FundLinks(List.of(), null));
+        return balances;
     }
 
     private static BalanceCheckpoint cp(LocalDate date, long amount, LocalDateTime createdAt) {

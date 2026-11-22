@@ -74,7 +74,8 @@ public final class PocketEngine {
             if (e.wishlistStatus() != null || e.factAmount() == null || e.date() == null) continue;
             if (!AnchorWindow.countsTowardBalance(e.date(), e.createdAt(),
                     in.checkpointDate(), in.checkpointCreatedAt(), in.asOfDate())) continue;
-            currentBalance = currentBalance.add(AnchorWindow.balanceEffect(e.type(), e.factAmount()));
+            currentBalance = currentBalance.add(AnchorWindow.balanceEffect(e.type(), e.factAmount(),
+                    e.onCredit(), e.toFundOnAccount()));
         }
         // Прочие счета (спека §4.1): их остатки уже посчитаны сборщиком входа,
         // безадресные факты к ним не применяются — они относятся к дефолтному счёту.

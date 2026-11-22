@@ -5,11 +5,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
+import ru.selfin.backend.model.FinancialEvent;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
+import ru.selfin.backend.model.enums.EventType;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
+import ru.selfin.backend.repository.FundAccountLinkRepository;
 import ru.selfin.backend.repository.FundTransactionRepository;
 
 import java.math.BigDecimal;
@@ -25,8 +28,9 @@ import java.util.UUID;
  *
  * <p>Безадресные факты применяются ТОЛЬКО к дефолтному счёту: транзакции адреса не
  * имеют осознанно (§5.1), разнести их по счетам нечем. Остальные счета двигаются
- * только чекпоинтами — известное ограничение первой версии (§6). Фиктивных операций,
- * чтобы это обойти, не выдумываем: замерший остаток честнее мусора в аналитике.
+ * чекпоинтами — известное ограничение первой версии (§6) — и переводами в свою копилку (срез 4, п. 6): у
+ * перевода адрес есть. Фиктивных операций, чтобы это обойти, не выдумываем: замерший остаток честнее мусора
+ * в аналитике.
  *
  * <p>NB: граница окна «что уже внутри якоря» живёт в {@link AnchorWindow} — одно место на
  * три бывших копии (ANO-82 централизовала то, что ANO-23 называла дублированием). Движок
@@ -46,6 +50,7 @@ public class AccountBalanceService {
     private final BalanceCheckpointRepository checkpointRepository;
     private final FinancialEventRepository eventRepository;
     private final FundTransactionRepository fundTransactionRepository;
+    private final FundAccountLinkRepository linkRepository;
 
     public Optional<Account> defaultAccount() {
         return accountRepository.findByDefaultAccountTrueAndDeletedFalse();
@@ -98,8 +103,32 @@ public class AccountBalanceService {
     public BigDecimal balanceAt(Account a, LocalDate t, BalanceCheckpoint anchor) {
         if (anchor == null) return BigDecimal.ZERO;
         BigDecimal base = anchor.getAmount();
-        if (!a.isDefaultAccount()) return base;
+        if (!a.isDefaultAccount()) return base.add(fundTransfersDelta(a, anchor, t));
         return base.add(factsDelta(anchor.getDate(), anchor.getCreatedAt(), t));
+    }
+
+    /** История привязок копилок на один расчёт (срез 4, п. 6): чьи переводы уводят деньги с основной. */
+    public FundLinks fundLinks() {
+        return new FundLinks(linkRepository.findAll(), defaultAccount().map(Account::getId).orElse(null));
+    }
+
+    /**
+     * Переводы в копилку, лежавшую в день записи на этом счёте, — после его обновления (срез 4, п. 6; ANO-262). Это те
+     * же деньги, что {@link AnchorWindow#balanceEffect} снял с основной: капитал от перевода не меняется. Граница —
+     * {@link AnchorWindow}, как у записей основной: число из банка уже содержит то, что было до обновления.
+     */
+    private BigDecimal fundTransfersDelta(Account a, BalanceCheckpoint anchor, LocalDate t) {
+        FundLinks links = fundLinks();
+        List<UUID> funds = links.fundsEverOn(a.getId());
+        if (funds.isEmpty()) return BigDecimal.ZERO;
+        return eventRepository.findAllByDeletedFalseAndTypeAndTargetFundIdInAndDateBetween(
+                        EventType.FUND_TRANSFER, funds, anchor.getDate(), t).stream()
+                .filter(e -> e.getFactAmount() != null && e.getWishlistStatus() == null)
+                .filter(e -> a.getId().equals(links.accountOn(e.getTargetFundId(), e.getDate())))
+                .filter(e -> AnchorWindow.countsTowardBalance(
+                        e.getDate(), e.getCreatedAt(), anchor.getDate(), anchor.getCreatedAt(), t))
+                .map(FinancialEvent::getFactAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /**
@@ -329,12 +358,14 @@ public class AccountBalanceService {
      *                      (используется фолбэком без якоря, см. {@link #noAnchorFallbackAt})
      */
     private BigDecimal factsDelta(LocalDate from, LocalDateTime fromCreatedAt, LocalDate to) {
+        FundLinks links = fundLinks();
         return eventRepository.findAllByDeletedFalseAndDateBetween(from, to).stream()
                 .filter(e -> e.getFactAmount() != null)
                 .filter(e -> e.getWishlistStatus() == null)
                 .filter(e -> AnchorWindow.countsTowardBalance(
                         e.getDate(), e.getCreatedAt(), from, fromCreatedAt, to))
-                .map(e -> AnchorWindow.balanceEffect(e.getType(), e.getFactAmount()))
+                .map(e -> AnchorWindow.balanceEffect(e.getType(), e.getFactAmount(), e.isOnCredit(),
+                        links.leavesCard(e)))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

@@ -74,7 +74,7 @@ class AccountServiceTest {
     @BeforeEach
     void setUp() {
         AccountBalanceService balanceService =
-                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo);
+                new AccountBalanceService(accountRepo, checkpointRepo, eventRepo, fundTxRepo, org.mockito.Mockito.mock(ru.selfin.backend.repository.FundAccountLinkRepository.class));
         service = new AccountService(accountRepo, categoryRepo, eventRepo, checkpointRepo,
                 fundRepo, balanceService, checkpointService, pocketService, Clock.systemDefaultZone());
     }

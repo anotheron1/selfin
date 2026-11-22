@@ -10,6 +10,7 @@ import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
+import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.BalanceCheckpointRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
@@ -42,15 +43,46 @@ public class BalanceCheckpointService {
     /** Лист «Обновить остатки» (срез 4, п. 3): карты с остатком — основная, вторая «на всё», накопительные, кредитки. */
     public BalanceSheetDto sheet() {
         LocalDate today = LocalDate.now(clock);
-        return new BalanceSheetDto(balances.active().stream()
+        List<Account> cards = balances.active().stream()
                 .filter(Account::isTrackBalance)
                 .sorted(java.util.Comparator.comparingInt(BalanceCheckpointService::sheetGroup))
+                .toList();
+        return new BalanceSheetDto(cards.stream()
                 .map(a -> {
                     BalanceCheckpoint anchor = balances.anchorAt(a, today).orElse(null);
+                    BigDecimal records = byRecords(a, today, anchor);
                     return new BalanceSheetDto.Card(a.getId(), a.getName(), a.getKind(), a.isDefaultAccount(),
-                            byRecords(a, today, anchor), anchor != null ? anchor.getDate() : null);
+                            records, anchor != null ? anchor.getDate() : null, transfersSince(a, anchor, records));
                 })
-                .toList());
+                .toList(), onCredit(cards, today));
+    }
+
+    /** «по записям» карты, кроме основной, — обновление плюс переводы в её копилку ({@code balanceAt}): разница — они. */
+    private static BigDecimal transfersSince(Account a, BalanceCheckpoint anchor, BigDecimal records) {
+        if (anchor == null || a.isDefaultAccount() || a.getKind() == AccountKind.CREDIT) return null;
+        return records.subtract(anchor.getAmount());
+    }
+
+    /**
+     * «В кредит записано» (срез 4, п. 2): записи с отметкой с самого старого из последних обновлений кредиток. Граница —
+     * {@link AnchorWindow}: записанное до ввода обновления уже в числе из банка.
+     */
+    private BalanceSheetDto.OnCredit onCredit(List<Account> cards, LocalDate today) {
+        BalanceCheckpoint oldest = cards.stream()
+                .filter(a -> a.getKind() == AccountKind.CREDIT)
+                .flatMap(a -> balances.anchorAt(a, today).stream())
+                .min(java.util.Comparator.comparing(BalanceCheckpoint::getDate)
+                        .thenComparing(BalanceCheckpoint::getCreatedAt,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
+                .orElse(null);
+        if (oldest == null) return null;
+        BigDecimal amount = eventRepository.findAllByDeletedFalseAndDateBetween(oldest.getDate(), today).stream()
+                .filter(e -> e.isOnCredit() && e.getFactAmount() != null && e.getWishlistStatus() == null)
+                .filter(e -> AnchorWindow.countsTowardBalance(e.getDate(), e.getCreatedAt(),
+                        oldest.getDate(), oldest.getCreatedAt(), today))
+                .map(FinancialEvent::getFactAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new BalanceSheetDto.OnCredit(oldest.getDate(), amount);
     }
 
     /** Порядок листа; внутри группы — порядок {@code active()}: сортировка устойчивая. */
@@ -165,6 +197,7 @@ public class BalanceCheckpointService {
                         LinkedHashMap::new, Collectors.toList()));
 
         Map<UUID, BalanceCheckpointDto> byId = new LinkedHashMap<>();
+        FundLinks links = balances.fundLinks();
         for (List<BalanceCheckpoint> group : byAccount.values()) {
             boolean isDefault = group.get(0).getAccount().isDefaultAccount();
             for (int i = 0; i < group.size(); i++) {
@@ -183,7 +216,8 @@ public class BalanceCheckpointService {
                                 e.getDate(), e.getCreatedAt(),
                                 prev.getDate(), prev.getCreatedAt(),
                                 cur.getDate(), cur.getCreatedAt()))
-                        .map(e -> AnchorWindow.balanceEffect(e.getType(), e.getFactAmount()))
+                        .map(e -> AnchorWindow.balanceEffect(e.getType(), e.getFactAmount(), e.isOnCredit(),
+                                links.leavesCard(e)))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal computed = prev.getAmount().add(delta);
                 byId.put(cur.getId(), toDto(cur, computed, cur.getAmount().subtract(computed)));

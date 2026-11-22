@@ -94,19 +94,6 @@ class FundTransferFactIT {
         assertThat(liquid(YESTERDAY)).as("и в день факта тоже").isEqualByComparingTo(liquidYesterday);
     }
 
-    @Test
-    @DisplayName("факт к плану копилки на счёте — отказ FUND_ON_ACCOUNT, факта нет")
-    void linkedFact_toAccountBackedFund_isRefused() throws Exception {
-        String fundId = createFundOnAccount("Цель на карте", firstTrackedAccountId());
-        String planId = createTransferPlan(fundId, "1000", TODAY);
-
-        linkedFact(planId, "1000", TODAY)
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.details[0]").value("FUND_ON_ACCOUNT"));
-
-        assertThat(transferFactsOf(planId)).as("отказ откатывает и сам факт").isZero();
-    }
-
     // ── ANO-201: правка и удаление перевода ─────────────────────────────────
 
     @Test
@@ -274,24 +261,6 @@ class FundTransferFactIT {
                 VALUES (?::uuid, ?, 1000000, 0, 'FUNDING', 'SAVINGS', false, now())
                 """, id, name);
         return id;
-    }
-
-    private String createFundOnAccount(String name, String accountId) {
-        String id = jdbc.queryForObject("SELECT gen_random_uuid()::text", String.class);
-        jdbc.update("""
-                INSERT INTO target_funds
-                    (id, name, target_amount, current_balance, status, purchase_type,
-                     is_deleted, created_at, account_id)
-                VALUES (?::uuid, ?, 1000000, 0, 'FUNDING', 'SAVINGS', false, now(), ?::uuid)
-                """, id, name, accountId);
-        return id;
-    }
-
-    private String firstTrackedAccountId() {
-        return jdbc.queryForObject(
-                "SELECT id::text FROM accounts WHERE is_deleted = false"
-                        + " AND track_balance = true ORDER BY is_default DESC, created_at LIMIT 1",
-                String.class);
     }
 
     /** План перевода — как его создаёт быстрый ввод: без категории, характер «Ожидание». */

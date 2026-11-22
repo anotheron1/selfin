@@ -58,6 +58,7 @@ class PocketServiceTest {
         when(fundRepository.findByWishlistStatusAndDeletedFalse(any())).thenReturn(List.of());
         CategoryRepository categoryRepository = mock(CategoryRepository.class);
         AccountBalanceService accountBalanceService = mock(AccountBalanceService.class);
+        when(accountBalanceService.fundLinks()).thenReturn(new FundLinks(List.of(), null));
         when(accountBalanceService.snapshot(any(), any()))
                 .thenReturn(new AccountBalanceService.Snapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
 
