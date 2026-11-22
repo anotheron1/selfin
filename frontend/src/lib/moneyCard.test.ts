@@ -184,6 +184,7 @@ describe('история обновлений (п. 12)', () => {
         expect(diffLine(cp('2', '2026-11-12', 92000, null), false, prev)).toBe('как в прошлый раз');
         expect(pointNote(cp('2', '2026-11-12', 96000, null), false, prev)).toBe('В прошлый раз было 92 000 ₽: на 4 000 ₽ больше.');
         expect(pointNote(cp('2', '2026-11-12', 92000, null), false, prev)).toBe('В прошлый раз было 92 000 ₽ — столько же.');
+        expect(pointNote(cp('2', '2026-11-12', 90500, null), false, prev)).toBe('В прошлый раз было 92 000 ₽: на 1 500 ₽ меньше.');
         // первое — по-прежнему «первое»
         expect(diffLine(prev, false, undefined)).toBe('первое обновление');
         expect(pointNote(prev, false, undefined)).toBe('Первое обновление.');
