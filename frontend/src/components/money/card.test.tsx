@@ -82,6 +82,13 @@ describe('лист карты (п. 12)', () => {
         expect(html).not.toContain('Сделать основной');
     });
 
+    it('кредитка: второе обновление — сравнение с прошлым разом, не «первое обновление»', () => {
+        const html = body(acc({ kind: 'CREDIT', balance: 96000, balanceDate: '2026-11-22', creditLimit: 100000, debt: 4000 }),
+            [cp('1', '2026-11-01', 92000, null), cp('2', '2026-11-22', 96000, null)]);
+        expect(html).toContain('В прошлый раз было 92 000 ₽: на 4 000 ₽ больше.');
+        expect(html).not.toContain('Первое обновление');
+    });
+
     it('кредитка без «возвращать до» — плашки нет', () => {
         const html = body(acc({ kind: 'CREDIT', balance: 85000, balanceDate: '2026-11-22', creditLimit: 100000, debt: 15000 }));
         expect(html).not.toContain('Возвращать до');
@@ -128,6 +135,8 @@ describe('лист карты (п. 12)', () => {
         expect(src).toContain('creditLimit: a.creditLimit, availableFloor: a.floorSuggestion,');
         expect(src).toContain("onRecord({ type: 'FUND_TRANSFER', targetFundId: own.length === 1 ? own[0].id : undefined })");
         expect(src).toContain("onRecord({ type: 'EXPENSE', categoryId: a.purposeCategoryId! })");
+        // «Все обновления» раскрываются нажатием: строка без «по записям» — с прошлым разом, как у точки
+        expect(src).toContain('{diffLine(c, savings, prevOf(c))}');
         // вопрос «Удалить обновление?»: последнее — «первое обновление», иначе — от предыдущего
         expect(src).toContain("history.length === 1 ? 'Обновлений не останется — будет «первое обновление».' : 'Остаток посчитается от предыдущего.'");
         // имя окна «Добавить карту» — по ответу группы (FormSheet — портал, разметка его не видит)

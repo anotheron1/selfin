@@ -177,6 +177,18 @@ describe('история обновлений (п. 12)', () => {
         expect(pointNote(cp('2', '2026-11-03', 22000, 22100), true)).toBe('По записям было 22 100 ₽: в банке на 100 ₽ меньше.');
     });
 
+    it('не основная: «по записям» сервер не считает (записи её не двигают) — не «первое», а сравнение с прошлым разом', () => {
+        const prev = cp('1', '2026-11-01', 92000, null);
+        expect(diffLine(cp('2', '2026-11-12', 96000, null), false, prev)).toBe('на 4 000 ₽ больше, чем в прошлый раз');
+        expect(diffLine(cp('2', '2026-11-12', 90500, null), false, prev)).toBe('на 1 500 ₽ меньше, чем в прошлый раз');
+        expect(diffLine(cp('2', '2026-11-12', 92000, null), false, prev)).toBe('как в прошлый раз');
+        expect(pointNote(cp('2', '2026-11-12', 96000, null), false, prev)).toBe('В прошлый раз было 92 000 ₽: на 4 000 ₽ больше.');
+        expect(pointNote(cp('2', '2026-11-12', 92000, null), false, prev)).toBe('В прошлый раз было 92 000 ₽ — столько же.');
+        // первое — по-прежнему «первое»
+        expect(diffLine(prev, false, undefined)).toBe('первое обновление');
+        expect(pointNote(prev, false, undefined)).toBe('Первое обновление.');
+    });
+
     it('график: точки — обновления; пунктир идёт до «по записям» следующей точки и до сегодня', () => {
         const c = historyChart(cardHistory(list, 'a'), { date: '2026-11-22', value: 47000 }, 300, 100);
         expect(c.dots.map(d => d.id)).toEqual(['1', '2']);

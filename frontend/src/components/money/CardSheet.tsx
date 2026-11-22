@@ -73,6 +73,7 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
 
     const point = history.find(c => c.id === picked) ?? history[history.length - 1] ?? null;
     const last = history[history.length - 1] ?? null;
+    const prevOf = (c: BalanceCheckpoint) => history[history.indexOf(c) - 1];
     const own = funds.filter(f => f.accountId === a.id);
     const toggle = (key: Open) => { setError(null); setOpen(o => (o === key ? null : key)); };
     const run = async (write: () => Promise<unknown>, after: () => void, failure: (e: unknown) => string = writeFailure) => {
@@ -182,7 +183,7 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
                             <span className="text-sf-body font-semibold">
                                 {`${fmtDayYear(point.date, today)}${point.date === today ? ', сегодня' : ''} — ${fmtAmount(point.amount)}`}
                             </span>
-                            <span className="text-sf-note text-sf-muted">{pointNote(point, savings)}</span>
+                            <span className="text-sf-note text-sf-muted">{pointNote(point, savings, prevOf(point))}</span>
                             {open === 'drop' ? (
                                 <>
                                     <span className="text-sf-note">
@@ -217,7 +218,7 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
                                             c.id === point.id && 'bg-sf-accent-soft')}>
                                         <span className="flex min-w-0 flex-1 flex-col">
                                             <span className="text-sf-body">{fmtDayYear(c.date, today)}</span>
-                                            <span className="text-sf-label text-sf-muted">{diffLine(c, savings)}</span>
+                                            <span className="text-sf-label text-sf-muted">{diffLine(c, savings, prevOf(c))}</span>
                                         </span>
                                         <span className="whitespace-nowrap text-sf-body tabular-nums">{fmtAmount(c.amount)}</span>
                                         <Pencil size={14} className="shrink-0 text-sf-muted" />

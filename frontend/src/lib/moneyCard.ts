@@ -145,18 +145,36 @@ export const cardHistory = (all: BalanceCheckpoint[], accountId: string): Balanc
     all.filter(c => c.accountId === accountId)
         .sort((x, y) => x.date.localeCompare(y.date) || x.createdAt.localeCompare(y.createdAt));
 
-/** Разница строкой истории: «по записям» вместо «дрейфа» (концепция, раздел 3); рост вклада — проценты (решение 24). */
-export function diffLine(c: BalanceCheckpoint, savings: boolean): string {
-    if (c.computedBalance == null || c.drift == null) return 'первое обновление';
+/**
+ * Разница с прошлым обновлением — у точки без «по записям». Сервер считает «по записям» только у основной: другие карты
+ * записи не двигают (`BalanceCheckpointService.findAll`), и у них это не «первое обновление», а сравнение с прошлым разом.
+ */
+const sincePrev = (c: BalanceCheckpoint, prev: BalanceCheckpoint) => Math.round((c.amount - prev.amount) * 100) / 100;
+
+/**
+ * Разница строкой истории: «по записям» вместо «дрейфа» (концепция, раздел 3); рост вклада — проценты (решение 24).
+ * @param prev прошлое обновление этой карты; нет — точка первая
+ */
+export function diffLine(c: BalanceCheckpoint, savings: boolean, prev?: BalanceCheckpoint): string {
+    if (c.computedBalance == null || c.drift == null) {
+        if (!prev) return 'первое обновление';
+        const d = sincePrev(c, prev);
+        return d === 0 ? 'как в прошлый раз' : `на ${fmtAmount(Math.abs(d))} ${d > 0 ? 'больше' : 'меньше'}, чем в прошлый раз`;
+    }
     if (c.drift === 0) return 'сошлось с записями';
     const more = c.drift > 0;
     return `в банке на ${fmtAmount(Math.abs(c.drift))} ${more ? 'больше' : 'меньше'}, чем по записям`
         + (more && savings ? ', — обычно это проценты' : '');
 }
 
-/** Нажатая точка: «По записям было 48 500 ₽: в банке на 300 ₽ больше.» */
-export function pointNote(c: BalanceCheckpoint, savings: boolean): string {
-    if (c.computedBalance == null || c.drift == null) return 'Первое обновление.';
+/** Нажатая точка: «По записям было 48 500 ₽: в банке на 300 ₽ больше.»; без «по записям» — с прошлым разом (`diffLine`). */
+export function pointNote(c: BalanceCheckpoint, savings: boolean, prev?: BalanceCheckpoint): string {
+    if (c.computedBalance == null || c.drift == null) {
+        if (!prev) return 'Первое обновление.';
+        const d = sincePrev(c, prev);
+        const was = `В прошлый раз было ${fmtAmount(prev.amount)}`;
+        return d === 0 ? `${was} — столько же.` : `${was}: на ${fmtAmount(Math.abs(d))} ${d > 0 ? 'больше' : 'меньше'}.`;
+    }
     const was = `По записям было ${fmtAmount(c.computedBalance)}: `;
     if (c.drift === 0) return `${was}сошлось.`;
     const more = c.drift > 0;
