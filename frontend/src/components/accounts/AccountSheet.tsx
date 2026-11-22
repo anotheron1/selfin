@@ -121,7 +121,10 @@ export default function AccountSheet({ mode, categories, onClose, onChanged }: {
         setArchivingId(item.id);
         try {
             await addCapitalRevaluation(item.id, { value: 0 });
-            setHintFor(prev => prev && { ...prev, items: prev.items.filter(i => i.id !== item.id) });
+            // Последний долг убран — подсказке нечего показывать, лист закрывается, а не висит пустым (ревью Gemini на #241).
+            const left = hintFor?.items.filter(i => i.id !== item.id) ?? [];
+            if (left.length === 0) { done(copy.capitalHintArchived); return; }
+            setHintFor(prev => prev && { ...prev, items: left });
             onChanged(copy.capitalHintArchived);
         } catch (e) {
             setNotice(writeFailure(e));
@@ -143,7 +146,7 @@ export default function AccountSheet({ mode, categories, onClose, onChanged }: {
                     onCancel={account ? () => setEditing(false) : onClose} />
             ) : account && (
                 <AccountCard account={account}
-                    onEdit={() => { setEditing(true); setFormError(null); }}
+                    onEdit={() => { setEditing(true); setFormError(null); setNotice(null); }}
                     onDelete={handleDelete}
                     onMakeDefault={handleMakeDefault}
                     onRaiseFloor={handleRaiseFloor} />

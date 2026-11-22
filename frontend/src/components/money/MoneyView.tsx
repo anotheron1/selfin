@@ -182,7 +182,7 @@ function Row({ icon: Icon, name, sub, value, caption, paired = false, onClick, m
             <span className="flex min-w-0 flex-1 flex-col gap-px">
                 <span className="truncate text-sf-body">{name}</span>
                 {sub.map((s, i) => (
-                    <span key={i} className="flex items-center gap-1 truncate text-sf-label leading-4 text-sf-muted">{i === 0 && mark}{s}</span>
+                    <span key={i} className="flex items-center gap-1 truncate text-sf-label leading-4 text-sf-muted">{i === 0 && mark}<span className="min-w-0 truncate">{s}</span></span>
                 ))}
             </span>
             <span className="flex shrink-0 flex-col items-end">

@@ -247,6 +247,45 @@ describe('лист вещи и долга: записи (ревью #241)', () =
     });
 });
 
+describe('ревью Gemini на #241', () => {
+    const src = async (path: string) => (await import('node:fs')).readFileSync(new URL(path, import.meta.url), 'utf8');
+
+    it('график: период по умолчанию считается заново, пока человек не выбрал свой', async () => {
+        const s = await src('./MoneyChart.tsx');
+        expect(s).toContain('const range = picked ?? defaultRange(points[0]?.date ?? null, today);');
+    });
+    it('график, история и лист вещи — дата другого года с годом', async () => {
+        expect(await src('./MoneyChart.tsx')).toMatch(/с \$\{fmtDayYear\(change\.from, today\)\}/);
+        expect(await src('./MoneyChart.tsx')).toContain('{fmtDayYear(p.date, today)} · {fmtAmount(p.capital)}');
+        const sheet = await src('./CapitalItemSheet.tsx');
+        expect(sheet).toContain('{fmtDayYear(r.valuedAt, today())}');
+        expect(sheet).toContain('`оценка ${fmtDayYear(item.lastValuedAt, today())}`');
+    });
+    it('пустая дата не уходит: «Добавить» и «Сохранить оценку» закрыты', async () => {
+        const sheet = await src('./CapitalItemSheet.tsx');
+        expect(sheet).toContain('disabled={busy || !name.trim() || amount == null || !date}');
+        expect(sheet).toContain('disabled={busy || amount == null || !date}>Сохранить оценку');
+    });
+    it('лист закрывается после записи — без чтения удалённой вещи', async () => {
+        const sheet = await src('./CapitalItemSheet.tsx');
+        expect(sheet).not.toMatch(/onChanged\(\); onDone\(\);/);
+    });
+    it('«Продал» раскрывается с сегодняшней датой', async () => {
+        expect(await src('./CapitalItemSheet.tsx')).toContain("if (key === 'gone') setGoneDate(today());");
+    });
+    it('«Счетов» в «Настройках» больше нет — справка не отсылает туда', async () => {
+        expect(await src('../../lib/help.ts')).not.toContain('«Счетов»');
+    });
+    it('подпись карты обрезается многоточием — текст внутри своего span', async () => {
+        expect(await src('./MoneyView.tsx')).toContain('{i === 0 && mark}<span className="min-w-0 truncate">{s}</span>');
+    });
+    it('архивировал последний долг в подсказке — лист закрывается, а не висит пустым', async () => {
+        const s = await src('../accounts/AccountSheet.tsx');
+        expect(s).toContain('if (left.length === 0) { done(copy.capitalHintArchived); return; }');
+        expect(s).toContain('onEdit={() => { setEditing(true); setFormError(null); setNotice(null); }}');
+    });
+});
+
 describe('ширина «Денег» на 1440', () => {
     it('страница без прежних 672 px — иначе две колонки не помещаются (стенд, 1440)', async () => {
         const app = (await import('node:fs')).readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');

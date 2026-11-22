@@ -58,7 +58,7 @@ export function accountLine(a: Account, funds: TargetFund[], today: string): Acc
         const sub = [];
         if (a.debt != null && a.creditLimit != null) sub.push(`долг ${fmtNum(a.debt)} из ${fmtNum(a.creditLimit)}`);
         if (a.availableFloor != null) sub.push(`возвращаю до ${fmtNum(a.availableFloor)}`);
-        return { sub, value, caption: 'доступно', updated: false };
+        return { sub: sub.length ? sub : [updated], value, caption: 'доступно', updated: false };
     }
     if (!a.trackBalance) {
         return {
@@ -71,7 +71,7 @@ export function accountLine(a: Account, funds: TargetFund[], today: string): Acc
         const pot = names.length === 0 ? [] : [`${names.length === 1 ? 'копилка' : 'копилки'} ${names.join(', ')}`];
         return { sub: [[...pot, updated].join(' · ')], value, caption: null, updated: false };
     }
-    if (!a.isDefault) return { sub: ['считается вместе с основной'], value, caption: null, updated: false };
+    if (!a.isDefault) return { sub: [`считается вместе с основной · ${updated}`], value, caption: null, updated: false };
     return { sub: [updated], value, caption: null, updated: a.balanceDate != null };
 }
 
@@ -100,7 +100,10 @@ const MONTHS_BACK: Record<Exclude<Range, 'all'>, number> = { quarter: 3, '6m': 6
 function monthsBefore(iso: string, months: number): string {
     const [y, m, d] = iso.split('-').map(Number);
     const total = y * 12 + (m - 1) - months;
-    return `${Math.floor(total / 12)}-${String(total % 12 + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const [ty, tm] = [Math.floor(total / 12), total % 12 + 1];
+    // 31 мая минус квартал — 28 февраля, а не «31 февраля»: сервер ставит точки на настоящие концы месяцев.
+    const day = Math.min(d, new Date(ty, tm, 0).getDate());
+    return `${ty}-${String(tm).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /** По умолчанию «Всё», пока первой точке меньше года, потом «Год» (ANO-84, п. 1). */

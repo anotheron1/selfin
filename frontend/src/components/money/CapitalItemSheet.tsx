@@ -9,7 +9,7 @@ import type { CapitalItem, CapitalItemKind, CapitalRevaluation } from '../../typ
 import { amountValue } from '../ui/amount-input';
 import FormSheet from '../FormSheet';
 import { latestAllowedIso } from '../../lib/factDate';
-import { fmtAmount, fmtDayShort, fmtNum } from '../../lib/format';
+import { fmtAmount, fmtDayYear, fmtNum } from '../../lib/format';
 import { DELETE_FAILED, writeFailure } from '../../lib/writeFailure';
 
 /**
@@ -71,7 +71,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
     history: CapitalRevaluation[];
     /** Запись прошла — перечитать вещь, историю и экран. */
     onChanged: () => void;
-    /** Закрыть лист: создано, продано, удалено. */
+    /** Закрыть лист: создано, продано, удалено. Экран перечитается сам (CHANGED), удалённую вещь не читаем. */
     onDone: () => void;
 }) {
     const item = mode.type === 'view' ? mode.item : null;
@@ -110,7 +110,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
                 if (!name.trim() || amount == null) return;
                 void run(() => createCapitalItem({
                     kind, name: name.trim(), description: description.trim() || undefined, initialValue: amount, initialValuedAt: date,
-                }), () => { onChanged(); onDone(); });
+                }), onDone);
             }}>
                 <h2 className="pr-10 text-[20px] font-semibold">Имущество или долг</h2>
                 <Choices name="item-kind" label="Что это" options={KINDS} value={kind} onChange={v => setKind(v as CapitalItemKind)} />
@@ -120,13 +120,17 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
                     <Field value={description} onChange={e => setDescription(e.target.value)} placeholder="например, Лада Веста, 2021" />
                 </Labeled>
                 {error && <p role="alert" className="text-sf-note text-sf-error">{error}</p>}
-                <Button type="submit" disabled={busy || !name.trim() || amount == null}>Добавить</Button>
+                <Button type="submit" disabled={busy || !name.trim() || amount == null || !date}>Добавить</Button>
             </form>
         );
     }
 
     const Icon = item.kind === 'LIABILITY' ? Landmark : House;
-    const toggle = (key: string) => { setError(null); setOpen(o => o === key ? null : key); };
+    const toggle = (key: string) => {
+        setError(null);
+        if (key === 'gone') setGoneDate(today());
+        setOpen(o => o === key ? null : key);
+    };
 
     return (
         <div className="flex flex-col gap-3">
@@ -138,7 +142,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
                 <span className="flex min-w-[150px] flex-1 flex-col">
                     <span className="text-[20px] font-semibold leading-6">{item.name}</span>
                     <span className="text-sf-label text-sf-muted">
-                        {[w.kind, item.lastValuedAt && `оценка ${fmtDayShort(item.lastValuedAt)}`].filter(Boolean).join(' · ')}
+                        {[w.kind, item.lastValuedAt && `оценка ${fmtDayYear(item.lastValuedAt, today())}`].filter(Boolean).join(' · ')}
                     </span>
                 </span>
                 <Money value={fmtNum(item.currentValue)} size="m" className="ml-auto" />
@@ -155,7 +159,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
                 <Labeled label="Заметка (необязательно)">
                     <Field value={note} onChange={e => setNote(e.target.value)} placeholder="например, по объявлениям" />
                 </Labeled>
-                <Button type="submit" disabled={busy || amount == null}>Сохранить оценку</Button>
+                <Button type="submit" disabled={busy || amount == null || !date}>Сохранить оценку</Button>
             </form>
 
             <div className="flex items-baseline justify-between gap-2">
@@ -173,7 +177,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
                             <button type="button" onClick={() => toggle(`rev-${r.id}`)}
                                 className="flex w-full items-center gap-3 border-b border-sf-rule py-2.5 text-left hover:bg-sf-chip/40">
                                 <span className="flex min-w-0 flex-1 flex-col">
-                                    <span className="text-sf-body">{fmtDayShort(r.valuedAt)}</span>
+                                    <span className="text-sf-body">{fmtDayYear(r.valuedAt, today())}</span>
                                     {r.note && <span className="truncate text-sf-label text-sf-muted">{r.note}</span>}
                                 </span>
                                 <span className="whitespace-nowrap text-sf-body tabular-nums">{fmtAmount(r.value)}</span>
@@ -199,7 +203,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
             {open === 'gone' && (
                 <form className="flex flex-col gap-2 rounded-sf-plate bg-sf-plate p-3.5" onSubmit={e => {
                     e.preventDefault();
-                    void run(() => addCapitalRevaluation(item.id, { value: 0, valuedAt: goneDate }), () => { onChanged(); onDone(); });
+                    void run(() => addCapitalRevaluation(item.id, { value: 0, valuedAt: goneDate }), onDone);
                 }}>
                     {/* Не раньше последней оценки: ноль под ней не делает вещь архивной (ревью #241). */}
                     <Labeled label={`${w.gone} — дата`}>
@@ -216,7 +220,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
                         {`Удалить «${item.name}» насовсем? История оценок и вклад в график капитала исчезнут — это не отменить.`
                             + (item.isArchived ? '' : ` Если ${item.kind === 'LIABILITY' ? 'долг погашен' : 'вещь продана'} — лучше «${w.gone}»: история останется.`)}
                     </span>
-                    <Button disabled={busy} onClick={() => void run(() => deleteCapitalItem(item.id), () => { onChanged(); onDone(); }, () => DELETE_FAILED)}>
+                    <Button disabled={busy} onClick={() => void run(() => deleteCapitalItem(item.id), onDone, () => DELETE_FAILED)}>
                         Удалить насовсем
                     </Button>
                 </div>

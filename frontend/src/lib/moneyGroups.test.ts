@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     accountLine, capitalHead, defaultRange, moneyGroups, monthIn, rangeChange, rangePoints,
 } from './moneyGroups';
-import { fmtAmount, fmtSigned } from './format';
+import { fmtAmount, fmtDayYear, fmtSigned } from './format';
 import type { Account, CapitalItem, CapitalSummary, CapitalTrajectory, TargetFund } from '../types/api';
 
 /** Срез 4, пп. 8–11: группы «Денег», шапка капитала и период графика. */
@@ -94,8 +94,28 @@ describe('строка карты', () => {
             .toEqual(['копилки «Отпуск», «НЗ» · обновлён 1 нояб.']);
     });
 
-    it('вторая «на всё» — «считается вместе с основной» (п. 10)', () => {
-        expect(line(second).sub).toEqual(['считается вместе с основной']);
+    it('вторая «на всё» — «считается вместе с основной» и дата обновления (п. 10, опись 24, 25)', () => {
+        expect(line(second).sub).toEqual(['считается вместе с основной · обновлён 10 нояб.']);
+        expect(line({ ...second, balance: null, balanceDate: null }).sub).toEqual(['считается вместе с основной · первое обновление']);
+    });
+
+    it('кредитка с остатком без лимита и планки — дата обновления, а не пустая строка (ревью Gemini на #241)', () => {
+        expect(line({ ...credit, creditLimit: null, availableFloor: null, balanceDate: '2026-11-10' }).sub).toEqual(['обновлён 10 нояб.']);
+    });
+});
+
+describe('граница периода — существующий день (ревью Gemini на #241)', () => {
+    const p = (dates: string[]) => dates.map(date => ({ date, capital: 1, liquid: 0, assets: 0, liabilities: 0 }));
+
+    it('квартал от 31 мая берёт конец февраля, от 31 июля — конец апреля', () => {
+        expect(rangePoints(p(['2026-01-31', '2026-02-28', '2026-05-31']), 'quarter', '2026-05-31').map(x => x.date))
+            .toEqual(['2026-02-28', '2026-05-31']);
+        expect(rangePoints(p(['2026-03-31', '2026-04-30', '2026-07-31']), 'quarter', '2026-07-31').map(x => x.date))
+            .toEqual(['2026-04-30', '2026-07-31']);
+    });
+    it('год от 29 февраля — от 28 февраля прошлого года, и «по умолчанию» с ним согласен', () => {
+        expect(rangePoints(p(['2027-02-28', '2028-02-29']), 'year', '2028-02-29')).toHaveLength(2);
+        expect(defaultRange('2027-02-28', '2028-02-29')).toBe('year');
     });
 });
 
@@ -119,6 +139,15 @@ describe('суммы не округляются вверх (ANO-84, п. 2)', ()
     });
     it('минус у отрицательной суммы — настоящий «−», как у fmtSigned, а не дефис (ревью #241)', () => {
         expect(plain(fmtAmount(-283712))).toBe('−283 712 ₽');
+    });
+    it('доли копейки — ноль без знака (ревью Gemini на #241)', () => {
+        expect(plain(fmtAmount(-0.004))).toBe('0 ₽');
+        expect(plain(fmtSigned(-0.004))).toBe('0 ₽');
+        expect(plain(fmtSigned(0.004))).toBe('0 ₽');
+    });
+    it('дата другого года — с годом, этого — без (ревью Gemini на #241)', () => {
+        expect(plain(fmtDayYear('2025-05-31', '2026-11-22'))).toBe('31 мая 2025');
+        expect(plain(fmtDayYear('2026-05-31', '2026-11-22'))).toBe('31 мая');
     });
 });
 

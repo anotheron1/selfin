@@ -24,7 +24,8 @@ export const fmtDayMonth = (iso: string): string => {
  * Сумма без округления вверх (срез 4, п. 8; ANO-84, п. 2): рубли, копейки — если есть, двумя знаками. 99 999,99 — не
  * «100 000 ₽». Группы — неразрывным пробелом: сумма не рвётся по строкам.
  */
-export const fmtNum = (n: number): string => {
+export const fmtNum = (raw: number): string => {
+    const n = Math.round(raw * 100) / 100 || 0;  // доли копейки — ноль, и без «−0»
     const cents = Math.round(Math.abs(n) * 100) % 100 !== 0;
     return n.toLocaleString('ru-RU', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 }).replace(/\s/g, ' ').replace('-', '−');
 };
@@ -32,4 +33,11 @@ export const fmtNum = (n: number): string => {
 export const fmtAmount = (n: number): string => `${fmtNum(n)} ₽`;
 
 /** «+12 400 ₽», «−320 000 ₽»; ноль — без знака. */
-export const fmtSigned = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmtAmount(Math.abs(n))}`;
+export const fmtSigned = (raw: number): string => {
+    const n = Math.round(raw * 100) / 100;
+    return `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmtAmount(Math.abs(n))}`;
+};
+
+/** «31 мая», другого года — «31 мая 2025»: на графике за годы и в истории оценок годы не путаются. */
+export const fmtDayYear = (iso: string, today: string): string =>
+    iso.slice(0, 4) === today.slice(0, 4) ? fmtDayShort(iso) : `${fmtDayShort(iso)} ${iso.slice(0, 4)}`;

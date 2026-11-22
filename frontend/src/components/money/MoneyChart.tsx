@@ -3,7 +3,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'rec
 import { Choices } from '@/ds';
 import type { CapitalTrajectory } from '../../types/api';
 import { RANGES, defaultRange, rangeChange, rangePoints, type Range } from '../../lib/moneyGroups';
-import { fmtAmount, fmtDayShort, fmtSigned } from '../../lib/format';
+import { fmtAmount, fmtDayYear, fmtSigned } from '../../lib/format';
 
 /**
  * «Капитал по месяцам» (срез 4, п. 8; S4-W1). Точки — вся история одним запросом, период режется здесь: по умолчанию
@@ -17,7 +17,9 @@ const month = (iso: string) => {
 };
 
 export default function MoneyChart({ points, today }: { points: Point[]; today: string }) {
-    const [range, setRange] = useState<Range>(() => defaultRange(points[0]?.date ?? null, today));
+    // Пока человек не выбрал период сам, «по умолчанию» следует за историей: добавил старую оценку — встал «Год».
+    const [picked, setRange] = useState<Range | null>(null);
+    const range = picked ?? defaultRange(points[0]?.date ?? null, today);
     const shown = rangePoints(points, range, today);
     const change = rangeChange(shown);
 
@@ -26,7 +28,7 @@ export default function MoneyChart({ points, today }: { points: Point[]; today: 
             <div className="flex items-baseline justify-between gap-2.5">
                 <h2 className="text-sf-body font-semibold">Капитал по месяцам</h2>
                 {change && <span className="whitespace-nowrap text-sf-note">
-                    <span className="font-medium">{fmtSigned(change.amount)}</span>{` с ${fmtDayShort(change.from)}`}
+                    <span className="font-medium">{fmtSigned(change.amount)}</span>{` с ${fmtDayYear(change.from, today)}`}
                 </span>}
             </div>
             {shown.length < 2 ? (
@@ -42,7 +44,7 @@ export default function MoneyChart({ points, today }: { points: Point[]; today: 
                                 tick={{ fontSize: 11, fill: 'var(--sf-muted)' }} minTickGap={16} />
                             {/* Ось — по точкам, а не от нуля: у капитала в миллионы рост на сотни тысяч иначе — ровная линия. */}
                             <YAxis hide domain={['dataMin', 'dataMax']} />
-                            <Tooltip content={<PointTip />} />
+                            <Tooltip content={<PointTip today={today} />} />
                             <Area type="linear" dataKey="capital" stroke="var(--sf-accent)" strokeWidth={2}
                                 fill="var(--sf-accent-soft)" fillOpacity={0.6} isAnimationActive={false}
                                 dot={false} activeDot={{ r: 4 }} />
@@ -60,12 +62,12 @@ export default function MoneyChart({ points, today }: { points: Point[]; today: 
 }
 
 /** Точка под пальцем: дата, капитал и из чего он — деньги плюс имущество минус долги. */
-function PointTip({ active, payload }: { active?: boolean; payload?: { payload: Point }[] }) {
+function PointTip({ active, payload, today }: { active?: boolean; payload?: { payload: Point }[]; today: string }) {
     if (!active || !payload?.length) return null;
     const p = payload[0].payload;
     return (
         <div className="rounded-sf-field bg-sf-plate px-3 py-2 font-sf text-sf-label text-sf-ink shadow-sf-raised">
-            <div className="font-medium">{fmtDayShort(p.date)} · {fmtAmount(p.capital)}</div>
+            <div className="font-medium">{fmtDayYear(p.date, today)} · {fmtAmount(p.capital)}</div>
             <div className="text-sf-muted">деньги {fmtAmount(p.liquid)} + имущество {fmtAmount(p.assets)} − долги {fmtAmount(p.liabilities)}</div>
         </div>
     );
