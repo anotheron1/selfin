@@ -256,11 +256,12 @@ await post('/events', {
   date: monthDay(1, 12), type: 'FUND_TRANSFER', plannedAmount: 10000, priority: 'HIGH',
   targetFundId: cushion.id,
 });
-// Переводы до привязки к счёту — форма ANO-163.
+// Копилка, привязанная к счёту после заведения (ANO-163). Сначала привязка, потом перевод: в день с движением
+// счёт копилки не меняется (срез 4, PR 2, вариант А) — иначе 400 и сеятель обрывается.
 const vacationBody = { name: 'Отпуск', targetAmount: 150000, priority: 2, targetDate: monthDay(8, 1) };
 const vacation = await post('/funds', vacationBody);
-await post(`/funds/${vacation.id}/transfer`, { amount: 20000, confirm: true });
 await put(`/funds/${vacation.id}`, { ...vacationBody, accountId: savingsAccount.id });
+await post(`/funds/${vacation.id}/transfer`, { amount: 20000, confirm: true });
 await post('/funds', {
   name: 'Ноутбук', targetAmount: 90000, priority: 3, targetDate: monthDay(2, 1),
   purchaseType: 'CREDIT', creditRate: 19.9, creditTermMonths: 12,
