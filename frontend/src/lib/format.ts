@@ -26,7 +26,7 @@ export const fmtDayMonth = (iso: string): string => {
  */
 export const fmtNum = (n: number): string => {
     const cents = Math.round(Math.abs(n) * 100) % 100 !== 0;
-    return n.toLocaleString('ru-RU', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 }).replace(/\s/g, ' ');
+    return n.toLocaleString('ru-RU', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 }).replace(/\s/g, ' ').replace('-', '−');
 };
 
 export const fmtAmount = (n: number): string => `${fmtNum(n)} ₽`;

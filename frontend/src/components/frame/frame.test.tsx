@@ -166,6 +166,8 @@ describe('после записи — свежие числа (ревью Codex 
     it('«Обновить остатки» на «Деньгах» открывает лист шапки, плитки там нет', async () => {
         const src = await read('./AppFrame.tsx');
         expect(src).toContain('window.addEventListener(REANCHOR, open)');
+        // Лист рисуется только с шапкой: без неё нажатие не копится и не открывает лист потом на другом экране (ревью #241).
+        expect(src).toContain('if (!pocket) { setReanchor(false); return; }');
         expect(src).toContain('cards={showsCards(path)}');
         expect(await read('../../pages/Capital.tsx')).toContain('window.dispatchEvent(new Event(REANCHOR))');
     });

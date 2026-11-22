@@ -29,6 +29,20 @@ const KINDS = [{ value: 'ASSET', label: 'Имущество' }, { value: 'LIABIL
 
 const today = () => latestAllowedIso(new Date());
 
+/**
+ * Правка записи истории. Заметка уходит всегда: сервер правит её, только если она пришла, — стёртая иначе осталась бы.
+ * У записи «Продал» сумма 0 — её можно оставить, чтобы поправить дату (ревью #241).
+ */
+export function revisionUpdate(r: CapitalRevaluation, raw: string, valuedAt: string, note: string) {
+    const value = r.value === 0 && raw.trim() === '0' ? 0 : amountValue(raw);
+    return value == null || !valuedAt ? null : { value, valuedAt, note: note.trim() };
+}
+
+/** Последняя запись удаляется — стоимость станет нулём, и вещь уйдёт в «Архивные». */
+export const deleteRevisionAsk = (only: boolean) => only
+    ? 'Удалить единственную запись? Оценки не останется — уйдёт в «Архивные».'
+    : 'Удалить запись? Если она последняя, оценкой станет предыдущая.';
+
 /** Лист с чтениями: вещь и история перечитываются после каждой записи. */
 /** Экран перечитывается сам — по событию удачной записи (api/client, CHANGED). */
 export default function CapitalItemSheet({ mode, onClose }: { mode: ItemSheetMode; onClose: () => void }) {
@@ -67,6 +81,8 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
     const [value, setValue] = useState('');
     const [date, setDate] = useState(today);
     const [note, setNote] = useState('');
+    /** Дата «Продал» — своя: несохранённая дата «Переоценить» не становится датой продажи. */
+    const [goneDate, setGoneDate] = useState(today);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     /** Что раскрыто: правка строки истории, названия, описания, «Продал», «Удалить насовсем». */
@@ -148,7 +164,7 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
             </div>
             <ul>
                 {history.map(r => open === `rev-${r.id}`
-                    ? <RevisionEdit key={r.id} r={r} busy={busy}
+                    ? <RevisionEdit key={r.id} r={r} busy={busy} only={history.length === 1}
                         onSave={(dto) => void run(() => updateCapitalRevaluation(r.id, dto), () => { setOpen(null); onChanged(); })}
                         onDelete={() => void run(() => deleteCapitalRevaluation(r.id), () => { setOpen(null); onChanged(); }, () => DELETE_FAILED)}
                         onCancel={() => setOpen(null)} />
@@ -183,13 +199,15 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
             {open === 'gone' && (
                 <form className="flex flex-col gap-2 rounded-sf-plate bg-sf-plate p-3.5" onSubmit={e => {
                     e.preventDefault();
-                    void run(() => addCapitalRevaluation(item.id, { value: 0, valuedAt: date }), () => { onChanged(); onDone(); });
+                    void run(() => addCapitalRevaluation(item.id, { value: 0, valuedAt: goneDate }), () => { onChanged(); onDone(); });
                 }}>
+                    {/* Не раньше последней оценки: ноль под ней не делает вещь архивной (ревью #241). */}
                     <Labeled label={`${w.gone} — дата`}>
-                        <Field type="date" value={date} max={today()} onChange={e => setDate(e.target.value)} />
+                        <Field type="date" value={goneDate} min={item.lastValuedAt ?? undefined} max={today()}
+                            onChange={e => setGoneDate(e.target.value)} />
                     </Labeled>
                     <span className="text-sf-label text-sf-muted">Уйдёт в «Архивные», история останется.</span>
-                    <Button type="submit" disabled={busy || !date}>{w.gone}</Button>
+                    <Button type="submit" disabled={busy || !goneDate || (!!item.lastValuedAt && goneDate < item.lastValuedAt)}>{w.gone}</Button>
                 </form>
             )}
             {open === 'delete' && (
@@ -232,15 +250,15 @@ function Worth({ w, value, onValue, date, onDate }: {
     );
 }
 
-function RevisionEdit({ r, busy, onSave, onDelete, onCancel }: {
-    r: CapitalRevaluation; busy: boolean;
+function RevisionEdit({ r, busy, only, onSave, onDelete, onCancel }: {
+    r: CapitalRevaluation; busy: boolean; only: boolean;
     onSave: (dto: { value: number; valuedAt: string; note?: string }) => void; onDelete: () => void; onCancel: () => void;
 }) {
     const [value, setValue] = useState(String(r.value));
     const [date, setDate] = useState(r.valuedAt);
     const [note, setNote] = useState(r.note ?? '');
     const [asking, setAsking] = useState(false);
-    const amount = amountValue(value);
+    const dto = revisionUpdate(r, value, date, note);
     return (
         <li className="flex flex-col gap-2 border-b border-sf-rule py-2.5">
             <div className="flex gap-2.5">
@@ -248,12 +266,11 @@ function RevisionEdit({ r, busy, onSave, onDelete, onCancel }: {
                 <Field type="date" aria-label="Дата" value={date} max={today()} onChange={e => setDate(e.target.value)} />
             </div>
             <Field aria-label="Заметка" value={note} onChange={e => setNote(e.target.value)} placeholder="Заметка" />
-            {asking && <span className="text-sf-note">Удалить запись? Если она последняя, оценкой станет предыдущая.</span>}
+            {asking && <span className="text-sf-note">{deleteRevisionAsk(only)}</span>}
             <div className="flex flex-wrap gap-2">
                 {asking
                     ? <Button size="s" disabled={busy} onClick={onDelete}>Удалить</Button>
-                    : <Button size="s" disabled={busy || amount == null || !date}
-                        onClick={() => amount != null && onSave({ value: amount, valuedAt: date, note: note.trim() || undefined })}>Сохранить</Button>}
+                    : <Button size="s" disabled={busy || !dto} onClick={() => dto && onSave(dto)}>Сохранить</Button>}
                 {!asking && <Button size="s" variant="soft" onClick={() => setAsking(true)}>Удалить</Button>}
                 <Button size="s" variant="text" onClick={onCancel}>Отмена</Button>
             </div>

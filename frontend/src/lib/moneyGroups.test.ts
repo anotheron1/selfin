@@ -117,6 +117,9 @@ describe('суммы не округляются вверх (ANO-84, п. 2)', ()
         expect(plain(fmtSigned(-320000.5))).toBe('−320 000,50 ₽');
         expect(plain(fmtSigned(0))).toBe('0 ₽');
     });
+    it('минус у отрицательной суммы — настоящий «−», как у fmtSigned, а не дефис (ревью #241)', () => {
+        expect(plain(fmtAmount(-283712))).toBe('−283 712 ₽');
+    });
 });
 
 describe('месяц словами', () => {

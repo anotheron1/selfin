@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import MoneyView from './MoneyView';
-import { CapitalItemForm } from './CapitalItemSheet';
+import { CapitalItemForm, deleteRevisionAsk, revisionUpdate } from './CapitalItemSheet';
 import AccountForm from '../accounts/AccountForm';
 import { PRESETS } from '../accounts/AccountSheet';
 import type { Account, CapitalItem, CapitalSummary, CapitalTrajectory, TargetFund } from '../../types/api';
@@ -31,6 +31,7 @@ const summary = (items: CapitalItem[]): CapitalSummary => ({
 });
 const points = (first: string): CapitalTrajectory['points'] => [
     { date: first, capital: 612000, liquid: 0, assets: 0, liabilities: 0 },
+    { date: '2026-06-30', capital: 630000, liquid: 0, assets: 0, liabilities: 0 },
     { date: '2026-11-22', capital: 653800, liquid: 0, assets: 0, liabilities: 0 },
 ];
 
@@ -85,6 +86,13 @@ describe('«Деньги» (п. 9)', () => {
     it('у долга — минус, у групп — итог', () => {
         expect(full).toContain('−320 000 ₽');
         expect(full).toContain('850 000 ₽');
+    });
+
+    it('итог группы — сумма её строк, у долгов — без минуса', () => {
+        const html = render({ accounts: [main], items: [item('Машина', 'ASSET', 850000), item('Гараж', 'ASSET', 150000),
+            item('Кредит на машину', 'LIABILITY', 320000), item('Займ', 'LIABILITY', 30000)] });
+        expect(html).toMatch(/>Имущество<\/h2><span[^>]*>1 000 000 ₽</);
+        expect(html).toMatch(/>Долги<\/h2><span[^>]*>350 000 ₽</);
     });
 
     it('у каждой группы — строка «как записывать»', () => {
@@ -146,6 +154,8 @@ describe('график (п. 8)', () => {
         expect(html).toMatch(/checked="" value="year"/);
         expect(html).not.toMatch(/checked="" value="all"/);
         expect(html).not.toContain('+41 800 ₽');
+        // «Год» режет точку старше года: изменение — от июня, а не «История появится…».
+        expect(html).toContain('+23 800 ₽');
     });
 
     it('чипы — Квартал · 6 мес · Год · 3 года · Всё', () => {
@@ -206,6 +216,34 @@ describe('«+» в группе уже знает ответ (п. 11, S4-A3)', (
         expect(form('spending')).not.toMatch(/<input type="checkbox"[^>]*checked=""/);
         expect(form('credit')).toMatch(/<input type="checkbox"[^>]*checked=""/);
         expect(form('savings')).toMatch(/<option value="DEPOSIT" selected=""/);
+    });
+});
+
+describe('лист вещи и долга: записи (ревью #241)', () => {
+    const r = { id: 'r', itemId: 'i', value: 120000, valuedAt: '2026-11-01', note: 'по объявлениям', createdAt: '' };
+    const src = async (path: string) => (await import('node:fs')).readFileSync(new URL(path, import.meta.url), 'utf8');
+
+    it('стёртая заметка уходит пустой строкой — сервер правит заметку, только если она пришла', () => {
+        expect(revisionUpdate(r, '120000', '2026-11-01', '  ')).toEqual({ value: 120000, valuedAt: '2026-11-01', note: '' });
+    });
+    it('запись «Продал» с нулём правится — дата и заметка, сумма остаётся 0', () => {
+        expect(revisionUpdate({ ...r, value: 0 }, '0', '2026-10-15', '')).toEqual({ value: 0, valuedAt: '2026-10-15', note: '' });
+        expect(revisionUpdate(r, '0', '2026-11-01', '')).toBeNull();
+    });
+    it('удаление единственной записи — вещь уходит в «Архивные», и вопрос это говорит', () => {
+        expect(deleteRevisionAsk(true)).toContain('уйдёт в «Архивные»');
+        expect(deleteRevisionAsk(false)).toContain('оценкой станет предыдущая');
+    });
+    it('«Продал — с даты» — своя дата и не раньше последней оценки: иначе ноль ляжет под неё и вещь не уйдёт в архив', async () => {
+        const s = await src('./CapitalItemSheet.tsx');
+        expect(s).toContain('addCapitalRevaluation(item.id, { value: 0, valuedAt: goneDate })');
+        expect(s).toContain('min={item.lastValuedAt ?? undefined}');
+    });
+    it('экран: устаревший ответ не затирает новый, сбой фонового перечитывания не прячет экран', async () => {
+        const s = await src('../../pages/Capital.tsx');
+        expect(s).toMatch(/if \(n !== seq\.current\) return;\s+loaded\.current = true;/);
+        expect(s).toMatch(/\.catch\(\(\) => \{\s+if \(n !== seq\.current\) return;/);
+        expect(s).toContain('if (!loaded.current) setLoadFailed(true);');
     });
 });
 

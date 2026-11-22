@@ -161,10 +161,11 @@ export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: 
         return () => window.removeEventListener(CHANGED, load);
     }, [header, load]);
     useEffect(() => {
+        if (!pocket) { setReanchor(false); return; }
         const open = () => setReanchor(true);
         window.addEventListener(REANCHOR, open);
         return () => window.removeEventListener(REANCHOR, open);
-    }, []);
+    }, [pocket]);
 
     return (
         <div className="min-h-dvh bg-sf-page font-sf text-sf-ink" style={{ paddingBottom: 'var(--nav-height)' }}>

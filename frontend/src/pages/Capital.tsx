@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchAccounts, fetchCapitalSummary, fetchCapitalTrajectory, fetchCategories, fetchFunds } from '../api';
 import type { Account, CapitalSummary, CapitalTrajectory, Category, TargetFund } from '../types/api';
 import { Button } from '@/ds';
@@ -29,12 +29,23 @@ export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
     const [cardSheet, setCardSheet] = useState<AccountSheetMode | null>(null);
     const [toast, setToast] = useState<string | null>(null);
 
+    // Две записи подряд — два перечитывания; ответ первого может прийти последним (ревью #241).
+    const seq = useRef(0);
+    const loaded = useRef(false);
     const reload = useCallback(() => {
+        const n = ++seq.current;
         setLoadFailed(false);
         Promise.all([fetchCapitalSummary(), fetchAccounts(), fetchFunds(), fetchCapitalTrajectory(), fetchCategories()])
-            .then(([summary, accounts, funds, trajectory, categories]) =>
-                setData({ summary, accounts, funds: funds.funds, points: trajectory.points, categories }))
-            .catch(() => setLoadFailed(true));
+            .then(([summary, accounts, funds, trajectory, categories]) => {
+                if (n !== seq.current) return;
+                loaded.current = true;
+                setData({ summary, accounts, funds: funds.funds, points: trajectory.points, categories });
+            })
+            .catch(() => {
+                if (n !== seq.current) return;
+                // Фоновое перечитывание не стирает экран с открытым листом: остаются прежние числа.
+                if (!loaded.current) setLoadFailed(true);
+            });
     }, []);
 
     useEffect(() => { reload(); }, [reload, refreshSignal]);
