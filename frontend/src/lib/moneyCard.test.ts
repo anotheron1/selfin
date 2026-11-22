@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Account, BalanceCheckpoint, CapitalItem, Category } from '../types/api';
 import {
-    ANSWERS, answerLabel, canMakeMain, cardFormProblem, cardHistory, cardView, cardWriteFailure, createDto, creditCheckItems,
+    ANSWERS, answerLabel, canMakeMain, canSaveCard, cardFormProblem, cardHistory, cardView, cardWriteFailure, createDto, creditCheckItems,
     creditDebtLine as creditDebtLine0, deleteCardFailure, diffLine as diffLine0, historyChart, makeMainFailure,
     pointNote as pointNote0, savingsSince as savingsSince0, spendCategories, updateDto, WORDS,
 } from './moneyCard';
@@ -63,8 +63,8 @@ describe('«Добавить карту» (п. 13): запрос', () => {
         expect(createDto({ name: ' Бензин ', purpose: 'SPEND', categoryId: 'c', balance: '500', limit: '1', floor: '1' }))
             .toEqual({ name: 'Бензин', purpose: 'SPEND', purposeCategoryId: 'c' });
     });
-    it('накопительная — остаток, без категории', () => {
-        expect(createDto({ name: 'Вклад', purpose: 'SAVINGS', categoryId: 'c', balance: '60 000', limit: '', floor: '' }))
+    it('накопительная — остаток, без категории и без полей кредитки, оставшихся от другого ответа', () => {
+        expect(createDto({ name: 'Вклад', purpose: 'SAVINGS', categoryId: 'c', balance: '60 000', limit: '100000', floor: '90000' }))
             .toEqual({ name: 'Вклад', purpose: 'SAVINGS', balance: 60000 });
     });
     it('кредитка — лимит, доступно и «возвращаю до»; пустое не уходит', () => {
@@ -72,6 +72,26 @@ describe('«Добавить карту» (п. 13): запрос', () => {
             .toEqual({ name: 'Кредитка', purpose: 'CREDIT', creditLimit: 100000, availableFloor: 90000, balance: 85000 });
         expect(createDto({ name: 'Кредитка', purpose: 'CREDIT', categoryId: null, balance: '', limit: '100000', floor: '' }))
             .toEqual({ name: 'Кредитка', purpose: 'CREDIT', creditLimit: 100000 });
+        expect(createDto({ name: 'Кредитка', purpose: 'CREDIT', categoryId: null, balance: '', limit: '', floor: '' }))
+            .toEqual({ name: 'Кредитка', purpose: 'CREDIT' });
+    });
+});
+
+describe('«Добавить» и «Сохранить» открыты', () => {
+    const v = { name: 'Карта', purpose: 'SAVINGS' as const, categoryId: null, limit: '' };
+    it('название, ответ, категория у карты для трат, лимит у новой кредитки', () => {
+        expect(canSaveCard(v, false)).toBe(true);
+        expect(canSaveCard({ ...v, name: '  ' }, false)).toBe(false);
+        expect(canSaveCard({ ...v, purpose: null }, false)).toBe(false);
+        expect(canSaveCard({ ...v, purpose: 'SPEND' }, false)).toBe(false);
+        expect(canSaveCard({ ...v, purpose: 'SPEND', categoryId: 'c' }, false)).toBe(true);
+        expect(canSaveCard({ ...v, purpose: 'CREDIT' }, false)).toBe(false);
+        expect(canSaveCard({ ...v, purpose: 'CREDIT', limit: '100000' }, false)).toBe(true);
+    });
+    it('правка: у основной и второй «на всё» ответа нет; лимит у кредитки можно стереть', () => {
+        expect(canSaveCard({ ...v, purpose: null }, true)).toBe(true);
+        expect(canSaveCard({ ...v, purpose: 'CREDIT' }, true)).toBe(true);
+        expect(canSaveCard({ ...v, name: '', purpose: null }, true)).toBe(false);
     });
 });
 
@@ -132,6 +152,13 @@ describe('история обновлений (п. 12)', () => {
         expect(cardHistory(list, 'a').map(c => c.id)).toEqual(['1', '2']);
     });
 
+    it('обновление задним числом — на своей дате, а не по времени записи; в один день — по времени записи', () => {
+        const back = { ...cp('back', '2026-10-01', 50000, null), createdAt: '2026-11-20T09:00:00Z' };
+        const morning = { ...cp('morning', '2026-11-12', 48000, 47000), createdAt: '2026-11-12T08:00:00Z' };
+        const evening = { ...cp('evening', '2026-11-12', 48800, 48000), createdAt: '2026-11-12T18:00:00Z' };
+        expect(cardHistory([evening, back, morning], 'a').map(c => c.id)).toEqual(['back', 'morning', 'evening']);
+    });
+
     it('разница словами; рост накопительной — «обычно это проценты»', () => {
         expect(diffLine(cp('1', '2026-10-14', 51000, null), false)).toBe('первое обновление');
         expect(diffLine(cp('2', '2026-11-12', 48800, 48500), false)).toBe('в банке на 300 ₽ больше, чем по записям');
@@ -146,6 +173,8 @@ describe('история обновлений (п. 12)', () => {
             .toBe('По записям было 48 500 ₽: в банке на 300 ₽ больше.');
         expect(pointNote(cp('1', '2026-10-14', 51000, null), false)).toBe('Первое обновление.');
         expect(pointNote(cp('2', '2026-11-12', 48800, 48800), false)).toBe('По записям было 48 800 ₽: сошлось.');
+        expect(pointNote(cp('2', '2026-11-03', 22000, 21820), true)).toBe('По записям было 21 820 ₽: в банке на 180 ₽ больше — обычно это проценты.');
+        expect(pointNote(cp('2', '2026-11-03', 22000, 22100), true)).toBe('По записям было 22 100 ₽: в банке на 100 ₽ меньше.');
     });
 
     it('график: точки — обновления; пунктир идёт до «по записям» следующей точки и до сегодня', () => {

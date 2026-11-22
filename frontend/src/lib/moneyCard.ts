@@ -110,6 +110,11 @@ export function updateDto(a: Account, f: CardFormValues): AccountUpdateDto {
     };
 }
 
+/** «Добавить» и «Сохранить» открыты: есть название; при добавлении — ответ, у кредитки — её поле из банка; у карты для трат — категория. */
+export const canSaveCard = (f: Pick<CardFormValues, 'name' | 'purpose' | 'categoryId' | 'limit'>, editing: boolean): boolean =>
+    f.name.trim() !== '' && (editing || f.purpose != null) && (f.purpose !== 'SPEND' || f.categoryId != null)
+        && (editing || f.purpose !== 'CREDIT' || f.limit.trim() !== '');
+
 /** Что лист знает сам и говорит до отправки (ANO-245): сервер ответил бы 400. */
 export function cardFormProblem(f: Pick<CardFormValues, 'purpose' | 'limit' | 'floor'>): string | null {
     const [limit, floor] = [num(f.limit), num(f.floor)];

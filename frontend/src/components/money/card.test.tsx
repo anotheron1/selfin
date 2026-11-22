@@ -48,6 +48,9 @@ describe('лист карты (п. 12)', () => {
             'Для чего эта карта', '>Основная<', 'Название', WORDS.mainNoDelete]);
         expect(html).not.toContain('Удалить карту');
         expect(html).not.toContain('Сделать основной');
+        // последнее обновление сегодня — «, сегодня» у нажатой точки
+        expect(body(main, [...mainHistory, cp('3', '2026-11-22', 47100, 47000)])).toContain('22 нояб., сегодня — 47 100 ₽');
+        expect(html).not.toContain(', сегодня');
     });
 
     it('без обновлений — «первое обновление», без графика', () => {
@@ -82,6 +85,9 @@ describe('лист карты (п. 12)', () => {
     it('кредитка без «возвращать до» — плашки нет', () => {
         const html = body(acc({ kind: 'CREDIT', balance: 85000, balanceDate: '2026-11-22', creditLimit: 100000, debt: 15000 }));
         expect(html).not.toContain('Возвращать до');
+        // «возвращаю до» задано, а доступно не выросло — сервер подсказки не дал
+        expect(body(acc({ kind: 'CREDIT', balance: 85000, balanceDate: '2026-11-22', creditLimit: 100000, debt: 15000,
+            availableFloor: 90000, floorSuggestion: null }))).not.toContain('Возвращать до');
     });
 
     it('накопительная (S4-C4): обновление и переводы, копилка, «Отложить сюда», рост — «обычно это проценты»', () => {
@@ -110,6 +116,22 @@ describe('лист карты (п. 12)', () => {
             'Записать «Бензин»', '>Для отдельных трат<', 'Для каких трат', '>Бензин<', 'Название', 'Удалить карту']);
         expect(html).not.toContain('Обновить остаток');
         expect(html).not.toContain('stroke-dasharray');
+        // обновления остались с тех пор, когда остаток вёлся, — истории у карты без остатка нет
+        expect(body(acc({ trackBalance: false, purposeCategoryId: 'petrol', purposeCategoryName: 'Бензин' }), [cp('1', '2026-10-14', 5000, null)]))
+            .not.toContain('Остаток по обновлениям');
+    });
+
+    // Нажатия разметка не видит (стенд их проверяет) — сторож по исходнику: что уходит из кнопок листа.
+    it('кнопки листа: «Да, до X» пишет подсказку, «Отложить сюда» — в единственную копилку, «Записать» — расход своей категории', async () => {
+        const { readFileSync } = await import('node:fs');
+        const src = readFileSync(new URL('./CardSheet.tsx', import.meta.url), 'utf8');
+        expect(src).toContain('creditLimit: a.creditLimit, availableFloor: a.floorSuggestion,');
+        expect(src).toContain("onRecord({ type: 'FUND_TRANSFER', targetFundId: own.length === 1 ? own[0].id : undefined })");
+        expect(src).toContain("onRecord({ type: 'EXPENSE', categoryId: a.purposeCategoryId! })");
+        // вопрос «Удалить обновление?»: последнее — «первое обновление», иначе — от предыдущего
+        expect(src).toContain("history.length === 1 ? 'Обновлений не останется — будет «первое обновление».' : 'Остаток посчитается от предыдущего.'");
+        // имя окна «Добавить карту» — по ответу группы (FormSheet — портал, разметка его не видит)
+        expect(readFileSync(new URL('./AddCardSheet.tsx', import.meta.url), 'utf8')).toContain("label={purpose ? PRESET[purpose].title : 'Новая карта'}");
     });
 
     it('для трат без категории — просит выбрать, записывать нечего', () => {
@@ -146,6 +168,18 @@ describe('«Добавить карту» (п. 13)', () => {
             'Бензин', 'Продукты', 'Перевёл на неё 5 000 ₽ — запиши одну трату', 'Добавить', WORDS.wrongGroup]);
         expect(html).not.toContain('Для чего эта карта?');
         expect(html).not.toContain('Сколько сейчас');
+    });
+
+    it('категории — шесть и «ещё N»; выбранная дальше шестой видна сразу', () => {
+        const many = Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, name: `Кат${i}`, type: 'EXPENSE' })) as Category[];
+        const fresh = form({ account: null, purpose: 'SPEND', categories: many, busy: false, error: null, onSave: noop });
+        expect(fresh).toContain('>Кат5<');
+        expect(fresh).not.toContain('>Кат6<');
+        expect(fresh).toContain('ещё 2 ▾');
+        const edit = form({ account: acc({ trackBalance: false, purposeCategoryId: 'c7', purposeCategoryName: 'Кат7' }), categories: many,
+            busy: false, error: null, onSave: noop, onCancel: noop });
+        expect(edit).toContain('>Кат7<');
+        expect(edit).not.toContain('>Кат6<');
     });
 
     it('накопительная — остаток сразу', () => {
@@ -196,9 +230,15 @@ describe('«Деньги»: «+» в группе и «Не та же ли эт�
             onUpdate={noop} onAddCard={noop} onAccount={noop} onItem={noop} onAddItem={noop}
             creditCheck={creditCheck && { ...creditCheck, busy: false, onRemove: noop, onOther: noop }} />));
 
-    it('у непустой группы — «+» с ответом группы', () => {
+    it('у непустой группы — «+» с ответом группы', async () => {
         const html = view();
         inOrder(html, ['Кредитка', '>Кредитка</button>', 'Наличные', '>Карта для трат</button>', 'Вклад', '>Накопительный счёт</button>']);
+        // нажатие разметка не видит — сторож по исходнику: «+» группы открывает лист с её ответом
+        const { readFileSync } = await import('node:fs');
+        const src = readFileSync(new URL('./MoneyView.tsx', import.meta.url), 'utf8');
+        for (const [g, answer] of [['credit', 'CREDIT'], ['spending', 'SPEND'], ['savings', 'SAVINGS']]) {
+            expect(src).toContain(`<AddInGroup label={INVITE.${g}.add} onClick={() => p.onAddCard('${answer}')} />`);
+        }
     });
 
     it('после кредитки при живой ручной записи долга (S4-A5) — вопрос под кредиткой', () => {

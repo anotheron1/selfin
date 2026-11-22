@@ -4,7 +4,7 @@ import { createAccount } from '../../api';
 import type { Account, AccountPurpose, Category } from '../../types/api';
 import FormSheet from '../FormSheet';
 import {
-    ANSWERS, WORDS, cardFormProblem, createDto, creditDebtLine, purposeOf, spendCategories, type CardFormValues,
+    ANSWERS, WORDS, canSaveCard, cardFormProblem, createDto, creditDebtLine, purposeOf, spendCategories, type CardFormValues,
 } from '../../lib/moneyCard';
 import { writeFailure } from '../../lib/writeFailure';
 
@@ -84,8 +84,7 @@ export function CardForm({ account, purpose: preset, categories, busy, error, on
     const spend = spendCategories(categories);
     const shown = more ? spend : spend.filter((c, i) => i < TOP || c.id === categoryId);
     const category = spend.find(c => c.id === categoryId)?.name;
-    const ready = name.trim() !== '' && (editing || purpose != null) && (purpose !== 'SPEND' || categoryId != null)
-        && (editing || purpose !== 'CREDIT' || limit.trim() !== '');
+    const ready = canSaveCard({ name, purpose, categoryId, limit }, editing);
     const head = editing ? { title: 'Изменить карту', sub: '' } : preset ? PRESET[preset] : { title: 'Новая карта', sub: '' };
     const debtLine = editing ? null : creditDebtLine(limit, balance);
 
