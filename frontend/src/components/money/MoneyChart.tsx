@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Choices } from '@/ds';
 import type { CapitalTrajectory } from '../../types/api';
 import { RANGES, defaultRange, rangeChange, rangePoints, type Range } from '../../lib/moneyGroups';
@@ -40,6 +40,8 @@ export default function MoneyChart({ points, today }: { points: Point[]; today: 
                         <AreaChart data={shown} margin={{ top: 8, right: 6, bottom: 0, left: 6 }}>
                             <XAxis dataKey="date" tickFormatter={month} tickLine={false} axisLine={false} interval="preserveStartEnd"
                                 tick={{ fontSize: 11, fill: 'var(--sf-muted)' }} minTickGap={16} />
+                            {/* Ось — по точкам, а не от нуля: у капитала в миллионы рост на сотни тысяч иначе — ровная линия. */}
+                            <YAxis hide domain={['dataMin', 'dataMax']} />
                             <Tooltip content={<PointTip />} />
                             <Area type="linear" dataKey="capital" stroke="var(--sf-accent)" strokeWidth={2}
                                 fill="var(--sf-accent-soft)" fillOpacity={0.6} isAnimationActive={false}
@@ -48,7 +50,7 @@ export default function MoneyChart({ points, today }: { points: Point[]; today: 
                     </ResponsiveContainer>
                 </div>
             )}
-            <Choices name="money-range" label="Период графика" look="chip" size="control" options={RANGES} value={range}
+            <Choices name="money-range" label="Период графика" look="chip" options={RANGES} value={range}
                 onChange={v => setRange(v as Range)} />
             <p className="text-sf-label leading-[1.4] text-sf-muted">
                 Изменение у графика — за выбранный период. Истории меньше года — по умолчанию «Всё».

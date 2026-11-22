@@ -75,6 +75,8 @@ describe('строка карты', () => {
     });
 
     it('кредитка — долг из лимита, «возвращаю до», доступно (опись 22, 23, 27)', () => {
+        expect(line({ ...credit, balance: null, debt: null }))
+            .toEqual({ sub: ['первое обновление'], value: null, caption: null, updated: false });
         expect(line(credit)).toEqual({
             sub: ['долг 15 000 из 100 000', 'возвращаю до 90 000'], value: '85 000 ₽', caption: 'доступно', updated: false,
         });

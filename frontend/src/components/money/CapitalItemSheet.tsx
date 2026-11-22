@@ -114,17 +114,18 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3 pr-10">
+            {/* Длинная сумма уходит на свою строку, а не сжимает название (стенд, 390). */}
+            <div className="flex flex-wrap items-center gap-3 pr-10">
                 <span aria-hidden="true" className="flex size-12 shrink-0 items-center justify-center rounded-full bg-sf-chip">
                     <Icon size={22} strokeWidth={1.6} />
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[20px] font-semibold leading-6">{item.name}</span>
+                <span className="flex min-w-[150px] flex-1 flex-col">
+                    <span className="text-[20px] font-semibold leading-6">{item.name}</span>
                     <span className="text-sf-label text-sf-muted">
                         {[w.kind, item.lastValuedAt && `оценка ${fmtDayShort(item.lastValuedAt)}`].filter(Boolean).join(' · ')}
                     </span>
                 </span>
-                <Money value={fmtNum(item.currentValue)} size="m" />
+                <Money value={fmtNum(item.currentValue)} size="m" className="ml-auto" />
             </div>
 
             <form className="flex flex-col gap-3" onSubmit={e => {
@@ -194,8 +195,8 @@ export function CapitalItemForm({ mode, history, onChanged, onDone }: {
             {open === 'delete' && (
                 <div className="flex flex-col gap-2 rounded-sf-plate bg-sf-plate p-3.5">
                     <span className="text-sf-note">
-                        {`Удалить «${item.name}» насовсем? История оценок и вклад в график капитала исчезнут — это не отменить. `
-                            + `Если ${item.kind === 'LIABILITY' ? 'долг погашен' : 'вещь продана'} — лучше «${w.gone}»: история останется.`}
+                        {`Удалить «${item.name}» насовсем? История оценок и вклад в график капитала исчезнут — это не отменить.`
+                            + (item.isArchived ? '' : ` Если ${item.kind === 'LIABILITY' ? 'долг погашен' : 'вещь продана'} — лучше «${w.gone}»: история останется.`)}
                     </span>
                     <Button disabled={busy} onClick={() => void run(() => deleteCapitalItem(item.id), () => { onChanged(); onDone(); }, () => DELETE_FAILED)}>
                         Удалить насовсем

@@ -70,10 +70,10 @@ export default function MoneyView(p: MoneyViewProps) {
                 </span>
                 <span className="text-sf-label text-sf-muted">{`есть ${fmtNum(head.has)} · должен ${fmtNum(head.owes)}`}</span>
                 <div className="mt-4 flex gap-2.5">
-                    <Button variant="soft" size="m" className="flex-1 px-3" onClick={p.onUpdate}>
+                    <Button variant="soft" size="m" className="min-w-0 flex-1 gap-1.5 px-2 text-sf-control has-[svg]:pl-2" onClick={p.onUpdate}>
                         <RefreshCw size={16} strokeWidth={2} />Обновить остатки
                     </Button>
-                    <Button variant="soft" size="m" className="flex-1 px-3" onClick={() => p.onAddCard()}>
+                    <Button variant="soft" size="m" className="min-w-0 flex-1 gap-1.5 px-2 text-sf-control has-[svg]:pl-2" onClick={() => p.onAddCard()}>
                         <Plus size={16} strokeWidth={2} />Добавить карту
                     </Button>
                 </div>

@@ -69,6 +69,7 @@ describe('«Деньги» (п. 9)', () => {
         expect(m).toBeLessThan(c);
         expect(c).toBeLessThan(s);
         expect(full).toContain('возвращаю до 90 000');
+        expect(full).not.toContain('Кредитка — не деньги, а долг');
     });
 
     it('накопительный — с копилкой, «в «Свободно» не входят»', () => {
@@ -201,7 +202,16 @@ describe('«+» в группе уже знает ответ (п. 11, S4-A3)', (
         expect(form('credit')).toMatch(/<option value="CREDIT" selected=""/);
         expect(form('credit')).toContain('Кредитный лимит');
         expect(form('spending')).toMatch(/<option value="DEBIT" selected=""/);
-        expect(form('spending')).not.toMatch(/type="checkbox" checked=""/);
+        expect(form('spending')).toMatch(/<input type="checkbox"[^>]*>/);
+        expect(form('spending')).not.toMatch(/<input type="checkbox"[^>]*checked=""/);
+        expect(form('credit')).toMatch(/<input type="checkbox"[^>]*checked=""/);
         expect(form('savings')).toMatch(/<option value="DEPOSIT" selected=""/);
+    });
+});
+
+describe('ширина «Денег» на 1440', () => {
+    it('страница без прежних 672 px — иначе две колонки не помещаются (стенд, 1440)', async () => {
+        const app = (await import('node:fs')).readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
+        expect(app).toContain("['/', '/budget', '/capital'].includes(path) ? undefined : 'max-w-2xl mx-auto'");
     });
 });
