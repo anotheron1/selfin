@@ -6,8 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import MoneyView from './MoneyView';
 import { CapitalItemForm, deleteRevisionAsk, revisionUpdate } from './CapitalItemSheet';
-import AccountForm from '../accounts/AccountForm';
-import { PRESETS } from '../accounts/AccountSheet';
 import type { Account, CapitalItem, CapitalSummary, CapitalTrajectory, TargetFund } from '../../types/api';
 
 const acc = (over: Partial<Account>): Account => ({
@@ -196,29 +194,6 @@ describe('лист вещи и долга (п. 15, S4-P1)', () => {
     });
 });
 
-describe('«+» в группе уже знает ответ (п. 11, S4-A3)', () => {
-    const form = (preset: keyof typeof PRESETS) => renderToStaticMarkup(
-        <AccountForm initial={null} preset={PRESETS[preset]} categories={[]} error={null} onSubmit={noop} onCancel={noop} />);
-
-    it('ответы групп: для трат — без остатка, накопительный — вклад, кредитка — кредит', () => {
-        expect(PRESETS).toEqual({
-            spending: { kind: 'DEBIT', trackBalance: false },
-            savings: { kind: 'DEPOSIT', trackBalance: true },
-            credit: { kind: 'CREDIT', trackBalance: true },
-        });
-    });
-
-    it('форма открывается с ответом: кредитка — с лимитом и «возвращаю до», для трат — без остатка', () => {
-        expect(form('credit')).toMatch(/<option value="CREDIT" selected=""/);
-        expect(form('credit')).toContain('Кредитный лимит');
-        expect(form('spending')).toMatch(/<option value="DEBIT" selected=""/);
-        expect(form('spending')).toMatch(/<input type="checkbox"[^>]*>/);
-        expect(form('spending')).not.toMatch(/<input type="checkbox"[^>]*checked=""/);
-        expect(form('credit')).toMatch(/<input type="checkbox"[^>]*checked=""/);
-        expect(form('savings')).toMatch(/<option value="DEPOSIT" selected=""/);
-    });
-});
-
 describe('лист вещи и долга: записи (ревью #241)', () => {
     const r = { id: 'r', itemId: 'i', value: 120000, valuedAt: '2026-11-01', note: 'по объявлениям', createdAt: '' };
     const src = async (path: string) => (await import('node:fs')).readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -279,10 +254,11 @@ describe('ревью Gemini на #241', () => {
     it('подпись карты обрезается многоточием — текст внутри своего span', async () => {
         expect(await src('./MoneyView.tsx')).toContain('{i === 0 && mark}<span className="min-w-0 truncate">{s}</span>');
     });
-    it('архивировал последний долг в подсказке — лист закрывается, а не висит пустым', async () => {
-        const s = await src('../accounts/AccountSheet.tsx');
-        expect(s).toContain('if (left.length === 0) { done(copy.capitalHintArchived); return; }');
-        expect(s).toContain('onEdit={() => { setEditing(true); setFormError(null); setNotice(null); }}');
+    it('«Не та же ли это кредитка?»: последний долг — вопрос уходит, а не висит пустым; правка открывается без старой ошибки', async () => {
+        const page = await src('../../pages/Capital.tsx');
+        expect(page).toContain('onOther: () => setCheck(check.items.length > 1 ? { ...check, items: check.items.slice(1) } : null)');
+        expect(page).toContain(".then(() => { setCheck(null); setToast('Запись — в «Архивных»: долг посчитан один раз.'); })");
+        expect(await src('./CardSheet.tsx')).toContain('const toggle = (key: Open) => { setError(null);');
     });
 });
 

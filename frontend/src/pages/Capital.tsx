@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchAccounts, fetchCapitalSummary, fetchCapitalTrajectory, fetchCategories, fetchFunds } from '../api';
-import type { Account, CapitalSummary, CapitalTrajectory, Category, TargetFund } from '../types/api';
+import {
+    addCapitalRevaluation, fetchAccounts, fetchCapitalSummary, fetchCapitalTrajectory, fetchCategories, fetchCheckpoints, fetchFunds,
+} from '../api';
+import type {
+    Account, AccountPurpose, BalanceCheckpoint, CapitalItem, CapitalSummary, CapitalTrajectory, Category, TargetFund,
+} from '../types/api';
 import { Button } from '@/ds';
 import MoneyView from '../components/money/MoneyView';
 import CapitalItemSheet, { type ItemSheetMode } from '../components/money/CapitalItemSheet';
-import AccountSheet, { type AccountSheetMode } from '../components/accounts/AccountSheet';
+import CardSheet, { type RecordPreset } from '../components/money/CardSheet';
+import AddCardSheet from '../components/money/AddCardSheet';
+import QuickAddModal from '../components/Fab';
 import { REANCHOR } from '../components/frame/AppFrame';
 import { CHANGED } from '../api/client';
 import { todayIso } from '../lib/factDate';
+import { cardHistory, creditCheckItems } from '../lib/moneyCard';
+import { writeFailure } from '../lib/writeFailure';
 
 /**
  * «Деньги» (срез 4, п. 9). Адрес /capital прежний, страница новая: группы карт, капитал, имущество и долги, график.
  * Вид — components/money/MoneyView; здесь чтения и листы. «Обновить остатки» до PR 5 открывает прежний лист остатка
- * основной — тот же, что плитка «на картах» в шапке (`REANCHOR`, AppFrame), «Добавить карту» и лист карты до PR 4 — прежние формы «Счетов» (`AccountSheet`).
+ * основной — тот же, что плитка «на картах» в шапке (`REANCHOR`, AppFrame). Лист карты — CardSheet, «Добавить карту» —
+ * AddCardSheet (PR 4).
  */
 interface Data {
     summary: CapitalSummary;
@@ -20,13 +29,20 @@ interface Data {
     funds: TargetFund[];
     points: CapitalTrajectory['points'];
     categories: Category[];
+    checkpoints: BalanceCheckpoint[];
 }
 
 export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
     const [data, setData] = useState<Data | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
     const [itemSheet, setItemSheet] = useState<ItemSheetMode | null>(null);
-    const [cardSheet, setCardSheet] = useState<AccountSheetMode | null>(null);
+    /** Лист карты — по id: после записи экран перечитывается, и лист показывает свежие числа. */
+    const [cardId, setCardId] = useState<string | null>(null);
+    /** «Добавить карту»: 'ask' — с вопросом, ответ — «+» в группе. */
+    const [adding, setAdding] = useState<AccountPurpose | 'ask' | null>(null);
+    const [record, setRecord] = useState<RecordPreset | null>(null);
+    /** «Не та же ли это кредитка?» — новая кредитка и живые ручные долги, о которых ещё не спросили. */
+    const [check, setCheck] = useState<{ accountId: string; items: CapitalItem[]; busy: boolean } | null>(null);
     const [toast, setToast] = useState<string | null>(null);
 
     // Две записи подряд — два перечитывания; ответ первого может прийти последним (ревью #241).
@@ -35,11 +51,11 @@ export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
     const reload = useCallback(() => {
         const n = ++seq.current;
         setLoadFailed(false);
-        Promise.all([fetchCapitalSummary(), fetchAccounts(), fetchFunds(), fetchCapitalTrajectory(), fetchCategories()])
-            .then(([summary, accounts, funds, trajectory, categories]) => {
+        Promise.all([fetchCapitalSummary(), fetchAccounts(), fetchFunds(), fetchCapitalTrajectory(), fetchCategories(), fetchCheckpoints()])
+            .then(([summary, accounts, funds, trajectory, categories, checkpoints]) => {
                 if (n !== seq.current) return;
                 loaded.current = true;
-                setData({ summary, accounts, funds: funds.funds, points: trajectory.points, categories });
+                setData({ summary, accounts, funds: funds.funds, points: trajectory.points, categories, checkpoints });
             })
             .catch(() => {
                 if (n !== seq.current) return;
@@ -69,21 +85,47 @@ export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
     );
     if (!data) return <div className="p-4 font-sf text-sf-note text-sf-muted">Загрузка…</div>;
 
+    const today = todayIso(new Date());
+    // Удалённой карты в свежем списке нет — лист закрывается сам.
+    const card = cardId ? data.accounts.find(a => a.id === cardId) : undefined;
 
     return (
         <>
             <MoneyView summary={data.summary} accounts={data.accounts} funds={data.funds} points={data.points}
-                today={todayIso(new Date())}
+                today={today}
                 onUpdate={() => window.dispatchEvent(new Event(REANCHOR))}
-                onAddCard={preset => setCardSheet({ type: 'create', preset })}
-                onAccount={account => setCardSheet({ type: 'view', account })}
+                onAddCard={purpose => setAdding(purpose ?? 'ask')}
+                onAccount={account => setCardId(account.id)}
                 onItem={item => setItemSheet({ type: 'view', item })}
-                onAddItem={() => setItemSheet({ type: 'create' })} />
+                onAddItem={() => setItemSheet({ type: 'create' })}
+                creditCheck={check && {
+                    accountId: check.accountId, item: check.items[0], busy: check.busy,
+                    // «Убрать» — в «Архивные»: оценка ноль, как «Погасил» (п. 15); история остаётся.
+                    onRemove: () => {
+                        setCheck({ ...check, busy: true });
+                        addCapitalRevaluation(check.items[0].id, { value: 0 })
+                            .then(() => { setCheck(null); setToast('Запись — в «Архивных»: долг посчитан один раз.'); })
+                            .catch(e => { setCheck({ ...check, busy: false }); setToast(writeFailure(e)); });
+                    },
+                    onOther: () => setCheck(check.items.length > 1 ? { ...check, items: check.items.slice(1) } : null),
+                }} />
 
             {itemSheet && <CapitalItemSheet key={itemSheet.type === 'view' ? itemSheet.item.id : 'new'} mode={itemSheet}
                 onClose={() => setItemSheet(null)} />}
-            {cardSheet && <AccountSheet key={cardSheet.type === 'view' ? cardSheet.account.id : 'new'} mode={cardSheet}
-                categories={data.categories} onClose={() => setCardSheet(null)} onChanged={setToast} />}
+            {card && <CardSheet key={card.id} account={card} history={cardHistory(data.checkpoints, card.id)} funds={data.funds}
+                categories={data.categories} today={today} onClose={() => setCardId(null)}
+                onRecord={preset => { setCardId(null); setRecord(preset); }}
+                onDone={msg => { setCardId(null); setToast(msg); }} />}
+            {adding && <AddCardSheet purpose={adding === 'ask' ? undefined : adding} categories={data.categories}
+                onClose={() => setAdding(null)}
+                onAdded={account => {
+                    setAdding(null);
+                    setToast(account.kind === 'CREDIT' ? 'Кредитка добавлена.' : 'Карта добавлена.');
+                    // П. 14: долг, записанный вручную раньше, посчитался бы второй раз рядом с долгом карты.
+                    const items = account.kind === 'CREDIT' ? creditCheckItems(data.summary.items, account.name) : [];
+                    setCheck(items.length ? { accountId: account.id, items, busy: false } : null);
+                }} />}
+            {record && <QuickAddModal preset={record} onClose={() => setRecord(null)} onSuccess={() => {}} />}
 
             {toast && (
                 <div role="status" className="fixed inset-x-4 bottom-[96px] z-40 mx-auto max-w-[420px] rounded-sf-plate bg-sf-ink px-4 py-3 text-center font-sf text-sf-note text-sf-page lg:bottom-6">

@@ -9,6 +9,7 @@ import type {
     FundWishlistParams,
     Account,
     AccountCreateDto,
+    AccountUpdateDto,
     AnalyticsReport,
     ForecastReadiness,
     BalanceCheckpoint,
@@ -286,7 +287,7 @@ export const fetchAccounts = () => get<Account[]>('/accounts');
 
 export const createAccount = (dto: AccountCreateDto) => post<Account>('/accounts', dto);
 
-export const updateAccount = (id: string, dto: AccountCreateDto) =>
+export const updateAccount = (id: string, dto: AccountUpdateDto) =>
     put<Account>(`/accounts/${id}`, dto);
 
 export const deleteAccount = (id: string) => del(`/accounts/${id}`);

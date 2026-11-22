@@ -222,7 +222,7 @@ class OnCreditIT {
 
     private String credit(String name) throws Exception {
         return id(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"name":"%s","kind":"CREDIT","trackBalance":true,"creditLimit":100000}""".formatted(name)))
+                        {"name":"%s","purpose":"CREDIT","creditLimit":100000}""".formatted(name)))
                 .andExpect(status().isCreated()));
     }
 

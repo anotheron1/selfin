@@ -1,10 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import {
     Banknote, ChevronDown, CreditCard, House, Info, Landmark, PiggyBank, Plus, RefreshCw, Wallet, type LucideIcon,
 } from 'lucide-react';
 import { Button, Money } from '@/ds';
 import { cn } from '@/lib/utils';
-import type { Account, CapitalItem, CapitalSummary, CapitalTrajectory, TargetFund } from '../../types/api';
+import type { Account, AccountPurpose, CapitalItem, CapitalSummary, CapitalTrajectory, TargetFund } from '../../types/api';
 import { accountLine, capitalHead, moneyGroups } from '../../lib/moneyGroups';
 import { fmtAmount, fmtDayShort, fmtNum, fmtSigned } from '../../lib/format';
 import MoneyChart from './MoneyChart';
@@ -14,9 +14,6 @@ import MoneyChart from './MoneyChart';
  * здесь только вид. Чтения и листы — у страницы (pages/Capital.tsx).
  */
 
-/** Ответ, который «+» в группе уже знает (S4-A3): форма карты открывается с ним. */
-export type CardPreset = 'spending' | 'savings' | 'credit';
-
 export interface MoneyViewProps {
     summary: CapitalSummary;
     accounts: Account[];
@@ -25,10 +22,24 @@ export interface MoneyViewProps {
     /** Местная дата, ISO: «записано в ноябре», период графика. */
     today: string;
     onUpdate: () => void;
-    onAddCard: (preset?: CardPreset) => void;
+    /** «Добавить карту» — с вопросом; «+» в группе — с её ответом (S4-A3). */
+    onAddCard: (purpose?: AccountPurpose) => void;
     onAccount: (a: Account) => void;
     onItem: (i: CapitalItem) => void;
     onAddItem: () => void;
+    /** «Не та же ли это кредитка?» (S4-A5) — под только что заведённой кредиткой. */
+    creditCheck?: CreditCheck | null;
+}
+
+export interface CreditCheck {
+    accountId: string;
+    /** Живая ручная запись долга, о которой спрашиваем. */
+    item: CapitalItem;
+    busy: boolean;
+    /** «Убрать запись» — в «Архивные». */
+    onRemove: () => void;
+    /** «Это другой долг» — следующая запись или конец вопроса. */
+    onOther: () => void;
 }
 
 /** Строки «как записывать» (S4-W1). Про «В кредит» и «Накопление» в копилку на счёте — когда появятся в форме «+» (PR 6). */
@@ -55,7 +66,10 @@ export default function MoneyView(p: MoneyViewProps) {
     const head = capitalHead(p.summary);
     const [archivedOpen, setArchivedOpen] = useState(false);
     const card = (a: Account, paired = false) => (
-        <AccountRow key={a.id} account={a} funds={p.funds} today={p.today} paired={paired} onClick={() => p.onAccount(a)} />
+        <Fragment key={a.id}>
+            <AccountRow account={a} funds={p.funds} today={p.today} paired={paired} onClick={() => p.onAccount(a)} />
+            {p.creditCheck?.accountId === a.id && <CreditCheckPlate {...p.creditCheck} />}
+        </Fragment>
     );
     const itemRow = (i: CapitalItem) => <ItemRow key={i.id} item={i} onClick={() => p.onItem(i)} />;
     const hasItems = p.summary.items.length > 0;
@@ -83,24 +97,27 @@ export default function MoneyView(p: MoneyViewProps) {
                 <Group title="Основная" note="от неё считается «Свободно»">
                     {g.primary && card(g.primary)}
                     {g.credits.map(a => card(a, true))}
-                    {g.credits.length === 0 && <Invite {...INVITE.credit} paired onAdd={() => p.onAddCard('credit')} />}
+                    {g.credits.length === 0 && <Invite {...INVITE.credit} paired onAdd={() => p.onAddCard('CREDIT')} />}
                     {g.together.map(a => card(a))}
+                    {g.credits.length > 0 && <AddInGroup label={INVITE.credit.add} onClick={() => p.onAddCard('CREDIT')} />}
                     <How text={HOW.main} />
                 </Group>
 
                 {g.spending.length > 0 ? (
                     <Group title="Для отдельных трат">
                         {g.spending.map(a => card(a))}
+                        <AddInGroup label={INVITE.spending.add} onClick={() => p.onAddCard('SPEND')} />
                         <How text={HOW.spending} />
                     </Group>
-                ) : <Invite {...INVITE.spending} onAdd={() => p.onAddCard('spending')} />}
+                ) : <Invite {...INVITE.spending} onAdd={() => p.onAddCard('SPEND')} />}
 
                 {g.savings.length > 0 ? (
                     <Group title="Накопительные" note="в «Свободно» не входят">
                         {g.savings.map(a => card(a))}
+                        <AddInGroup label={INVITE.savings.add} onClick={() => p.onAddCard('SAVINGS')} />
                         <How text={HOW.savings} />
                     </Group>
-                ) : <Invite {...INVITE.savings} onAdd={() => p.onAddCard('savings')} />}
+                ) : <Invite {...INVITE.savings} onAdd={() => p.onAddCard('SAVINGS')} />}
 
                 {g.assets.length > 0 && (
                     <Group title="Имущество" note={fmtAmount(g.assets.reduce((s, i) => s + i.currentValue, 0))}>
@@ -145,6 +162,27 @@ function Group({ title, note, children }: { title: string; note?: string; childr
             </div>
             {children}
         </section>
+    );
+}
+
+/** «+» у непустой группы — тот же лист без вопроса (S4-A3): на досках его нет, у группы с картами иначе не добавить. */
+function AddInGroup({ label, onClick }: { label: string; onClick: () => void }) {
+    return <Button variant="text" size="s" className="mt-1 self-start" onClick={onClick}><Plus size={16} strokeWidth={2} />{label}</Button>;
+}
+
+/** «Не та же ли это кредитка?» (S4-A5): ручная запись долга посчиталась бы второй раз рядом с долгом карты. */
+function CreditCheckPlate({ item, busy, onRemove, onOther }: CreditCheck) {
+    return (
+        <div className="my-2 flex flex-col gap-2 rounded-sf-plate bg-sf-plate px-3.5 py-3">
+            <span className="text-sf-note font-semibold">Не та же ли это кредитка?</span>
+            <span className="text-sf-note leading-[1.4]">
+                {`В «Долгах» есть «${item.name}» на ${fmtAmount(item.currentValue)}. Если это она — убери запись: карта теперь сама считает долг, иначе он посчитается дважды.`}
+            </span>
+            <div className="flex flex-wrap gap-2">
+                <Button size="s" disabled={busy} onClick={onRemove}>Убрать запись</Button>
+                <Button size="s" variant="soft" disabled={busy} onClick={onOther}>Это другой долг</Button>
+            </div>
+        </div>
     );
 }
 

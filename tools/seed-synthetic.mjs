@@ -108,8 +108,9 @@ await patch(`/categories/${health.id}/priority`);
 // ── Счета и сверки остатка ──────────────────────────────────────────────────
 const accounts = await get('/accounts');
 const card = accounts.find((a) => a.isDefault) ?? accounts[0];
-const savingsAccount = await post('/accounts', { name: 'Накопительный', kind: 'DEBIT', trackBalance: true, sortOrder: 2 });
-await post('/accounts', { name: 'Наличные', kind: 'DEBIT', trackBalance: false, sortOrder: 3 });
+// Карта заводится ответом на «Для чего эта карта?» (срез 4, п. 4); «Наличные» у человека уже есть с регистрации (п. 5).
+const savingsAccount = await post('/accounts', { name: 'Накопительный', purpose: 'SAVINGS', sortOrder: 2 });
+await post('/accounts', { name: 'Карта для продуктов', purpose: 'SPEND', purposeCategoryId: groceries.id, sortOrder: 3 });
 
 await post('/balance-checkpoints', { date: day(-60), amount: 180000, accountId: card.id });
 await post('/balance-checkpoints', { date: day(-10), amount: 142500, accountId: card.id });

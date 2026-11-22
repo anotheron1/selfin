@@ -195,7 +195,7 @@ class FundOnAccountIT {
     @DisplayName("счёт копилки без обновления — перевод 400, ничего не записано")
     void accountWithoutUpdate_refused() throws Exception {
         String oldDeposit = id(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"name":"Старый вклад","kind":"DEPOSIT","trackBalance":true}"""))
+                        {"name":"Старый вклад","purpose":"SAVINGS"}"""))
                 .andExpect(status().isCreated()));
         String fund = fund("Квартира", oldDeposit);
         BigDecimal card0 = byRecords(mainCard());
@@ -334,7 +334,7 @@ class FundOnAccountIT {
         String fund = fund("Квартира", null);
         transfer(fund, "1000", today.minusDays(5)).andExpect(status().isOk());
         String oldDeposit = id(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"name":"Старый вклад","kind":"DEPOSIT","trackBalance":true}"""))
+                        {"name":"Старый вклад","purpose":"SAVINGS"}"""))
                 .andExpect(status().isCreated()));
         link(fund, oldDeposit);
         jdbc.update("UPDATE fund_account_links SET linked_from = CURRENT_DATE - 3 WHERE fund_id = ?::uuid", fund);

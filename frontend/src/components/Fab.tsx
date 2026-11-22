@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, Copy, Repeat } from 'lucide-react';
 import {
-    createPlanWithFact, createStandaloneFact, deleteEvent, fetchCategories, fetchEvents, fetchFactPreview, fetchFunds,
+    createPlanWithFact, createStandaloneFact, deleteEvent, fetchAccounts, fetchCategories, fetchEvents, fetchFactPreview, fetchFunds,
     fetchPocket, patchEventFact, transferToFund, updateEvent,
 } from '../api';
 import type {
@@ -19,7 +19,7 @@ import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, WISHLIST_CHARACTER_NOTE, character
 import { dayLabel, editChips, factEditPatch, planEditDto, seriesOf, withCurrent } from '../lib/eventCard';
 import { TrashButton, writeDuplicate } from './journal/EventCard';
 import {
-    ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, fundReserved, kindOf,
+    ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, fundReserved, kindOf,
     repeatLabel, repeatOf, transferFundChoice, type FormAction,
 } from '../lib/quickAdd';
 import { writeFailure } from '../lib/writeFailure';
@@ -76,6 +76,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const [moreOpen, setMoreOpen] = useState(false);
     const [categories, setCategories] = useState<Category[] | null>(null);
     const [funds, setFunds] = useState<TargetFund[] | null>(null);
+    const [mainId, setMainId] = useState<string>();
     const [pocket, setPocket] = useState<{
         checkpointDate: string | null; horizon: { endDate: string; label: string }; trajectory: { date: string; balance: number }[];
     } | null>(null);
@@ -97,10 +98,12 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const transfer = chosen?.transfer ?? false;
     const category = categories?.find(c => c.id === categoryId);
     useEffect(() => {
-        if (transfer && funds == null) fetchFunds().then(d => setFunds(d.funds)).catch(() => setFunds([]));
+        if (transfer && funds == null) Promise.all([fetchFunds(), fetchAccounts().catch(() => [])])
+            .then(([d, accounts]) => { setMainId(accounts.find(a => a.isDefault)?.id); setFunds(d.funds); })
+            .catch(() => setFunds([]));
     }, [transfer, funds]);
-    // ANO-169: копилки на счёте перевода не принимают — в списке их нет, под списком строка почему.
-    const { choices: openFunds, onAccount } = transferFundChoice(funds ?? []);
+    // Копилка на основной перевода не принимает — в списке её нет, под списком строка почему.
+    const { choices: openFunds, onMain } = transferFundChoice(funds ?? [], mainId);
     // Правка перевода в копилку, которой в списке нет (достигнута), — она остаётся выбранной.
     const fundChoices = ev ? withCurrent(openFunds, funds ?? [], fundId) : openFunds;
     const fund = fundChoices.find(f => f.id === fundId);
@@ -283,7 +286,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
                             : <Choices name="fund" label="В какую копилку" look="chip" className="contents" value={fundId ?? ''}
                                 options={fundChoices.map(f => ({ value: f.id, label: f.name }))} onChange={setFundId} />}
                     </div>
-                    {onAccount > 0 && <p className="-mt-1 px-1 text-sf-label text-sf-muted">{ON_ACCOUNT_NOTE}</p>}
+                    {onMain > 0 && <p className="-mt-1 px-1 text-sf-label text-sf-muted">{ON_MAIN_NOTE}</p>}
                 </>
             )}
             {/* У перевода названия нет (ANO-169): журнал называет его именем копилки. */}

@@ -69,21 +69,15 @@ public class AccountService {
     }
 
     /**
-     * Заводит счёт. С ответом на «Для чего эта карта?» оси раскладывает {@link #byPurpose}; остаток, если он
+     * Заводит карту ответом на «Для чего эта карта?»: оси раскладывает {@link #byPurpose}; остаток, если он
      * пришёл, — первое обновление на сегодня в той же транзакции (срез 4, п. 4): ошибка обновления не оставляет
-     * карты без остатка, который человек ввёл.
+     * карты без остатка, который человек ввёл. Без ответа — 400: прежний путь с природой ушёл с листом «Счетов»
+     * (срез 4, PR 4).
      */
     @Transactional
     public AccountDto create(AccountCreateDto dto) {
-        Account account = dto.purpose() != null ? byPurpose(dto) : Account.builder()
-                .name(dto.name())
-                .kind(requireKind(dto))
-                .trackBalance(dto.trackBalance() != null ? dto.trackBalance() : defaultTracking(dto.kind()))
-                .purposeCategory(resolveCategory(dto.purposeCategoryId()))
-                .creditLimit(dto.creditLimit())
-                .availableFloor(dto.availableFloor())
-                .sortOrder(dto.sortOrder() != null ? dto.sortOrder() : 100)
-                .build();
+        if (dto.purpose() == null) throw badRequest("Answer what the card is for: purpose is required");
+        Account account = byPurpose(dto);
         validate(account);
         if (dto.balance() != null && !account.isTrackBalance()) {
             throw badRequest("A card without a tracked balance takes no balance");
@@ -244,7 +238,7 @@ public class AccountService {
         return category;
     }
 
-    /** Без ответа на вопрос природа обязательна: прежний путь создания и обновление. */
+    /** Обновление идёт по осям — природа обязательна. */
     private static AccountKind requireKind(AccountCreateDto dto) {
         if (dto.kind() == null) throw badRequest("Account kind is required");
         return dto.kind();

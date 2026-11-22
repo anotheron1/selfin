@@ -222,7 +222,7 @@ class BalanceCheckpointControllerIT {
         String accountBody = mockMvc.perform(post("/api/v1/accounts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Вклад на квартиру","kind":"DEPOSIT"}
+                                {"name":"Вклад на квартиру","purpose":"SAVINGS"}
                                 """))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
