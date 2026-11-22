@@ -157,22 +157,13 @@ public class TargetFundService {
         //
         // Срез 4, п. 6: переводы, сделанные на счёт, остались на счёте — копилке возвращаются только движения вне
         // привязки. Считается после закрытия привязки: перевод дня отвязки — уже день конверта.
-        UUID previousAccountId = fund.getAccountId();
-        boolean unlinking = previousAccountId != null && dto.accountId() == null;
+        boolean unlinking = fund.getAccountId() != null && dto.accountId() == null;
         UUID accountId = validateAccountLink(dto.accountId(), fund.getId());
+        if (!Objects.equals(fund.getAccountId(), accountId)) requireNoMovementToday(fund);
         recordAccountLink(fund.getId(), fund.getAccountId(), accountId);
         fund.setAccountId(accountId);
         if (unlinking) {
-            // Ревью Codex на #240: снятие в день отвязки становится движением конверта — конверт ушёл бы в минус, и
-            // «Уже в копилках» прибавило бы деньги к «Свободно». Отказ откатывает и закрытие привязки.
-            BigDecimal held = transactionRepository.sumEnvelopeMovesByFundId(id);
-            if (held.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), held);
-            fund.setCurrentBalance(held);
-        }
-        // Ревью Codex на #240: переводы дня смены привязки переходят к новому счёту — снятия дня не уводят его в минус;
-        // отказ откатывает и смену привязки. Прежнему остаётся остаток на вчера: снятие пишется только сегодня.
-        if (!Objects.equals(previousAccountId, accountId)) {
-            requireAccountNotNegative(fund, accountId, BigDecimal.ZERO);
+            fund.setCurrentBalance(transactionRepository.sumEnvelopeMovesByFundId(id));
         }
         // ANO-199: статус — производная от накопленного И цели, а правка меняет цель. Раньше он
         // пересчитывался только при отвязке, и поднятая цель оставляла «Цель достигнута» при 50%
@@ -527,7 +518,6 @@ public class TargetFundService {
         TargetFund fund = fundRepository.findById(fundId)
                 .filter(f -> !f.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
-        requireAccountUpdated(fund);
 
         if (amount.signum() == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -549,6 +539,7 @@ public class TargetFundService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "A withdrawal from a fund is recorded today, not on " + day);
         }
+        requireMovementDay(fund, day);
         // ANO-87 (спека §4.1). Снять можно только то, что накоплено. Это не запрет, а
         // арифметика: в копилке столько физически нет. В отличие от перевода СВЕРХ остатка
         // счёта, здесь подтверждать нечего — отказ безусловный. У копилки на счёте накоплено — остаток
@@ -677,8 +668,7 @@ public class TargetFundService {
         BigDecimal current = tx != null && !tx.isDeleted() ? tx.getAmount() : BigDecimal.ZERO;
         BigDecimal delta = desired.subtract(current);
         // Срез 3 п. 2: у перевода правится дата — движение идёт за ней, иначе капитал за прошлые даты разошёлся бы со
-        // счётом. Срез 4, п. 6 (ревью Codex на #240): дата может перенести движение через границу привязки к счёту —
-        // конверт и счёт пересчитываются, как при смене суммы.
+        // счётом.
         LocalDate oldDate = tx != null && !tx.isDeleted() ? tx.getTransactionDate() : null;
         boolean dateMoved = oldDate != null && !date.equals(oldDate);
         if (delta.signum() == 0 && !dateMoved) return;
@@ -686,13 +676,21 @@ public class TargetFundService {
         // Деньги уже лежат в копилке движения — она и двигается; копилка события — для нового.
         TargetFund fund = tx != null ? tx.getFund() : fundRepository.findById(fundId)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", fundId));
+        // Срез 4, п. 6, решение владельца 22.11 (вариант А): дата перевода не переезжает ни с дня, ни на день копилки на
+        // счёте. Привязка помнит день, обновление счёта — минуту: перенос переписывал бы чужие остатки (ревью Codex
+        // и Gemini на #240). Удалить и записать заново — можно.
+        if (dateMoved) {
+            FundLinks links = accountBalanceService.fundLinks();
+            if (links.accountOn(fund.getId(), oldDate) != null || links.accountOn(fund.getId(), date) != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A transfer of a goal on an account keeps its date: delete it and record it again");
+            }
+        }
         if (delta.signum() != 0) {
             if (fund.isDeleted()) throw FundMovementRefusedException.closed(fund.getName());
-            requireAccountUpdated(fund);
+            // Деньги ложатся в день движения — его и проверить; снятое движение никуда не ложится.
+            if (desired.signum() != 0) requireMovementDay(fund, date);
         }
-        // Ревью Codex на #240: удалённая копилка держит то, что держала, — перенос даты не возвращает ей денег. Сумма —
-        // до правки движения: запрос сбросил бы правку в базу раньше.
-        BigDecimal heldBefore = fund.isDeleted() ? transactionRepository.sumEnvelopeMovesByFundId(fund.getId()) : null;
 
         if (tx == null) {
             tx = FundTransaction.builder()
@@ -709,13 +707,8 @@ public class TargetFundService {
             tx.setTransactionDate(date);   // срез 3 п. 2: сумма и дата правятся вместе (ревью Codex на #230)
         }
         transactionRepository.save(tx);
-        if (heldBefore == null) settleEnvelope(fund);
-        else if (transactionRepository.sumEnvelopeMovesByFundId(fund.getId()).compareTo(heldBefore) != 0)
-            throw FundMovementRefusedException.closed(fund.getName());
-        // Со счёта деньги уходят только в день прежнего движения: новый день счёт лишь пополняет.
-        if (delta.signum() < 0 || dateMoved) {
-            requireAccountKeepsMoney(fund, oldDate != null ? oldDate : date, delta.signum() < 0 ? delta.negate() : current);
-        }
+        settleEnvelope(fund);
+        if (delta.signum() < 0) requireAccountKeepsMoney(fund, date, delta.negate());
 
         log.info("fund_movement_sync fund_id={} key={} movement={} delta={} balance_after={}",
                 fund.getId(), key, desired, delta, fund.getCurrentBalance());
@@ -731,7 +724,9 @@ public class TargetFundService {
         BigDecimal held = transactionRepository.sumEnvelopeMovesByFundId(fund.getId());
         if (held.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), fund.getCurrentBalance());
         fund.setCurrentBalance(held);
-        applyStatusByBalance(fund);
+        // У копилки на счёте поле — не её деньги: статус по нему не выводится, как в update и applyWishlistParams
+        // (ревью Gemini на #240).
+        if (fund.getAccountId() == null) applyStatusByBalance(fund);
         fundRepository.save(fund);
     }
 
@@ -761,25 +756,51 @@ public class TargetFundService {
     }
 
     /**
-     * Уменьшенный, перенесённый или удалённый перевод не уводит в минус счёт, на котором копилка лежала в день движения
-     * (срез 4, п. 6; ревью Codex на #240). Поле конверта движения на счёте не держит, и {@link #settleEnvelope} такой
-     * минус не видит — та же арифметика, что снятие сверх остатка в {@link #doTransfer}. Основная и конверт — мимо:
-     * их остатки держат свои правила.
+     * Уменьшенный или удалённый перевод не уводит в минус счёт, на котором копилка лежала в день движения (срез 4, п. 6;
+     * ревью Codex на #240). Поле конверта движения на счёте не держит, и {@link #settleEnvelope} такой минус не видит —
+     * та же арифметика, что снятие сверх остатка в {@link #doTransfer}. Конверт — мимо: его держит своё правило.
      *
-     * @param removed сколько ушло со счёта — для слов отказа «было столько»
+     * @param removed сколько ушло со счёта — в словах отказа «было столько»
      */
     private void requireAccountKeepsMoney(TargetFund fund, LocalDate day, BigDecimal removed) {
-        if (day == null) return;
-        requireAccountNotNegative(fund, accountBalanceService.fundLinks().accountOn(fund.getId(), day), removed);
-    }
-
-    /** Счёт копилки не в минусе после её движения или смены привязки; основная и конверт — мимо. */
-    private void requireAccountNotNegative(TargetFund fund, UUID accountId, BigDecimal removed) {
-        if (accountId == null || accountId.equals(accountBalanceService.fundLinks().defaultAccountId())) return;
+        UUID accountId = accountBalanceService.fundLinks().accountOn(fund.getId(), day);
+        if (accountId == null) return;
         accountRepository.findById(accountId).filter(a -> !a.isDeleted()).ifPresent(a -> {
             BigDecimal left = accountBalanceService.balanceAt(a, LocalDate.now(clock));
             if (left.signum() < 0) throw FundMovementRefusedException.holdsLess(fund.getName(), left.add(removed));
         });
+    }
+
+    /**
+     * Решение владельца 22.11 (вариант А): счёт копилки не меняется в день, когда у неё уже есть движение. Привязка
+     * помнит день, а обновление счёта — минуту, и смена привязки переносила бы переводы дня с одного счёта на другой:
+     * капитал задваивался или терял деньги (ревью Codex и Gemini на #240). Завтра — можно.
+     */
+    private void requireNoMovementToday(TargetFund fund) {
+        if (transactionRepository.existsByFund_IdAndDeletedFalseAndTransactionDate(fund.getId(), LocalDate.now(clock))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The goal already moved money today: change its account tomorrow");
+        }
+    }
+
+    /**
+     * День, в который ложатся деньги движения (ревью без контекста и Gemini на #240): копилка лежала там же, где сейчас,
+     * — иначе перевод задним числом лёг бы конвертом у копилки на счёте (невидимый «Уже в копилках») или на прежний
+     * счёт; не на основной; счёт обновлён ({@link #requireAccountUpdated}).
+     */
+    private void requireMovementDay(TargetFund fund, LocalDate day) {
+        FundLinks links = accountBalanceService.fundLinks();
+        UUID onDay = links.accountOn(fund.getId(), day);
+        if (!Objects.equals(onDay, fund.getAccountId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "On " + day + " the goal lay elsewhere than now: record the transfer on a day since its last move");
+        }
+        // Копилка на основной — доля её остатка: перевод ничего не двигает. Её правила — НЗ, PR 6; до него — отказ, как
+        // до среза 4.
+        if (onDay != null && onDay.equals(links.defaultAccountId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A goal on the main card takes no transfers");
+        }
+        requireAccountUpdated(fund);
     }
 
     /**

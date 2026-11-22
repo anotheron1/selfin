@@ -49,8 +49,8 @@ import static org.mockito.Mockito.when;
  *
  * <p>Два режима копилки. Без {@code accountId} — виртуальный конверт, как раньше: своё поле
  * {@code currentBalance}, пополняется переводом. С {@code accountId} — цель и дата поверх
- * чужого остатка: собственный баланс перестаёт быть источником правды, а перевод запрещён.
- * Иначе два числа за одни деньги неизбежно разъедутся.
+ * чужого остатка: собственный баланс перестаёт быть источником правды, а перевод уводит деньги
+ * с основной на этот счёт (срез 4, п. 6). Иначе два числа за одни деньги неизбежно разъедутся.
  */
 @ExtendWith(MockitoExtension.class)
 class TargetFundAccountTest {
@@ -245,6 +245,9 @@ class TargetFundAccountTest {
         UUID key = UUID.randomUUID();
         when(txRepo.findByIdempotencyKey(key)).thenReturn(Optional.empty());
         when(fundRepo.findById(f.getId())).thenReturn(Optional.of(f));
+        // Копилка на вкладе с сегодняшнего дня — отказ именно за счёт без обновления, а не за день перевода.
+        when(linkRepo.findAll()).thenReturn(List.of(ru.selfin.backend.model.FundAccountLink.builder()
+                .fundId(f.getId()).accountId(deposit.getId()).linkedFrom(LocalDate.now()).build()));
 
         assertThatThrownBy(() -> service.transferToPocket(f.getId(), key, new BigDecimal("5000")))
                 .isInstanceOf(ResponseStatusException.class)

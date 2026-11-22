@@ -19,6 +19,9 @@ public interface FundTransactionRepository extends JpaRepository<FundTransaction
     /** Живые движения одной копилки — темп на «Целях» (Р9) ищет в них первый день пополнений. */
     List<FundTransaction> findByFundIdAndDeletedFalse(UUID fundId);
 
+    /** Было ли у копилки живое движение в этот день — смену её счёта такой день не пускает (срез 4, п. 6). */
+    boolean existsByFund_IdAndDeletedFalseAndTransactionDate(UUID fundId, LocalDate date);
+
     /**
      * Суммарный баланс копилок-конвертов на дату {@code date} — сколько денег основной карты уже
      * отложено (Р10-А, ANO-212; {@code AccountBalanceService.envelopesAt}). Ядро вычитает его из

@@ -148,6 +148,18 @@ class OnCreditIT {
         String income = id(fact(incomeCategory(), today, "1000", "INCOME", false).andExpect(status().isCreated()));
         patchFact(income, "{\"factAmount\": 1000, \"onCredit\": true}").andExpect(status().isBadRequest());
         assertThat(onCredit(income)).isFalse();
+
+        // Перевод в копилку (ревью Gemini на #240: пункт 2.1 плана — и он).
+        String fund = id(mvc.perform(post("/api/v1/funds").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\": \"Отпуск\", \"targetAmount\": 100000}"))
+                .andExpect(r -> assertThat(r.getResponse().getStatus()).isBetween(200, 201)));
+        mvc.perform(post("/api/v1/funds/{id}/transfer", fund).header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"amount\": 1000, \"confirm\": true}"))
+                .andExpect(status().isOk());
+        String transfer = jdbc.queryForObject(
+                "SELECT id::text FROM financial_events WHERE type = 'FUND_TRANSFER' AND NOT is_deleted", String.class);
+        patchFact(transfer, "{\"factAmount\": 1000, \"onCredit\": true}").andExpect(status().isBadRequest());
+        assertThat(onCredit(transfer)).isFalse();
     }
 
     // ── п. 2: «в кредит записано» в листе ───────────────────────────────────

@@ -209,8 +209,8 @@ class FundOnAccountIT {
     }
 
     @Test
-    @DisplayName("ревью Codex на #240: дата перевода перенесена с дня на счёте на день конверта — конверт и поле сходятся")
-    void dateOnlyEdit_acrossUnlink_settlesEnvelope() throws Exception {
+    @DisplayName("вариант А, 22.11: дата перевода с дня копилки на счёте не переносится — 400, конверт и капитал те же")
+    void dateMove_offAccountDay_refused() throws Exception {
         String fund = fund("Квартира", deposit);
         jdbc.update("UPDATE fund_account_links SET linked_from = CURRENT_DATE - 3 WHERE fund_id = ?::uuid", fund);
         jdbc.update("UPDATE balance_checkpoints SET date = CURRENT_DATE - 3 WHERE account_id = ?::uuid", deposit);
@@ -220,11 +220,43 @@ class FundOnAccountIT {
 
         mvc.perform(patch("/api/v1/events/{id}/fact", transferEvent("8000")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"factAmount\":8000,\"date\":\"" + today + "\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isBadRequest());
 
-        assertThat(balances.envelopesAt(today)).as("перевод сегодня — конвертом").isEqualByComparingTo("8000");
-        assertThat(fundBalance(fund)).as("поле копилки — те же деньги").isEqualByComparingTo("8000");
+        assertThat(balances.envelopesAt(today)).isEqualByComparingTo("0");
+        assertThat(fundBalance(fund)).isEqualByComparingTo("0");
         assertThat(capitalTotal()).isEqualByComparingTo(capital0);
+    }
+
+    @Test
+    @DisplayName("вариант А, 22.11: конверт с переводом сегодня к счёту не привязывается — 400; завтра можно")
+    void link_onDayWithEnvelopeMovement_refused() throws Exception {
+        String fund = fund("Квартира", null);
+        transfer(fund, "1000", null).andExpect(status().isOk());
+
+        mvc.perform(put("/api/v1/funds/{id}", fund).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Квартира\",\"targetAmount\":1000000,\"accountId\":\"" + deposit + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(jdbc.queryForObject("SELECT account_id FROM target_funds WHERE id = ?::uuid", String.class, fund)).isNull();
+        assertThat(balances.envelopesAt(today)).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    @DisplayName("ревью Gemini на #240: движение на счёте не пересчитывает статус копилки по полю — поле не её деньги")
+    void movementOnAccount_keepsStatus() throws Exception {
+        String fund = id(mvc.perform(post("/api/v1/funds").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Ноутбук\",\"targetAmount\":1000}"))
+                .andExpect(r -> assertThat(r.getResponse().getStatus()).isBetween(200, 201)));
+        transfer(fund, "1000", today.minusDays(1)).andExpect(status().isOk());
+        mvc.perform(put("/api/v1/funds/{id}", fund).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Ноутбук\",\"targetAmount\":5000,\"accountId\":\"" + deposit + "\"}"))
+                .andExpect(status().isOk());
+        String status0 = jdbc.queryForObject("SELECT status FROM target_funds WHERE id = ?::uuid", String.class, fund);
+
+        transfer(fund, "100", null).andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("SELECT status FROM target_funds WHERE id = ?::uuid", String.class, fund))
+                .isEqualTo(status0);
     }
 
     @Test
@@ -243,7 +275,7 @@ class FundOnAccountIT {
     }
 
     @Test
-    @DisplayName("ревью Codex на #240: снятие и отвязка в один день — 409, копилка осталась на счёте, «Свободно» прежнее")
+    @DisplayName("ревью Codex на #240: снятие и отвязка в один день — 400 (вариант А), копилка осталась на счёте, «Свободно» прежнее")
     void unlinkSameDayAfterWithdraw_refused() throws Exception {
         String fund = fund("Квартира", deposit);
         transfer(fund, "-3000", null).andExpect(status().isOk());
@@ -251,7 +283,7 @@ class FundOnAccountIT {
 
         mvc.perform(put("/api/v1/funds/{id}", fund).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Квартира\",\"targetAmount\":1000000}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isBadRequest());
 
         assertThat(jdbc.queryForObject("SELECT account_id::text FROM target_funds WHERE id = ?::uuid", String.class, fund))
                 .isEqualTo(deposit);
@@ -260,7 +292,7 @@ class FundOnAccountIT {
     }
 
     @Test
-    @DisplayName("ревью Codex на #240: перенос даты не возвращает денег удалённой копилке — 409, «Уже в копилках» 0")
+    @DisplayName("ревью Codex на #240: перенос даты не возвращает денег удалённой копилке — 400 (вариант А), «Уже в копилках» 0")
     void dateMove_revivingDeletedFund_refused() throws Exception {
         String fund = fund("Квартира", deposit);
         jdbc.update("UPDATE fund_account_links SET linked_from = CURRENT_DATE - 3 WHERE fund_id = ?::uuid", fund);
@@ -271,13 +303,13 @@ class FundOnAccountIT {
 
         mvc.perform(patch("/api/v1/events/{id}/fact", transferEvent("8000")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"factAmount\":8000,\"date\":\"" + today + "\"}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isBadRequest());
 
         assertThat(balances.envelopesAt(today)).isEqualByComparingTo("0");
     }
 
     @Test
-    @DisplayName("ревью Codex на #240: перенос копилки на другой счёт уводит его в минус переводами дня — 409, копилка на месте")
+    @DisplayName("ревью Codex на #240: перенос копилки на другой счёт уводит его в минус переводами дня — 400 (вариант А), копилка на месте")
     void relink_makingNewAccountNegative_refused() throws Exception {
         String fund = fund("Квартира", deposit);
         // Малый вклад обновлён раньше снятия: обновление позже само включало бы снятие дня.
@@ -288,12 +320,71 @@ class FundOnAccountIT {
 
         mvc.perform(put("/api/v1/funds/{id}", fund).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Квартира\",\"targetAmount\":1000000,\"accountId\":\"" + small + "\"}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isBadRequest());
 
         assertThat(jdbc.queryForObject("SELECT account_id::text FROM target_funds WHERE id = ?::uuid", String.class, fund))
                 .isEqualTo(deposit);
         assertThat(byRecords(small)).isEqualByComparingTo("1000");
         assertThat(byRecords(deposit)).isEqualByComparingTo("97000");
+    }
+
+    @Test
+    @DisplayName("ревью PR 2: перенос даты перевода на день, когда копилка лежала на счёте без обновления, — 400, основная та же")
+    void dateMove_ontoNeverUpdatedAccount_refused() throws Exception {
+        String fund = fund("Квартира", null);
+        transfer(fund, "1000", today.minusDays(5)).andExpect(status().isOk());
+        String oldDeposit = id(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name":"Старый вклад","kind":"DEPOSIT","trackBalance":true}"""))
+                .andExpect(status().isCreated()));
+        link(fund, oldDeposit);
+        jdbc.update("UPDATE fund_account_links SET linked_from = CURRENT_DATE - 3 WHERE fund_id = ?::uuid", fund);
+        BigDecimal card0 = byRecords(mainCard()), capital0 = capitalTotal();
+
+        mvc.perform(patch("/api/v1/events/{id}/fact", transferEvent("1000")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"factAmount\":1000,\"date\":\"" + today.minusDays(1) + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(byRecords(mainCard())).isEqualByComparingTo(card0);
+        assertThat(capitalTotal()).isEqualByComparingTo(capital0);
+    }
+
+    @Test
+    @DisplayName("ревью PR 2: перевод задним числом в день, когда копилка ещё не лежала на счёте, — 400, ничего не записано")
+    void backdatedTransfer_beforeLink_refused() throws Exception {
+        String fund = fund("Квартира", deposit);
+
+        transfer(fund, "1000", today.minusDays(1)).andExpect(status().isBadRequest());
+
+        assertThat(movements()).isZero();
+    }
+
+    @Test
+    @DisplayName("ревью PR 2: «Оплачено» к взносу вчерашним днём в копилку, привязанную к счёту сегодня, — 400")
+    void linkedFact_beforeLink_refused() throws Exception {
+        String fund = fund("Квартира", deposit);
+        String plan = id(mvc.perform(post("/api/v1/events").header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"date":"%s","type":"FUND_TRANSFER","plannedAmount":1000,"priority":"MEDIUM",
+                                 "targetFundId":"%s"}""".formatted(today, fund)))
+                .andExpect(status().isOk()));
+
+        mvc.perform(post("/api/v1/events/{id}/facts", plan).header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"date\":\"" + today.minusDays(1) + "\",\"factAmount\":1000}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(movements()).isZero();
+    }
+
+    @Test
+    @DisplayName("ревью PR 2: копилка на основной карте перевода не принимает — 400, как до среза 4; её правила — НЗ, PR 6")
+    void fundOnMainCard_refusesTransfer() throws Exception {
+        String fund = fund("Запас", mainCard());
+
+        transfer(fund, "1000", null).andExpect(status().isBadRequest());
+        transfer(fund, "-1000", null).andExpect(status().isBadRequest());
+
+        assertThat(movements()).isZero();
     }
 
     // ── оснастка ─────────────────────────────────────────────────────────────
