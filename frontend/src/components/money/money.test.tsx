@@ -259,6 +259,8 @@ describe('ревью Gemini на #241', () => {
         expect(page).toContain('onOther: () => setCheck(asked.length > 1 ? { ...check, items: asked.slice(1) } : null)');
         // ревью Gemini на #243: долг погасили в другом листе — вопрос о нём уходит
         expect(page).toContain('const asked = check ? liveCheckItems(check.items, data.summary.items) : [];');
+        expect(page).toContain('creditCheck={check && asked.length > 0 ? {');
+        expect(page).toContain('addCapitalRevaluation(asked[0].id, { value: 0 })');
         expect(page).toContain(".then(() => { setCheck(null); setToast('Запись — в «Архивных»: долг посчитан один раз.'); })");
         expect(await src('./CardSheet.tsx')).toContain('const toggle = (key: Open) => { setError(null);');
     });

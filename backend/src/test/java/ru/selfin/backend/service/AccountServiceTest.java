@@ -565,6 +565,22 @@ class AccountServiceTest {
     }
 
     @Test
+    @DisplayName("копилка другого счёта не мешает: вклад становится картой для трат")
+    void update_fundOnAnotherAccount_doesNotBlock() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("Отпуск").accountId(UUID.randomUUID()).build()));
+        savePassesThrough();
+        lenient().when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        service.update(deposit.getId(), new AccountCreateDto("Карта", AccountKind.DEBIT, false, null, null, null, null));
+
+        assertThat(deposit.getKind()).isEqualTo(AccountKind.DEBIT);
+        assertThat(deposit.isTrackBalance()).isFalse();
+    }
+
+    @Test
     @DisplayName("§3.2: смена природы через границу «кредитная / некредитная» у счёта с "
             + "остатками — 400: те же суммы означали бы другое, и долг возник бы из ниоткуда")
     void update_kindAcrossCreditBoundary_withCheckpoints_rejected() {
