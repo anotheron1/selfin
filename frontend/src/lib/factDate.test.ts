@@ -113,7 +113,7 @@ describe('экраны берут «сегодня» одним способом
         ['../components/Fab.tsx', 'latestAllowedIso('], ['../components/PlanFactSheet.tsx', 'latestAllowedIso('],
         ['../components/money/CapitalItemSheet.tsx', 'latestAllowedIso('], ['../pages/Settings.tsx', 'latestAllowedIso('],
         ['../pages/Capital.tsx', 'todayIso('],
-        ['../components/pocket/ReanchorSheet.tsx', 'latestAllowedIso('], ['../pages/Budget.tsx', 'latestAllowedIso('],
+        ['../components/money/UpdateBalancesSheet.tsx', 'todayIso('], ['../pages/Budget.tsx', 'latestAllowedIso('],
     ];
 
     it.each(forms)('%s не берёт дату из toISOString()', (file, helper) => {
@@ -127,7 +127,7 @@ describe('экраны берут «сегодня» одним способом
     // сверка собирала её вручную — getFullYear() та же местная дата.
     it.each([
         '../components/money/CapitalItemSheet.tsx', '../pages/Settings.tsx',
-        '../components/Fab.tsx', '../components/PlanFactSheet.tsx', '../components/pocket/ReanchorSheet.tsx',
+        '../components/Fab.tsx', '../components/PlanFactSheet.tsx',
     ])('%s — не позже даты сервера, а не просто местная дата', (file) => {
         const src = readFileSync(new URL(file, import.meta.url), 'utf8');
         expect(src).not.toMatch(/\btodayIso\(/);

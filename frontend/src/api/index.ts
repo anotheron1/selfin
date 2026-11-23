@@ -1,4 +1,4 @@
-import { get, post, put, patch, del } from './client';
+import { get, post, postRead, put, patch, del } from './client';
 import type { AttemptKeys } from '../lib/attemptKey';
 import type {
     EventWishlistParams,
@@ -12,8 +12,11 @@ import type {
     AccountUpdateDto,
     AnalyticsReport,
     ForecastReadiness,
+    BalanceBatch,
+    BalanceBatchResult,
     BalanceCheckpoint,
     BalanceCheckpointCreateDto,
+    BalanceSheet,
     CapitalItem,
     Me,
     CapitalItemCreateDto,
@@ -280,6 +283,15 @@ export const updateCheckpoint = (id: string, dto: BalanceCheckpointCreateDto) =>
 
 /** Удаляет чекпоинт. */
 export const deleteCheckpoint = (id: string) => del(`/balance-checkpoints/${id}`);
+
+/** Лист «Обновить остатки» (срез 4, п. 3). */
+export const fetchBalanceSheet = () => get<BalanceSheet>('/balance-checkpoints/sheet');
+
+/** Все введённые остатки — одной транзакцией. */
+export const saveBalances = (dto: BalanceBatch) => post<BalanceBatchResult>('/balance-checkpoints/batch', dto);
+
+/** То же без записи — «Свободно станет…»: экраны не перечитываются (`postRead`). */
+export const previewBalances = (dto: BalanceBatch) => postRead<BalanceBatchResult>('/balance-checkpoints/preview', dto);
 
 // --- Счета (ANO-9) ---
 

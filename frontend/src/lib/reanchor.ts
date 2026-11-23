@@ -1,9 +1,8 @@
-import { fmtDayMonth, fmtRub } from './format';
+import { fmtDayMonth } from './format';
 import { todayIso } from './factDate';
-import type { Account } from '../types/api';
 
 /**
- * Хелперы жеста ре-якоря (ANO-15 §3): возраст якоря и зеркало дрейфа.
+ * Хелперы жеста ре-якоря (ANO-15 §3): возраст якоря и строка о перерыве. Лист — UpdateBalancesSheet.
  * Чистые функции — вся логика шторки и напоминалки тестируется здесь.
  */
 
@@ -59,51 +58,4 @@ export function buildBreakHint(lastVisit: string | null, checkpointDate: string 
     const to = shiftIso(serverToday, -1);
     const fromText = from.slice(0, 7) === to.slice(0, 7) ? String(parseIso(from).getDate()) : fmtDayMonth(from);
     return `С ${fromText} по ${fmtDayMonth(to)} записей нет — обновить остаток?`;
-}
-
-/**
- * Число зеркала — остаток того счёта, который сверяют (ANO-214). Сверка пишется на один счёт, а
- * «на счёте» карточки — сумма всех свободных: с ней лист показывал дрейф ровно на остатки прочих
- * счетов, хотя расхождения не было.
- *
- * Основная карта со сверкой — её остаток по правилу «Счетов»: с ним же сервер потом считает дрейф
- * в истории сверок. Без сверки остаток счёта молчит, и подпись — расчёт по записанным фактам,
- * число карточки. Прочий счёт факты не двигают, сервер дрейф для него не считает — зеркала нет.
- *
- * @param accounts   счета из «Счетов»; null — список ещё не пришёл, и зеркала пока нет
- * @param selectedId выбранный в листе счёт; пусто — счёт по умолчанию
- * @param cardBalance «на счёте» карточки
- * @param hasAnchor  у основной карты есть сверка
- * @returns null — зеркала нет
- */
-export function mirrorBalance(
-    accounts: Pick<Account, 'id' | 'isDefault' | 'balance'>[] | null, selectedId: string,
-    cardBalance: number, hasAnchor: boolean,
-): number | null {
-    if (accounts == null) return null;
-    const selected = selectedId ? accounts.find(a => a.id === selectedId) : accounts.find(a => a.isDefault);
-    if (!selected?.isDefault) return null;
-    return hasAnchor ? selected.balance : cardBalance;
-}
-
-/** Подпись зеркала в шторке: у первого якоря «считает» вводило бы в заблуждение. */
-export function buildMirrorLabel(hasAnchor: boolean, computed: number): string {
-    return hasAnchor
-        ? `selfin считает: ${fmtRub(computed)}`
-        : `расчёт selfin по записанным фактам: ${fmtRub(computed)}`;
-}
-
-/**
- * Живая строка дрейфа под полем ввода; null — не показывать
- * (пустой ввод или первый якорь — сравнивать не с чем).
- */
-export function buildDriftPreview(
-    entered: number | null, computed: number, ageDays: number | null,
-): string | null {
-    if (entered == null || Number.isNaN(entered) || ageDays == null) return null;
-    const drift = entered - computed;
-    if (drift === 0) return 'дрейф 0 ₽ — расчёт сходится';
-    const sign = drift > 0 ? '+' : '−';
-    const days = ageDays === 0 ? 'за сегодня' : `за ${ageDays} дн.`;
-    return `дрейф ${sign}${fmtRub(Math.abs(drift))} ${days}`;
 }

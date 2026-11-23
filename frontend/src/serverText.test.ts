@@ -70,9 +70,9 @@ describe('места ANO-245 говорят словами экрана', () => 
         expect(card).toContain('failure: (e: unknown) => string = writeFailure');
     });
 
-    it('НЗ, сверка остатка и пороги «Хотелок» — writeFailure', () => {
+    it('НЗ, обновление остатков и пороги «Хотелок» — writeFailure', () => {
         expect(read('components/pocket/NzForm.tsx')).toMatch(/setError\(writeFailure\(err\)\)/);
-        expect(read('components/pocket/ReanchorSheet.tsx')).toMatch(/setError\(writeFailure\(err\)\)/);
+        expect(read('components/money/UpdateBalancesSheet.tsx')).toMatch(/setError\(writeFailure\(err\)\)/);
         expect(read('components/wishlist/WishlistThresholdsHeader.tsx')).toMatch(/setSaveError\(writeFailure\(e\)\)/);
     });
 

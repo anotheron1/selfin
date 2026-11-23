@@ -11,7 +11,7 @@ import CapitalItemSheet, { type ItemSheetMode } from '../components/money/Capita
 import CardSheet, { type RecordPreset } from '../components/money/CardSheet';
 import AddCardSheet from '../components/money/AddCardSheet';
 import QuickAddModal from '../components/Fab';
-import { REANCHOR } from '../components/frame/AppFrame';
+import { openUpdateBalances } from '../components/frame/AppFrame';
 import { CHANGED } from '../api/client';
 import { todayIso } from '../lib/factDate';
 import { cardHistory, creditCheckItems, liveCheckItems } from '../lib/moneyCard';
@@ -19,9 +19,8 @@ import { writeFailure } from '../lib/writeFailure';
 
 /**
  * «Деньги» (срез 4, п. 9). Адрес /capital прежний, страница новая: группы карт, капитал, имущество и долги, график.
- * Вид — components/money/MoneyView; здесь чтения и листы. «Обновить остатки» до PR 5 открывает прежний лист остатка
- * основной — тот же, что плитка «на картах» в шапке (`REANCHOR`, AppFrame). Лист карты — CardSheet, «Добавить карту» —
- * AddCardSheet (PR 4).
+ * Вид — components/money/MoneyView; здесь чтения и листы. «Обновить остатки» — лист каркаса (`openUpdateBalances`,
+ * AppFrame), тот же, что у плитки «на картах». Лист карты — CardSheet, «Добавить карту» — AddCardSheet (PR 4).
  */
 interface Data {
     summary: CapitalSummary;
@@ -95,7 +94,7 @@ export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
         <>
             <MoneyView summary={data.summary} accounts={data.accounts} funds={data.funds} points={data.points}
                 today={today}
-                onUpdate={() => window.dispatchEvent(new Event(REANCHOR))}
+                onUpdate={openUpdateBalances}
                 onAddCard={purpose => setAdding(purpose ?? 'ask')}
                 onAccount={account => setCardId(account.id)}
                 onItem={item => setItemSheet({ type: 'view', item })}

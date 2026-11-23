@@ -5,7 +5,7 @@ import { Button, Choices, Money, Plate, Tile } from '@/ds';
 import { cn } from '@/lib/utils';
 import { createLinkedFact, fetchMe, fetchPocket } from '../api';
 import { CHANGED } from '../api/client';
-import { profileLink } from '../components/frame/AppFrame';
+import { openUpdateBalances, profileLink } from '../components/frame/AppFrame';
 import { Cells } from '../components/today/Cells';
 import { DaySheet } from '../components/today/DaySheet';
 import { MovePlate, WatchdogPlate } from '../components/today/GapPlate';
@@ -14,7 +14,6 @@ import { Landscape, TightDot } from '../components/today/Landscape';
 import { UsualSpendingForm } from '../components/today/UsualSpendingForm';
 import { WhyPlate } from '../components/today/WhyPlate';
 import NzSheet from '../components/pocket/NzSheet';
-import ReanchorSheet from '../components/pocket/ReanchorSheet';
 import { Dialog, DialogContent, DialogTitle } from '../components/ui/dialog';
 import { buildCells } from '../lib/cells';
 import { needsFirstEntry } from '../lib/firstEntry';
@@ -95,7 +94,7 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
     const [lastVisit, setLastVisit] = useState<string | null>(null);
     const [day, setDay] = useState<string | null>(null);
     const [tightOpen, setTightOpen] = useState(false);
-    const [sheet, setSheet] = useState<'reanchor' | 'nz' | 'usual' | null>(null);
+    const [sheet, setSheet] = useState<'nz' | 'usual' | null>(null);
     const [guard] = useState(() => new QuickCloseGuard());
     const [, guardChanged] = useReducer((n: number) => n + 1, 0);
     const [markFailed, setMarkFailed] = useState(false);
@@ -202,7 +201,7 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
         </Plate>
     );
     const why = (size: 'narrow' | 'wide') => (
-        <WhyPlate data={data} size={size} onNz={() => setSheet('nz')} onReanchor={() => setSheet('reanchor')}
+        <WhyPlate data={data} size={size} onNz={() => setSheet('nz')} onReanchor={openUpdateBalances}
             overdue={{ busy: id => guard.held(id), onMark: markPaid }} aside={size === 'wide' ? noUsualPlate : undefined} />
     );
 
@@ -227,14 +226,14 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
                         {bubble('number', numberHint(data), 'up', 'left-7', 'left-0 top-full mt-2.5 w-[226px] lg:hidden')}
                         {tiles.map(t => t.key === 'cards'
                             ? <Tile key={t.key} className={TILE_W} icon={<CreditCard strokeWidth={1.7} />} value={t.value}
-                                caption={<><RefreshCw strokeWidth={2.4} />{t.caption}</>} onClick={() => setSheet('reanchor')}
+                                caption={<><RefreshCw strokeWidth={2.4} />{t.caption}</>} onClick={openUpdateBalances}
                                 aria-label={cardsTileLabel(data)} />
                             : <Tile key={t.key} className={cn(TILE_W, t.tight && 'bg-sf-plate')}
                                 icon={t.key === 'usual' ? <ShoppingBag strokeWidth={1.7} /> : <LowRing />}
                                 value={<><span className="sr-only">{t.sr} </span>{t.value}</>} caption={t.caption} />)}
                     </div>
                     {breakHint && (
-                        <button type="button" onClick={() => setSheet('reanchor')}
+                        <button type="button" onClick={openUpdateBalances}
                             className="mt-2.5 flex min-h-[44px] items-center gap-2.5 rounded-sf-field bg-sf-plate px-3 py-2 text-left text-sf-note lg:max-w-[660px]">
                             <RefreshCw size={16} className="shrink-0 text-sf-kind-ozh" aria-hidden="true" />
                             <span className="flex-1">{breakHint}</span>
@@ -269,7 +268,7 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
                         <div className="mb-3.5"><WatchdogPlate view={watch} onShowSecond={() => choosePeriod('SECOND_INCOME')} /></div>
                     )}
                     {gap && gap.movable.length > 0 && (
-                        <div className="mb-3.5"><MovePlate gap={gap} horizonEnd={data.horizon.endDate} onReanchor={() => setSheet('reanchor')} /></div>
+                        <div className="mb-3.5"><MovePlate gap={gap} horizonEnd={data.horizon.endDate} onReanchor={openUpdateBalances} /></div>
                     )}
                     {noUsual && <div className="mb-3.5 lg:hidden">{noUsualPlate}</div>}
                     <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:gap-7">
@@ -308,8 +307,6 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
             {/* «+» на телефоне — в капсуле снизу: пузырь над ней, уголок вниз. */}
             {bubble('plus', PLUS_HINT, 'down', 'left-[112px]', 'fixed bottom-[92px] left-1/2 z-40 -ml-[118px] w-[236px] lg:hidden')}
             {selected && <DaySheet data={data} date={selected} size="narrow" onDate={setDay} onClose={() => setDay(null)} />}
-            <ReanchorSheet open={sheet === 'reanchor'} onOpenChange={o => setSheet(o ? 'reanchor' : null)}
-                currentBalance={data.currentBalance} checkpointDate={data.checkpointDate} onSuccess={load} />
             <NzSheet open={sheet === 'nz'} onOpenChange={o => setSheet(o ? 'nz' : null)} buffer={data.buffer} onSuccess={load} />
             <Dialog open={sheet === 'usual'} onOpenChange={o => setSheet(o ? 'usual' : null)}>
                 <DialogContent>
