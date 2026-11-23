@@ -19,7 +19,7 @@ import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, WISHLIST_CHARACTER_NOTE, character
 import { dayLabel, editChips, factEditPatch, planEditDto, seriesOf, withCurrent } from '../lib/eventCard';
 import { TrashButton, writeDuplicate } from './journal/EventCard';
 import {
-    ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect, fundReserved, kindOf,
+    ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, chipOf, effectLine, formButtons, freeEffect, fundReserved, kindOf,
     repeatLabel, repeatOf, transferFundChoice, type FormAction,
 } from '../lib/quickAdd';
 import { writeFailure } from '../lib/writeFailure';
@@ -94,7 +94,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     // Правка — свои чипы (lib/eventCard editChips): у записи к брони и у перевода на виду только своя категория.
     const chips = ev ? editChips(categoryChips(categories ?? [], type), ev, type, categories != null) : categoryChips(categories ?? [], type);
     const all = [...chips.top, ...chips.rest];
-    const chosen = all.find(c => c.id === categoryId);
+    const chosen = chipOf(all, categoryId);
     const transfer = chosen?.transfer ?? false;
     const category = categories?.find(c => c.id === categoryId);
     useEffect(() => {
@@ -268,7 +268,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
                 {categories == null
                     ? <span className="px-1 text-sf-note text-sf-muted">Загрузка…</span>
                     : (
-                        <Choices name="category" label="Категория" look="chip" className="contents" value={categoryId ?? ''}
+                        <Choices name="category" label="Категория" look="chip" className="contents" value={chosen?.id ?? ''}
                             options={shownChips.map(c => ({ value: c.id, label: c.name }))} onChange={pickCategory} />
                     )}
                 {chips.rest.length > 0 && (

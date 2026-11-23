@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-    ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect,
+    ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, chipOf, effectLine, formButtons, freeEffect,
     fundReserved, kindOf, repeatLabel, repeatOf, transferFundChoice,
 } from './quickAdd';
 import type { Category, TargetFund } from '../types/api';
@@ -217,6 +217,23 @@ describe('freeEffect', () => {
     });
 });
 
+describe('chipOf', () => {
+    const food = { id: 'food', name: 'Продукты', transfer: false };
+    const own = { id: 'nak', name: 'Накопление', transfer: true };
+
+    it('«Отложить сюда» (лист карты): «Накопление» — своя категория человека, если она есть (найдено на стенде)', () => {
+        expect(chipOf([food, own], SAVINGS_ID)).toBe(own);
+        // своей нет — заглушка из categoryChips
+        expect(chipOf([food, { id: SAVINGS_ID, name: 'Накопление', transfer: true }], SAVINGS_ID)?.id).toBe(SAVINGS_ID);
+    });
+
+    it('остальное — по id', () => {
+        expect(chipOf([food, own], 'food')).toBe(food);
+        expect(chipOf([food, own], 'нет')).toBeUndefined();
+        expect(chipOf([food, own], undefined)).toBeUndefined();
+    });
+});
+
 describe('transferFundChoice', () => {
     const fund = (id: string, over: Partial<TargetFund> = {}) =>
         ({ id, name: id, status: 'FUNDING', accountId: null, ...over }) as TargetFund;
@@ -248,6 +265,9 @@ describe('форма «+» (срез 3 п. 12)', () => {
         expect(src).toContain('formButtons(');
         expect(src).toContain('canSubmitQuickAdd({');
         expect(src).toContain('transferFundChoice(funds ?? [], mainId)');
+        // выбранный чип — chipOf: «Отложить сюда» открывает форму с «Накоплением» человека
+        expect(src).toContain('const chosen = chipOf(all, categoryId);');
+        expect(src).toContain("value={chosen?.id ?? ''}");
         expect(src).toContain("setMainId(accounts.find(a => a.isDefault)?.id)");
         expect(src).toContain('{ON_MAIN_NOTE}');
         expect(ON_MAIN_NOTE).toContain('на основной');

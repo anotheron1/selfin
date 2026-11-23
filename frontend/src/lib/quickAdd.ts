@@ -63,6 +63,13 @@ export const TOP_CATEGORIES = 6;
 export const fundReserved = (f: TargetFund | undefined) =>
     f != null && f.wishlistStatus === 'FIXED' && f.purchaseType === 'SAVINGS' && f.targetDate != null && f.targetAmount != null;
 
+/**
+ * Выбранный чип. Заглушка «Накопления» (SAVINGS_ID — форма открыта «Отложить сюда» с листа карты) — своя категория человека,
+ * если она есть: иначе ни один чип не выбран и «в копилку» не показано (найдено на стенде PR 4 среза 4).
+ */
+export const chipOf = (all: CategoryChip[], id: string | undefined): CategoryChip | undefined =>
+    all.find(c => c.id === id) ?? (id === SAVINGS_ID ? all.find(c => c.transfer) : undefined);
+
 export function categoryChips(categories: Category[], type: 'EXPENSE' | 'INCOME'): { top: CategoryChip[]; rest: CategoryChip[] } {
     const chips: CategoryChip[] = categories.filter(c => c.type === type)
         .map(c => ({ id: c.id, name: c.name, transfer: c.systemKind === 'FUND_TRANSFER' }));
