@@ -16,12 +16,11 @@ import java.util.UUID;
  * {@code PATCH /accounts/{id}/default}, потому что это не свойство одного счёта, а
  * перестановка на два счёта сразу — старый обязан потерять флаг в той же транзакции.
  *
- * <p>Два вида создания (срез 4, п. 4). С {@code purpose} — ответ на «Для чего эта карта?»: оси счёта сервер
- * раскладывает сам, {@code kind} и {@code trackBalance} не читаются. Без него — прежний путь: им пользуется
- * лист добавления «Счетов» до PR 4 среза 4, тогда он уходит вместе с листом. Обновление счёта — всегда
- * прежним путём, {@code kind} обязателен.
+ * <p>Создание — только ответом (срез 4, п. 4): {@code purpose} обязателен, оси счёта сервер раскладывает сам,
+ * {@code kind} и {@code trackBalance} не читаются. Прежний путь с природой ушёл вместе с листом «Счетов» (PR 4).
+ * Обновление — по осям: {@code kind} обязателен, {@code purpose} и {@code balance} не читаются.
  *
- * @param kind         природа; обязательна без {@code purpose}
+ * @param kind         природа; обязательна при обновлении
  * @param trackBalance {@code null} — взять дефолт природы (§3.1): DEBIT/DEPOSIT/CREDIT со
  *                     слежением, CASH без («расход при снятии»)
  * @param sortOrder    {@code null} — 100, как в схеме
@@ -40,7 +39,7 @@ public record AccountCreateDto(
         @PositiveOrZero BigDecimal balance
 ) {
 
-    /** Прежний вид запроса — без ответа и остатка. */
+    /** Обновление по осям — без ответа и остатка. */
     public AccountCreateDto(String name, AccountKind kind, Boolean trackBalance, UUID purposeCategoryId,
                             BigDecimal creditLimit, BigDecimal availableFloor, Integer sortOrder) {
         this(name, kind, trackBalance, purposeCategoryId, creditLimit, availableFloor, sortOrder, null, null);

@@ -189,8 +189,11 @@ class TwoPeopleIsolationIT {
                 {"name":"Спорт","type":"EXPENSE"}""", null));
         p.save("income", ok(p, POST, "/api/v1/categories", """
                 {"name":"Аванс","type":"INCOME"}""", null));
+        // Карту «на всё» ответом не завести (срез 4, п. 10): накопительная, затем правка в дебетовую с остатком.
         p.save("account", ok(p, POST, "/api/v1/accounts", """
-                {"name":"Карта","kind":"DEBIT","trackBalance":true}""", null));
+                {"name":"Карта","purpose":"SAVINGS"}""", null));
+        ok(p, PUT, "/api/v1/accounts/" + p.id("account"), """
+                {"name":"Карта","kind":"DEBIT","trackBalance":true}""", null);
         p.save("checkpoint", ok(p, POST, "/api/v1/balance-checkpoints", """
                 {"date":"%s","amount":%d,"accountId":"%s"}""".formatted(TODAY.minusDays(1), 50_000 * k, p.id("account")), null));
         // Основной становится карта с обновлением (срез 4, п. 12): без него смена — 400.
@@ -420,7 +423,7 @@ class TwoPeopleIsolationIT {
                 new Hit(GET, "/api/v1/events/fact-preview?categoryId=%s&date=" + TODAY + "&type=EXPENSE&priority=MEDIUM",
                         "category", null, "204 "),
                 new Hit(POST, "/api/v1/accounts", "category", """
-                        {"name":"Чужая цель","kind":"DEBIT","purposeCategoryId":"%s"}"""),
+                        {"name":"Чужая цель","purpose":"SPEND","purposeCategoryId":"%s"}"""),
                 new Hit(POST, "/api/v1/balance-checkpoints", "account", """
                         {"date":"2026-01-01","amount":1,"accountId":"%s"}"""),
                 new Hit(POST, "/api/v1/balance-checkpoints/batch", "account", """

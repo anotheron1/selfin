@@ -30,6 +30,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -78,8 +79,7 @@ class BalanceSheetIT {
                 {"name":"Вклад","purpose":"SAVINGS","balance":100000}""");
         create("""
                 {"name":"Бензин","purpose":"SPEND","purposeCategoryId":"%s"}""".formatted(category()));
-        String wallet = create("""
-                {"name":"Кошелёк","kind":"CASH","trackBalance":true}""");
+        String wallet = everyday("Кошелёк", "CASH");
         anchor(wallet, today.minusDays(2), "5000");
 
         JsonNode cards = json(mvc.perform(get("/api/v1/balance-checkpoints/sheet")).andExpect(status().isOk()))
@@ -198,8 +198,7 @@ class BalanceSheetIT {
         String main = mainCard();
         anchor(null, today.minusDays(10), "60000");
         fact(today.minusDays(5), "1500");
-        String wallet = create("""
-                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+        String wallet = everyday("Кошелёк", "DEBIT");
         anchor(wallet, today.minusDays(2), "5000");
         BigDecimal before = pocket();
 
@@ -227,8 +226,7 @@ class BalanceSheetIT {
                                 {"date":"%s","categoryId":"%s","type":"INCOME","factAmount":10000,
                                  "priority":"MEDIUM","description":"доход"}""".formatted(today.minusDays(3), salary)))
                 .andExpect(status().is2xxSuccessful());
-        String wallet = create("""
-                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+        String wallet = everyday("Кошелёк", "DEBIT");
         anchor(wallet, today.minusDays(2), "5000");
         BigDecimal before = pocket();
 
@@ -249,8 +247,7 @@ class BalanceSheetIT {
                                 {"date":"%s","categoryId":"%s","type":"EXPENSE","plannedAmount":8000,
                                  "priority":"HIGH","description":"Аренда"}""".formatted(today.minusDays(3), category())))
                 .andExpect(status().is2xxSuccessful());
-        String wallet = create("""
-                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+        String wallet = everyday("Кошелёк", "DEBIT");
         anchor(wallet, today.minusDays(2), "5000");
         BigDecimal before = pocket();
 
@@ -273,8 +270,7 @@ class BalanceSheetIT {
     void makeDefault_cardWithoutUpdate_rejected() throws Exception {
         String main = mainCard();
         anchor(null, today.minusDays(1), "60000");
-        String wallet = create("""
-                {"name":"Кошелёк","kind":"DEBIT","trackBalance":true}""");
+        String wallet = everyday("Кошелёк", "DEBIT");
 
         mvc.perform(patch("/api/v1/accounts/{id}/default", wallet)).andExpect(status().isBadRequest());
 
@@ -301,6 +297,16 @@ class BalanceSheetIT {
     private String create(String body) throws Exception {
         return json(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated())).get("id").asText();
+    }
+
+    /** Вторая карта «на всё» (п. 10): ответом её не завести — накопительная, затем правка природы с остатком. */
+    private String everyday(String name, String kind) throws Exception {
+        String id = create("""
+                {"name":"%s","purpose":"SAVINGS"}""".formatted(name));
+        mvc.perform(put("/api/v1/accounts/{id}", id).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name":"%s","kind":"%s","trackBalance":true}""".formatted(name, kind)))
+                .andExpect(status().isOk());
+        return id;
     }
 
     private void anchor(String account, LocalDate date, String amount) throws Exception {

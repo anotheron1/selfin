@@ -87,11 +87,15 @@ class AccountControllerIT {
     }
 
     @Test
-    @DisplayName("Создание счёта: имя плюс природа, остальное по дефолту; счёт виден в списке")
+    @DisplayName("Создание карты ответом «для отдельных трат»: DEBIT без остатка со своей категорией; карта видна в списке")
     void create_thenAppearsInList() throws Exception {
+        String petrol = om.readTree(mockMvc.perform(post("/api/v1/categories").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Бензин","type":"EXPENSE"}"""))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("id").asText();
         String id = createAccount("""
-                {"name":"Бензиновая карта","kind":"DEBIT","trackBalance":false}
-                """);
+                {"name":"Бензиновая карта","purpose":"SPEND","purposeCategoryId":"%s"}
+                """.formatted(petrol));
 
         mockMvc.perform(get("/api/v1/accounts"))
                 .andExpect(status().isOk())
@@ -102,6 +106,7 @@ class AccountControllerIT {
                 .andExpect(jsonPath("$.name").value("Бензиновая карта"))
                 .andExpect(jsonPath("$.kind").value("DEBIT"))
                 .andExpect(jsonPath("$.trackBalance").value(false))
+                .andExpect(jsonPath("$.purposeCategoryName").value("Бензин"))
                 .andExpect(jsonPath("$.isDefault").value(false))
                 // за остатком не следим — числа остатка нет, обещать его мы не можем (§5.3)
                 .andExpect(jsonPath("$.balance").doesNotExist());
@@ -122,29 +127,30 @@ class AccountControllerIT {
         mockMvc.perform(post("/api/v1/accounts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Кредитка","kind":"CREDIT","creditLimit":100000,"availableFloor":120000}
+                                {"name":"Кредитка","purpose":"CREDIT","creditLimit":100000,"availableFloor":120000}
                                 """))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    @DisplayName("§8: вклад без слежения за остатком — 400, а не 500")
-    void create_depositWithoutTracking_returns400() throws Exception {
+    @DisplayName("срез 4, PR 4: прежний вид — природа без ответа на «Для чего эта карта?» — 400, карты нет")
+    void create_withoutPurpose_returns400() throws Exception {
         mockMvc.perform(post("/api/v1/accounts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Вклад","kind":"DEPOSIT","trackBalance":false}
+                                {"name":"Вклад по-старому","kind":"DEPOSIT","trackBalance":true}
                                 """))
                 .andExpect(status().isBadRequest());
+        assertThat(accountRepo.findAll()).noneMatch(a -> "Вклад по-старому".equals(a.getName()));
     }
 
     @Test
-    @DisplayName("§3.1: кредитные поля у дебетового счёта — 400, а не 500")
+    @DisplayName("§3.1: кредитные поля у накопительной — 400, а не 500")
     void create_creditFieldsOnDebit_returns400() throws Exception {
         mockMvc.perform(post("/api/v1/accounts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Карта","kind":"DEBIT","creditLimit":100000}
+                                {"name":"Карта","purpose":"SAVINGS","creditLimit":100000}
                                 """))
                 .andExpect(status().isBadRequest());
     }
@@ -155,7 +161,7 @@ class AccountControllerIT {
         mockMvc.perform(post("/api/v1/accounts")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"  ","kind":"DEBIT"}
+                                {"name":"  ","purpose":"SAVINGS"}
                                 """))
                 .andExpect(status().isBadRequest());
     }
@@ -173,7 +179,7 @@ class AccountControllerIT {
     @DisplayName("§8: удаление обычного счёта — мягкое: пропадает из списка, чекпоинты остаются")
     void delete_regularAccount_softDeletesAndKeepsCheckpoints() throws Exception {
         String id = createAccount("""
-                {"name":"Старая карта","kind":"DEBIT"}
+                {"name":"Старая карта","purpose":"SAVINGS"}
                 """);
         Account account = accountRepo.findById(UUID.fromString(id)).orElseThrow();
         BalanceCheckpoint cp = checkpointRepo.save(BalanceCheckpoint.builder()
@@ -195,10 +201,14 @@ class AccountControllerIT {
     @DisplayName("Смена счёта по умолчанию проходит мимо частичного уникального индекса: "
             + "старый теряет флаг, новый получает, двух дефолтных не возникает ни на миг")
     void makeDefault_movesFlagWithoutViolatingUniqueIndex() throws Exception {
-        // С остатком: карту без обновления основной не сделать (срез 4, п. 12).
+        // С остатком: карту без обновления основной не сделать (срез 4, п. 12). Карту «на всё» ответом не завести
+        // (п. 10) — заводится накопительной с остатком и правится в дебетовую: сумма остатка значит то же.
         String id = createAccount("""
-                {"name":"Новая основная","kind":"DEBIT","balance":10000}
+                {"name":"Новая основная","purpose":"SAVINGS","balance":10000}
                 """);
+        mockMvc.perform(put("/api/v1/accounts/" + id).contentType(MediaType.APPLICATION_JSON).content("""
+                        {"name":"Новая основная","kind":"DEBIT","trackBalance":true}"""))
+                .andExpect(status().isOk());
         UUID seededId = seeded().getId();
 
         mockMvc.perform(patch("/api/v1/accounts/" + id + "/default"))
@@ -215,7 +225,7 @@ class AccountControllerIT {
     @DisplayName("§8: назначить дефолтным кредитку — 400, сид остаётся приёмником")
     void makeDefault_creditAccount_returns400() throws Exception {
         String id = createAccount("""
-                {"name":"Кредитка","kind":"CREDIT","creditLimit":200000}
+                {"name":"Кредитка","purpose":"CREDIT","creditLimit":200000}
                 """);
 
         mockMvc.perform(patch("/api/v1/accounts/" + id + "/default"))
@@ -229,7 +239,7 @@ class AccountControllerIT {
     @DisplayName("Кредитка отдаёт доступное и рассчитанный долг, а не введённое число долга")
     void creditAccount_reportsAvailableAndComputedDebt() throws Exception {
         String id = createAccount("""
-                {"name":"Кредитка ТБанк","kind":"CREDIT","creditLimit":200000,"availableFloor":150000}
+                {"name":"Кредитка ТБанк","purpose":"CREDIT","creditLimit":200000,"availableFloor":150000}
                 """);
         Account credit = accountRepo.findById(UUID.fromString(id)).orElseThrow();
         checkpointRepo.save(BalanceCheckpoint.builder()
@@ -250,7 +260,7 @@ class AccountControllerIT {
     @DisplayName("Обновление счёта: PUT меняет имя и природу, ответ отражает новое состояние")
     void update_changesFields() throws Exception {
         String id = createAccount("""
-                {"name":"Карта","kind":"DEBIT"}
+                {"name":"Карта","purpose":"SAVINGS"}
                 """);
 
         mockMvc.perform(put("/api/v1/accounts/" + id)

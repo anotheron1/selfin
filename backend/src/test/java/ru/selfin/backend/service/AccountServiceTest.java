@@ -42,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -122,26 +123,33 @@ class AccountServiceTest {
 
     // === Дефолты природы (спека §3.1) ===
 
-    @Test
-    @DisplayName("DEBIT создаётся со слежением за остатком, CASH — без него («расход при снятии»)")
-    void create_appliesTrackingDefaultsByKind() {
-        savePassesThrough();
-        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
-
-        assertThat(service.create(dto("Карта", AccountKind.DEBIT, null)).trackBalance()).isTrue();
-        assertThat(service.create(dto("Наличные", AccountKind.CASH, null)).trackBalance()).isFalse();
-        assertThat(service.create(dto("Вклад", AccountKind.DEPOSIT, null)).trackBalance()).isTrue();
-        assertThat(service.create(dto("Кредитка", AccountKind.CREDIT, null)).trackBalance()).isTrue();
+    /** Живая карта в репозитории — для обновления. */
+    private Account stored(AccountKind kind, boolean track) {
+        Account a = AccountFixtures.account(kind, track).build();
+        when(accountRepo.findById(a.getId())).thenReturn(Optional.of(a));
+        return a;
     }
 
     @Test
-    @DisplayName("Явный trackBalance перебивает дефолт природы")
-    void create_explicitTrackBalanceWins() {
+    @DisplayName("обновление без trackBalance — дефолт природы: DEBIT со слежением, CASH — без него («расход при снятии»)")
+    void update_appliesTrackingDefaultsByKind() {
         savePassesThrough();
         when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
 
-        assertThat(service.create(dto("Бензин", AccountKind.DEBIT, false)).trackBalance()).isFalse();
-        assertThat(service.create(dto("Копилка налом", AccountKind.CASH, true)).trackBalance()).isTrue();
+        assertThat(service.update(stored(AccountKind.DEBIT, false).getId(), dto("Карта", AccountKind.DEBIT, null)).trackBalance()).isTrue();
+        assertThat(service.update(stored(AccountKind.CASH, true).getId(), dto("Наличные", AccountKind.CASH, null)).trackBalance()).isFalse();
+        assertThat(service.update(stored(AccountKind.DEPOSIT, true).getId(), dto("Вклад", AccountKind.DEPOSIT, null)).trackBalance()).isTrue();
+        assertThat(service.update(stored(AccountKind.CREDIT, true).getId(), dto("Кредитка", AccountKind.CREDIT, null)).trackBalance()).isTrue();
+    }
+
+    @Test
+    @DisplayName("обновление: явный trackBalance перебивает дефолт природы")
+    void update_explicitTrackBalanceWins() {
+        savePassesThrough();
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        assertThat(service.update(stored(AccountKind.DEBIT, true).getId(), dto("Бензин", AccountKind.DEBIT, false)).trackBalance()).isFalse();
+        assertThat(service.update(stored(AccountKind.CASH, false).getId(), dto("Копилка налом", AccountKind.CASH, true)).trackBalance()).isTrue();
     }
 
     // === Срез 4, п. 4: «Для чего эта карта?» и остаток при заведении ===
@@ -261,9 +269,9 @@ class AccountServiceTest {
     }
 
     @Test
-    @DisplayName("прежний путь без природы — 400, а не 500 от базы")
-    void create_legacyWithoutKind_rejected() {
-        assertThatThrownBy(() -> service.create(dto("Карта", null, true)))
+    @DisplayName("срез 4, PR 4: без ответа на «Для чего эта карта?» — 400, даже с природой: прежнего пути нет")
+    void create_withoutPurpose_rejected() {
+        assertThatThrownBy(() -> service.create(dto("Карта", AccountKind.DEBIT, true)))
                 .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
         verify(accountRepo, never()).save(any());
     }
@@ -271,33 +279,32 @@ class AccountServiceTest {
     // === §8: краевые случаи ===
 
     @Test
-    @DisplayName("§8: планка выше лимита — 400")
-    void create_floorAboveLimit_rejected() {
+    @DisplayName("§8: обновление — «возвращаю до» выше лимита — 400")
+    void update_floorAboveLimit_rejected() {
+        Account card = stored(AccountKind.CREDIT, true);
         AccountCreateDto in = new AccountCreateDto("Кредитка", AccountKind.CREDIT, true, null,
                 new BigDecimal("100000"), new BigDecimal("120000"), null);
 
-        assertThatThrownBy(() -> service.create(in))
+        assertThatThrownBy(() -> service.update(card.getId(), in))
                 .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
         verify(accountRepo, never()).save(any());
     }
 
     @Test
-    @DisplayName("§8: планка равна лимиту — разрешено (граница включительная)")
+    @DisplayName("§8: «возвращаю до» равно лимиту — разрешено (граница включительная)")
     void create_floorEqualToLimit_allowed() {
         savePassesThrough();
         when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
 
-        AccountDto out = service.create(new AccountCreateDto("Кредитка", AccountKind.CREDIT, true,
-                null, new BigDecimal("100000"), new BigDecimal("100000"), null));
+        AccountDto out = service.create(answer(AccountCreateDto.Purpose.CREDIT, null, "100000", "100000", null));
 
         assertThat(out.availableFloor()).isEqualByComparingTo("100000");
     }
 
     @Test
-    @DisplayName("§3.1: кредитные поля у некредитного счёта — 400")
+    @DisplayName("§3.1: кредитные поля у накопительной — 400")
     void create_creditFieldsOnNonCreditAccount_rejected() {
-        AccountCreateDto in = new AccountCreateDto("Карта", AccountKind.DEBIT, true, null,
-                new BigDecimal("100000"), null, null);
+        AccountCreateDto in = answer(AccountCreateDto.Purpose.SAVINGS, null, "100000", null, null);
 
         assertThatThrownBy(() -> service.create(in))
                 .satisfies(t -> assertStatus(t, HttpStatus.BAD_REQUEST));
@@ -514,6 +521,63 @@ class AccountServiceTest {
                 .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
         assertThat(deposit.isDeleted()).isFalse();
         verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ревью Gemini на #243: счёт с копилкой не становится картой без остатка или кредиткой — 409, "
+            + "иначе копилка повисла бы на карте, которая её не держит (validateAccountLink)")
+    void update_accountHoldingAFund_cannotDropTrackingOrBecomeCredit() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("Отпуск").accountId(deposit.getId()).build()));
+
+        assertThatThrownBy(() -> service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад", AccountKind.DEBIT, false, null, null, null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
+        assertThatThrownBy(() -> service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад", AccountKind.CREDIT, true, null, new BigDecimal("100000"), null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
+        // наличные без слежения — по умолчанию природы
+        assertThatThrownBy(() -> service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад", AccountKind.CASH, null, null, null, null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
+        assertThat(deposit.getKind()).isEqualTo(AccountKind.DEPOSIT);
+        assertThat(deposit.isTrackBalance()).isTrue();
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("счёт с копилкой можно переименовать и оставить с остатком — копилке это не мешает")
+    void update_accountHoldingAFund_staysTracked_allowed() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        // копилка есть — и правке, которая оставляет остаток, не мешает (её даже не нужно искать)
+        lenient().when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("Отпуск").accountId(deposit.getId()).build()));
+        savePassesThrough();
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        AccountDto out = service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад на отпуск", AccountKind.DEPOSIT, true, null, null, null, null));
+
+        assertThat(out.name()).isEqualTo("Вклад на отпуск");
+    }
+
+    @Test
+    @DisplayName("копилка другого счёта не мешает: вклад становится картой для трат")
+    void update_fundOnAnotherAccount_doesNotBlock() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("Отпуск").accountId(UUID.randomUUID()).build()));
+        savePassesThrough();
+        lenient().when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        service.update(deposit.getId(), new AccountCreateDto("Карта", AccountKind.DEBIT, false, null, null, null, null));
+
+        assertThat(deposit.getKind()).isEqualTo(AccountKind.DEBIT);
+        assertThat(deposit.isTrackBalance()).isFalse();
     }
 
     @Test

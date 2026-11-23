@@ -63,6 +63,13 @@ export const TOP_CATEGORIES = 6;
 export const fundReserved = (f: TargetFund | undefined) =>
     f != null && f.wishlistStatus === 'FIXED' && f.purchaseType === 'SAVINGS' && f.targetDate != null && f.targetAmount != null;
 
+/**
+ * Выбранный чип. Заглушка «Накопления» (SAVINGS_ID — форма открыта «Отложить сюда» с листа карты) — своя категория человека,
+ * если она есть: иначе ни один чип не выбран и «в копилку» не показано (найдено на стенде PR 4 среза 4).
+ */
+export const chipOf = (all: CategoryChip[], id: string | undefined): CategoryChip | undefined =>
+    all.find(c => c.id === id) ?? (id === SAVINGS_ID ? all.find(c => c.transfer) : undefined);
+
 export function categoryChips(categories: Category[], type: 'EXPENSE' | 'INCOME'): { top: CategoryChip[]; rest: CategoryChip[] } {
     const chips: CategoryChip[] = categories.filter(c => c.type === type)
         .map(c => ({ id: c.id, name: c.name, transfer: c.systemKind === 'FUND_TRANSFER' }));
@@ -168,19 +175,17 @@ export function afterLine(e: FreeEffect | null): string | null {
 }
 
 /**
- * Копилки, в которые перевод возможен, и сколько не показано, потому что они лежат на счёте.
+ * Копилки, в которые перевод возможен, и сколько не показано, потому что они лежат на основной карте.
  *
- * Достигнутые копилки прячутся, как и прежде. Копилки на счёте перевода не принимают —
- * деньги в них двигаются на самом счёте (§3.3); раньше они стояли в списке, и план на них не
- * исполнялся никаким путём.
+ * Достигнутые копилки прячутся, как и прежде. Копилка на своём счёте перевод принимает с среза 4
+ * (PR 2): основная меньше, её счёт больше — так работает «Отложить сюда» с карты. Копилка на основной
+ * перевода не принимает (сервер — 400): деньги и так на ней; её правила — НЗ, PR 6.
  */
-export function transferFundChoice(funds: TargetFund[]): { choices: TargetFund[]; onAccount: number } {
+export function transferFundChoice(funds: TargetFund[], mainId: string | undefined): { choices: TargetFund[]; onMain: number } {
     const open = funds.filter(f => f.status !== 'REACHED');
-    return {
-        choices: open.filter(f => !f.accountId),
-        onAccount: open.filter(f => !!f.accountId).length,
-    };
+    const onMain = (f: TargetFund) => mainId != null && f.accountId === mainId;
+    return { choices: open.filter(f => !onMain(f)), onMain: open.filter(onMain).length };
 }
 
-/** Строка под списком копилок — почему копилок на счёте в нём нет. */
-export const ON_ACCOUNT_NOTE = 'Копилок на счёте здесь нет: деньги в них двигаются на самом счёте.';
+/** Строка под списком копилок — почему копилки на основной в нём нет. */
+export const ON_MAIN_NOTE = 'Копилок на основной карте здесь нет: деньги в них и так на ней.';

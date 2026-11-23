@@ -55,15 +55,19 @@ describe('текст ошибки на экран не идёт (ANO-245)', () =
 });
 
 describe('места ANO-245 говорят словами экрана', () => {
-    it('счета: форма проверяет до отправки и отвечает словами; удаление — про копилку; остальное — writeFailure', () => {
-        const src = read('components/accounts/AccountSheet.tsx');
-        expect(src).toMatch(/const problem = accountFormProblem\(dto, null\);/);
-        expect(src).toMatch(/const problem = accountFormProblem\(dto, account\);/);
-        expect(src.match(/if \(problem\) \{ setFormError\(problem\); return; \}/g)).toHaveLength(2);
-        expect(src).toMatch(/setFormError\(writeFailure\(e\)\)/);
-        expect(src).toMatch(/setFormError\(accountWriteFailure\(e, dto, account\)\)/);
-        expect(src).toMatch(/setNotice\(accountDeleteFailure\(e\)\)/);
-        expect(src.match(/setNotice\(writeFailure\(e\)\)/g)).toHaveLength(3);
+    it('карты: лист проверяет до отправки и отвечает словами; удаление — про копилку; основная — «сначала обнови»', () => {
+        const add = read('components/money/AddCardSheet.tsx');
+        expect(add).toContain('const problem = cardFormProblem(v);');
+        expect(add).toContain('setError(writeFailure(e));');
+        const card = read('components/money/CardSheet.tsx');
+        expect(card).toContain('const problem = cardFormProblem(v);');
+        expect(card).toContain('if (problem) { setError(problem); return; }');
+        expect(card).toContain('e => cardWriteFailure(e, a, dto.kind)');
+        expect(card).toContain('deleteCardFailure)');
+        expect(card).toContain('makeMainFailure)');
+        expect(card).toContain('() => DELETE_FAILED)');
+        // Прочие записи листа — запасной фразой: run по умолчанию — writeFailure.
+        expect(card).toContain('failure: (e: unknown) => string = writeFailure');
     });
 
     it('НЗ, сверка остатка и пороги «Хотелок» — writeFailure', () => {

@@ -432,8 +432,7 @@ export interface BalanceCheckpointCreateDto {
 }
 
 // --- Счета (ANO-9) ---
-// Рабочее слово на экране — «Счета». Продуктовое название ещё обсуждается (спека §10),
-// поэтому все видимые строки собраны в accountsCopy.ts: смена слова = правка одного файла.
+// На экране — «карты» (срез 4); слова листов карты — lib/moneyCard.ts.
 
 export type AccountKind = 'DEBIT' | 'CREDIT' | 'DEPOSIT' | 'CASH';
 
@@ -464,7 +463,23 @@ export interface Account {
     floorSuggestion: number | null;
 }
 
+/** Ответ на «Для чего эта карта?» (срез 4, п. 4). */
+export type AccountPurpose = 'SPEND' | 'SAVINGS' | 'CREDIT';
+
+/** Заведение карты — только ответом: оси раскладывает сервер (срез 4, п. 4). */
 export interface AccountCreateDto {
+    name: string;
+    purpose: AccountPurpose;
+    /** Для отдельных трат — своя категория расхода. */
+    purposeCategoryId?: string | null;
+    creditLimit?: number | null;
+    availableFloor?: number | null;
+    /** Остаток сейчас — первое обновление сегодня; у кредитки — доступное. */
+    balance?: number | null;
+}
+
+/** Правка карты — по осям. */
+export interface AccountUpdateDto {
     name: string;
     kind: AccountKind;
     trackBalance?: boolean | null;

@@ -112,7 +112,8 @@ async function phaseFixed() {
 
   let accounts = await must('/accounts');
   if (!accounts.length) {
-    await must('/accounts', send('POST', { name: 'Карта', kind: 'DEBIT' }));
+    const card = await must('/accounts', send('POST', { name: 'Карта', purpose: 'SAVINGS' }));
+    await must(`/accounts/${card.id}`, send('PUT', { name: 'Карта', kind: 'DEBIT', trackBalance: true }));
     accounts = await must('/accounts');
   }
   const acc = accounts.find((a) => a.isDefault) ?? accounts[0];
@@ -211,7 +212,8 @@ async function phaseMidMonth() {
   const exp = cats.find((c) => c.type === 'EXPENSE');
   let accounts = await must('/accounts');
   if (!accounts.length) {
-    await must('/accounts', send('POST', { name: 'Карта', kind: 'DEBIT' }));
+    const card = await must('/accounts', send('POST', { name: 'Карта', purpose: 'SAVINGS' }));
+    await must(`/accounts/${card.id}`, send('PUT', { name: 'Карта', kind: 'DEBIT', trackBalance: true }));
     accounts = await must('/accounts');
   }
   const acc = accounts.find((a) => a.isDefault) ?? accounts[0];

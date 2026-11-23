@@ -12,6 +12,7 @@ import ru.selfin.backend.exception.ResourceNotFoundException;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.EventType;
@@ -69,21 +70,15 @@ public class AccountService {
     }
 
     /**
-     * Заводит счёт. С ответом на «Для чего эта карта?» оси раскладывает {@link #byPurpose}; остаток, если он
+     * Заводит карту ответом на «Для чего эта карта?»: оси раскладывает {@link #byPurpose}; остаток, если он
      * пришёл, — первое обновление на сегодня в той же транзакции (срез 4, п. 4): ошибка обновления не оставляет
-     * карты без остатка, который человек ввёл.
+     * карты без остатка, который человек ввёл. Без ответа — 400: прежний путь с природой ушёл с листом «Счетов»
+     * (срез 4, PR 4).
      */
     @Transactional
     public AccountDto create(AccountCreateDto dto) {
-        Account account = dto.purpose() != null ? byPurpose(dto) : Account.builder()
-                .name(dto.name())
-                .kind(requireKind(dto))
-                .trackBalance(dto.trackBalance() != null ? dto.trackBalance() : defaultTracking(dto.kind()))
-                .purposeCategory(resolveCategory(dto.purposeCategoryId()))
-                .creditLimit(dto.creditLimit())
-                .availableFloor(dto.availableFloor())
-                .sortOrder(dto.sortOrder() != null ? dto.sortOrder() : 100)
-                .build();
+        if (dto.purpose() == null) throw badRequest("Answer what the card is for: purpose is required");
+        Account account = byPurpose(dto);
         validate(account);
         if (dto.balance() != null && !account.isTrackBalance()) {
             throw badRequest("A card without a tracked balance takes no balance");
@@ -99,10 +94,20 @@ public class AccountService {
     @Transactional
     public AccountDto update(UUID id, AccountCreateDto dto) {
         Account account = activeById(id);
-        rejectCreditBoundaryChange(account, requireKind(dto));
+        AccountKind kind = requireKind(dto);
+        boolean track = dto.trackBalance() != null ? dto.trackBalance() : defaultTracking(kind);
+        // Копилка держится только на счёте с остатком и не на кредитке (TargetFundService.validateAccountLink):
+        // иначе она повисла бы на карте, которая её не держит, с замёрзшим остатком (ревью Gemini на #243).
+        if (kind == AccountKind.CREDIT || !track) {
+            fundOn(id).ifPresent(f -> {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "The goal \"" + f.getName()
+                        + "\" lives on this account: a card without a tracked balance or a credit card cannot hold it — move it first");
+            });
+        }
+        rejectCreditBoundaryChange(account, kind);
         account.setName(dto.name());
-        account.setKind(dto.kind());
-        account.setTrackBalance(dto.trackBalance() != null ? dto.trackBalance() : defaultTracking(dto.kind()));
+        account.setKind(kind);
+        account.setTrackBalance(track);
         account.setPurposeCategory(resolveCategory(dto.purposeCategoryId()));
         account.setCreditLimit(dto.creditLimit());
         account.setAvailableFloor(dto.availableFloor());
@@ -127,15 +132,19 @@ public class AccountService {
         // (fundBalanceAt на удалённом счёте даёт ноль), а кармашек начал бы резервировать
         // взносы на всю цель заново. Восстановить прежнее число неоткуда: собственный баланс
         // такой копилки давно нулевой. Поэтому 409, а не тихое обнуление (ревью чанка 3).
-        fundRepository.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc().stream()
-                .filter(f -> id.equals(f.getAccountId()))
-                .findAny()
-                .ifPresent(f -> {
-                    throw new ResponseStatusException(HttpStatus.CONFLICT,
-                            "The goal \"" + f.getName() + "\" lives on this account: unlink it first");
-                });
+        fundOn(id).ifPresent(f -> {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "The goal \"" + f.getName() + "\" lives on this account: unlink it first");
+        });
         account.setDeleted(true);
         accountRepository.save(account);
+    }
+
+    /** Копилка, лежащая на этом счёте. */
+    private Optional<TargetFund> fundOn(UUID id) {
+        return fundRepository.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc().stream()
+                .filter(f -> id.equals(f.getAccountId()))
+                .findAny();
     }
 
     /**
@@ -244,7 +253,7 @@ public class AccountService {
         return category;
     }
 
-    /** Без ответа на вопрос природа обязательна: прежний путь создания и обновление. */
+    /** Обновление идёт по осям — природа обязательна. */
     private static AccountKind requireKind(AccountCreateDto dto) {
         if (dto.kind() == null) throw badRequest("Account kind is required");
         return dto.kind();

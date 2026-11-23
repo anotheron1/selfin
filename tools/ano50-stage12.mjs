@@ -78,7 +78,9 @@ async function main() {
   console.log(`старт: кармашек ${money(s0.pocket)}, остаток ${money(s0.balance)}, второе ${money(s0.second)}\n`);
 
   // ── 1.1 дебетовый счёт со слежением ──────────────────────────────────────
-  const alfa = await post('/accounts', { name: 'Альфа', kind: 'DEBIT', trackBalance: true });
+  // Карту «на всё» ответом на «Для чего эта карта?» не завести (срез 4, п. 10): накопительная, затем правка природы.
+  const alfa = await post('/accounts', { name: 'Альфа', purpose: 'SAVINGS' });
+  await put(`/accounts/${alfa.id}`, { name: 'Альфа', kind: 'DEBIT', trackBalance: true });
   await post('/balance-checkpoints', { date: today, amount: 30000, accountId: alfa.id });
   let s = await snap();
   eq(s.pocket - s0.pocket, 30000)
@@ -88,9 +90,7 @@ async function main() {
   s0 = s;
 
   // ── 1.2 дебетовый без слежения, с зоной ответственности ──────────────────
-  const benz = await post('/accounts', {
-    name: 'Бензин', kind: 'DEBIT', trackBalance: false, purposeCategoryId: transport?.id,
-  });
+  const benz = await post('/accounts', { name: 'Бензин', purpose: 'SPEND', purposeCategoryId: transport?.id });
   s = await snap();
   eq(s.pocket, s0.pocket)
     ? record('1.2', 'СОШЛОСЬ', 'счёт без слежения не тронул кармашек')
@@ -100,9 +100,7 @@ async function main() {
   s0 = s;
 
   // ── 1.3 кредитная карта ──────────────────────────────────────────────────
-  const tink = await post('/accounts', {
-    name: 'Тинькофф', kind: 'CREDIT', trackBalance: true, creditLimit: 200000,
-  });
+  const tink = await post('/accounts', { name: 'Тинькофф', purpose: 'CREDIT', creditLimit: 200000 });
   await post('/balance-checkpoints', { date: today, amount: 180000, accountId: tink.id });
   s = await snap();
   const tinkCard = byName(s.accounts, 'Тинькофф');

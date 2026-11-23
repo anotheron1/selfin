@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-    ON_ACCOUNT_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, effectLine, formButtons, freeEffect,
+    ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, chipOf, effectLine, formButtons, freeEffect,
     fundReserved, kindOf, repeatLabel, repeatOf, transferFundChoice,
 } from './quickAdd';
 import type { Category, TargetFund } from '../types/api';
@@ -217,20 +217,38 @@ describe('freeEffect', () => {
     });
 });
 
+describe('chipOf', () => {
+    const food = { id: 'food', name: 'Продукты', transfer: false };
+    const own = { id: 'nak', name: 'Накопление', transfer: true };
+
+    it('«Отложить сюда» (лист карты): «Накопление» — своя категория человека, если она есть (найдено на стенде)', () => {
+        expect(chipOf([food, own], SAVINGS_ID)).toBe(own);
+        // своей нет — заглушка из categoryChips
+        expect(chipOf([food, { id: SAVINGS_ID, name: 'Накопление', transfer: true }], SAVINGS_ID)?.id).toBe(SAVINGS_ID);
+    });
+
+    it('остальное — по id', () => {
+        expect(chipOf([food, own], 'food')).toBe(food);
+        expect(chipOf([food, own], 'нет')).toBeUndefined();
+        expect(chipOf([food, own], undefined)).toBeUndefined();
+    });
+});
+
 describe('transferFundChoice', () => {
     const fund = (id: string, over: Partial<TargetFund> = {}) =>
         ({ id, name: id, status: 'FUNDING', accountId: null, ...over }) as TargetFund;
 
-    it('копилки на счёте в списке нет — перевод в них сервер отвергает', () => {
-        const { choices, onAccount } = transferFundChoice([
-            fund('конверт'), fund('на счёте', { accountId: 'acc' }), fund('достигнута', { status: 'REACHED' }),
-        ]);
-        expect(choices.map(f => f.id)).toEqual(['конверт']);
-        expect(onAccount).toBe(1);
+    it('копилка на своём счёте в списке есть — «Отложить сюда» с карты (срез 4 п. 12); на основной — нет, перевод в неё сервер отвергает', () => {
+        const { choices, onMain } = transferFundChoice([
+            fund('конверт'), fund('на накопительном', { accountId: 'savings' }), fund('на основной', { accountId: 'main' }),
+            fund('достигнута', { status: 'REACHED' }),
+        ], 'main');
+        expect(choices.map(f => f.id)).toEqual(['конверт', 'на накопительном']);
+        expect(onMain).toBe(1);
     });
 
-    it('достигнутая копилка на счёте в счётчик не входит — её не было в списке и раньше', () => {
-        expect(transferFundChoice([fund('x', { accountId: 'acc', status: 'REACHED' })]).onAccount).toBe(0);
+    it('достигнутая копилка на основной в счётчик не входит — её не было в списке и раньше', () => {
+        expect(transferFundChoice([fund('x', { accountId: 'main', status: 'REACHED' })], 'main').onMain).toBe(0);
     });
 });
 
@@ -246,9 +264,13 @@ describe('форма «+» (срез 3 п. 12)', () => {
     it('кнопки — formButtons, «Сохранить» — canSubmitQuickAdd, копилки — transferFundChoice со строкой почему', () => {
         expect(src).toContain('formButtons(');
         expect(src).toContain('canSubmitQuickAdd({');
-        expect(src).toContain('transferFundChoice(funds ?? [])');
-        expect(src).toContain('{ON_ACCOUNT_NOTE}');
-        expect(ON_ACCOUNT_NOTE).toContain('на счёте');
+        expect(src).toContain('transferFundChoice(funds ?? [], mainId)');
+        // выбранный чип — chipOf: «Отложить сюда» открывает форму с «Накоплением» человека
+        expect(src).toContain('const chosen = chipOf(all, categoryId);');
+        expect(src).toContain("value={chosen?.id ?? ''}");
+        expect(src).toContain("setMainId(accounts.find(a => a.isDefault)?.id)");
+        expect(src).toContain('{ON_MAIN_NOTE}');
+        expect(ON_MAIN_NOTE).toContain('на основной');
     });
 
     it('«Отложить» — перевод без вопроса и той датой, что в форме (ANO-169)', () => {

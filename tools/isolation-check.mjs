@@ -174,7 +174,7 @@ async function probe(person, victim, victimToken, violations) {
   const refs = runnable([
     ref('POST /events — categoryId', '/events', 'category', { date: day(5), categoryId: ids.category, type: 'EXPENSE', plannedAmount: 1 }, 404),
     ref('POST /events/facts — categoryId', '/events/facts', 'category', { date: day(), categoryId: ids.category, type: 'EXPENSE', factAmount: 1 }, 404),
-    ref('POST /accounts — purposeCategoryId', '/accounts', 'category', { name: 'Своя', kind: 'DEBIT', purposeCategoryId: ids.category }, 404),
+    ref('POST /accounts — purposeCategoryId', '/accounts', 'category', { name: 'Своя', purpose: 'SPEND', purposeCategoryId: ids.category }, 404),
     ref('POST /balance-checkpoints — accountId', '/balance-checkpoints', 'account', { date: yesterday, amount: 1, accountId: ids.account }, 404),
     ref('POST /funds — accountId', '/funds', 'account', { name: 'Своя', targetAmount: 1, accountId: ids.account }, 404),
     ref('POST /events FUND_TRANSFER — targetFundId', '/events', 'fund', { date: day(5), type: 'FUND_TRANSFER', plannedAmount: 1, targetFundId: ids.fund }, 409),

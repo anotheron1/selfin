@@ -96,7 +96,8 @@ function evaluate(tokens: Token[]): number {
     return total;
 }
 
-export function parseAmountExpression(raw: string): ParsedAmount {
+/** @param opts.allowZero ноль — сумма: остаток карты бывает нулевым (у фактов — @Positive, у остатка — @PositiveOrZero) */
+export function parseAmountExpression(raw: string, opts?: { allowZero?: boolean }): ParsedAmount {
     const s = normalize(raw ?? '');
     const isExpression = /[+\-*]/.test(s.slice(1));   // ведущий минус оператором не считаем
 
@@ -111,7 +112,7 @@ export function parseAmountExpression(raw: string): ParsedAmount {
     // Округляем только итог: 0.1+0.2 иначе даёт 0.30000000000000004,
     // а бэк ждёт BigDecimal с копейками.
     const value = Math.round(result * 100) / 100;
-    if (value <= 0) return { value: null, isExpression, error: 'nonPositive' };
+    if (value < 0 || (value === 0 && !opts?.allowZero)) return { value: null, isExpression, error: 'nonPositive' };
 
     return { value, isExpression, error: null };
 }

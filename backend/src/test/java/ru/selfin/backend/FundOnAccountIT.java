@@ -195,7 +195,7 @@ class FundOnAccountIT {
     @DisplayName("счёт копилки без обновления — перевод 400, ничего не записано")
     void accountWithoutUpdate_refused() throws Exception {
         String oldDeposit = id(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"name":"Старый вклад","kind":"DEPOSIT","trackBalance":true}"""))
+                        {"name":"Старый вклад","purpose":"SAVINGS"}"""))
                 .andExpect(status().isCreated()));
         String fund = fund("Квартира", oldDeposit);
         BigDecimal card0 = byRecords(mainCard());
@@ -334,7 +334,7 @@ class FundOnAccountIT {
         String fund = fund("Квартира", null);
         transfer(fund, "1000", today.minusDays(5)).andExpect(status().isOk());
         String oldDeposit = id(mvc.perform(post("/api/v1/accounts").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"name":"Старый вклад","kind":"DEPOSIT","trackBalance":true}"""))
+                        {"name":"Старый вклад","purpose":"SAVINGS"}"""))
                 .andExpect(status().isCreated()));
         link(fund, oldDeposit);
         jdbc.update("UPDATE fund_account_links SET linked_from = CURRENT_DATE - 3 WHERE fund_id = ?::uuid", fund);
@@ -374,6 +374,23 @@ class FundOnAccountIT {
                 .andExpect(status().isBadRequest());
 
         assertThat(movements()).isZero();
+    }
+
+    @Test
+    @DisplayName("ревью Gemini на #243: счёт с копилкой не становится картой для трат или кредиткой — 409, счёт прежний")
+    void accountHoldingFund_cannotBecomeSpendingOrCredit() throws Exception {
+        fund("Отпуск", deposit);
+
+        mvc.perform(put("/api/v1/accounts/" + deposit).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Вклад\",\"kind\":\"DEBIT\",\"trackBalance\":false}"))
+                .andExpect(status().isConflict());
+        mvc.perform(put("/api/v1/accounts/" + deposit).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Вклад\",\"kind\":\"CREDIT\",\"trackBalance\":true,\"creditLimit\":100000}"))
+                .andExpect(status().isConflict());
+
+        JsonNode acc = json(mvc.perform(get("/api/v1/accounts/" + deposit)).andExpect(status().isOk()));
+        assertThat(acc.get("kind").asText()).isEqualTo("DEPOSIT");
+        assertThat(acc.get("trackBalance").asBoolean()).isTrue();
     }
 
     @Test
