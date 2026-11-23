@@ -153,6 +153,7 @@ describe('лист карты (п. 12)', () => {
         expect(src).toContain("!floorKept && open !== 'edit' && (");
         // нули и нечитаемое в обновлении — cardAmount
         expect(src).toContain('const amount = cardAmount(raw);');
+        expect(src).toContain("const ok = amount != null && Number.isFinite(amount) && date !== '';");
         expect(src).toContain("onRecord({ type: 'EXPENSE', categoryId: a.purposeCategoryId! })");
         // «Все обновления» раскрываются нажатием: строка без «по записям» — с прошлым разом, как у точки
         expect(src).toContain('{diffLine(c, savings, prevOf(c))}');
