@@ -5,7 +5,8 @@ import { buttonVariants, capsuleItemVariants, Capsule, iconButtonVariants, Mark,
 import { cn } from '@/lib/utils';
 import { fetchPocket } from '../../api';
 import { CHANGED } from '../../api/client';
-import ReanchorSheet from '../pocket/ReanchorSheet';
+import UpdateBalancesSheet from '../money/UpdateBalancesSheet';
+import { UNDO_TOAST_MS } from '../UndoToast';
 import type { PocketResponse } from '../../types/api';
 import { FAR, MID, TREES } from './miniLandscape';
 import { SECTIONS, headerLine, sectionOf, shortDate, showsCards, showsHeader } from './sections';
@@ -18,8 +19,12 @@ import { SECTIONS, headerLine, sectionOf, shortDate, showsCards, showsHeader } f
 
 const ICONS = { today: Sun, journal: List, goals: Target, money: CreditCard } as const;
 
-/** «Обновить остатки» на «Деньгах» открывает лист шапки — до PR 5 среза 4 это прежний лист остатка основной. */
-export const REANCHOR = 'selfin:reanchor';
+/**
+ * «Обновить остатки» (срез 4, п. 16): одно событие открывает лист с любого экрана — плитка «на картах» в шапке и на
+ * «Сегодня», «Обновить» в «почему столько» и у «Сдвинуть», «С … записей нет», кнопка на «Деньгах», карточка «Целей».
+ */
+export const UPDATE_BALANCES = 'selfin:update-balances';
+export const openUpdateBalances = () => { window.dispatchEvent(new Event(UPDATE_BALANCES)); };
 
 /** Ширина каркаса на компьютере: поля 130 px на 1440 (Zh2-1440-7t). */
 const WIDTH = 'mx-auto w-full max-w-[1180px]';
@@ -150,7 +155,9 @@ export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: 
     const path = useLocation().pathname;
     const header = showsHeader(path);
     const [pocket, setPocket] = useState<PocketResponse | null>(null);
-    const [reanchor, setReanchor] = useState(false);
+    const [balances, setBalances] = useState(false);
+    /** Строка после «Сохранить» (S4-U4). */
+    const [saved, setSaved] = useState<string | null>(null);
 
     const load = useCallback(() => { fetchPocket().then(setPocket).catch(() => setPocket(null)); }, []);
     // По каждому переходу и после любой удачной записи любым экраном (CHANGED): журнал, копилка, НЗ меняют число.
@@ -160,12 +167,17 @@ export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: 
         window.addEventListener(CHANGED, load);
         return () => window.removeEventListener(CHANGED, load);
     }, [header, load]);
+    // Лист грузит свои числа сам и рисуется на любом экране: нажатие сразу открывает его, а не копится до шапки (ревью #241).
     useEffect(() => {
-        if (!pocket) { setReanchor(false); return; }
-        const open = () => setReanchor(true);
-        window.addEventListener(REANCHOR, open);
-        return () => window.removeEventListener(REANCHOR, open);
-    }, [pocket]);
+        const open = () => setBalances(true);
+        window.addEventListener(UPDATE_BALANCES, open);
+        return () => window.removeEventListener(UPDATE_BALANCES, open);
+    }, []);
+    useEffect(() => {
+        if (!saved) return;
+        const t = setTimeout(() => setSaved(null), UNDO_TOAST_MS);
+        return () => clearTimeout(t);
+    }, [saved]);
 
     return (
         <div className="min-h-dvh bg-sf-page font-sf text-sf-ink" style={{ paddingBottom: 'var(--nav-height)' }}>
@@ -176,16 +188,18 @@ export default function AppFrame({ children, onAdd, onChanged, refreshSignal }: 
                 {header && <MiniLandscape />}
                 <div className={cn(WIDTH, 'relative px-sf-gutter', header && 'pb-3.5')}>
                     <FrameNav onAdd={onAdd} />
-                    {header && <FrameHeader pocket={pocket} onReanchor={() => setReanchor(true)} cards={showsCards(path)} />}
+                    {header && <FrameHeader pocket={pocket} onReanchor={() => setBalances(true)} cards={showsCards(path)} />}
                 </div>
             </div>
             <div className={cn('relative', header && '-mt-3.5 rounded-t-sf-page bg-sf-page')}>
                 <div className={header ? WIDTH : undefined}>{children}</div>
             </div>
-            {pocket && (
-                <ReanchorSheet open={reanchor} onOpenChange={setReanchor}
-                    currentBalance={pocket.currentBalance} checkpointDate={pocket.checkpointDate}
-                    onSuccess={onChanged} />
+            {balances && <UpdateBalancesSheet onClose={() => setBalances(false)}
+                onSaved={text => { setBalances(false); setSaved(text); onChanged(); }} />}
+            {saved && (
+                <div role="status" className="fixed inset-x-4 bottom-[98px] z-50 mx-auto max-w-[480px] rounded-[18px] bg-sf-ink px-4 py-3 font-sf text-sf-note text-sf-page shadow-sf-raised lg:bottom-6">
+                    {saved}
+                </div>
             )}
         </div>
     );

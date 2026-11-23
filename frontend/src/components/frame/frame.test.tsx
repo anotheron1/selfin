@@ -158,18 +158,20 @@ describe('шапка', () => {
 describe('после записи — свежие числа (ревью Codex на #225)', () => {
     const read = async (path: string) => (await import('node:fs')).readFileSync(new URL(path, import.meta.url), 'utf8');
 
-    it('остаток из шапки перечитывает и экран — через общий сигнал обновления', async () => {
-        expect(await read('./AppFrame.tsx')).toMatch(/<ReanchorSheet[\s\S]*?onSuccess=\{onChanged\}/);
+    it('остатки из листа перечитывают и экран — через общий сигнал обновления', async () => {
+        expect(await read('./AppFrame.tsx')).toMatch(/<UpdateBalancesSheet[\s\S]*?onSaved=\{text => \{ setBalances\(false\); setSaved\(text\); onChanged\(\); \}\}/);
         expect(await read('../../App.tsx')).toMatch(/<AppFrame .*onChanged=\{handleSuccess\}/);
     });
 
-    it('«Обновить остатки» на «Деньгах» открывает лист шапки, плитки там нет', async () => {
+    it('«Обновить остатки» на «Деньгах» открывает лист каркаса, плитки там нет', async () => {
         const src = await read('./AppFrame.tsx');
-        expect(src).toContain('window.addEventListener(REANCHOR, open)');
-        // Лист рисуется только с шапкой: без неё нажатие не копится и не открывает лист потом на другом экране (ревью #241).
-        expect(src).toContain('if (!pocket) { setReanchor(false); return; }');
+        expect(src).toContain('window.addEventListener(UPDATE_BALANCES, open)');
+        // Лист грузит свои числа и рисуется на любом экране, без шапки тоже: нажатие не копится и не открывает лист
+        // потом на другом экране (ревью #241).
+        expect(src).toContain('{balances && <UpdateBalancesSheet');
+        expect(src).toContain('onReanchor={() => setBalances(true)}');
         expect(src).toContain('cards={showsCards(path)}');
-        expect(await read('../../pages/Capital.tsx')).toContain('window.dispatchEvent(new Event(REANCHOR))');
+        expect(await read('../../pages/Capital.tsx')).toContain('onUpdate={openUpdateBalances}');
     });
 
     it('шапка слушает удачные записи любого экрана', async () => {

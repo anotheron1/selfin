@@ -3,7 +3,7 @@ import type { Category, FinancialEventCreateDto, PocketResponse } from '../types
 
 /**
  * Первый вход (спека среза 2, пп. 11, 16; ANO-250): ответы на четыре вопроса → записи. Вопрос 1 — сверка остатка,
- * тот же запрос, что у `ReanchorSheet`: `{ date: сегодня, amount }`. Вопрос 4 — `UsualSpendingForm` из PR 1.
+ * запрос `POST /balance-checkpoints` `{ date: сегодня, amount }`. Вопрос 4 — `UsualSpendingForm` из PR 1.
  * Кто и когда пишет — `firstEntryWrites.ts`.
  */
 

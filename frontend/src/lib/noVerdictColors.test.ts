@@ -61,8 +61,9 @@ describe('цвет — не приговор (ANO-123)', () => {
         expect(span(src, 'Дрейф интервала', 'дрейф {')).not.toMatch(VERDICT);
     });
 
-    it('дрейф в шторке ре-якоря — нейтральным цветом', () => {
-        const src = read('../components/pocket/ReanchorSheet.tsx');
-        expect(span(src, 'buildDriftPreview(', 'const submit')).not.toMatch(VERDICT);
+    it('разница в листе «Обновить остатки» — нейтральным цветом', () => {
+        const src = read('../components/money/UpdateBalancesSheet.tsx');
+        expect(span(src, '{note &&', '</div>')).not.toMatch(/VERDICT|text-sf-(error|accent)|style=/);
+        expect(src).not.toMatch(VERDICT);
     });
 });

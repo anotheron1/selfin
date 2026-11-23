@@ -88,8 +88,11 @@ export function joinTabs() {
     if (typeof BroadcastChannel !== 'undefined') toOtherTabs = linkTabs(window, new BroadcastChannel('selfin'));
 }
 
-async function request<T>(path: string, options?: RequestInit & { extraHeaders?: Record<string, string> }): Promise<T> {
-    const { extraHeaders, ...rest } = options ?? {};
+/**
+ * @param options.read запрос без записи, хоть и не GET (предпросмотр листа остатков): события удачной записи нет
+ */
+async function request<T>(path: string, options?: RequestInit & { extraHeaders?: Record<string, string>; read?: boolean }): Promise<T> {
+    const { extraHeaders, read, ...rest } = options ?? {};
     const res = await fetch(`${BASE_URL}${path}`, {
         ...rest,
         headers: {
@@ -124,7 +127,7 @@ async function request<T>(path: string, options?: RequestInit & { extraHeaders?:
         throw new ApiError(res.status, details,
             `API error: ${res.status} ${path}${detail ? ` — ${detail}` : ''}`);
     }
-    if (rest.method && rest.method !== 'GET' && typeof window !== 'undefined') {
+    if (!read && rest.method && rest.method !== 'GET' && typeof window !== 'undefined') {
         window.dispatchEvent(new Event(CHANGED));
         toOtherTabs();
     }
@@ -157,6 +160,14 @@ export function post<T>(path: string, body: unknown, headers?: Record<string, st
         body: JSON.stringify(body),
         extraHeaders: headers,
     });
+}
+
+/**
+ * POST, который ничего не пишет (`@WritesData(false)`): предпросмотр «Обновить остатки». Шапка и экраны по нему не
+ * перечитываются — иначе каждая цифра в поле перечитывала бы всё под листом.
+ */
+export function postRead<T>(path: string, body: unknown) {
+    return request<T>(path, { method: 'POST', body: JSON.stringify(body), read: true });
 }
 
 /**

@@ -9,7 +9,7 @@ import { buildGapMode, FREE_LABEL } from '../lib/gapMode';
 import { buildBreakdownView, type BreakdownRow } from '../lib/breakdownRows';
 import { buildAgeHint, buildBreakHint } from '../lib/reanchor';
 import { serverTodayIso } from '../lib/factDate';
-import ReanchorSheet from './pocket/ReanchorSheet';
+import { openUpdateBalances } from './frame/AppFrame';
 import NzSheet from './pocket/NzSheet';
 import HelpDialog from './HelpDialog';
 import type { PocketResponse } from '../types/api';
@@ -60,19 +60,17 @@ function BreakdownRowView({ row }: { row: BreakdownRow }) {
  * Кармашек: одно число + «почему столько» (breakdown из GET /pocket).
  * Минимальный UI по спеке ANO-12 §8.2; полноценная подача — ANO-13/14.
  */
-export default function PocketCard({ onData, refreshSignal, onReanchor }: {
+export default function PocketCard({ onData, refreshSignal }: {
     /** Вторым аргументом — выбранный горизонт: «Пополнить фонд» переспрашивает по нему (ANO-88). */
     onData?: (p: PocketResponse, scope: string | undefined) => void;
+    /** Растёт после любой записи, и листа «Обновить остатки» тоже (AppFrame), — карточка перечитывается. */
     refreshSignal?: number;
-    /** Зовётся после успешного ре-якоря — страница может обновить свои данные (сторож и т.п.). */
-    onReanchor?: () => void;
 }) {
     const navigate = useNavigate();
     const [scope, setScope] = useState<string | undefined>(undefined);
     const [data, setData] = useState<PocketResponse | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
     const [showWhy, setShowWhy] = useState(false);
-    const [showReanchor, setShowReanchor] = useState(false);
     const [showNz, setShowNz] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
     // ANO-102: день прошлого визита — для строки о перерыве; не пришёл — строки нет.
@@ -201,8 +199,8 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                     {fmtC(data.pocketWithDeposits)} — если распечатать вклад
                                 </p>
                             )}
-                            {/* Ре-якорь (ANO-15): тап по остатку → шторка с одним полем */}
-                            <button onClick={() => setShowReanchor(true)}
+                            {/* Тап по остатку → лист «Обновить остатки» (срез 4, п. 16) */}
+                            <button onClick={openUpdateBalances}
                                 className="text-xs text-white/60 mt-0.5 flex items-center gap-1 hover:text-white/90 transition-colors"
                                 aria-label="Обновить остаток">
                                 {balanceWord(data.checkpointDate != null)} {fmtC(data.currentBalance)}
@@ -217,7 +215,7 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                                 const hint = buildBreakHint(lastVisit, data.checkpointDate, serverToday)
                                     ?? buildAgeHint(data.checkpointDate, todayIso);
                                 return hint && (
-                                    <button onClick={() => setShowReanchor(true)}
+                                    <button onClick={openUpdateBalances}
                                         className="text-[11px] text-white/50 hover:text-white/80 transition-colors text-left">
                                         {hint}
                                     </button>
@@ -297,15 +295,6 @@ export default function PocketCard({ onData, refreshSignal, onReanchor }: {
                 </div>
             </div>
 
-            {data && (
-                <ReanchorSheet
-                    open={showReanchor}
-                    onOpenChange={setShowReanchor}
-                    currentBalance={data.currentBalance}
-                    checkpointDate={data.checkpointDate}
-                    onSuccess={() => { load(); onReanchor?.(); }}
-                />
-            )}
             {data && (
                 <NzSheet
                     open={showNz}

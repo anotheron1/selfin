@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, CHANGED, del, get, joinTabs, linkTabs, patch, post, put, signOut } from './client';
+import { ApiError, CHANGED, del, get, joinTabs, linkTabs, patch, post, postRead, put, signOut } from './client';
 import { setEventWishlistStatus, setFundWishlistStatus } from './index';
 import { attempt } from '../lib/writeFailure';
 
@@ -154,6 +154,18 @@ describe('удачная запись сообщает шапке (CHANGED)', ()
         await post('/x', {}).catch(() => {});
         expect(heard).not.toHaveBeenCalled();
     });
+
+    it('POST без записи (предпросмотр листа) — молчит, но идёт с CSRF: иначе экраны перечитывались бы на каждую цифру', async () => {
+        const heard = listen();
+        vi.stubGlobal('document', { cookie: 'XSRF-TOKEN=t1' });
+        const fetch = vi.fn(async () => new Response('{}', { status: 200 }));
+        vi.stubGlobal('fetch', fetch);
+        await postRead('/x', {});
+        expect(heard).not.toHaveBeenCalled();
+        expect(fetch).toHaveBeenCalledWith('/api/v1/x', expect.objectContaining({
+            method: 'POST', headers: expect.objectContaining({ 'X-XSRF-TOKEN': 't1' }),
+        }));
+    });
 });
 
 /** Вкладки обновляют друг друга (срез 3, п. 8, ANO-256): перемена уходит в BroadcastChannel и приходит из него. */
@@ -181,6 +193,8 @@ describe('вкладки — через канал', () => {
         await post('/x', {});
         answer(new Response('{}', { status: 200 }));
         await get('/x');
+        answer(new Response('{}', { status: 200 }));
+        await postRead('/x', {});
         expect(channel.postMessage).toHaveBeenCalledTimes(1);
         expect(channel.postMessage).toHaveBeenCalledWith(CHANGED);
     });

@@ -431,6 +431,37 @@ export interface BalanceCheckpointCreateDto {
     accountId?: string;
 }
 
+/** Лист «Обновить остатки» (срез 4, п. 3, `BalanceSheetDto`): карты с остатком — основная, вторая «на всё», накопительные, кредитки. */
+export interface BalanceSheet {
+    cards: BalanceSheetCard[];
+    /** «с 12 нояб. в кредит записано 4 500 ₽» — одна сумма под последней кредиткой; null — кредитки с обновлением нет. */
+    onCredit: { since: string; amount: number } | null;
+}
+
+export interface BalanceSheetCard {
+    accountId: string;
+    name: string;
+    kind: AccountKind;
+    isDefault: boolean;
+    /** «по записям» на сегодня; у кредитки — доступное; null — обновлений не было. */
+    byRecords: number | null;
+    updatedOn: string | null;
+    /** Переводы в копилку карты после обновления; null у основной, кредитки и карты без обновления. */
+    transfersSinceUpdate: number | null;
+}
+
+/** Введённые числа — обновлением на сегодня; пустые поля в пакет не идут. */
+export interface BalanceBatch {
+    entries: { accountId: string; amount: number }[];
+}
+
+/** Итог пакета и предпросмотра: «Свободно» до и после, разница у каждой обновлённой карты (null — первое обновление). */
+export interface BalanceBatchResult {
+    freeBefore: number;
+    freeAfter: number;
+    cards: { accountId: string; difference: number | null }[];
+}
+
 // --- Счета (ANO-9) ---
 // На экране — «карты» (срез 4); слова листов карты — lib/moneyCard.ts.
 
