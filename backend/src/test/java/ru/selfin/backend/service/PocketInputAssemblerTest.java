@@ -8,7 +8,6 @@ import ru.selfin.backend.dto.pocket.EventSnapshot;
 import ru.selfin.backend.dto.pocket.PocketScope;
 import ru.selfin.backend.dto.pocket.SandboxRef;
 import ru.selfin.backend.dto.pocket.SyntheticKind;
-import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.FundPurchaseType;
 import ru.selfin.backend.model.enums.WishlistStatus;
@@ -50,7 +49,6 @@ class PocketInputAssemblerTest {
         categoryRepository = mock(CategoryRepository.class);
         accountBalanceService = mock(AccountBalanceService.class);
         when(accountBalanceService.fundLinks()).thenReturn(new FundLinks(List.of(), null));
-        UserSettingsService settingsService = mock(UserSettingsService.class);
         predictionService = mock(PredictionService.class);
         RecurringRuleService recurringRuleService = mock(RecurringRuleService.class);
 
@@ -61,7 +59,6 @@ class PocketInputAssemblerTest {
         when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
-        when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         when(fundRepository.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED))
@@ -78,7 +75,7 @@ class PocketInputAssemblerTest {
                 .thenAnswer(inv -> ((TargetFund) inv.getArgument(0)).getCurrentBalance());
 
         assembler = new PocketInputAssembler(eventRepository,
-                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository,
+                predictionService, recurringRuleService, fundRepository, categoryRepository,
                 accountBalanceService);
     }
 
@@ -406,6 +403,39 @@ class PocketInputAssemblerTest {
         assertThat(a.input().futureForecast().get(april)).as("ядро держит ту же сумму")
                 .isEqualByComparingTo("18000");
         assertThat(a.input().unplannedForecast()).isEqualByComparingTo("7000");
+    }
+
+    // ── НЗ — копилка (срез 4, п. 7) ─────────────────────────────────────────
+
+    private static TargetFund reserve(long keep, UUID accountId) {
+        return TargetFund.builder().id(UUID.randomUUID()).name("НЗ").reserve(true)
+                .targetAmount(BigDecimal.valueOf(keep)).accountId(accountId).build();
+    }
+
+    @Test
+    @DisplayName("НЗ на основной карте — «Свободно» держит его «сколько держать»")
+    void reserveOnCard_isTheBuffer() {
+        when(fundRepository.findByReserveTrueAndDeletedFalse()).thenReturn(Optional.of(reserve(30_000, null)));
+
+        assertThat(assembler.build(MONTHS_6, TODAY).input().bufferAmount()).isEqualByComparingTo("30000");
+    }
+
+    @Test
+    @DisplayName("НЗ на своём счёте — с карт ничего не держится: НЗ — остаток счёта")
+    void reserveOnAccount_holdsNothingOnCards() {
+        when(fundRepository.findByReserveTrueAndDeletedFalse())
+                .thenReturn(Optional.of(reserve(30_000, UUID.randomUUID())));
+
+        assertThat(assembler.build(MONTHS_6, TODAY).input().bufferAmount()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("НЗ без суммы или без НЗ — ноль")
+    void noReserve_zero() {
+        assertThat(assembler.build(MONTHS_6, TODAY).input().bufferAmount()).isEqualByComparingTo("0");
+        when(fundRepository.findByReserveTrueAndDeletedFalse()).thenReturn(Optional.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("НЗ").reserve(true).build()));
+        assertThat(assembler.build(MONTHS_6, TODAY).input().bufferAmount()).isEqualByComparingTo("0");
     }
 
 }

@@ -1,4 +1,6 @@
-import type { Category, FactPreview, Priority, RecurringConfig, RecurringFrequency, TargetFund } from '../types/api';
+import type {
+    Account, Category, FactPreview, FinancialEvent, Priority, RecurringConfig, RecurringFrequency, TargetFund,
+} from '../types/api';
 import { fmtDayShort, fmtRub } from './format';
 import { PRIORITY_DOT_CONFIG } from './priority';
 
@@ -182,10 +184,46 @@ export function afterLine(e: FreeEffect | null): string | null {
  * перевода не принимает (сервер — 400): деньги и так на ней; её правила — НЗ, PR 6.
  */
 export function transferFundChoice(funds: TargetFund[], mainId: string | undefined): { choices: TargetFund[]; onMain: number } {
-    const open = funds.filter(f => f.status !== 'REACHED');
+    // НЗ на основной — уровень, а не отложенные деньги: перевода не принимает (сервер — 400; срез 4, п. 7).
+    const open = funds.filter(f => f.status !== 'REACHED' && !(f.reserve && f.accountId == null));
     const onMain = (f: TargetFund) => mainId != null && f.accountId === mainId;
     return { choices: open.filter(f => !onMain(f)), onMain: open.filter(onMain).length };
 }
 
 /** Строка под списком копилок — почему копилки на основной в нём нет. */
 export const ON_MAIN_NOTE = 'Копилок на основной карте здесь нет: деньги в них и так на ней.';
+
+// ── «В кредит» (срез 4, пп. 17–18; доски S4-K1, S4-K2) ────────────────────────────────────────────────────────────
+
+/**
+ * Галочка «В кредит» — у расхода без плана (п. 1): у новой записи — пока есть «Записать» (у плана отметки нет), у
+ * правки — у записи расхода, которая не встала к плану. Сервер в остальных случаях отвечает 400.
+ */
+export function creditOffered(p: {
+    type: 'EXPENSE' | 'INCOME'; transfer: boolean; buttons: FormAction[]; edit?: FinancialEvent;
+}): boolean {
+    if (p.edit) return p.edit.eventKind === 'FACT' && p.edit.type === 'EXPENSE' && !p.edit.parentEventId;
+    return p.type === 'EXPENSE' && !p.transfer && p.buttons.includes('record');
+}
+
+/** Сумма больше, чем на картах (то же число, что в плитке «на картах»), а отметки нет — форма спрашивает. */
+export const creditAsks = (amount: number | null, cards: number | null, onCredit: boolean): boolean =>
+    !onCredit && amount != null && cards != null && amount > cards;
+
+export const CREDIT_EFFECT = 'В кредит: «Свободно» не изменится. Долг будет виден на кредитке, когда обновишь её остаток.';
+export const CREDIT_ASK = 'На картах столько нет. Это в кредит?';
+export const CREDIT_OVER_NOTE = 'Больше, чем на картах, — отметка стоит';
+
+/** Строка после записи в кредит (S4-K2); рядом — «Обновить кредитку» и «Отменить». */
+export const creditWritten = (name: string, amount: number): string =>
+    `В кредит: ${name}, ${fmtRub(amount)}. «Свободно» не изменилось — обнови кредитку, чтобы видеть долг.`;
+
+/**
+ * «Накопление» в копилку на своём счёте (п. 20, S4-G4): деньги уходят с основной на счёт копилки. На накопительном —
+ * словами доски, на другой карте с остатком — её именем.
+ */
+export function accountFundLine(fundName: string, account: Pick<Account, 'name' | 'kind'>, amount: number): string {
+    const where = account.kind === 'DEPOSIT' ? 'на накопительном' : `на «${account.name}»`;
+    const lying = account.kind === 'DEPOSIT' ? where : `на карте «${account.name}»`;
+    return `«${fundName}» ${lying}: на картах станет на ${fmtRub(amount)} меньше, ${where} — на ${fmtRub(amount)} больше.`;
+}

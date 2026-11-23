@@ -17,6 +17,7 @@ import { type JournalOpen, readJournalPosition, saveJournalPosition, sessionStor
 import PlanFactSheet from '../components/PlanFactSheet';
 import QuickAddModal from '../components/Fab';
 import UndoToast from '../components/UndoToast';
+import { openUpdateBalances } from '../components/frame/AppFrame';
 import { ApiError } from '../api/client';
 import EventCard, { type Written } from '../components/journal/EventCard';
 import { DayHint } from '../components/today/HintBubble';
@@ -372,6 +373,7 @@ export default function Budget({ refreshSignal }: { refreshSignal?: number }) {
             {written && (
                 // 404 — запись уже снята: повтор после потерянного ответа — тоже отмена (ревью Codex #235).
                 <UndoToast text={written.text} onDone={() => setWritten(null)}
+                    onRefresh={written.credit ? () => { openUpdateBalances(); setWritten(null); } : undefined}
                     onUndo={() => written.undo().catch(e => { if (!(e instanceof ApiError && e.status === 404)) throw e; })} />
             )}
             {/* «+» на телефоне — в капсуле снизу: пузырь над ней, уголок вниз. */}

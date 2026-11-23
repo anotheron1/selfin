@@ -251,8 +251,11 @@ class TwoPeopleIsolationIT {
         ok(p, DELETE, "/api/v1/funds/" + p.id("repair") + "?money=SPENT", null, null);
         ok(p, PUT, "/api/v1/settings/wishlist", """
                 {"capitalThresholdRub":%d}""".formatted(50_000 * k), null);
-        ok(p, PUT, "/api/v1/settings/pocket", """
-                {"bufferAmount":%d}""".formatted(10_000 * k), null);
+        // НЗ — копилка (срез 4, п. 7): у каждого свой, заведён при регистрации; правится ручкой цели.
+        String nz = JsonPath.<List<String>>read(ok(p, GET, "/api/v1/funds", null, null), "$.funds[?(@.reserve == true)].id")
+                .get(0);
+        ok(p, PUT, "/api/v1/funds/" + nz, """
+                {"name":"НЗ","targetAmount":%d}""".formatted(10_000 * k), null);
         ok(p, PUT, "/api/v1/settings/hints", """
                 {"off":false,"closed":["%s"]}""".formatted(k == 1 ? "number" : "plus"), null);
         // Системные категории ищутся по признаку вида — у каждого свои (ANO-150): чужую выдало бы правило 1.
@@ -279,7 +282,7 @@ class TwoPeopleIsolationIT {
                 "/api/v1/capital/items", item, item + "/revaluations", "/api/v1/capital/summary",
                 "/api/v1/capital/trajectory", "/api/v1/categories", "/api/v1/events?" + period,
                 "/api/v1/events?priority=LOW", "/api/v1/events/months?year=" + TODAY.getYear(), "/api/v1/funds", "/api/v1/funds/planner", "/api/v1/hello",
-                "/api/v1/me", "/api/v1/pocket", "/api/v1/settings/wishlist", "/api/v1/settings/pocket",
+                "/api/v1/me", "/api/v1/pocket", "/api/v1/settings/wishlist",
                 "/api/v1/settings/hints", "/api/v1/strategy/timeline", "/api/v1/version", "/api/v1/wishlist/simulation",
                 // Поиск по журналу без слов — все строки человека (срез 3 п. 9): чужие не находятся.
                 "/api/v1/events/search",

@@ -286,6 +286,11 @@ describe('журнал по дням (срез 3, п. 6)', () => {
         expect(yesterday.records.map((r) => [r.name, r.sub])).toEqual([['Интернет', 'Связь и подписки · по брони']]);
     });
 
+    it('запись в кредит — «в кредит» в строке (срез 4, п. 18; S4-K2)', () => {
+        const j = view([fact({ id: 'remont', date: '2026-11-12', description: 'Ремонт', categoryName: 'Жильё и быт', factAmount: 250000, onCredit: true })]);
+        expect(j.weeks[0].days[0].records.map((r) => [r.name, r.sub])).toEqual([['Ремонт', 'Жильё и быт · в кредит']]);
+    });
+
     it('план, закрытый старым путём — суммой в самом плане (ANO-25), — стоит записью', () => {
         const j = view([plan('old', '2026-11-10', { plannedAmount: 900, factAmount: 900, status: 'EXECUTED' })]);
         const [row] = j.weeks[0].days[0].records;

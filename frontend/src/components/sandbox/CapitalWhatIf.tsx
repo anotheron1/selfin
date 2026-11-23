@@ -12,7 +12,7 @@ import {
     type ActiveItem, type BaselinePoint, type RiskLevel,
 } from '../wishlist/wishlistUtils';
 import {
-    recomputeWishlistItem, convertWishlistItem, fetchPocketSettings,
+    recomputeWishlistItem, convertWishlistItem, fetchPocket,
     setEventWishlistStatus, setFundWishlistStatus,
     setEventWishlistParams, setFundWishlistParams, deleteEvent, deleteFund,
 } from '../../api';
@@ -62,8 +62,10 @@ export default function CapitalWhatIf({ refreshSignal = 0, onChanged }: Props) {
     const [nzFailed, setNzFailed] = useState(false);
     const loadNz = useCallback(() => {
         setNzFailed(false);
-        fetchPocketSettings()
-            .then(s => setNzLoaded(s.bufferAmount))
+        // Срез 4, п. 7: НЗ — копилка; жёлтые месяцы — от того же числа, что держит «Свободно» (НЗ на основной; на своём
+        // счёте — 0).
+        fetchPocket()
+            .then(p => setNzLoaded(Number(p.buffer)))
             .catch(() => setNzFailed(true));   // ANO-245: без текста сервера — он по-английски
     }, []);
     useEffect(loadNz, [data, loadNz]);

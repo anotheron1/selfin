@@ -88,6 +88,10 @@ describe('duplicateOf', () => {
     it('связь с планом не копируется — к ожиданию запись встанет по правилу сервера', () => {
         expect(duplicateOf(fact({ parentEventId: 'bron' }), '2026-11-21')).not.toHaveProperty('parentEventId');
     });
+    it('«в кредит» переносится (срез 4, п. 17); без отметки — не шлётся', () => {
+        expect(duplicateOf(fact({ onCredit: true }), '2026-11-21').onCredit).toBe(true);
+        expect(duplicateOf(fact(), '2026-11-21').onCredit).toBeUndefined();
+    });
 });
 
 /** Правка записи (п. 2, ANO-253): дата, категория и вид — тем же PATCH. */
@@ -103,6 +107,11 @@ describe('factEditPatch', () => {
     });
     it('пустое название — без изменений, как раньше', () => {
         expect(factEditPatch(fact(), { ...form, description: '' }).description).toBeUndefined();
+    });
+    it('«в кредит» (срез 4, п. 18): снятая и поставленная отметка уходят, не предложенная — нет', () => {
+        expect(factEditPatch(fact(), { ...form, onCredit: false }).onCredit).toBe(false);
+        expect(factEditPatch(fact(), { ...form, onCredit: true }).onCredit).toBe(true);
+        expect(factEditPatch(fact(), form).onCredit).toBeUndefined();
     });
 });
 

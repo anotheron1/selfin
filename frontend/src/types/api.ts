@@ -90,6 +90,8 @@ export interface FinancialEvent {
     recurringEndDate?: string | null;
     /** Статус хотелки у строки с экрана «Хотелки», null у обычной (ANO-183). */
     wishlistStatus?: WishlistStatus | null;
+    /** «В кредит» (срез 4, п. 1): расход без плана, «Свободно» не уменьшает. */
+    onCredit?: boolean;
 }
 
 export interface WishlistCreateDto {
@@ -133,6 +135,8 @@ export interface StandaloneFactCreateDto {
     priority?: Priority;
     /** Исходный текст суммы, если её ввели выражением («450+1230+890», ANO-33). */
     rawInput?: string;
+    /** «В кредит» (срез 4, п. 1) — только у расхода. */
+    onCredit?: boolean;
 }
 
 export interface DailyForecastPoint {
@@ -185,6 +189,11 @@ export interface TargetFund {
     creditTermMonths: number | null;
     /** Статус хотелки; null — копилка не из «Хотелок». OPEN и DISMISSED — вне плана (Р8, ANO-218). */
     wishlistStatus: WishlistStatus | null;
+    /**
+     * НЗ (срез 4, п. 7): одна у человека, первой в «Целях», не удаляется. Без счёта — на основной карте: «Свободно»
+     * держит `targetAmount` («сколько держать»), переводов НЗ не принимает. На своём счёте — остаток счёта.
+     */
+    reserve: boolean;
 }
 
 export interface FundsOverview {
@@ -221,14 +230,6 @@ export interface UpcomingItem {
     priority: Priority;
     /** Тип строки: переводу в копилку форма ставит «Ожидание» принудительно (ревью Codex #65). */
     type: EventType;
-}
-
-/**
- * НЗ кармашка (ANO-92) — сумма, которую кармашек не тратит. На экране «НЗ», в API `bufferAmount`;
- * 0 — НЗ нет. Подушка одна — он же: жёлтые месяцы «Что с капиталом» — остаток ниже НЗ (Р5, ANO-93).
- */
-export interface PocketSettings {
-    bufferAmount: number;
 }
 
 /** Подсказки первого дня (срез 2, п. 12): `off` — выключатель и «Скрыть все», `closed` — закрытые крестиком. */

@@ -48,7 +48,9 @@ describe('экран «Целей» берёт порядок и пометку 
     const src = readFileSync(new URL('../pages/Funds.tsx', import.meta.url), 'utf8');
 
     it('список — в порядке inPlanFirst, а не как пришёл', () => {
-        expect(src).toContain('inPlanFirst(data.funds).map(fund =>');
+        // НЗ — отдельной карточкой первой (срез 4, п. 19), остальные — в порядке плана.
+        expect(src).toContain('const goals = data.funds.filter(f => !f.reserve);');
+        expect(src).toContain('inPlanFirst(goals).map(fund =>');
         expect(src).not.toContain('data.funds.map(');
     });
 

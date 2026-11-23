@@ -35,5 +35,7 @@ public record TargetFundDto(
          * Статус хотелки; {@code null} — копилка не из «Хотелок». OPEN и DISMISSED — вне плана:
          * ядро их взносы не держит, «Цели» ставят такую копилку в конец с пометкой (Р8, ANO-218).
          */
-        WishlistStatus wishlistStatus) {
+        WishlistStatus wishlistStatus,
+        /** НЗ (срез 4, п. 7): первым в «Целях», не удаляется; без счёта переводов не принимает. */
+        boolean reserve) {
 }

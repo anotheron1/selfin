@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.HintsSettingsDto;
-import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.dto.wishlist.WishlistThresholdsDto;
 import ru.selfin.backend.model.UserSettings;
 import ru.selfin.backend.repository.UserSettingsRepository;
@@ -21,7 +20,6 @@ import java.util.regex.Pattern;
 public class UserSettingsService {
 
     private static final String KEY = "wishlist";
-    private static final String POCKET_KEY = "pocket";
     private static final String HINTS_KEY = "hints";
     private static final Pattern HINT_ID = Pattern.compile("[a-z0-9-]{1,32}");
     private final UserSettingsRepository repo;
@@ -51,26 +49,6 @@ public class UserSettingsService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public PocketSettingsDto getPocketSettings() {
-        return repo.findBySettingsKey(POCKET_KEY)
-                .map(this::parsePocket)
-                .orElse(new PocketSettingsDto(BigDecimal.ZERO));
-    }
-
-    @Transactional
-    public PocketSettingsDto updatePocketSettings(PocketSettingsDto dto) {
-        if (dto.bufferAmount() == null || dto.bufferAmount().compareTo(BigDecimal.ZERO) < 0) {
-            // null не означает «сбросить» — сброс = явный PUT с 0 (спека §7)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "bufferAmount must be >= 0");
-        }
-        UserSettings entity = repo.findBySettingsKey(POCKET_KEY).orElseGet(() ->
-                UserSettings.builder().settingsKey(POCKET_KEY).build());
-        entity.setSettingsValue(serializePocket(dto));
-        repo.save(entity);
-        return dto;
-    }
-
     /** Подсказки первого дня (срез 2, п. 12): включены, ни одна не закрыта, пока человек их не тронул. */
     @Transactional(readOnly = true)
     public HintsSettingsDto getHints() {
@@ -97,22 +75,6 @@ public class UserSettingsService {
         entity.setSettingsValue(serialize(dto));
         repo.save(entity);
         return dto;
-    }
-
-    private PocketSettingsDto parsePocket(UserSettings s) {
-        try {
-            return objectMapper.readValue(s.getSettingsValue(), PocketSettingsDto.class);
-        } catch (Exception e) {
-            return new PocketSettingsDto(BigDecimal.ZERO);
-        }
-    }
-
-    private String serializePocket(PocketSettingsDto dto) {
-        try {
-            return objectMapper.writeValueAsString(dto);
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "serialize settings");
-        }
     }
 
     private WishlistThresholdsDto parse(UserSettings s) {

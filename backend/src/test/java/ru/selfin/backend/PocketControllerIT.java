@@ -508,41 +508,6 @@ class PocketControllerIT {
                 .andExpect(status().isBadRequest());
     }
 
-    @Test
-    void settings_putGetValidate() throws Exception {
-        mockMvc.perform(put("/api/v1/settings/pocket")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"bufferAmount": 5000}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bufferAmount").value(5000));
-
-        mockMvc.perform(get("/api/v1/settings/pocket"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bufferAmount").value(5000));
-
-        mockMvc.perform(put("/api/v1/settings/pocket")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"bufferAmount": -1}
-                                """))
-                .andExpect(status().isBadRequest());
-
-        mockMvc.perform(put("/api/v1/settings/pocket")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isBadRequest());
-
-        // вернуть 0, чтобы не влиять на другие тесты
-        mockMvc.perform(put("/api/v1/settings/pocket")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"bufferAmount": 0}
-                                """))
-                .andExpect(status().isOk());
-    }
-
     // ── ANO-35: горизонт по «основному доходу» ──────────────────────────────
 
     /** Категория с флагом «основной доход» (создание + PUT, т.к. POST флага не несёт). */

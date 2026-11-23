@@ -307,7 +307,7 @@ export default function Today({ refreshSignal }: { refreshSignal?: number }) {
             {/* «+» на телефоне — в капсуле снизу: пузырь над ней, уголок вниз. */}
             {bubble('plus', PLUS_HINT, 'down', 'left-[112px]', 'fixed bottom-[92px] left-1/2 z-40 -ml-[118px] w-[236px] lg:hidden')}
             {selected && <DaySheet data={data} date={selected} size="narrow" onDate={setDay} onClose={() => setDay(null)} />}
-            <NzSheet open={sheet === 'nz'} onOpenChange={o => setSheet(o ? 'nz' : null)} buffer={data.buffer} onSuccess={load} />
+            <NzSheet open={sheet === 'nz'} onOpenChange={o => setSheet(o ? 'nz' : null)} onSuccess={load} />
             <Dialog open={sheet === 'usual'} onOpenChange={o => setSheet(o ? 'usual' : null)}>
                 <DialogContent>
                     <DialogTitle className="sr-only">Обычные траты</DialogTitle>

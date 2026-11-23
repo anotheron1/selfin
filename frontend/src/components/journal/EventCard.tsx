@@ -15,14 +15,14 @@ import { dayLabel, duplicateOf, endSeriesDto, eventName, factNote, seriesOf } fr
 import { fmtDayShort, fmtRub } from '../../lib/format';
 import { fundMovementMessage } from '../../lib/fundMovement';
 import { PRIORITY_DOT_CONFIG } from '../../lib/priority';
-import { afterLine, freeEffect } from '../../lib/quickAdd';
+import { afterLine, creditWritten, freeEffect } from '../../lib/quickAdd';
 import type { QuickClose } from '../../lib/quickClose';
 import { DELETE_FAILED, writeFailure } from '../../lib/writeFailure';
 
 const KIND = { HIGH: 'bron', MEDIUM: 'ozh', LOW: 'hot' } as const;
 
-/** Что записано — для строки снизу и «Отменить» (S3-F3). */
-export interface Written { text: string; undo: () => Promise<unknown> }
+/** Что записано — для строки снизу и «Отменить» (S3-F3); в кредит — ещё «Обновить кредитку» (S4-K2). */
+export interface Written { text: string; undo: () => Promise<unknown>; credit?: boolean }
 
 /**
  * «Ещё раз сегодня» (п. 17, ANO-254): новая запись сегодняшним числом по образцу, строка снизу — как после формы «+»:
@@ -38,6 +38,11 @@ export async function writeDuplicate(e: FinancialEvent, today: string, attempts:
         return { text: head, undo: () => (id ? deleteEvent(id) : Promise.reject(new Error('перевод не найден'))) };
     }
     const dto = duplicateOf(e, today);
+    // В кредит (срез 4, п. 17): «Свободно» не меняется — строка S4-K2, без строки ожидания.
+    if (dto.onCredit) {
+        const fact = await createStandaloneFact(attempts, dto);
+        return { text: creditWritten(eventName(e), amount), undo: () => deleteEvent(fact.id), credit: true };
+    }
     // undefined — строка ожидания не пришла: строки о «Свободно» нет, как у формы.
     const [pocket, line] = await Promise.all([
         fetchPocket().catch(() => null),
@@ -160,7 +165,9 @@ export default function EventCard({ event: e, today, pay, held, onClose, onEdit,
             <div className="flex flex-col">
                 {fact
                     ? [line('Категория', e.categoryName), line('Дата', e.date ? dayLabel(e.date, today) : '—'),
-                        line('Название', e.description || '—'), line('Вид', kind)]
+                        line('Название', e.description || '—'), line('Вид', kind),
+                        // Срез 4, п. 18: отметка правится в той же форме, что строка.
+                        ...(e.onCredit ? [line('В кредит', 'да')] : [])]
                     : [line('Дата', e.date ? dayLabel(e.date, today) : '—'), line('Категория', e.categoryName)]}
             </div>
             {fact && factNote(e) && <span className="px-1 text-sf-label text-sf-muted">{factNote(e)}</span>}

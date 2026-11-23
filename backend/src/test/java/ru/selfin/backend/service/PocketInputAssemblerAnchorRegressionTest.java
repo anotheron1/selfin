@@ -5,7 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.pocket.PocketScope;
-import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
@@ -61,7 +60,6 @@ class PocketInputAssemblerAnchorRegressionTest {
     private TargetFundRepository fundRepository;
     private CategoryRepository categoryRepository;
     private AccountBalanceService accountBalanceService;
-    private UserSettingsService settingsService;
     private PredictionService predictionService;
     private RecurringRuleService recurringRuleService;
 
@@ -71,7 +69,6 @@ class PocketInputAssemblerAnchorRegressionTest {
         fundRepository = mock(TargetFundRepository.class);
         categoryRepository = mock(CategoryRepository.class);
         accountBalanceService = mock(AccountBalanceService.class);
-        settingsService = mock(UserSettingsService.class);
         predictionService = mock(PredictionService.class);
         recurringRuleService = mock(RecurringRuleService.class);
 
@@ -79,7 +76,6 @@ class PocketInputAssemblerAnchorRegressionTest {
         when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
-        when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         when(fundRepository.findByWishlistStatusAndDeletedFalse(ru.selfin.backend.model.enums.WishlistStatus.FIXED))
@@ -95,7 +91,7 @@ class PocketInputAssemblerAnchorRegressionTest {
 
     private PocketInputAssembler assembler() {
         return new PocketInputAssembler(eventRepository,
-                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository,
+                predictionService, recurringRuleService, fundRepository, categoryRepository,
                 accountBalanceService);
     }
 

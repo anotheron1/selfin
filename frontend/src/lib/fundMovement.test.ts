@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { FUND_CLOSED, FUND_HOLDS_LESS, FUND_ON_ACCOUNT, fundMovementMessage } from './fundMovement';
+import { FUND_CLOSED, FUND_HOLDS_LESS, fundMovementMessage } from './fundMovement';
 import { fmtRub } from './format';
 
 const refused = (...details: string[]) => ({ status: 409, details });
@@ -21,11 +21,6 @@ describe('fundMovementMessage', () => {
         expect(msg).toContain('«Отпуск»');
         expect(msg).not.toContain('сейчас');
         expect(msg).not.toContain(fmtRub(0));
-    });
-
-    it('копилка на счёте — деньги двигаются на самом счёте', () => {
-        expect(fundMovementMessage(refused(FUND_ON_ACCOUNT, 'fund:Первый взнос')))
-            .toBe('Копилка «Первый взнос» лежит на счёте: деньги в ней двигаются на самом счёте, переводы в неё не записываются.');
     });
 
     it('копилка удалена — переводы остаются историей', () => {

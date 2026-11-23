@@ -7,12 +7,15 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.Category;
+import ru.selfin.backend.model.TargetFund;
 import ru.selfin.backend.model.enums.AccountKind;
 import ru.selfin.backend.model.enums.CategoryType;
 import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.repository.AccountRepository;
 import ru.selfin.backend.repository.CategoryRepository;
+import ru.selfin.backend.repository.TargetFundRepository;
 
+import java.math.BigDecimal;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -63,6 +66,7 @@ public class Registration {
     private final EntityManager entityManager;
     private final CategoryRepository categories;
     private final AccountRepository accounts;
+    private final TargetFundRepository funds;
 
     /**
      * Заводит человека со стартовым набором и его согласием (ANO-196).
@@ -86,6 +90,8 @@ public class Registration {
         Category cash = categories.save(new Seed("Наличные", EXPENSE, MEDIUM).category());
         accounts.save(Account.builder().name("Наличные").kind(AccountKind.CASH).trackBalance(false)
                 .purposeCategory(cash).build());
+        // Срез 4, п. 7 (решение 23): НЗ — копилка у каждого, как у старых людей после V40: на основной, сумма 0.
+        funds.save(TargetFund.builder().name("НЗ").reserve(true).targetAmount(BigDecimal.ZERO).priority(0).build());
         return true;
     }
 

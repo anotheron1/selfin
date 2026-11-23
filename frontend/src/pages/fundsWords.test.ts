@@ -38,7 +38,10 @@ describe('«Цели» говорят словами (ANO-203, ANO-205)', () => 
     it('выбор счёта — из accountChoices, счёт с другой копилкой недоступен; формам передан список копилок', () => {
         expect(component('FundAccountPicker')).toMatch(/accountChoices\(accounts, funds, selfId\)/);
         expect(component('FundAccountPicker')).toMatch(/disabled=\{c\.taken\}/);
-        expect(component('CreateFundModal')).toMatch(/<FundAccountPicker accounts=\{accounts\} funds=\{funds\}/);
+        // Новая цель (срез 4, п. 20; S4-G3): свой счёт — без основной, тот же признак «занят», что у правки.
+        expect(component('CreateFundModal')).toContain('const choices = ownAccountChoices(accounts, funds);');
+        expect(component('CreateFundModal')).toMatch(/<FundWhere where=\{where\} onWhere=\{setWhere\} choices=\{choices\}/);
+        expect(component('FundWhere')).toContain('{choices.filter(c => c.taken).map(c => <Chip key={c.id} disabled>{c.label}</Chip>)}');
         expect(component('EditFundModal')).toMatch(/<FundAccountPicker accounts=\{accounts\} funds=\{funds\} selfId=\{fund\.id\}/);
     });
 });

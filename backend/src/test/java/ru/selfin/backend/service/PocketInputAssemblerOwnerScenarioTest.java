@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.pocket.PocketResultDto;
 import ru.selfin.backend.dto.pocket.PocketScope;
-import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.model.Account;
 import ru.selfin.backend.model.BalanceCheckpoint;
 import ru.selfin.backend.model.FinancialEvent;
@@ -69,20 +68,18 @@ class PocketInputAssemblerOwnerScenarioTest {
 
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
         CategoryRepository categoryRepository = mock(CategoryRepository.class);
-        UserSettingsService settingsService = mock(UserSettingsService.class);
         PredictionService predictionService = mock(PredictionService.class);
         RecurringRuleService recurringRuleService = mock(RecurringRuleService.class);
 
         when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
-        when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         when(fundRepository.findByWishlistStatusAndDeletedFalse(WishlistStatus.FIXED)).thenReturn(List.of());
 
         assembler = new PocketInputAssembler(eventRepository,
-                settingsService, predictionService, recurringRuleService, fundRepository, categoryRepository,
+                predictionService, recurringRuleService, fundRepository, categoryRepository,
                 accountBalanceService);
     }
 
