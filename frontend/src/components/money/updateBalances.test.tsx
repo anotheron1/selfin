@@ -95,6 +95,24 @@ describe('запрос и предпросмотр', () => {
         expect(src).toContain('{shown && <span role="status" className="px-1 text-sf-note">{freeLine(shown)}</span>}');
     });
 
+    it('карты для трат — из списка карт: только без остатка', () => {
+        expect(src).toContain('fetchAccounts().then(a => setSpending(a.filter(x => !x.trackBalance))');
+    });
+
+    it('«Сохранить» занят, пока пишется, и без пакета не шлёт', () => {
+        expect(src).toContain('disabled={busy || !key}');
+        expect(src).toContain('if (!batch || !key) return;');
+    });
+
+    it('поздний ответ прежнего предпросмотра не затирает свежий: таймер и ответ отменяются при новой цифре', () => {
+        expect(src).toContain('.then(result => { if (live) setPreview({ key, result }); }, () => {}), PREVIEW_MS);');
+        expect(src).toContain('return () => { live = false; clearTimeout(t); };');
+    });
+
+    it('строка после «Сохранить» уходит сама', () => {
+        expect(read('../frame/AppFrame.tsx')).toContain('const t = setTimeout(() => setSaved(null), UNDO_TOAST_MS);');
+    });
+
     it('предпросмотр не шлёт «записано»: экраны под листом не перечитываются на каждую цифру', () => {
         expect(read('../../api/index.ts')).toContain("postRead<BalanceBatchResult>('/balance-checkpoints/preview', dto)");
     });

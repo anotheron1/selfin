@@ -27,7 +27,8 @@ export function rowNote(c: BalanceSheetCard, raw: string): string | null {
     const amount = cardAmount(raw);
     if (amount != null && Number.isNaN(amount)) return WORDS.unreadable(rowName(c));
     if (amount == null || c.byRecords == null) return null;
-    const drift = Math.round((amount - c.byRecords) * 100) / 100;
+    // Обе суммы — уже до копеек (поле округляет, сервер хранит копейки): равные дают ровно ноль, остаток округлит показ.
+    const drift = amount - c.byRecords;
     const line = followsRecords(c)
         ? diffLine({ computedBalance: c.byRecords, drift } as BalanceCheckpoint, c.kind === 'DEPOSIT')
         : diffLine({ computedBalance: null, drift: null, amount } as BalanceCheckpoint, false, { amount: c.byRecords } as BalanceCheckpoint);
