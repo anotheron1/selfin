@@ -41,7 +41,7 @@ export const ENVELOPE_ROW = 'Уже в копилках';
 /** Имена строк, которые «Сегодня» узнаёт и показывает по-своему (срез 2: «На картах», раскрытие броней, «Вернуть на кредитку»). */
 export const BALANCE_ROW = 'На счёте';
 export const OVERDUE_ROW = 'Брони с прошедшей датой';
-export const CREDIT_ROW = 'Погасить карты до планки';
+export const CREDIT_ROW = 'Погасить кредитки';
 /** Начало имени строки расходов: «Ещё уйдёт сегодня», «Ещё уйдёт до 24 ноября». */
 export const PLANNED_ROW = 'Ещё уйдёт';
 export const CONTRIB_ROW = 'Взносы в копилки';
@@ -160,7 +160,7 @@ export function buildBreakdownView(p: PocketResponse): BreakdownView {
             }
             case 'CREDIT_RESTORE':
                 caveats.push(row('caveat', CREDIT_ROW, fmtC(l.amount),
-                    'столько внести на карты, чтобы доступное дошло до планки карты на «Деньгах»'));
+                    'столько внести на кредитки, чтобы доступное дошло до «возвращаю до» в карте на «Деньгах»'));
                 break;
             case 'WISHLIST_INFO':
                 caveats.push(row('caveat', 'Хотелки', fmtC(l.amount), 'не входят, пока не зафиксированы с датой'));
