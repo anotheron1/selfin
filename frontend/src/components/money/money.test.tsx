@@ -256,7 +256,9 @@ describe('ревью Gemini на #241', () => {
     });
     it('«Не та же ли это кредитка?»: последний долг — вопрос уходит, а не висит пустым; правка открывается без старой ошибки', async () => {
         const page = await src('../../pages/Capital.tsx');
-        expect(page).toContain('onOther: () => setCheck(check.items.length > 1 ? { ...check, items: check.items.slice(1) } : null)');
+        expect(page).toContain('onOther: () => setCheck(asked.length > 1 ? { ...check, items: asked.slice(1) } : null)');
+        // ревью Gemini на #243: долг погасили в другом листе — вопрос о нём уходит
+        expect(page).toContain('const asked = check ? liveCheckItems(check.items, data.summary.items) : [];');
         expect(page).toContain(".then(() => { setCheck(null); setToast('Запись — в «Архивных»: долг посчитан один раз.'); })");
         expect(await src('./CardSheet.tsx')).toContain('const toggle = (key: Open) => { setError(null);');
     });

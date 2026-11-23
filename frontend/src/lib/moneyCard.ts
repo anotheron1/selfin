@@ -1,7 +1,7 @@
 import type {
     Account, AccountCreateDto, AccountKind, AccountPurpose, AccountUpdateDto, BalanceCheckpoint, CapitalItem, Category,
 } from '../types/api';
-import { amountValue } from '../components/ui/amount-input';
+import { parseAmountExpression } from './amountExpression';
 import { DELETE_FAILED, writeFailure } from './writeFailure';
 import { fmtAmount, fmtDayYear } from './format';
 
@@ -14,12 +14,16 @@ import { fmtAmount, fmtDayYear } from './format';
 export const WORDS = {
     limit: 'Лимит',
     floor: 'Возвращаю до',
+    available: 'Доступно сейчас',
+    savingsNow: 'Сколько сейчас на ней',
+    unreadable: (field: string) => `Не понял сумму в «${field}» — нужно число, можно 0.`,
     floorNote: '«Возвращаю до» — сколько доступного хочешь держать. Не задано — строки «если вернуть на кредитку» на «Сегодня» нет.',
     floorAddNote: 'Сколько доступного хочешь держать. Не знаешь — оставь пустым: тогда строки «если вернуть на кредитку» нет.',
     floorAboveLimit: '«Возвращаю до» — уровень доступного, а доступного больше лимита не бывает: не выше лимита.',
     kindAcrossCredit: 'Не записалось: у кредитки остаток — это доступное, у других карт — деньги на карте. '
         + 'Записанные остатки поменяли бы смысл, поэтому заведи новую карту.',
     deleteHoldsGoal: 'Не удалилось: на счёте лежит копилка — сначала перенеси её на другой счёт',
+    holdsGoalKind: 'Не записалось: на счёте лежит копилка, а карта для трат и кредитка её не держат — сначала перенеси копилку на другой счёт.',
     updateFirst: 'Сначала обнови остатки — иначе смена основной сдвинула бы «Свободно».',
     mainNoDelete: 'Основную не удалить: сначала сделай основной другую карту «на всё».',
     deleteAsk: 'Удалить карту? Обновления остатка сохранятся, карта уйдёт из всех сумм.',
@@ -77,7 +81,13 @@ export interface CardFormValues {
     floor: string;
 }
 
-const num = (raw: string): number | null => (raw.trim() === '' ? null : amountValue(raw));
+/**
+ * Сумма поля карты: пусто — null; ноль — сумма (сервер его принимает: карта бывает пустой, кредитка — выбранной до конца);
+ * минус и нечитаемое — NaN: такое поле лист не отправляет (`cardFormProblem`), иначе правка стёрла бы сохранённое.
+ */
+export const cardAmount = (raw: string): number | null =>
+    (raw.trim() === '' ? null : parseAmountExpression(raw, { allowZero: true }).value ?? NaN);
+const num = cardAmount;
 
 /** Заведение — ответом (п. 4): что ответ не берёт, не уходит. Остаток — первое обновление сегодня. */
 export function createDto(f: CardFormValues & { purpose: AccountPurpose; balance: string }): AccountCreateDto {
@@ -115,8 +125,15 @@ export const canSaveCard = (f: Pick<CardFormValues, 'name' | 'purpose' | 'catego
     f.name.trim() !== '' && (editing || f.purpose != null) && (f.purpose !== 'SPEND' || f.categoryId != null)
         && (editing || f.purpose !== 'CREDIT' || f.limit.trim() !== '');
 
-/** Что лист знает сам и говорит до отправки (ANO-245): сервер ответил бы 400. */
-export function cardFormProblem(f: Pick<CardFormValues, 'purpose' | 'limit' | 'floor'>): string | null {
+/**
+ * Что лист знает сам и говорит до отправки (ANO-245): сервер ответил бы 400, а нечитаемая сумма молча ушла бы пустой.
+ * Проверяются только поля, видные при этом ответе: скрытые поля другого ответа не уходят.
+ */
+export function cardFormProblem(f: Pick<CardFormValues, 'purpose' | 'limit' | 'floor'> & { balance?: string }): string | null {
+    const shown: [string, string][] = f.purpose === 'CREDIT' ? [[WORDS.limit, f.limit], [WORDS.floor, f.floor], [WORDS.available, f.balance ?? '']]
+        : f.purpose === 'SAVINGS' ? [[WORDS.savingsNow, f.balance ?? '']] : [];
+    const bad = shown.find(([, raw]) => Number.isNaN(num(raw)));
+    if (bad) return WORDS.unreadable(bad[0]);
     const [limit, floor] = [num(f.limit), num(f.floor)];
     return f.purpose === 'CREDIT' && limit != null && floor != null && floor > limit ? WORDS.floorAboveLimit : null;
 }
@@ -128,6 +145,7 @@ const statusOf = (err: unknown): unknown => (err as { status?: unknown } | null 
  * остатки, лист наверняка не знает. Остальные 400 отсеяны до отправки — значит, 400 на таком переходе — он.
  */
 export function cardWriteFailure(err: unknown, a: Pick<Account, 'kind'>, toKind: AccountKind): string {
+    if (statusOf(err) === 409) return WORDS.holdsGoalKind; // на счёте копилка (AccountService.update)
     const crossed = (a.kind === 'CREDIT') !== (toKind === 'CREDIT');
     return crossed && statusOf(err) === 400 ? WORDS.kindAcrossCredit : writeFailure(err);
 }
@@ -230,8 +248,8 @@ export function savingsSince(last: BalanceCheckpoint, byRecords: number, today: 
 /** Кредитка в листе добавления (S4-A4): что будет со «Свободно». */
 export function creditDebtLine(limitRaw: string, availableRaw: string): string | null {
     const [limit, available] = [num(limitRaw), num(availableRaw)];
-    if (limit == null || available == null || limit - available <= 0) return null;
-    return `Долг ${fmtAmount(limit - available)} в «Свободно» не входит — он виден на «Сегодня» строкой «если вернуть на кредитку».`;
+    if (!Number.isFinite(limit) || !Number.isFinite(available) || limit! - available! <= 0) return null;
+    return `Долг ${fmtAmount(limit! - available!)} в «Свободно» не входит — он виден на «Сегодня» строкой «если вернуть на кредитку».`;
 }
 
 // ---------- «Не та же ли это кредитка?» ----------
@@ -240,6 +258,10 @@ export function creditDebtLine(limitRaw: string, availableRaw: string): string |
  * Живые ручные долги — кандидаты в ту же кредитку (S4-A5, бывшее «Проверь Капитал»). Показываются все: запись, названная
  * иначе, чем карта, задваивает долг чаще всего; похожие по имени — первыми.
  */
+/** Из спрошенных — те, что ещё живы: долг погасили или убрали в другом листе — о нём уже не спрашиваем (ревью Gemini на #243). */
+export const liveCheckItems = (asked: CapitalItem[], now: CapitalItem[]): CapitalItem[] =>
+    asked.filter(i => now.some(n => n.id === i.id && !n.isArchived));
+
 export function creditCheckItems(items: CapitalItem[], cardName: string): CapitalItem[] {
     const tokens = (s: string) => new Set(s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter(t => t.length >= 3));
     const card = tokens(cardName);

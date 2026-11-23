@@ -83,6 +83,13 @@ describe('amountExpression: ошибки', () => {
         expect(parse('0').error).toBe('nonPositive');
     });
 
+    it('остаток карты: ноль можно (allowZero) — карта бывает пустой, кредитка выбранной до лимита; минус — нет', () => {
+        expect(parse('0', { allowZero: true }).value).toBe(0);
+        expect(parse('100-100', { allowZero: true }).value).toBe(0);
+        expect(parse('-100', { allowZero: true }).error).toBe('nonPositive');
+        expect(parse('100-500', { allowZero: true }).error).toBe('nonPositive');
+    });
+
     it('ведущий минус разбирается, но как отрицательный итог', () => {
         expect(parse('-100').error).toBe('nonPositive');
         expect(parse('-100+500').value).toBe(400);

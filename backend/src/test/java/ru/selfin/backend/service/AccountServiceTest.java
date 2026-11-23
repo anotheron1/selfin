@@ -42,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -520,6 +521,47 @@ class AccountServiceTest {
                 .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
         assertThat(deposit.isDeleted()).isFalse();
         verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("ревью Gemini на #243: счёт с копилкой не становится картой без остатка или кредиткой — 409, "
+            + "иначе копилка повисла бы на карте, которая её не держит (validateAccountLink)")
+    void update_accountHoldingAFund_cannotDropTrackingOrBecomeCredit() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("Отпуск").accountId(deposit.getId()).build()));
+
+        assertThatThrownBy(() -> service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад", AccountKind.DEBIT, false, null, null, null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
+        assertThatThrownBy(() -> service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад", AccountKind.CREDIT, true, null, new BigDecimal("100000"), null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
+        // наличные без слежения — по умолчанию природы
+        assertThatThrownBy(() -> service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад", AccountKind.CASH, null, null, null, null, null)))
+                .satisfies(t -> assertStatus(t, HttpStatus.CONFLICT));
+        assertThat(deposit.getKind()).isEqualTo(AccountKind.DEPOSIT);
+        assertThat(deposit.isTrackBalance()).isTrue();
+        verify(accountRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("счёт с копилкой можно переименовать и оставить с остатком — копилке это не мешает")
+    void update_accountHoldingAFund_staysTracked_allowed() {
+        Account deposit = AccountFixtures.account(AccountKind.DEPOSIT, true).build();
+        when(accountRepo.findById(deposit.getId())).thenReturn(Optional.of(deposit));
+        // копилка есть — и правке, которая оставляет остаток, не мешает (её даже не нужно искать)
+        lenient().when(fundRepo.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc()).thenReturn(List.of(
+                TargetFund.builder().id(UUID.randomUUID()).name("Отпуск").accountId(deposit.getId()).build()));
+        savePassesThrough();
+        when(checkpointRepo.findLatestForAccountAt(any(), any())).thenReturn(Optional.empty());
+
+        AccountDto out = service.update(deposit.getId(), new AccountCreateDto(
+                "Вклад на отпуск", AccountKind.DEPOSIT, true, null, null, null, null));
+
+        assertThat(out.name()).isEqualTo("Вклад на отпуск");
     }
 
     @Test

@@ -111,6 +111,16 @@ describe('лист карты (п. 12)', () => {
         expect(html).not.toContain('Сделать основной');
     });
 
+    it('накопительная с достигнутой копилкой — копилка видна, «Отложить сюда» нет: в форме «+» её не будет', () => {
+        const savings = acc({ name: 'Вклад', kind: 'DEPOSIT', balance: 22000, balanceDate: '2026-11-03' });
+        const reached = { id: 'f1', name: 'Отпуск', accountId: 'a', currentBalance: 22000, targetAmount: 20000, status: 'REACHED' } as TargetFund;
+        const html = body(savings, [cp('1', '2026-11-03', 22000, null)], [reached]);
+        expect(html).toContain('Здесь копилка «Отпуск»');
+        expect(html).not.toContain('Отложить сюда');
+        const open = { ...reached, id: 'f2', name: 'Машина', status: 'FUNDING' } as TargetFund;
+        expect(body(savings, [cp('1', '2026-11-03', 22000, null)], [reached, open])).toContain('Отложить сюда');
+    });
+
     it('накопительная без копилки — «Отложить сюда» нет', () => {
         expect(body(acc({ kind: 'DEPOSIT', balance: 1, balanceDate: '2026-11-03' }))).not.toContain('Отложить сюда');
     });
@@ -134,7 +144,15 @@ describe('лист карты (п. 12)', () => {
         const { readFileSync } = await import('node:fs');
         const src = readFileSync(new URL('./CardSheet.tsx', import.meta.url), 'utf8');
         expect(src).toContain('creditLimit: a.creditLimit, availableFloor: a.floorSuggestion,');
-        expect(src).toContain("onRecord({ type: 'FUND_TRANSFER', targetFundId: own.length === 1 ? own[0].id : undefined })");
+        expect(src).toContain("onRecord({ type: 'FUND_TRANSFER', targetFundId: fundable.length === 1 ? fundable[0].id : undefined })");
+        // ревью Gemini на #243: «Отмена», другая точка — ошибка не остаётся висеть; лист закрывается только через close и saved
+        expect(src).toContain('const close = () => { setError(null); setOpen(null); };');
+        expect(src.match(/setOpen\(null\)/g)).toHaveLength(2);
+        expect(src.match(/onCancel=\{close\}/g)).toHaveLength(3);
+        // «Возвращать до X?» не рядом с открытой правкой — иначе «Сохранить» вернул бы старое значение
+        expect(src).toContain("!floorKept && open !== 'edit' && (");
+        // нули и нечитаемое в обновлении — cardAmount
+        expect(src).toContain('const amount = cardAmount(raw);');
         expect(src).toContain("onRecord({ type: 'EXPENSE', categoryId: a.purposeCategoryId! })");
         // «Все обновления» раскрываются нажатием: строка без «по записям» — с прошлым разом, как у точки
         expect(src).toContain('{diffLine(c, savings, prevOf(c))}');

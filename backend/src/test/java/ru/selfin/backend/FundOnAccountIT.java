@@ -377,6 +377,23 @@ class FundOnAccountIT {
     }
 
     @Test
+    @DisplayName("ревью Gemini на #243: счёт с копилкой не становится картой для трат или кредиткой — 409, счёт прежний")
+    void accountHoldingFund_cannotBecomeSpendingOrCredit() throws Exception {
+        fund("Отпуск", deposit);
+
+        mvc.perform(put("/api/v1/accounts/" + deposit).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Вклад\",\"kind\":\"DEBIT\",\"trackBalance\":false}"))
+                .andExpect(status().isConflict());
+        mvc.perform(put("/api/v1/accounts/" + deposit).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Вклад\",\"kind\":\"CREDIT\",\"trackBalance\":true,\"creditLimit\":100000}"))
+                .andExpect(status().isConflict());
+
+        JsonNode acc = json(mvc.perform(get("/api/v1/accounts/" + deposit)).andExpect(status().isOk()));
+        assertThat(acc.get("kind").asText()).isEqualTo("DEPOSIT");
+        assertThat(acc.get("trackBalance").asBoolean()).isTrue();
+    }
+
+    @Test
     @DisplayName("ревью PR 2: копилка на основной карте перевода не принимает — 400, как до среза 4; её правила — НЗ, PR 6")
     void fundOnMainCard_refusesTransfer() throws Exception {
         String fund = fund("Запас", mainCard());

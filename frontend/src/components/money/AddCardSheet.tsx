@@ -141,7 +141,7 @@ export function CardForm({ account, purpose: preset, categories, busy, error, on
             )}
 
             {!editing && purpose === 'SAVINGS' && (
-                <Labeled label="Сколько сейчас на ней">
+                <Labeled label={WORDS.savingsNow}>
                     <Field inputMode="decimal" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0" suffix="₽" />
                 </Labeled>
             )}
@@ -153,7 +153,7 @@ export function CardForm({ account, purpose: preset, categories, busy, error, on
                             <Field inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} placeholder="0" suffix="₽" />
                         </Labeled>
                         {!editing && (
-                            <Labeled label="Доступно сейчас">
+                            <Labeled label={WORDS.available}>
                                 <Field inputMode="decimal" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0" suffix="₽" />
                             </Labeled>
                         )}

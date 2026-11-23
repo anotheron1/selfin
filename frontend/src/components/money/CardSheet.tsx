@@ -7,10 +7,9 @@ import {
 } from '../../api';
 import type { Account, BalanceCheckpoint, Category, FinancialEventCreateDto, TargetFund } from '../../types/api';
 import FormSheet from '../FormSheet';
-import { amountValue } from '../ui/amount-input';
 import { CardForm, Labeled } from './AddCardSheet';
 import {
-    WORDS, answerLabel, canMakeMain, cardFormProblem, cardView, cardWriteFailure, deleteCardFailure, diffLine, historyChart,
+    WORDS, answerLabel, canMakeMain, cardAmount, cardFormProblem, cardView, cardWriteFailure, deleteCardFailure, diffLine, historyChart,
     makeMainFailure, pointNote, savingsSince, updateDto, type CardView,
 } from '../../lib/moneyCard';
 import { monthIn } from '../../lib/moneyGroups';
@@ -75,6 +74,9 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
     const last = history[history.length - 1] ?? null;
     const prevOf = (c: BalanceCheckpoint) => history[history.indexOf(c) - 1];
     const own = funds.filter(f => f.accountId === a.id);
+    // Достигнутую копилку форма «+» не предлагает (fundChoices) — «Отложить сюда» открыл бы форму без неё (ревью Gemini на #243).
+    const fundable = own.filter(f => f.status !== 'REACHED');
+    const close = () => { setError(null); setOpen(null); };
     const toggle = (key: Open) => { setError(null); setOpen(o => (o === key ? null : key)); };
     const run = async (write: () => Promise<unknown>, after: () => void, failure: (e: unknown) => string = writeFailure) => {
         setBusy(true);
@@ -117,7 +119,8 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
             {view === 'credit' && a.balanceDate && a.debt != null && (
                 <p className="px-1 text-sf-note text-sf-muted">{WORDS.creditSince(a.balanceDate === today ? 'сегодня' : fmtDayYear(a.balanceDate, today), fmtAmount(a.debt))}</p>
             )}
-            {view === 'credit' && a.floorSuggestion != null && a.availableFloor != null && !floorKept && (
+            {/* Не рядом с открытой правкой: «Сохранить» вернул бы в «возвращаю до» старое значение формы. */}
+            {view === 'credit' && a.floorSuggestion != null && a.availableFloor != null && !floorKept && open !== 'edit' && (
                 <Plate className="flex flex-col gap-2">
                     <span className="text-sf-note">
                         {`Доступно уже больше, чем «возвращаю до ${fmtAmount(a.availableFloor)}». Возвращать до ${fmtAmount(a.floorSuggestion)}?`}
@@ -144,8 +147,8 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
                     </span>
                 </Plate>
             ))}
-            {savings && own.length > 0 && a.balanceDate && (
-                <Button variant="soft" onClick={() => onRecord({ type: 'FUND_TRANSFER', targetFundId: own.length === 1 ? own[0].id : undefined })}>
+            {savings && fundable.length > 0 && a.balanceDate && (
+                <Button variant="soft" onClick={() => onRecord({ type: 'FUND_TRANSFER', targetFundId: fundable.length === 1 ? fundable[0].id : undefined })}>
                     Отложить сюда
                 </Button>
             )}
@@ -173,11 +176,11 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
                         <span className="text-right text-sf-label text-sf-muted">точки — из банка, пунктир — по записям</span>
                     </div>
                     <HistoryChart history={history} now={a.balance != null ? { date: today, value: a.balance } : null}
-                        picked={point.id} onPick={id => { setPicked(id); setOpen(null); }} />
+                        picked={point.id} onPick={id => { setPicked(id); close(); }} />
                     {open === 'fix' ? (
                         <BalanceForm credit={view === 'credit'} savings={savings} byRecords={null} withDate initial={point} busy={busy}
                             onSave={(amount, date) => void run(() => updateCheckpoint(point.id, { date, amount, accountId: a.id }), saved)}
-                            onCancel={() => setOpen(null)} />
+                            onCancel={close} />
                     ) : (
                         <Plate className="flex flex-col gap-2">
                             <span className="text-sf-body font-semibold">
@@ -193,7 +196,7 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
                                     <div className="flex gap-2">
                                         <Button size="s" disabled={busy}
                                             onClick={() => void run(() => deleteCheckpoint(point.id), saved, () => DELETE_FAILED)}>Удалить</Button>
-                                        <Button size="s" variant="text" onClick={() => setOpen(null)}>Отмена</Button>
+                                        <Button size="s" variant="text" onClick={close}>Отмена</Button>
                                     </div>
                                 </>
                             ) : (
@@ -234,7 +237,7 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
                 <BalanceForm credit={view === 'credit'} savings={savings} byRecords={open === 'update' ? a.balance : null}
                     withDate={open === 'date'} busy={busy}
                     onSave={(amount, date) => void run(() => createCheckpoint({ date, amount, accountId: a.id }), saved)}
-                    onCancel={() => setOpen(null)} />
+                    onCancel={close} />
             ) : (
                 <div className="flex gap-2.5">
                     <Button className="flex-[1.3] px-3" onClick={() => toggle('update')}>Обновить остаток</Button>
@@ -250,12 +253,12 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
 
             {open === 'edit' ? (
                 <Plate>
-                    <CardForm account={a} categories={categories} busy={busy} error={error} onCancel={() => setOpen(null)}
+                    <CardForm account={a} categories={categories} busy={busy} error={error} onCancel={close}
                         onSave={v => {
                             const problem = cardFormProblem(v);
                             if (problem) { setError(problem); return; }
                             const dto = updateDto(a, v);
-                            void run(() => updateAccount(a.id, dto), () => setOpen(null), e => cardWriteFailure(e, a, dto.kind));
+                            void run(() => updateAccount(a.id, dto), close, e => cardWriteFailure(e, a, dto.kind));
                         }} />
                 </Plate>
             ) : (
@@ -286,7 +289,7 @@ export function CardBody({ account: a, history, funds, categories, today, onReco
                         <div className="flex gap-2">
                             <Button size="s" disabled={busy}
                                 onClick={() => void run(() => deleteAccount(a.id), () => onDone('Карта удалена'), deleteCardFailure)}>Удалить карту</Button>
-                            <Button size="s" variant="text" onClick={() => setOpen(null)}>Отмена</Button>
+                            <Button size="s" variant="text" onClick={close}>Отмена</Button>
                         </div>
                     </Plate>
                 ) : (
@@ -341,8 +344,9 @@ function BalanceForm({ credit, savings, byRecords, withDate, initial, busy, onSa
     const max = latestAllowedIso(new Date());
     const [raw, setRaw] = useState(initial ? String(initial.amount) : '');
     const [date, setDate] = useState(initial?.date ?? max);
-    const amount = raw.trim() === '' ? null : amountValue(raw);
-    const ok = amount != null && !Number.isNaN(amount) && amount >= 0 && date !== '';
+    // Ноль — остаток (пустая карта, кредитка выбрана до конца); минус и нечитаемое — не отправить (ревью Gemini на #243).
+    const amount = cardAmount(raw);
+    const ok = amount != null && Number.isFinite(amount) && date !== '';
     const live = ok && byRecords != null
         ? diffLine({ computedBalance: byRecords, drift: Math.round((amount! - byRecords) * 100) / 100 } as BalanceCheckpoint, savings) : null;
     return (

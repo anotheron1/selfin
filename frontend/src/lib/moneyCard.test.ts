@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Account, BalanceCheckpoint, CapitalItem, Category } from '../types/api';
 import {
-    ANSWERS, answerLabel, canMakeMain, canSaveCard, cardFormProblem, cardHistory, cardView, cardWriteFailure, createDto, creditCheckItems,
+    ANSWERS, answerLabel, canMakeMain, canSaveCard, cardAmount, cardFormProblem, cardHistory, cardView, cardWriteFailure, createDto, creditCheckItems, liveCheckItems,
     creditDebtLine as creditDebtLine0, deleteCardFailure, diffLine as diffLine0, historyChart, makeMainFailure,
     pointNote as pointNote0, savingsSince as savingsSince0, spendCategories, updateDto, WORDS,
 } from './moneyCard';
@@ -95,6 +95,49 @@ describe('«Добавить» и «Сохранить» открыты', () => 
     });
 });
 
+describe('«Не та же ли это кредитка?» — только живые долги (ревью Gemini на #243)', () => {
+    it('долг погасили или удалили в другом листе — о нём не спрашиваем', () => {
+        const item = (id: string, isArchived = false) => ({ id, name: id, kind: 'LIABILITY', isArchived }) as CapitalItem;
+        const asked = [item('a'), item('b'), item('c')];
+        expect(liveCheckItems(asked, [item('a'), item('b', true)]).map(i => i.id)).toEqual(['a']);
+        expect(liveCheckItems(asked, [])).toEqual([]);
+    });
+});
+
+describe('суммы карты (ревью Gemini на #243)', () => {
+    it('пусто — нет суммы; ноль — сумма; минус и нечитаемое — не число', () => {
+        expect(cardAmount('')).toBeNull();
+        expect(cardAmount('  ')).toBeNull();
+        expect(cardAmount('0')).toBe(0);
+        expect(cardAmount('1 500')).toBe(1500);
+        expect(cardAmount('-500')).toBeNaN();
+        expect(cardAmount('100+')).toBeNaN();
+        expect(cardAmount('50 000ю')).toBeNaN();
+    });
+    it('ноль уходит: пустая накопительная, кредитка выбрана до лимита, «возвращаю до» 0', () => {
+        expect(createDto({ name: 'Вклад', purpose: 'SAVINGS', categoryId: null, balance: '0', limit: '', floor: '' }))
+            .toEqual({ name: 'Вклад', purpose: 'SAVINGS', balance: 0 });
+        expect(createDto({ name: 'К', purpose: 'CREDIT', categoryId: null, balance: '0', limit: '100000', floor: '0' }))
+            .toEqual({ name: 'К', purpose: 'CREDIT', creditLimit: 100000, availableFloor: 0, balance: 0 });
+        expect(updateDto(acc({ kind: 'CREDIT' }), { name: 'К', purpose: 'CREDIT', categoryId: null, limit: '100000', floor: '0' }))
+            .toMatchObject({ creditLimit: 100000, availableFloor: 0 });
+        expect(creditDebtLine('100000', '0')).toBe(
+            'Долг 100 000 ₽ в «Свободно» не входит — он виден на «Сегодня» строкой «если вернуть на кредитку».');
+    });
+    it('нечитаемая сумма — до отправки, с именем поля: правка не сотрёт лимит, остаток не потеряется', () => {
+        const v = { purpose: 'CREDIT' as const, limit: '100000', floor: '90000', balance: '' };
+        expect(cardFormProblem({ ...v, limit: '100000+' })).toBe(WORDS.unreadable('Лимит'));
+        expect(cardFormProblem({ ...v, floor: '-1' })).toBe(WORDS.unreadable('Возвращаю до'));
+        expect(cardFormProblem({ ...v, balance: '5к' })).toBe(WORDS.unreadable('Доступно сейчас'));
+        expect(cardFormProblem({ purpose: 'SAVINGS', limit: '', floor: '', balance: 'много' })).toBe(WORDS.unreadable('Сколько сейчас на ней'));
+        // скрытые поля другого ответа не уходят — и не мешают
+        expect(cardFormProblem({ purpose: 'SPEND', limit: 'ааа', floor: 'ббб', balance: 'ввв' })).toBeNull();
+        expect(cardFormProblem({ purpose: 'SAVINGS', limit: 'ааа', floor: '', balance: '0' })).toBeNull();
+        expect(creditDebtLine('сто', '0')).toBeNull();
+        expect(creditDebtLine('100000', '-1')).toBeNull();
+    });
+});
+
 describe('правка карты — по осям', () => {
     it('без нового ответа оси прежние', () => {
         const a = acc({ kind: 'CASH', trackBalance: true });
@@ -124,6 +167,11 @@ describe('отказы словами экрана (опись 31–32)', () => 
         expect(cardFormProblem({ purpose: 'CREDIT', limit: '', floor: '150000' })).toBeNull();
         expect(cardFormProblem({ purpose: 'CREDIT', limit: '100000', floor: '' })).toBeNull();
         expect(cardFormProblem({ purpose: 'SAVINGS', limit: '100000', floor: '120000' })).toBeNull();
+    });
+    it('счёт с копилкой не становится картой для трат или кредиткой — 409 своими словами', () => {
+        expect(cardWriteFailure(err(409), acc({ kind: 'DEPOSIT' }), 'DEBIT')).toBe(WORDS.holdsGoalKind);
+        expect(cardWriteFailure(err(409), acc({ kind: 'DEPOSIT' }), 'CREDIT')).toBe(WORDS.holdsGoalKind);
+        expect(WORDS.holdsGoalKind).toContain('копилка');
     });
     it('смена через кредитку с остатками — 400 своими словами; прочее — общее', () => {
         expect(cardWriteFailure(err(400), acc({ kind: 'CREDIT' }), 'DEBIT')).toBe(WORDS.kindAcrossCredit);

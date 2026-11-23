@@ -14,7 +14,7 @@ import QuickAddModal from '../components/Fab';
 import { REANCHOR } from '../components/frame/AppFrame';
 import { CHANGED } from '../api/client';
 import { todayIso } from '../lib/factDate';
-import { cardHistory, creditCheckItems } from '../lib/moneyCard';
+import { cardHistory, creditCheckItems, liveCheckItems } from '../lib/moneyCard';
 import { writeFailure } from '../lib/writeFailure';
 
 /**
@@ -88,6 +88,8 @@ export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
     const today = todayIso(new Date());
     // Удалённой карты в свежем списке нет — лист закрывается сам.
     const card = cardId ? data.accounts.find(a => a.id === cardId) : undefined;
+    // Ревью Gemini на #243: долг погасили в другом листе — вопрос о нём уходит.
+    const asked = check ? liveCheckItems(check.items, data.summary.items) : [];
 
     return (
         <>
@@ -98,17 +100,17 @@ export default function Capital({ refreshSignal }: { refreshSignal?: number }) {
                 onAccount={account => setCardId(account.id)}
                 onItem={item => setItemSheet({ type: 'view', item })}
                 onAddItem={() => setItemSheet({ type: 'create' })}
-                creditCheck={check && {
-                    accountId: check.accountId, item: check.items[0], busy: check.busy,
+                creditCheck={check && asked.length > 0 ? {
+                    accountId: check.accountId, item: asked[0], busy: check.busy,
                     // «Убрать» — в «Архивные»: оценка ноль, как «Погасил» (п. 15); история остаётся.
                     onRemove: () => {
                         setCheck({ ...check, busy: true });
-                        addCapitalRevaluation(check.items[0].id, { value: 0 })
+                        addCapitalRevaluation(asked[0].id, { value: 0 })
                             .then(() => { setCheck(null); setToast('Запись — в «Архивных»: долг посчитан один раз.'); })
                             .catch(e => { setCheck({ ...check, busy: false }); setToast(writeFailure(e)); });
                     },
-                    onOther: () => setCheck(check.items.length > 1 ? { ...check, items: check.items.slice(1) } : null),
-                }} />
+                    onOther: () => setCheck(asked.length > 1 ? { ...check, items: asked.slice(1) } : null),
+                } : null} />
 
             {itemSheet && <CapitalItemSheet key={itemSheet.type === 'view' ? itemSheet.item.id : 'new'} mode={itemSheet}
                 onClose={() => setItemSheet(null)} />}
