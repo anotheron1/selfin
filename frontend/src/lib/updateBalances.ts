@@ -1,6 +1,6 @@
 import type { BalanceBatch, BalanceBatchResult, BalanceCheckpoint, BalanceSheet, BalanceSheetCard } from '../types/api';
 import { WORDS, cardAmount, diffLine } from './moneyCard';
-import { fmtAmount, fmtDayYear, fmtNum } from './format';
+import { fmtAmount, fmtDayShort, fmtDayYear, fmtNum } from './format';
 
 /**
  * Лист «Обновить остатки» (срез 4, п. 16; доски S4-U1, S4-U4): строки, запрос и итог словами. Вид —
@@ -54,24 +54,30 @@ export const lastCreditId = (cards: BalanceSheetCard[]): string | null =>
 export const onCreditLine = (o: NonNullable<BalanceSheet['onCredit']>, today: string): string =>
     `с ${fmtDayYear(o.since, today)} в кредит записано ${fmtAmount(o.amount)}`;
 
+/**
+ * «Свободно» предпросмотра — до ближайшего дохода, как в шапке; на «Сегодня» может быть выбран другой период, поэтому срок
+ * назван. `until` — конец срока, ISO; не пришёл — без срока.
+ */
+const freeName = (until?: string | null) => (until ? `«Свободно до ${fmtDayShort(until)}»` : '«Свободно»');
+
 /** Внизу листа — по предпросмотру. */
-export const freeLine = (r: BalanceBatchResult): string => (r.freeAfter === r.freeBefore
-    ? '«Свободно» не изменится.'
-    : `«Свободно» станет ${fmtAmount(r.freeAfter)} вместо ${fmtAmount(r.freeBefore)}.`);
+export const freeLine = (r: BalanceBatchResult, until?: string | null): string => (r.freeAfter === r.freeBefore
+    ? `${freeName(until)} не изменится.`
+    : `${freeName(until)} станет ${fmtAmount(r.freeAfter)} вместо ${fmtAmount(r.freeBefore)}.`);
 
 /**
  * Строка после «Сохранить» (S4-U4): «Свободно» вместо прежнего, разница основной, рост накопительных — проценты. Разница
  * основной — объяснением через двоеточие, только когда «Свободно» сдвинулось ровно на неё; иначе — отдельной фразой:
  * сдвиг дали и другие карты или отпущенные прошедшие брони (решение 65), и одна разница его не объясняет (ревью #244).
  */
-export function savedText(r: BalanceBatchResult, cards: BalanceSheetCard[]): string {
+export function savedText(r: BalanceBatchResult, cards: BalanceSheetCard[], until?: string | null): string {
     const byId = new Map(cards.map(c => [c.accountId, c]));
     const main = r.cards.find(x => byId.get(x.accountId)?.isDefault && x.difference);
     const d = main?.difference ?? 0;
     const bank = `в банке на ${fmtAmount(Math.abs(d))} ${d > 0 ? 'больше' : 'меньше'}, чем по записям`;
     const exact = main != null && Math.round((r.freeAfter - r.freeBefore - d) * 100) === 0;
-    const free = r.freeAfter === r.freeBefore ? '«Свободно» не изменилось.'
-        : `«Свободно» — ${fmtAmount(r.freeAfter)} вместо ${fmtNum(r.freeBefore)}${exact ? `: ${bank}` : ''}.`;
+    const free = r.freeAfter === r.freeBefore ? `${freeName(until)} не изменилось.`
+        : `${freeName(until)} — ${fmtAmount(r.freeAfter)} вместо ${fmtNum(r.freeBefore)}${exact ? `: ${bank}` : ''}.`;
     const apart = main && !exact ? ` ${byId.get(main.accountId)!.name}: ${bank}.` : '';
     // П. 16: меньше, чем по записям, — не повод вспоминать, на что ушло.
     const forget = d < 0 ? ' Вспоминать траты не нужно.' : '';

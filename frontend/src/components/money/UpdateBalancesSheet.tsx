@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Field } from '@/ds';
-import { fetchAccounts, fetchBalanceSheet, previewBalances, saveBalances } from '../../api';
+import { fetchAccounts, fetchBalanceSheet, fetchPocket, previewBalances, saveBalances } from '../../api';
 import type { Account, BalanceBatchResult, BalanceSheet } from '../../types/api';
 import FormSheet from '../FormSheet';
 import { cardAmount } from '../../lib/moneyCard';
@@ -27,11 +27,15 @@ export default function UpdateBalancesSheet({ onClose, onSaved }: {
     const [sheet, setSheet] = useState<BalanceSheet | null>(null);
     const [spending, setSpending] = useState<Account[]>([]);
     const [failed, setFailed] = useState(false);
+    const [until, setUntil] = useState<string | null>(null);
     const load = () => { setFailed(false); fetchBalanceSheet().then(setSheet, () => setFailed(true)); };
     useEffect(() => {
         load();
         // Карты для трат — строкой «остаток не нужен» (S4-U1): человек видит, что карту не забыли. Не пришли — строк нет.
         fetchAccounts().then(a => setSpending(a.filter(x => !x.trackBalance)), () => setSpending([]));
+        // Предпросмотр считает «Свободно» до ближайшего дохода, как шапка; на «Сегодня» период может быть другим — срок
+        // называется словами. Не пришёл — строка без срока.
+        fetchPocket().then(p => setUntil(p.horizon.endDate), () => setUntil(null));
     }, []);
     return (
         <FormSheet label="Обновить остатки" onClose={onClose}>
@@ -39,7 +43,7 @@ export default function UpdateBalancesSheet({ onClose, onSaved }: {
                 <span className="text-[20px] font-semibold leading-6">Обновить остатки</span>
                 <span className="text-sf-note text-sf-muted">Перепиши числа из приложения банка. Пустое поле — остаток прежний.</span>
             </div>
-            {sheet ? <BalancesForm sheet={sheet} spending={spending} today={todayIso(new Date())} onSaved={onSaved} />
+            {sheet ? <BalancesForm sheet={sheet} spending={spending} today={todayIso(new Date())} until={until} onSaved={onSaved} />
                 : failed ? (
                     <div className="flex flex-col items-start gap-2 px-1">
                         <span className="text-sf-note">Не удалось загрузить карты</span>
@@ -50,12 +54,14 @@ export default function UpdateBalancesSheet({ onClose, onSaved }: {
     );
 }
 
-export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: {
+export function BalancesForm({ sheet, spending, today, until = null, onSaved, initial = {} }: {
     sheet: BalanceSheet;
     /** Карты без остатка — строкой внизу. */
     spending: Account[];
     /** Местная дата, ISO: подписи «обновлён 12 нояб.». */
     today: string;
+    /** Конец срока «Свободно», ISO: «Свободно до 5 дек.». */
+    until?: string | null;
     onSaved: (text: string) => void;
     /** Введённое при открытии — для тестов разметки. */
     initial?: Record<string, string>;
@@ -86,7 +92,7 @@ export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: 
         setBusy(true);
         setError(null);
         try {
-            onSaved(savedText(await saveBalances(batch), sheet.cards));
+            onSaved(savedText(await saveBalances(batch), sheet.cards, until));
         } catch (err) {
             setError(writeFailure(err));   // ANO-245: текст сервера — по-английски
             setBusy(false);
@@ -125,7 +131,7 @@ export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: 
             </div>
             {/* Прежний лист говорил «Якорится на сегодня… Задним числом — через Настройки» (опись 35, ревью #244). */}
             <span className="px-1 text-sf-label text-sf-muted">Обновление — на сегодня: сегодняшние записи уже в числе из банка. На другую дату — в листе карты.</span>
-            {shown && <span role="status" className="px-1 text-sf-note">{shown.result ? freeLine(shown.result) : PREVIEW_FAILED}</span>}
+            {shown && <span role="status" className="px-1 text-sf-note">{shown.result ? freeLine(shown.result, until) : PREVIEW_FAILED}</span>}
             {error && <p role="alert" className="px-1 text-sf-note text-sf-error">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy || !key}>{busy ? 'Сохраняю…' : 'Сохранить'}</Button>
         </form>

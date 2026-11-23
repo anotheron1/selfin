@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { fmtRub as fmtC } from './format';
 import { ENVELOPE_ROW, buildBreakdownView } from './breakdownRows';
 import type { PocketResponse, UpcomingItem } from '../types/api';
@@ -99,7 +100,7 @@ describe('buildBreakdownView (ANO-77): число и пояснение', () => 
             result: { kind: 'result', label: 'Не хватает', amount: fmtC(1600), note: 'самый низкий остаток — сегодня, 25 сентября' },
             caveats: [
                 { kind: 'caveat', label: 'Сверка сняла с брони', amount: fmtC(13000), note: '29 августа: Страховка и ещё 1 платёж' },
-                { kind: 'caveat', label: 'Погасить карты до планки', amount: fmtC(-70680), note: 'столько внести на карты, чтобы доступное дошло до планки карты на «Деньгах»' },
+                { kind: 'caveat', label: 'Погасить кредитки', amount: fmtC(-70680), note: 'столько внести на кредитки, чтобы доступное дошло до «возвращаю до» в карте на «Деньгах»' },
                 { kind: 'caveat', label: 'Хотелки', amount: fmtC(594048), note: 'не входят, пока не зафиксированы с датой' },
             ],
         });
@@ -194,5 +195,13 @@ describe('buildBreakdownView (ANO-77): число и пояснение', () => 
         const v = buildBreakdownView(p);
         expect(v.calc[1]).toEqual({ kind: 'item', label: 'Новая строка', amount: fmtC(-500), note: 'раз, два' });
         expect(v.caveats.at(-1)).toEqual({ kind: 'caveat', label: 'Новая оговорка', amount: fmtC(700), note: null });
+    });
+});
+
+describe('слова карты (правило 13)', () => {
+    it('«планки» нет: в листе карты и в «Добавить карту» она — «возвращаю до» (срез 4, опись 23)', () => {
+        for (const f of ['./breakdownRows.ts', './help.ts', '../components/PocketCard.tsx']) {
+            expect(readFileSync(new URL(f, import.meta.url), 'utf8'), f).not.toMatch(/планк/i);
+        }
     });
 });

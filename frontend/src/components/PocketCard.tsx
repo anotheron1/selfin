@@ -184,14 +184,14 @@ export default function PocketCard({ onData, refreshSignal }: {
                             {/*
                               Второе и третье числа (ANO-9 §4.2–§4.3). Иерархия размеров —
                               часть смысла: это не три равноправных ответа, а один ответ и две
-                              оговорки. Карты возвращают к планке, потому что так меряется
+                              оговорки. Кредитки возвращают до «возвращаю до», потому что так меряется
                               обязательство; вклад распечатывают в трудный момент, а не
                               планируют им жить. Оба null, когда оговаривать нечего.
                             */}
                             {data.pocketAfterCreditRestore != null && (
                                 <p className="text-sm text-white/85 mt-0.5">
                                     {fmtC(data.pocketAfterCreditRestore)}
-                                    <span className="text-white/60"> — если погасить карты до планки</span>
+                                    <span className="text-white/60"> — если погасить кредитки</span>
                                 </p>
                             )}
                             {data.pocketWithDeposits != null && (

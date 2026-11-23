@@ -96,11 +96,16 @@ describe('запрос и предпросмотр', () => {
 
     it('пишет пакет только заполненных полей; «Свободно станет» — ответ предпросмотра на то же введённое', () => {
         expect(src).toContain('const batch = batchOf(sheet.cards, raws);');
-        expect(src).toContain('onSaved(savedText(await saveBalances(batch), sheet.cards));');
+        expect(src).toContain('onSaved(savedText(await saveBalances(batch), sheet.cards, until));');
         expect(src).toContain('previewBalances({ entries: JSON.parse(key) })');
         // Устаревший ответ молчит: цифру дописали, пока сервер считал прежнее.
         expect(src).toContain('const shown = preview && preview.key === key ? preview : null;');
-        expect(src).toContain('{shown && <span role="status" className="px-1 text-sf-note">{shown.result ? freeLine(shown.result) : PREVIEW_FAILED}</span>}');
+        expect(src).toContain('{shown && <span role="status" className="px-1 text-sf-note">{shown.result ? freeLine(shown.result, until) : PREVIEW_FAILED}</span>}');
+    });
+
+    it('срок «Свободно» — конец срока из `GET /pocket` без периода: тот же, что у предпросмотра и шапки', () => {
+        expect(src).toContain('fetchPocket().then(p => setUntil(p.horizon.endDate), () => setUntil(null));');
+        expect(src).toContain('until={until}');
     });
 
     it('предпросмотр не пришёл — так и сказано, сохранить можно (ревью #244)', () => {
@@ -128,6 +133,10 @@ describe('запрос и предпросмотр', () => {
 
     it('предпросмотр не шлёт «записано»: экраны под листом не перечитываются на каждую цифру', () => {
         expect(read('../../api/index.ts')).toContain("postRead<BalanceBatchResult>('/balance-checkpoints/preview', dto)");
+    });
+
+    it('примерка в «Целях» тоже ничего не пишет — и «записано» не шлёт', () => {
+        expect(read('../../api/index.ts')).toContain("postRead<SandboxResponse>('/pocket/sandbox', body)");
     });
 });
 
