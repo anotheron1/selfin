@@ -17,6 +17,7 @@ import { writeFailure } from '../../lib/writeFailure';
 
 /** Сколько ждать после последней цифры, прежде чем спросить сервер, что станет со «Свободно». */
 const PREVIEW_MS = 300;
+const PREVIEW_FAILED = 'Не посчиталось, что станет со «Свободно». Сохранить можно и так.';
 
 export default function UpdateBalancesSheet({ onClose, onSaved }: {
     onClose: () => void;
@@ -60,7 +61,8 @@ export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: 
     initial?: Record<string, string>;
 }) {
     const [raws, setRaws] = useState(initial);
-    const [preview, setPreview] = useState<{ key: string; result: BalanceBatchResult } | null>(null);
+    /** Ответ предпросмотра на введённое `key`; result null — не пришёл. */
+    const [preview, setPreview] = useState<{ key: string; result: BalanceBatchResult | null } | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -71,10 +73,11 @@ export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: 
         if (!key) return;
         let live = true;
         const t = setTimeout(() => previewBalances({ entries: JSON.parse(key) })
-            .then(result => { if (live) setPreview({ key, result }); }, () => {}), PREVIEW_MS);
+            .then(result => { if (live) setPreview({ key, result }); },
+                () => { if (live) setPreview({ key, result: null }); }), PREVIEW_MS);
         return () => { live = false; clearTimeout(t); };
     }, [key]);
-    const shown = preview && preview.key === key ? preview.result : null;
+    const shown = preview && preview.key === key ? preview : null;
     const credit = lastCreditId(sheet.cards);
 
     const save = async (e: React.FormEvent) => {
@@ -93,7 +96,7 @@ export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: 
     return (
         <form onSubmit={save} className="flex flex-col gap-3">
             <div className="flex flex-col">
-                {sheet.cards.map(c => {
+                {sheet.cards.map((c, i) => {
                     const raw = raws[c.accountId] ?? '';
                     const note = rowNote(c, raw);
                     return (
@@ -105,7 +108,8 @@ export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: 
                             {c.accountId === credit && sheet.onCredit && (
                                 <span className="text-sf-label text-sf-muted">{onCreditLine(sheet.onCredit, today)}</span>
                             )}
-                            <Field aria-label={rowName(c)} inputMode="decimal" value={raw} suffix="₽" className="text-[20px] font-light"
+                            {/* Фокус — в первое поле: окно открылось с «Загрузка…» и поставило его на крестик (ревью #244). */}
+                            <Field autoFocus={i === 0} aria-label={rowName(c)} inputMode="decimal" value={raw} suffix="₽" className="text-[20px] font-light"
                                 placeholder={c.byRecords != null ? fmtNum(c.byRecords) : '0'} invalid={Number.isNaN(cardAmount(raw))}
                                 onChange={e => setRaws(r => ({ ...r, [c.accountId]: e.target.value }))} />
                             {note && <span className="text-sf-note">{note}</span>}
@@ -119,7 +123,9 @@ export function BalancesForm({ sheet, spending, today, onSaved, initial = {} }: 
                     </div>
                 ))}
             </div>
-            {shown && <span role="status" className="px-1 text-sf-note">{freeLine(shown)}</span>}
+            {/* Прежний лист говорил «Якорится на сегодня… Задним числом — через Настройки» (опись 35, ревью #244). */}
+            <span className="px-1 text-sf-label text-sf-muted">Обновление — на сегодня: сегодняшние записи уже в числе из банка. На другую дату — в листе карты.</span>
+            {shown && <span role="status" className="px-1 text-sf-note">{shown.result ? freeLine(shown.result) : PREVIEW_FAILED}</span>}
             {error && <p role="alert" className="px-1 text-sf-note text-sf-error">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy || !key}>{busy ? 'Сохраняю…' : 'Сохранить'}</Button>
         </form>

@@ -59,15 +59,24 @@ export const freeLine = (r: BalanceBatchResult): string => (r.freeAfter === r.fr
     ? '«Свободно» не изменится.'
     : `«Свободно» станет ${fmtAmount(r.freeAfter)} вместо ${fmtAmount(r.freeBefore)}.`);
 
-/** Строка после «Сохранить» (S4-U4): «Свободно» вместо прежнего, разница основной, рост накопительных — проценты. */
+/**
+ * Строка после «Сохранить» (S4-U4): «Свободно» вместо прежнего, разница основной, рост накопительных — проценты. Разница
+ * основной — объяснением через двоеточие, только когда «Свободно» сдвинулось ровно на неё; иначе — отдельной фразой:
+ * сдвиг дали и другие карты или отпущенные прошедшие брони (решение 65), и одна разница его не объясняет (ревью #244).
+ */
 export function savedText(r: BalanceBatchResult, cards: BalanceSheetCard[]): string {
     const byId = new Map(cards.map(c => [c.accountId, c]));
     const main = r.cards.find(x => byId.get(x.accountId)?.isDefault && x.difference);
-    const why = main ? `: в банке на ${fmtAmount(Math.abs(main.difference!))} ${main.difference! > 0 ? 'больше' : 'меньше'}, чем по записям` : '';
+    const d = main?.difference ?? 0;
+    const bank = `в банке на ${fmtAmount(Math.abs(d))} ${d > 0 ? 'больше' : 'меньше'}, чем по записям`;
+    const exact = main != null && Math.round((r.freeAfter - r.freeBefore - d) * 100) === 0;
     const free = r.freeAfter === r.freeBefore ? '«Свободно» не изменилось.'
-        : `«Свободно» — ${fmtAmount(r.freeAfter)} вместо ${fmtNum(r.freeBefore)}${why}.`;
+        : `«Свободно» — ${fmtAmount(r.freeAfter)} вместо ${fmtNum(r.freeBefore)}${exact ? `: ${bank}` : ''}.`;
+    const apart = main && !exact ? ` ${byId.get(main.accountId)!.name}: ${bank}.` : '';
+    // П. 16: меньше, чем по записям, — не повод вспоминать, на что ушло.
+    const forget = d < 0 ? ' Вспоминать траты не нужно.' : '';
     const grown = r.cards
         .filter(x => byId.get(x.accountId)?.kind === 'DEPOSIT' && (x.difference ?? 0) > 0)
         .map(x => ` «${byId.get(x.accountId)!.name}»: +${fmtAmount(x.difference!)} сверх переводов — обычно это проценты.`);
-    return `Остатки обновлены. ${free}${grown.join('')}`;
+    return `Остатки обновлены. ${free}${apart}${forget}${grown.join('')}`;
 }

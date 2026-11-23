@@ -55,10 +55,18 @@ describe('лист «Обновить остатки» (S4-U1)', () => {
         expect(form({}, { ...SHEET, onCredit: null })).not.toContain('в кредит записано');
     });
 
-    it('ничего не введено — «Сохранить» закрыт, «Свободно станет» нет', () => {
+    it('ничего не введено — «Сохранить» закрыт', () => {
+        expect(form()).toMatch(/<button type="submit"[^>]*disabled=""[^>]*>Сохранить<\/button>/);
+    });
+
+    it('фокус — в поле первой карты: лист открывается с «Загрузка…», и окно ставит фокус на крестик (ревью #244)', () => {
         const html = form();
-        expect(html).toMatch(/<button type="submit"[^>]*disabled=""[^>]*>Сохранить<\/button>/);
-        expect(html).not.toContain('Свободно');
+        expect(html.match(/autofocus=""/g)).toHaveLength(1);
+        expect(html).toMatch(/<input[^>]*autofocus=""[^>]*aria-label="Основная карта"|<input[^>]*aria-label="Основная карта"[^>]*autofocus=""/);
+    });
+
+    it('на какую дату и где другая — как говорил прежний лист (опись 35, ревью #244)', () => {
+        inOrder(form(), ['остаток не нужен', 'Обновление — на сегодня: сегодняшние записи уже в числе из банка. На другую дату — в листе карты.', 'Сохранить']);
     });
 
     it('введено — разница словами под полем, «Сохранить» открыт; пустые поля — без строки', () => {
@@ -91,8 +99,13 @@ describe('запрос и предпросмотр', () => {
         expect(src).toContain('onSaved(savedText(await saveBalances(batch), sheet.cards));');
         expect(src).toContain('previewBalances({ entries: JSON.parse(key) })');
         // Устаревший ответ молчит: цифру дописали, пока сервер считал прежнее.
-        expect(src).toContain('const shown = preview && preview.key === key ? preview.result : null;');
-        expect(src).toContain('{shown && <span role="status" className="px-1 text-sf-note">{freeLine(shown)}</span>}');
+        expect(src).toContain('const shown = preview && preview.key === key ? preview : null;');
+        expect(src).toContain('{shown && <span role="status" className="px-1 text-sf-note">{shown.result ? freeLine(shown.result) : PREVIEW_FAILED}</span>}');
+    });
+
+    it('предпросмотр не пришёл — так и сказано, сохранить можно (ревью #244)', () => {
+        expect(src).toContain("const PREVIEW_FAILED = 'Не посчиталось, что станет со «Свободно». Сохранить можно и так.';");
+        expect(src).toContain('() => { if (live) setPreview({ key, result: null }); }), PREVIEW_MS);');
     });
 
     it('карты для трат — из списка карт: только без остатка', () => {
@@ -105,7 +118,7 @@ describe('запрос и предпросмотр', () => {
     });
 
     it('поздний ответ прежнего предпросмотра не затирает свежий: таймер и ответ отменяются при новой цифре', () => {
-        expect(src).toContain('.then(result => { if (live) setPreview({ key, result }); }, () => {}), PREVIEW_MS);');
+        expect(src).toContain('.then(result => { if (live) setPreview({ key, result }); },');
         expect(src).toContain('return () => { live = false; clearTimeout(t); };');
     });
 
