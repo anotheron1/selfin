@@ -40,7 +40,7 @@ final class FactTools {
         var state = readState(request, date, amount);
         if (!Boolean.TRUE.equals(request.separatePurchase()) && !state.similar().isEmpty()) {
             return Map.of("status", "clarify", "existing", state.similar().stream()
-                    .map(e -> Map.of("id", e.id(), "name", Objects.toString(e.description(), e.categoryName()),
+                    .map(e -> Map.of("id", e.id(), "name", PlanTools.displayName(e),
                             "date", e.date(), "amount", e.factAmount().toPlainString()))
                     .toList());
         }

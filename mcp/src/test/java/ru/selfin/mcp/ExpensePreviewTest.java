@@ -93,6 +93,13 @@ class ExpensePreviewTest {
     }
 
     @Test
+    void reviewRefusesTwoDifferentExplicitHorizons() {
+        var both = new ExpensePreview.Request(AMOUNT, LATER.toString(), INCOME_DAY.plusDays(1), true);
+        assertThrows(IllegalArgumentException.class, () -> preview.preview(both));
+        assertTrue(calls.isEmpty());
+    }
+
+    @Test
     void includesIncomeDayEvenIfTheMinimumDoesNotChangeAndExposesTheFallback() throws Exception {
         minimumBeforePurchase = true;
         var sameDay = preview.preview(new ExpensePreview.Request(AMOUNT, INCOME_DAY.toString(), null, null));

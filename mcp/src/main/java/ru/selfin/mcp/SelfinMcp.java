@@ -173,8 +173,8 @@ public final class SelfinMcp {
                         назвал только последний месяц («по март»), используй последний календарный день этого месяца.
                         Если конец не задан, предложи «без конца» и опусти endDate. Несовместимые даты уточни.
                         Характер по умолчанию берётся из категории; по просьбе человека передай HIGH (бронь),
-                        MEDIUM (ожидание) или LOW (хотелка). Если ответ — clarify, покажи существующую строку
-                        и уточни намерение. separatePayment=true ставь только по явному указанию об отдельном
+                        MEDIUM (ожидание) или LOW (хотелка). Если ответ — clarify, покажи совпадение из журнала
+                        или из этого же списка и уточни намерение. separatePayment=true ставь только по явному указанию об отдельном
                         платеже или серии. Для prepared покажи человеку весь список lines, затем используй save_plan
                         с полученным draftId для одного подтверждения и сохранения.
                         """, """
@@ -205,8 +205,9 @@ public final class SelfinMcp {
                 .toolCall(planTool("save_plan", false, """
                         Просит человека подтвердить весь подготовленный список и затем сохраняет разовые строки и серии.
                         У сохранённой серии ответ содержит recurringRuleId и eventId первого платежа.
-                        Сообщи результат по каждой строке из ответа. Если у строки исход unknown, используй тот же
-                        draftId для повтора той же попытки. При declined остановись; при stale покажи обновлённый список.
+                        Сообщи результат по каждой строке из ответа. Если остались unknown или not_sent, используй
+                        тот же draftId, чтобы продолжить сохранение списка. При declined остановись.
+                        При stale покажи актуальные реквизиты и подготовь заново только несохранённые строки.
                         """, """
                         {"type":"object","required":["draftId"],"additionalProperties":false,"properties":{
                             "draftId":{"type":"string","format":"uuid"}
@@ -304,7 +305,8 @@ public final class SelfinMcp {
 
     private static <T> T arguments(McpSchema.CallToolRequest request, Class<T> type) {
         try {
-            T converted = McpJsonDefaults.getMapper().convertValue(request.arguments(), type);
+            T converted = McpJsonDefaults.getMapper().convertValue(
+                    request.arguments() == null ? Map.of() : request.arguments(), type);
             if (converted == null) {
                 throw new IllegalArgumentException();
             }

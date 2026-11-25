@@ -24,6 +24,9 @@ final class ExpensePreview {
         LocalDate today = selfin.today();
         LocalDate date = purchaseDate(request.date(), today);
         LocalDate explicitEnd = request.horizonEndDate();
+        if (explicitEnd != null && Boolean.TRUE.equals(request.keepHorizon())) {
+            throw new IllegalArgumentException("Выбери один конец периода: ближайший доход или конкретную дату.");
+        }
         LocalDate maxEnd = YearMonth.from(today).plusMonths(36).atEndOfMonth();
         if (date.isAfter(maxEnd) || (explicitEnd != null && explicitEnd.isAfter(maxEnd))) {
             throw new IllegalArgumentException("Selfin считает до " + maxEnd + ". Выбери дату в пределах этого периода.");

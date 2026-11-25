@@ -71,7 +71,7 @@ final class MonthPlanContext {
                     "month", month.toString(),
                     "from", start.isBefore(range.from()) ? range.from() : start,
                     "to", end.isAfter(range.to()) ? range.to() : end,
-                    "completeCalendarMonth", !start.isBefore(range.from()) && !end.isAfter(range.to()),
+                     "completeCalendarMonth", !start.isBefore(range.from()) && !end.isAfter(range.to()) && end.isBefore(today),
                     "categories", RecordedExpenses.categoryTotals(byMonth.getOrDefault(month, List.of()))));
         }
 
@@ -102,6 +102,10 @@ final class MonthPlanContext {
                 : event.factAmount() != null || "EXECUTED".equals(event.status());
         view.put("settled", settled);
         view.put("character", event.priority());
+        view.put("linkedFactsCount", event.linkedFactsCount());
+        if (event.linkedFactsAmount() != null) {
+            view.put("linkedFactsAmount", event.linkedFactsAmount().toPlainString());
+        }
         return view;
     }
 

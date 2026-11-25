@@ -6,6 +6,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -120,11 +121,23 @@ final class PlanTools {
             }
 
             var matches = matches(plan, periodEvents(periods, plan, today));
-            if (!separatePayment && !matches.isEmpty()) {
-                conflicts.add(Map.of("proposed", lineOf(plan, category, source),
-                        "existing", conflictViews(matches)));
+            String display = lineOf(plan, category, source);
+            if (!separatePayment) {
+                var sameRequest = rows.stream()
+                        .filter(row -> !row.separatePayment && overlapping(row.plan, plan, today))
+                        .map(row -> row.display)
+                        .toList();
+                if (!matches.isEmpty() || !sameRequest.isEmpty()) {
+                    Map<String, Object> conflict = new LinkedHashMap<>();
+                    conflict.put("proposed", display);
+                    conflict.put("existing", conflictViews(matches));
+                    if (!sameRequest.isEmpty()) {
+                        conflict.put("sameRequest", sameRequest);
+                    }
+                    conflicts.add(conflict);
+                }
             }
-            rows.add(new Row(plan, category, lineOf(plan, category, source), matches));
+            rows.add(new Row(plan, category, display, matches, separatePayment));
         }
         if (!conflicts.isEmpty()) {
             return Map.of("status", "clarify", "conflicts", conflicts);
@@ -163,15 +176,30 @@ final class PlanTools {
                     }
                     draft.started = true;
                 }
-                LocalDate retryDate = !firstSave && draft.rows.stream().anyMatch(row -> row.outcome.equals("unknown"))
-                        ? selfin.today() : null;
+                LocalDate retryDate = !firstSave && draft.rows.stream().anyMatch(Row::pending) ? selfin.today() : null;
+                Map<UUID, Category> retryCategories = null;
+                Map<DateRange, List<PlanEvent>> retryPeriods = new HashMap<>();
                 for (Row row : draft.rows) {
                     if (Thread.currentThread().isInterrupted()) {
                         break;
                     }
-                    if (retryDate != null && row.outcome.equals("unknown") && row.plan.date().isBefore(retryDate)) {
-                        row.message = "Дата плана уже прошла. Проверь исход в журнале Selfin.";
-                    } else if ((firstSave && row.outcome.equals("not_sent")) || row.outcome.equals("unknown")) {
+                    if (row.outcome.equals("unknown")) {
+                        if (retryDate != null && row.plan.date().isBefore(retryDate)) {
+                            row.message = "Дата плана уже прошла. Проверь исход в журнале Selfin.";
+                        } else {
+                            saveRow(row);
+                        }
+                    } else if (row.outcome.equals("not_sent")) {
+                        if (!firstSave) {
+                            if (retryCategories == null) {
+                                retryCategories = categoriesById();
+                            }
+                            if (!unsentRowIsCurrent(row, draft.rows, retryDate, retryCategories, retryPeriods)) {
+                                row.outcome = "stale";
+                                row.message = "Данные Selfin изменились. Подготовь эту строку для нового подтверждения.";
+                                continue;
+                            }
+                        }
                         saveRow(row);
                     }
                 }
@@ -192,6 +220,21 @@ final class PlanTools {
             }
         }
         return true;
+    }
+
+    private boolean unsentRowIsCurrent(Row row, List<Row> rows, LocalDate today,
+                                       Map<UUID, Category> categories, Map<DateRange, List<PlanEvent>> periods)
+            throws IOException, InterruptedException {
+        PlanInput plan = row.plan;
+        if (plan.date().isBefore(today) || !row.category.equals(categories.get(plan.categoryId()))) {
+            return false;
+        }
+        // Rows saved by this same confirmation are expected changes to the journal.
+        var current = matches(plan, periodEvents(periods, plan, today)).stream()
+                .filter(event -> rows.stream().noneMatch(saved -> event.id().equals(saved.eventId)
+                        || (saved.recurringRuleId != null && saved.recurringRuleId.equals(event.recurringRuleId()))))
+                .toList();
+        return row.matches.equals(current);
     }
 
     private void saveRow(Row row) {
@@ -250,7 +293,7 @@ final class PlanTools {
             throws IOException, InterruptedException {
         YearMonth month = YearMonth.from(plan.date());
         DateRange period = plan.recurring() == null ? new DateRange(month.atDay(1), month.atEndOfMonth())
-                : new DateRange(plan.date(), lastMaterializedDate(plan.recurring(), today));
+                : new DateRange(month.atDay(1), lastMaterializedDate(plan.recurring(), today));
         var events = periods.get(period);
         if (events == null) {
             events = selfin.events(period.start(), period.end());
@@ -303,6 +346,45 @@ final class PlanTools {
 
     private static boolean fallsOn(LocalDate date, int day) {
         return date.getDayOfMonth() == Math.min(day, YearMonth.from(date).lengthOfMonth());
+    }
+
+    private static boolean overlapping(PlanInput left, PlanInput right, LocalDate today) {
+        if (!left.type().equals(right.type())) {
+            return false;
+        }
+        String leftName = normalize(left.description());
+        boolean sameName = leftName.isEmpty() ? left.description().equalsIgnoreCase(right.description())
+                : leftName.equals(normalize(right.description()));
+        if (!sameName && (!left.categoryId().equals(right.categoryId())
+                || left.plannedAmount().compareTo(right.plannedAmount()) != 0)) {
+            return false;
+        }
+        YearMonth first = YearMonth.from(left.date().isAfter(right.date()) ? left.date() : right.date());
+        LocalDate leftEnd = left.recurring() == null ? left.date() : lastMaterializedDate(left.recurring(), today);
+        LocalDate rightEnd = right.recurring() == null ? right.date() : lastMaterializedDate(right.recurring(), today);
+        YearMonth last = YearMonth.from(leftEnd.isBefore(rightEnd) ? leftEnd : rightEnd);
+        // Different days can coincide only when both fall on the last day of a short month.
+        if (!sameName && left.recurring() != null && right.recurring() != null
+                && left.recurring().dayOfMonth() != right.recurring().dayOfMonth()
+                && Math.min(left.recurring().dayOfMonth(), right.recurring().dayOfMonth()) < 28) {
+            return false;
+        }
+        for (YearMonth month = first; !month.isAfter(last); month = month.plusMonths(1)) {
+            var leftDate = occurrence(left, month, leftEnd);
+            var rightDate = occurrence(right, month, rightEnd);
+            if (leftDate != null && rightDate != null && (sameName || leftDate.equals(rightDate))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static LocalDate occurrence(PlanInput plan, YearMonth month, LocalDate end) {
+        if (plan.recurring() == null) {
+            return month.equals(YearMonth.from(plan.date())) ? plan.date() : null;
+        }
+        LocalDate date = month.atDay(Math.min(plan.recurring().dayOfMonth(), month.lengthOfMonth()));
+        return !date.isBefore(plan.date()) && !date.isAfter(end) ? date : null;
     }
 
     private static boolean sameRecurrence(Recurring recurring, PlanEvent event) {
@@ -368,8 +450,8 @@ final class PlanTools {
         if (target.isEmpty()) {
             return name.equalsIgnoreCase(event.description()) || name.equalsIgnoreCase(event.categoryName());
         }
-        return (" " + normalize(event.description()) + " ").contains(" " + target + " ")
-                || normalize(event.categoryName()).equals(target);
+        String searchable = normalize(event.description()) + " " + normalize(event.categoryName());
+        return Arrays.stream(target.split(" ")).allMatch(searchable::contains);
     }
 
     private static String normalize(String text) {
@@ -380,7 +462,7 @@ final class PlanTools {
     static Map<String, Object> eventView(PlanEvent event) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", event.id());
-        view.put("name", Objects.toString(event.description(), event.categoryName()));
+        view.put("name", displayName(event));
         view.put("date", event.date());
         view.put("type", event.type());
         view.put("categoryId", event.categoryId());
@@ -414,7 +496,7 @@ final class PlanTools {
             return line;
         }
         var event = source.event();
-        String name = Objects.toString(event.description(), event.categoryName());
+        String name = displayName(event);
         return line + " (источник при подготовке: %s «%s», %s ₽, %s)".formatted(
                 source.fact() ? "факт" : "план", oneLine(name),
                 (source.fact() ? event.factAmount() : event.plannedAmount()).toPlainString(), event.date());
@@ -422,6 +504,10 @@ final class PlanTools {
 
     static String oneLine(String text) {
         return text.replaceAll("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]+", " ");
+    }
+
+    static String displayName(PlanEvent event) {
+        return event.description() == null || event.description().isBlank() ? event.categoryName() : event.description();
     }
 
     record ContextQuery(String name, String type, YearMonth month, Boolean includeHistory) {}
@@ -460,17 +546,23 @@ final class PlanTools {
         private final Category category;
         private final String display;
         private final List<PlanEvent> matches;
+        private final boolean separatePayment;
         private final UUID key = UUID.randomUUID();
         private String outcome = "not_sent";
         private UUID eventId;
         private UUID recurringRuleId;
         private String message;
 
-        private Row(PlanInput plan, Category category, String display, List<PlanEvent> matches) {
+        private Row(PlanInput plan, Category category, String display, List<PlanEvent> matches, boolean separatePayment) {
             this.plan = plan;
             this.category = category;
             this.display = display;
             this.matches = matches;
+            this.separatePayment = separatePayment;
+        }
+
+        private boolean pending() {
+            return outcome.equals("unknown") || outcome.equals("not_sent");
         }
 
         private Map<String, Object> receipt() {
@@ -485,7 +577,7 @@ final class PlanTools {
             } else if (message != null) {
                 receipt.put("message", message);
             } else if (outcome.equals("not_sent")) {
-                receipt.put("message", "Запрос этой строки не отправлен. Для сохранения подготовь её заново.");
+                receipt.put("message", "Запрос этой строки не отправлен. Повтори сохранение того же списка.");
             }
             return receipt;
         }

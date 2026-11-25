@@ -156,7 +156,7 @@ final class ExpenseAnalytics {
     }
 
     private static Map<String, Object> entryView(PlanEvent event) {
-        String name = event.description() == null || event.description().isBlank() ? event.categoryName() : event.description();
+        String name = PlanTools.displayName(event);
         return Map.of("id", event.id(), "date", event.date(), "name", name, "categoryName", event.categoryName(),
                 "categoryId", event.categoryId(), "amount", event.factAmount().toPlainString(), "onCredit", event.onCredit());
     }

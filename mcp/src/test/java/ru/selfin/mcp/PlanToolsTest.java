@@ -37,6 +37,9 @@ class PlanToolsTest {
     private static final UUID SOURCE = UUID.randomUUID();
 
     private HttpServer server;
+    private volatile LocalDate fixtureToday = TODAY;
+    private volatile java.util.concurrent.CountDownLatch firstWriteStarted;
+    private volatile java.util.concurrent.CountDownLatch releaseFirstWrite;
     private PlanTools tools;
     private volatile String defaultCharacter = "HIGH";
     private volatile boolean loseIncomeResponse;
@@ -54,7 +57,7 @@ class PlanToolsTest {
     void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/v1/pocket", e -> json(e, 200,
-                Map.of("trajectory", List.of(Map.of("date", TODAY)))));
+                Map.of("trajectory", List.of(Map.of("date", fixtureToday)))));
         server.createContext("/api/v1/categories", e -> {
             if (categoriesUnavailable) {
                 json(e, 503, Map.of());
@@ -407,6 +410,17 @@ class PlanToolsTest {
                 repeat == null ? null : UUID.randomUUID(), null, repeat == null ? null : repeat.frequency(),
                 repeat == null ? null : repeat.dayOfMonth(), null, repeat == null ? null : repeat.startDate(),
                 repeat == null ? null : repeat.endDate(), 0, null, false));
+        if (firstWriteStarted != null && posted.size() == 1) {
+            firstWriteStarted.countDown();
+            try {
+                if (!releaseFirstWrite.await(10, TimeUnit.SECONDS)) {
+                    throw new IOException("Test response was not released");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException(e);
+            }
+        }
         if (loseIncomeResponse && "INCOME".equals(plan.type())) {
             loseIncomeResponse = false;
             json(exchange, 503, Map.of());
@@ -459,6 +473,113 @@ class PlanToolsTest {
     private static UUID draftId(Map<String, Object> prepared) {
         assertEquals("prepared", prepared.get("status"));
         return (UUID) prepared.get("draftId");
+    }
+
+
+    @Test
+    void reviewSeriesAndMatchingOneOffInTheSameBatchRequireClarification() throws Exception {
+        var january = DECEMBER_12.plusMonths(1);
+        var duplicate = new PlanTools.RowInput("Подключение", "EXPENSE", new BigDecimal("1500"),
+                january, EXPENSE, null, false, null, null);
+        var repeat = monthly(DECEMBER_12, 12, january, false);
+        var prepared = tools.prepare(List.of(repeat, duplicate));
+        assertEquals("clarify", prepared.get("status"));
+        assertNull(prepared.get("draftId"));
+        assertEquals("clarify", tools.prepare(List.of(duplicate, repeat)).get("status"));
+        var separate = new PlanTools.RowInput(duplicate.name(), duplicate.type(), duplicate.amount(),
+                duplicate.date(), duplicate.categoryId(), duplicate.character(), true, null, null);
+        assertEquals("prepared", tools.prepare(List.of(repeat, separate)).get("status"));
+        assertEquals("prepared", tools.prepare(List.of(separate, repeat)).get("status"));
+        var afterEnd = expense("1500", january.plusMonths(1), false, null);
+        assertEquals("prepared", tools.prepare(List.of(repeat, afterEnd)).get("status"));
+        assertTrue(posted.isEmpty());
+    }
+
+    @Test
+    void overlappingSeriesUseTheLastDayOfShortMonths() throws Exception {
+        var end = LocalDate.parse("2027-02-28");
+        var first = monthly(LocalDate.parse("2026-12-30"), 30, end, false);
+        var second = new PlanTools.RowInput("Второй тариф", "EXPENSE", new BigDecimal("1500"),
+                LocalDate.parse("2026-12-31"), EXPENSE, null, false, null,
+                new PlanTools.MonthlyRepeat(31, end));
+        assertEquals("clarify", tools.prepare(List.of(first, second)).get("status"));
+    }
+
+    @Test
+    void reviewFirstMonthEarlierMatchingSinglePaymentRequiresClarification() throws Exception {
+        existing.add(monthRow("2026-12-05", EXPENSE, "EXPENSE", "Интернет", "PLAN", "1700", null, 0, null));
+        assertEquals("clarify", tools.prepare(List.of(monthly(DECEMBER_12, 12, null, false))).get("status"));
+    }
+
+    @Test
+    void reviewInterruptedBatchResumesConfirmedTailUsingOriginalAttempt() throws Exception {
+        UUID draft = interruptAfterFirstWrite(List.of(expense("1500", DECEMBER_12, false, null),
+                expense("1500", DECEMBER_12, true, null)));
+        var recovered = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("saved", "saved"), statuses(recovered));
+        assertEquals(3, posted.size());
+        assertEquals(posted.getFirst(), posted.get(1));
+        assertEquals(2, saved.size());
+    }
+
+    @Test
+    void retryDoesNotSendPendingRowThatNowMatchesAnotherPayment() throws Exception {
+        UUID draft = interruptAfterFirstWrite(List.of(income(), expense("1500", DECEMBER_12, false, null)));
+        existing.add(monthRow("2026-12-12", EXPENSE, "EXPENSE", "Интернет", "PLAN", "1500", null, 0, null));
+        var recovered = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("saved", "stale"), statuses(recovered));
+        assertEquals(2, posted.size());
+        assertEquals(posted.getFirst(), posted.get(1));
+        assertEquals(1, saved.size());
+    }
+
+    private UUID interruptAfterFirstWrite(List<PlanTools.RowInput> rows) throws Exception {
+        firstWriteStarted = new java.util.concurrent.CountDownLatch(1);
+        releaseFirstWrite = new java.util.concurrent.CountDownLatch(1);
+        UUID draft = draftId(tools.prepare(rows));
+        var outcome = new java.util.concurrent.FutureTask<>(() -> tools.save(draft, lines -> true));
+        var worker = Thread.startVirtualThread(outcome);
+        try {
+            assertTrue(firstWriteStarted.await(7, TimeUnit.SECONDS));
+            worker.interrupt();
+            assertEquals(List.of("unknown", "not_sent"), statuses(outcome.get(7, TimeUnit.SECONDS)));
+            assertEquals(1, posted.size());
+        } finally {
+            releaseFirstWrite.countDown();
+        }
+        return draft;
+    }
+
+    @Test
+    void reviewPlanContextUsesTheSameBeginningOfTheWordAsJournalSearch() throws Exception {
+        var plan = monthRow("2026-12-12", EXPENSE, "EXPENSE", "Оплата интернета", "PLAN", "1500", null, 0, null);
+        existing.add(plan);
+        var result = tools.context(new PlanTools.ContextQuery("Интернет", "EXPENSE", YearMonth.of(2026, 12), true));
+        assertTrue(result.get("existing").toString().contains(plan.id().toString()));
+    }
+
+    @Test
+    void reviewBlankPlanDescriptionFallsBackToCategoryName() {
+        var plan = monthRow("2026-12-12", AUTO, "EXPENSE", "  ", "PLAN", "1500", null, 0, null);
+        assertEquals("Машина", PlanTools.eventView(plan).get("name"));
+    }
+
+    @Test
+    void reviewMonthPlanKeepsTheAmountAlreadyPaid() throws Exception {
+        existing.add(monthRow("2026-12-12", AUTO, "EXPENSE", "ТО", "PLAN", "1500", null, 1, "500.25"));
+        var context = tools.monthContext(new MonthPlanContext.Query(YearMonth.of(2026, 12), "plan", null, null, null));
+        Map<?, ?> view = (Map<?, ?>) ((List<?>) context.get("plan")).getFirst();
+        assertEquals(false, view.get("settled"));
+        assertEquals("500.25", view.get("linkedFactsAmount"));
+    }
+
+    @Test
+    void reviewTheCurrentMonthIsPartialEvenOnItsLastCalendarDay() throws Exception {
+        fixtureToday = LocalDate.parse("2026-11-30");
+        var context = tools.monthContext(new MonthPlanContext.Query(YearMonth.of(2026, 12), "history",
+                fixtureToday.withDayOfMonth(1), fixtureToday, null));
+        Map<?, ?> history = (Map<?, ?>) context.get("history");
+        assertEquals(false, ((Map<?, ?>) ((List<?>) history.get("months")).getFirst()).get("completeCalendarMonth"));
     }
 
     private static List<?> statuses(Map<String, Object> response) {
