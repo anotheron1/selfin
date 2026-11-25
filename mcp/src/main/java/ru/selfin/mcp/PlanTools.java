@@ -124,7 +124,7 @@ final class PlanTools {
             String display = lineOf(plan, category, source);
             if (!separatePayment) {
                 var sameRequest = rows.stream()
-                        .filter(row -> !row.separatePayment && overlapping(row.plan, plan, today))
+                        .filter(row -> !row.separatePayment && overlapping(row.plan, plan))
                         .map(row -> row.display)
                         .toList();
                 if (!matches.isEmpty() || !sameRequest.isEmpty()) {
@@ -229,26 +229,26 @@ final class PlanTools {
         if (plan.date().isBefore(today) || !row.category.equals(categories.get(plan.categoryId()))) {
             return false;
         }
-        // Rows saved by this same confirmation are expected changes to the journal.
+        // An unchanged occurrence saved by this confirmation is an expected change to the journal.
         var current = matches(plan, periodEvents(periods, plan, today)).stream()
-                .filter(event -> rows.stream().noneMatch(saved -> event.id().equals(saved.eventId)
-                        || (saved.recurringRuleId != null && saved.recurringRuleId.equals(event.recurringRuleId()))))
+                .filter(event -> rows.stream().noneMatch(saved -> unchangedSavedOccurrence(saved, event)))
                 .toList();
         return row.matches.equals(current);
+    }
+
+    private static boolean unchangedSavedOccurrence(Row saved, PlanEvent event) {
+        PlanInput plan = saved.plan;
+        boolean fromRow = plan.recurring() == null ? event.id().equals(saved.eventId)
+                : saved.recurringRuleId != null && saved.recurringRuleId.equals(event.recurringRuleId());
+        return fromRow && samePaymentDetails(plan, event)
+                && event.date().equals(occurrence(plan, YearMonth.from(event.date()), scheduleEnd(plan)));
     }
 
     private void saveRow(Row row) {
         try {
             PlanEvent saved = selfin.createPlan(row.key, row.plan);
-            if (saved != null && saved.id() != null && saved.plannedAmount() != null
-                    && "PLAN".equals(saved.eventKind())
-                    && row.plan.date().equals(saved.date())
-                    && row.plan.categoryId().equals(saved.categoryId())
-                    && row.plan.type().equals(saved.type())
-                    && row.plan.priority().equals(saved.priority())
-                    && row.plan.plannedAmount().compareTo(saved.plannedAmount()) == 0
-                    && row.plan.description().equals(saved.description())
-                    && sameRecurrence(row.plan.recurring(), saved)) {
+            if (saved != null && saved.id() != null && row.plan.date().equals(saved.date())
+                    && samePaymentDetails(row.plan, saved)) {
                 row.eventId = saved.id();
                 row.recurringRuleId = saved.recurringRuleId();
                 row.outcome = "saved";
@@ -348,7 +348,7 @@ final class PlanTools {
         return date.getDayOfMonth() == Math.min(day, YearMonth.from(date).lengthOfMonth());
     }
 
-    private static boolean overlapping(PlanInput left, PlanInput right, LocalDate today) {
+    private static boolean overlapping(PlanInput left, PlanInput right) {
         if (!left.type().equals(right.type())) {
             return false;
         }
@@ -360,8 +360,8 @@ final class PlanTools {
             return false;
         }
         YearMonth first = YearMonth.from(left.date().isAfter(right.date()) ? left.date() : right.date());
-        LocalDate leftEnd = left.recurring() == null ? left.date() : lastMaterializedDate(left.recurring(), today);
-        LocalDate rightEnd = right.recurring() == null ? right.date() : lastMaterializedDate(right.recurring(), today);
+        LocalDate leftEnd = scheduleEnd(left);
+        LocalDate rightEnd = scheduleEnd(right);
         YearMonth last = YearMonth.from(leftEnd.isBefore(rightEnd) ? leftEnd : rightEnd);
         // Different days can coincide only when both fall on the last day of a short month.
         if (!sameName && left.recurring() != null && right.recurring() != null
@@ -379,12 +379,25 @@ final class PlanTools {
         return false;
     }
 
+    private static LocalDate scheduleEnd(PlanInput plan) {
+        return plan.recurring() == null ? plan.date()
+                : Objects.requireNonNullElse(plan.recurring().endDate(), LocalDate.MAX);
+    }
+
     private static LocalDate occurrence(PlanInput plan, YearMonth month, LocalDate end) {
         if (plan.recurring() == null) {
             return month.equals(YearMonth.from(plan.date())) ? plan.date() : null;
         }
         LocalDate date = month.atDay(Math.min(plan.recurring().dayOfMonth(), month.lengthOfMonth()));
         return !date.isBefore(plan.date()) && !date.isAfter(end) ? date : null;
+    }
+
+    private static boolean samePaymentDetails(PlanInput plan, PlanEvent event) {
+        return "PLAN".equals(event.eventKind()) && event.plannedAmount() != null
+                && plan.categoryId().equals(event.categoryId()) && plan.type().equals(event.type())
+                && plan.priority().equals(event.priority()) && plan.description().equals(event.description())
+                && plan.plannedAmount().compareTo(event.plannedAmount()) == 0
+                && sameRecurrence(plan.recurring(), event);
     }
 
     private static boolean sameRecurrence(Recurring recurring, PlanEvent event) {

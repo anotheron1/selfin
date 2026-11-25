@@ -40,6 +40,7 @@ class PlanToolsTest {
     private volatile LocalDate fixtureToday = TODAY;
     private volatile java.util.concurrent.CountDownLatch firstWriteStarted;
     private volatile java.util.concurrent.CountDownLatch releaseFirstWrite;
+    private volatile int writeToInterrupt;
     private PlanTools tools;
     private volatile String defaultCharacter = "HIGH";
     private volatile boolean loseIncomeResponse;
@@ -410,7 +411,7 @@ class PlanToolsTest {
                 repeat == null ? null : UUID.randomUUID(), null, repeat == null ? null : repeat.frequency(),
                 repeat == null ? null : repeat.dayOfMonth(), null, repeat == null ? null : repeat.startDate(),
                 repeat == null ? null : repeat.endDate(), 0, null, false));
-        if (firstWriteStarted != null && posted.size() == 1) {
+        if (firstWriteStarted != null && posted.size() == writeToInterrupt) {
             firstWriteStarted.countDown();
             try {
                 if (!releaseFirstWrite.await(10, TimeUnit.SECONDS)) {
@@ -506,6 +507,14 @@ class PlanToolsTest {
     }
 
     @Test
+    void indefiniteSeriesOverlapsPaymentBeyondCurrentlyMaterializedOccurrences() throws Exception {
+        var series = monthly(DECEMBER_12, 12, null, false);
+        var farFuture = expense("1500", DECEMBER_12.plusYears(4), false, null);
+        assertEquals("clarify", tools.prepare(List.of(series, farFuture)).get("status"));
+        assertEquals("clarify", tools.prepare(List.of(farFuture, series)).get("status"));
+    }
+
+    @Test
     void reviewFirstMonthEarlierMatchingSinglePaymentRequiresClarification() throws Exception {
         existing.add(monthRow("2026-12-05", EXPENSE, "EXPENSE", "Интернет", "PLAN", "1700", null, 0, null));
         assertEquals("clarify", tools.prepare(List.of(monthly(DECEMBER_12, 12, null, false))).get("status"));
@@ -533,7 +542,31 @@ class PlanToolsTest {
         assertEquals(1, saved.size());
     }
 
+    @Test
+    void retryDoesNotIgnoreAnEditedPaymentFromTheSameDraft() throws Exception {
+        var pending = new PlanTools.RowInput("Электричество", "EXPENSE", new BigDecimal("1500"),
+                DECEMBER_12.plusDays(1), EXPENSE, null, false, null, null);
+        UUID draft = interruptWrite(List.of(expense("1500", DECEMBER_12, false, null), income(), pending),
+                2, List.of("saved", "unknown", "not_sent"));
+        UUID firstKey = posted.getFirst();
+        var original = saved.get(firstKey);
+        saved.put(firstKey, new SelfinClient.PlanEvent(original.id(), pending.date(), original.categoryId(),
+                original.categoryName(), original.type(), original.plannedAmount(), null, original.status(),
+                original.priority(), pending.name(), "PLAN", null, null, null, null, null, null, null, 0, null, false));
+
+        var recovered = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("saved", "saved", "stale"), statuses(recovered));
+        assertEquals(3, posted.size());
+        assertEquals(posted.get(1), posted.get(2));
+        assertEquals(2, saved.size());
+    }
+
     private UUID interruptAfterFirstWrite(List<PlanTools.RowInput> rows) throws Exception {
+        return interruptWrite(rows, 1, List.of("unknown", "not_sent"));
+    }
+
+    private UUID interruptWrite(List<PlanTools.RowInput> rows, int writeNumber, List<String> expected) throws Exception {
+        writeToInterrupt = writeNumber;
         firstWriteStarted = new java.util.concurrent.CountDownLatch(1);
         releaseFirstWrite = new java.util.concurrent.CountDownLatch(1);
         UUID draft = draftId(tools.prepare(rows));
@@ -542,8 +575,8 @@ class PlanToolsTest {
         try {
             assertTrue(firstWriteStarted.await(7, TimeUnit.SECONDS));
             worker.interrupt();
-            assertEquals(List.of("unknown", "not_sent"), statuses(outcome.get(7, TimeUnit.SECONDS)));
-            assertEquals(1, posted.size());
+            assertEquals(expected, statuses(outcome.get(7, TimeUnit.SECONDS)));
+            assertEquals(writeNumber, posted.size());
         } finally {
             releaseFirstWrite.countDown();
         }
