@@ -515,6 +515,26 @@ class PlanToolsTest {
     }
 
     @Test
+    void indefiniteSeriesChecksSavedPaymentsBeyondCurrentMaterialization() throws Exception {
+        existing.add(monthRow("2030-12-12", EXPENSE, "EXPENSE", "Будущий платёж", "PLAN",
+                "1500", null, 0, null));
+        assertEquals("clarify", tools.prepare(List.of(monthly(DECEMBER_12, 12, null, false))).get("status"));
+        assertEquals("prepared", tools.prepare(List.of(monthly(DECEMBER_12, 12, null, true))).get("status"));
+    }
+
+    @Test
+    void indefiniteSeriesIsStaleWhenAConflictingFarFuturePaymentAppearsDuringConfirmation() throws Exception {
+        UUID draft = draftId(tools.prepare(List.of(monthly(DECEMBER_12, 12, null, false))));
+        var result = tools.save(draft, lines -> {
+            existing.add(monthRow("2030-12-12", EXPENSE, "EXPENSE", "Будущий платёж", "PLAN",
+                    "1500", null, 0, null));
+            return true;
+        });
+        assertEquals("stale", result.get("status"));
+        assertTrue(posted.isEmpty());
+    }
+
+    @Test
     void reviewFirstMonthEarlierMatchingSinglePaymentRequiresClarification() throws Exception {
         existing.add(monthRow("2026-12-05", EXPENSE, "EXPENSE", "Интернет", "PLAN", "1700", null, 0, null));
         assertEquals("clarify", tools.prepare(List.of(monthly(DECEMBER_12, 12, null, false))).get("status"));

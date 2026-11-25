@@ -26,6 +26,8 @@ import static ru.selfin.mcp.SelfinClient.Recurring;
 final class PlanTools {
 
     private static final Set<String> TYPES = Set.of("EXPENSE", "INCOME");
+    // Last date in the API's YYYY-MM-DD format.
+    private static final LocalDate LAST_JOURNAL_DATE = LocalDate.of(9999, 12, 31);
     static final Map<String, String> CHARACTERS = Map.of(
             "HIGH", "бронь", "MEDIUM", "ожидание", "LOW", "хотелка");
 
@@ -120,7 +122,7 @@ final class PlanTools {
                 throw new IllegalArgumentException("Подтверждение источника требует подходящей записи из истории.");
             }
 
-            var matches = matches(plan, periodEvents(periods, plan, today));
+            var matches = matches(plan, periodEvents(periods, plan));
             String display = lineOf(plan, category, source);
             if (!separatePayment) {
                 var sameRequest = rows.stream()
@@ -215,7 +217,7 @@ final class PlanTools {
         for (Row row : rows) {
             PlanInput plan = row.plan;
             if (plan.date().isBefore(today) || !row.category.equals(categories.get(plan.categoryId()))
-                    || !row.matches.equals(matches(plan, periodEvents(periods, plan, today)))) {
+                    || !row.matches.equals(matches(plan, periodEvents(periods, plan)))) {
                 return false;
             }
         }
@@ -230,7 +232,7 @@ final class PlanTools {
             return false;
         }
         // An unchanged occurrence saved by this confirmation is an expected change to the journal.
-        var current = matches(plan, periodEvents(periods, plan, today)).stream()
+        var current = matches(plan, periodEvents(periods, plan)).stream()
                 .filter(event -> rows.stream().noneMatch(saved -> unchangedSavedOccurrence(saved, event)))
                 .toList();
         return row.matches.equals(current);
@@ -289,11 +291,12 @@ final class PlanTools {
         return categories;
     }
 
-    private List<PlanEvent> periodEvents(Map<DateRange, List<PlanEvent>> periods, PlanInput plan, LocalDate today)
+    private List<PlanEvent> periodEvents(Map<DateRange, List<PlanEvent>> periods, PlanInput plan)
             throws IOException, InterruptedException {
         YearMonth month = YearMonth.from(plan.date());
-        DateRange period = plan.recurring() == null ? new DateRange(month.atDay(1), month.atEndOfMonth())
-                : new DateRange(month.atDay(1), lastMaterializedDate(plan.recurring(), today));
+        // The service can already contain future payments beyond its rolling recurrence horizon.
+        LocalDate end = plan.recurring() == null ? month.atEndOfMonth() : scheduleEnd(plan);
+        DateRange period = new DateRange(month.atDay(1), end);
         var events = periods.get(period);
         if (events == null) {
             events = selfin.events(period.start(), period.end());
@@ -381,7 +384,7 @@ final class PlanTools {
 
     private static LocalDate scheduleEnd(PlanInput plan) {
         return plan.recurring() == null ? plan.date()
-                : Objects.requireNonNullElse(plan.recurring().endDate(), LocalDate.MAX);
+                : Objects.requireNonNullElse(plan.recurring().endDate(), LAST_JOURNAL_DATE);
     }
 
     private static LocalDate occurrence(PlanInput plan, YearMonth month, LocalDate end) {
