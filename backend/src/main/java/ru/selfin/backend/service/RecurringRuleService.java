@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import ru.selfin.backend.dto.IndefinitePlanRuleDto;
 import ru.selfin.backend.dto.RecurringConfigDto;
 import ru.selfin.backend.model.Category;
 import ru.selfin.backend.model.FinancialEvent;
@@ -31,6 +32,11 @@ public class RecurringRuleService {
     private final RecurringEventGenerator generator;
     /** ANO-39: «сегодня» приходит извне — иначе календарную логику не проверить детерминированно. */
     private final Clock clock;
+
+    @Transactional(readOnly = true)
+    public List<IndefinitePlanRuleDto> findIndefinitePlanRules() {
+        return ruleRepo.findIndefinitePlanRules();
+    }
 
     /**
      * @param rule   created and persisted rule (id assigned)

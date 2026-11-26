@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import ru.selfin.backend.dto.IndefinitePlanRuleDto;
 import ru.selfin.backend.model.RecurringRule;
 
 import java.util.List;
@@ -19,6 +20,19 @@ public interface RecurringRuleRepository extends JpaRepository<RecurringRule, UU
     @Query("SELECT r.id FROM RecurringRule r " +
            "WHERE r.deleted = false AND r.endDate IS NULL")
     List<UUID> findIndefiniteActiveIds();
+
+    @Query("""
+            SELECT new ru.selfin.backend.dto.IndefinitePlanRuleDto(
+                r.id, r.category.id, r.eventType, r.plannedAmount, r.priority, r.description, r.frequency,
+                r.dayOfMonth, r.monthOfYear, r.startDate,
+                (SELECT max(e.date) FROM FinancialEvent e
+                 WHERE e.recurringRule.id = r.id AND e.deleted = false AND e.status = 'PLANNED')
+            )
+            FROM RecurringRule r
+            WHERE r.deleted = false AND r.endDate IS NULL AND r.eventType IN ('EXPENSE', 'INCOME')
+            ORDER BY r.id
+            """)
+    List<IndefinitePlanRuleDto> findIndefinitePlanRules();
 
     /**
      * Pessimistic lock на правиле для безопасного lazy-extend под конкурентным
