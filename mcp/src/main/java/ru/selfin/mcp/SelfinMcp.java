@@ -2,6 +2,7 @@ package ru.selfin.mcp;
 
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.server.McpServer;
+import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpError;
@@ -12,6 +13,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BiFunction;
 
 public final class SelfinMcp {
 
@@ -20,7 +22,15 @@ public final class SelfinMcp {
             "properties", Map.of("confirm", Map.of("type", "boolean", "title", "Сохранить показанный список")),
             "required", List.of("confirm"));
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        if (args.length == 1 && "http".equals(args[0])) {
+            RemoteMcp.run();
+            return;
+        }
+        if (args.length == 1 && "provision-keycloak".equals(args[0])) {
+            ProvisionKeycloak.run();
+            return;
+        }
         String baseUrl = System.getenv("SELFIN_MCP_BASE_URL");
         String token = System.getenv("SELFIN_MCP_ACCESS_TOKEN");
         if (baseUrl == null || token == null) {
@@ -38,6 +48,14 @@ public final class SelfinMcp {
             return;
         }
 
+        var transport = new StdioServerTransportProvider(McpJsonDefaults.getMapper());
+        var tools = new Tools(selfin, new PlanTools.State(), new FactTools.State());
+        var server = configure(McpServer.sync(transport), (exchange, writes) -> tools);
+        Runtime.getRuntime().addShutdownHook(new Thread(server::close, "selfin-mcp-shutdown"));
+    }
+
+    static McpSyncServer configure(McpServer.SyncSpecification<?> specification,
+                                   BiFunction<McpSyncServerExchange, Boolean, Tools> tools) {
         var tool = McpSchema.Tool.builder("get_available_money",
                         Map.of("type", "object", "properties", Map.of(), "additionalProperties", false))
                 .description("""
@@ -48,15 +66,10 @@ public final class SelfinMcp {
                         """)
                 .annotations(McpSchema.ToolAnnotations.builder().readOnlyHint(true).build())
                 .build();
-        var transport = new StdioServerTransportProvider(McpJsonDefaults.getMapper());
-        var plans = new PlanTools(selfin);
-        var facts = new FactTools(selfin);
-        var expensePreview = new ExpensePreview(selfin);
-        var analytics = new ExpenseAnalytics(selfin);
-        var server = McpServer.sync(transport)
+        return specification
                 .serverInfo("selfin", "0.1.0")
                 .capabilities(McpSchema.ServerCapabilities.builder().tools(false).build())
-                .toolCall(tool, (exchange, request) -> getAvailableMoney(selfin, request.arguments()))
+                .toolCall(tool, (exchange, request) -> getAvailableMoney(tools.apply(exchange, false).selfin, request.arguments()))
                 .toolCall(planTool("search_expenses", true, """
                         Ищет и суммирует записанные расходы, например «Найди траты на обеды за ноябрь»
                         или «Сколько я потратил за этот месяц?». Если даты опущены, читает текущий месяц до
@@ -79,7 +92,7 @@ public final class SelfinMcp {
                             "includeEntries":{"type":"boolean","default":false}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        analytics.search(arguments(request, ExpenseAnalytics.Query.class))))
+                        tools.apply(exchange, false).analytics.search(arguments(request, ExpenseAnalytics.Query.class))))
                 .toolCall(planTool("get_plan_fact", true, """
                         Сравнивает план и записанные расходы или доходы за один календарный месяц по штатному
                         отчёту Selfin. Вызывай только по явной просьбе сравнить план и факт, например
@@ -94,7 +107,7 @@ public final class SelfinMcp {
                             "type":{"type":"string","enum":["EXPENSE","INCOME"]}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        analytics.planFact(arguments(request, ExpenseAnalytics.PlanFactQuery.class))))
+                        tools.apply(exchange, false).analytics.planFact(arguments(request, ExpenseAnalytics.PlanFactQuery.class))))
                 .toolCall(planTool("preview_expense", true, """
                         Примеряет одну разовую будущую покупку своими средствами. Сравнивает «Свободно» по расчёту
                         Selfin за одинаковый период без покупки и с ней. Для «завтра» используй tomorrow, точную
@@ -120,7 +133,7 @@ public final class SelfinMcp {
                             "keepHorizon":{"type":"boolean","default":false}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        expensePreview.preview(arguments(request, ExpensePreview.Request.class))))
+                        tools.apply(exchange, false).expensePreview.preview(arguments(request, ExpensePreview.Request.class))))
                 .toolCall(planTool("get_plan_context", true, """
                         Читает категории и подходящие строки плана за указанный месяц. Если пользователь не назвал
                         дату или сумму, поставь includeHistory=true и предложи реквизиты из найденного плана или факта.
@@ -134,7 +147,7 @@ public final class SelfinMcp {
                             "includeHistory":{"type":"boolean","default":false}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        plans.context(arguments(request, PlanTools.ContextQuery.class))))
+                        tools.apply(exchange, false).plans.context(arguments(request, PlanTools.ContextQuery.class))))
                 .toolCall(planTool("get_month_plan_context", true, """
                         Читает контекст для разговора «Помоги спланировать месяц». На общий запрос передай целевой
                         месяц и используй both: текущий план и записанные траты за 12 полных предшествующих месяцев.
@@ -161,7 +174,7 @@ public final class SelfinMcp {
                             "categoryId":{"type":"string","format":"uuid"}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        plans.monthContext(arguments(request, MonthPlanContext.Query.class))))
+                        tools.apply(exchange, false).plans.monthContext(arguments(request, MonthPlanContext.Query.class))))
                 .toolCall(planTool("prepare_plan", true, """
                         Готовит один список расходов и доходов, разовых и ежемесячных. Используй действующую категорию из
                         get_plan_context. Число и дату, которые назвал человек, сохраняй точно.
@@ -202,7 +215,7 @@ public final class SelfinMcp {
                             }}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        plans.prepare(arguments(request, PrepareRequest.class).rows())))
+                        tools.apply(exchange, false).plans.prepare(arguments(request, PrepareRequest.class).rows())))
                 .toolCall(planTool("save_plan", false, """
                         Просит человека подтвердить весь подготовленный список и затем сохраняет разовые строки и серии.
                         У сохранённой серии ответ содержит recurringRuleId и eventId первого платежа.
@@ -215,7 +228,7 @@ public final class SelfinMcp {
                             "draftId":{"type":"string","format":"uuid"}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        plans.save(arguments(request, SaveRequest.class).draftId(),
+                        tools.apply(exchange, true).plans.save(arguments(request, SaveRequest.class).draftId(),
                                 lines -> confirm(exchange, "Сохранить эти строки в плане Selfin?", lines))))
                 .toolCall(planTool("prepare_fact", true, """
                         Подготавливает одну уже случившуюся обычную трату или оплату названной строки плана.
@@ -242,7 +255,7 @@ public final class SelfinMcp {
                             "separatePurchase":{"type":"boolean","default":false}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        facts.prepare(arguments(request, FactTools.Request.class))))
+                        tools.apply(exchange, false).facts.prepare(arguments(request, FactTools.Request.class))))
                 .toolCall(planTool("save_fact", false, """
                         Открывает форму с подготовленной тратой, после согласия записывает её. При saved сообщи
                         сумму, дату и фактическую связь с планом из ответа. При declined остановись. При stale
@@ -253,10 +266,25 @@ public final class SelfinMcp {
                             "draftId":{"type":"string","format":"uuid"}
                         }}
                         """), (exchange, request) -> planCall(() ->
-                        facts.save(arguments(request, SaveRequest.class).draftId(),
+                        tools.apply(exchange, true).facts.save(arguments(request, SaveRequest.class).draftId(),
                                 line -> confirm(exchange, "Записать эту трату в Selfin?", List.of(line)))))
                 .build();
-        Runtime.getRuntime().addShutdownHook(new Thread(server::close, "selfin-mcp-shutdown"));
+    }
+
+    static final class Tools {
+        private final SelfinClient selfin;
+        private final PlanTools plans;
+        private final FactTools facts;
+        private final ExpensePreview expensePreview;
+        private final ExpenseAnalytics analytics;
+
+        Tools(SelfinClient selfin, PlanTools.State plans, FactTools.State facts) {
+            this.selfin = selfin;
+            this.plans = new PlanTools(selfin, plans);
+            this.facts = new FactTools(selfin, facts);
+            expensePreview = new ExpensePreview(selfin);
+            analytics = new ExpenseAnalytics(selfin);
+        }
     }
 
     static McpSchema.CallToolResult getAvailableMoney(SelfinClient selfin, Map<String, Object> arguments) {
@@ -272,8 +300,11 @@ public final class SelfinMcp {
                     .isError(false)
                     .build();
         } catch (SelfinClient.ApiException exception) {
+            if (exception.consentRequired()) {
+                return needsSelfinConsent();
+            }
             if (exception.accessDenied()) {
-                return error("Selfin не предоставил доступ. Проверь вход тестового пользователя.");
+                return error("Selfin не предоставил доступ. Проверь подключение Selfin.");
             }
             return error("Selfin не вернул прогноз. Попробуй ещё раз.");
         } catch (IOException exception) {
@@ -330,8 +361,11 @@ public final class SelfinMcp {
         } catch (IllegalArgumentException exception) {
             return error(exception.getMessage());
         } catch (SelfinClient.ApiException exception) {
+            if (exception.consentRequired()) {
+                return needsSelfinConsent();
+            }
             return error(exception.accessDenied()
-                    ? "Selfin не предоставил доступ. Проверь вход тестового пользователя."
+                    ? "Selfin не предоставил доступ. Проверь подключение Selfin."
                     : "Selfin не принял запрос (HTTP " + exception.status() + ").");
         } catch (IOException exception) {
             return error("Не удалось получить ответ Selfin. Повтори запрос с теми же параметрами.");
@@ -341,6 +375,10 @@ public final class SelfinMcp {
         } catch (McpError exception) {
             return error("Не удалось получить подтверждение в клиенте Codex.");
         }
+    }
+
+    private static McpSchema.CallToolResult needsSelfinConsent() {
+        return error("Открой Selfin и заверши первый вход. Затем повтори запрос здесь.");
     }
 
     private static McpSchema.CallToolResult error(String message) {

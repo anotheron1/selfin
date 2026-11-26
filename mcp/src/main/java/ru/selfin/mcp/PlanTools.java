@@ -34,12 +34,25 @@ final class PlanTools {
             "HIGH", "бронь", "MEDIUM", "ожидание", "LOW", "хотелка");
 
     private final SelfinClient selfin;
-    private final Map<UUID, PlanSource> sources = new ConcurrentHashMap<>();
-    private final Map<UUID, Draft> drafts = new ConcurrentHashMap<>();
-    private final Object writes = new Object();
+    private final Map<UUID, PlanSource> sources;
+    private final Map<UUID, Draft> drafts;
+    private final Object writes;
 
     PlanTools(SelfinClient selfin) {
+        this(selfin, new State());
+    }
+
+    PlanTools(SelfinClient selfin, State state) {
         this.selfin = selfin;
+        sources = state.sources;
+        drafts = state.drafts;
+        writes = state.writes;
+    }
+
+    static final class State {
+        private final Map<UUID, PlanSource> sources = new ConcurrentHashMap<>();
+        private final Map<UUID, Draft> drafts = new ConcurrentHashMap<>();
+        private final Object writes = new Object();
     }
 
     Map<String, Object> context(ContextQuery query) throws IOException, InterruptedException {

@@ -7,5 +7,9 @@
 set -eu
 cd "$(dirname "$0")"
 docker compose run --rm -T backup backup
-docker compose pull
-docker compose up -d --build
+docker compose pull frontend backend db keycloak-db keycloak
+docker compose build backup
+if docker compose config --services | grep -qx mcp; then
+    docker compose build mcp mcp-keycloak
+fi
+docker compose up -d --no-build

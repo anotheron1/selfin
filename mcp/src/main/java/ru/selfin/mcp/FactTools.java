@@ -24,11 +24,22 @@ final class FactTools {
     private static final String EXPENSE = "EXPENSE";
 
     private final SelfinClient selfin;
-    private final Map<UUID, Draft> drafts = new ConcurrentHashMap<>();
-    private final Object writes = new Object();
+    private final Map<UUID, Draft> drafts;
+    private final Object writes;
 
     FactTools(SelfinClient selfin) {
+        this(selfin, new State());
+    }
+
+    FactTools(SelfinClient selfin, State state) {
         this.selfin = selfin;
+        drafts = state.drafts;
+        writes = state.writes;
+    }
+
+    static final class State {
+        private final Map<UUID, Draft> drafts = new ConcurrentHashMap<>();
+        private final Object writes = new Object();
     }
 
     Map<String, Object> prepare(Request request) throws IOException, InterruptedException {
