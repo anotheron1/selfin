@@ -1,5 +1,6 @@
 package ru.selfin.backend;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.assertj.core.api.AssertionsForInterfaceTypes;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ru.selfin.backend.dto.IndefinitePlanRuleDto;
+import ru.selfin.backend.model.enums.EventType;
+import ru.selfin.backend.model.enums.Priority;
+import ru.selfin.backend.model.enums.RecurringFrequency;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.RecurringRuleRepository;
 
@@ -58,6 +63,69 @@ class RecurringEventControllerIT {
         @SuppressWarnings("unchecked")
         var first = (Map<String, Object>) list.get(0);
         return (String) first.get("id");
+    }
+
+    @Test
+    void readsIndefiniteRuleDefinitionsAndTheirLastPlannedDatesWithoutWriting() throws Exception {
+        String category = getFirstCategoryId();
+        LocalDate start = LocalDate.now().plusDays(1);
+        var active = createSchedule(category, start, null, "MONTHLY", "Связь");
+        var yearly = createSchedule(category, start, null, "YEARLY", "Страховка");
+        var finite = createSchedule(category, start, start.plusMonths(1), "MONTHLY", "Срочный платёж");
+        var cancelled = createSchedule(category, start, null, "MONTHLY", "Отменённый платёж");
+        mockMvc.perform(delete("/api/v1/events/" + cancelled.path("id").asText()).param("scope", "ALL"))
+                .andExpect(status().isNoContent());
+
+        UUID ruleId = UUID.fromString(active.path("recurringRuleId").asText());
+        UUID yearlyId = UUID.fromString(yearly.path("recurringRuleId").asText());
+        LocalDate lastPlannedDate = eventRepository.findMaxActiveDateByRule(ruleId).orElseThrow();
+        long ruleCount = ruleRepository.count();
+        long eventCount = eventRepository.count();
+        byte[] response = mockMvc.perform(get("/api/v1/events/indefinite-plan-rules"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        List<IndefinitePlanRuleDto> rules = objectMapper.readerForListOf(IndefinitePlanRuleDto.class).readValue(response);
+        var monthly = rules.stream().filter(rule -> rule.id().equals(ruleId)).findFirst().orElseThrow();
+        assertThat(monthly.type()).isEqualTo(EventType.EXPENSE);
+        assertThat(monthly.categoryId()).isEqualTo(UUID.fromString(category));
+        assertThat(monthly.plannedAmount()).isEqualByComparingTo("2300");
+        assertThat(monthly.priority()).isEqualTo(Priority.HIGH);
+        assertThat(monthly.description()).isEqualTo("Связь");
+        assertThat(monthly.frequency()).isEqualTo(RecurringFrequency.MONTHLY);
+        assertThat(monthly.dayOfMonth()).isEqualTo(start.getDayOfMonth());
+        assertThat(monthly.startDate()).isEqualTo(start);
+        assertThat(monthly.lastPlannedDate()).isEqualTo(lastPlannedDate);
+
+        var annual = rules.stream().filter(rule -> rule.id().equals(yearlyId)).findFirst().orElseThrow();
+        assertThat(annual.frequency()).isEqualTo(RecurringFrequency.YEARLY);
+        assertThat(annual.monthOfYear()).isEqualTo(start.getMonthValue());
+        assertThat(rules).extracting(IndefinitePlanRuleDto::id).doesNotContain(
+                UUID.fromString(finite.path("recurringRuleId").asText()),
+                UUID.fromString(cancelled.path("recurringRuleId").asText()));
+        assertThat(ruleRepository.count()).isEqualTo(ruleCount);
+        assertThat(eventRepository.count()).isEqualTo(eventCount);
+    }
+
+    private JsonNode createSchedule(String category, LocalDate start, LocalDate end,
+                                    String frequency, String description) throws Exception {
+        var body = objectMapper.createObjectNode()
+                .put("date", start.toString())
+                .put("categoryId", category)
+                .put("type", "EXPENSE")
+                .put("priority", "HIGH")
+                .put("plannedAmount", 2300)
+                .put("description", description);
+        var recurring = body.putObject("recurring")
+                .put("frequency", frequency)
+                .put("startDate", start.toString())
+                .put("dayOfMonth", start.getDayOfMonth());
+        if (frequency.equals("YEARLY")) recurring.put("monthOfYear", start.getMonthValue());
+        if (end != null) recurring.put("endDate", end.toString());
+        return objectMapper.readTree(mockMvc.perform(post("/api/v1/events")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON).content(body.toString()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
