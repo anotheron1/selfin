@@ -44,6 +44,7 @@ class PlanToolsTest {
     private PlanTools tools;
     private volatile String defaultCharacter = "HIGH";
     private volatile boolean loseIncomeResponse;
+    private volatile boolean loseExpenseReply;
     private volatile boolean categoriesUnavailable;
     private volatile boolean returnWrongRepeatDay;
     private final List<UUID> posted = new CopyOnWriteArrayList<>();
@@ -427,6 +428,10 @@ class PlanToolsTest {
             json(exchange, 503, Map.of());
             return;
         }
+        if (loseExpenseReply && "EXPENSE".equals(plan.type())) {
+            json(exchange, 503, Map.of());
+            return;
+        }
         json(exchange, 200, returnWrongRepeatDay && repeat != null
                 ? new SelfinClient.PlanEvent(row.id(), row.date(), row.categoryId(), row.categoryName(), row.type(),
                         row.plannedAmount(), null, row.status(), row.priority(), row.description(), "PLAN",
@@ -541,6 +546,42 @@ class PlanToolsTest {
     }
 
     @Test
+    void fixedSeriesChecksLaterDatesInItsLastPaymentMonth() throws Exception {
+        var series = monthly(DECEMBER_12, 12, LocalDate.parse("2027-01-12"), false);
+        UUID draft = draftId(tools.prepare(List.of(series)));
+        var result = tools.save(draft, lines -> {
+            existing.add(monthRow("2027-01-25", EXPENSE, "EXPENSE", "Интернет", "PLAN", "1700", null, 0, null));
+            return true;
+        });
+        assertEquals("stale", result.get("status"));
+        assertEquals("clarify", tools.prepare(List.of(series)).get("status"));
+        assertTrue(posted.isEmpty());
+    }
+
+    @Test
+    void fixedSeriesIgnoresMonthWhenEndPrecedesItsNextPayment() throws Exception {
+        existing.add(monthRow("2027-01-02", EXPENSE, "EXPENSE", "Интернет", "PLAN", "1700", null, 0, null));
+        var series = monthly(DECEMBER_12, 12, LocalDate.parse("2027-01-05"), false);
+        assertEquals("prepared", tools.prepare(List.of(series)).get("status"));
+    }
+
+    @Test
+    void categoryTextFindsContextWithoutCausingPaymentConflicts() throws Exception {
+        var unrelated = monthRow("2026-12-13", AUTO, "EXPENSE", "Страховка", "PLAN", "500", null, 0, null);
+        existing.add(unrelated);
+        var context = tools.context(new PlanTools.ContextQuery("Машина", "EXPENSE", YearMonth.of(2026, 12), false));
+        assertTrue(context.get("existing").toString().contains(unrelated.id().toString()));
+        var payment = new PlanTools.RowInput("Машина", "EXPENSE", new BigDecimal("1500"),
+                DECEMBER_12, AUTO, null, false, null, null);
+        UUID draft = draftId(tools.prepare(List.of(payment)));
+        var result = tools.save(draft, lines -> {
+            existing.clear();
+            return true;
+        });
+        assertEquals(List.of("saved"), statuses(result));
+    }
+
+    @Test
     void reviewInterruptedBatchResumesConfirmedTailUsingOriginalAttempt() throws Exception {
         UUID draft = interruptAfterFirstWrite(List.of(expense("1500", DECEMBER_12, false, null),
                 expense("1500", DECEMBER_12, true, null)));
@@ -549,6 +590,38 @@ class PlanToolsTest {
         assertEquals(3, posted.size());
         assertEquals(posted.getFirst(), posted.get(1));
         assertEquals(2, saved.size());
+    }
+
+    @Test
+    void uncertainWriteKeepsMatchingPendingRowRetryableAndSavesUnrelatedRow() throws Exception {
+        loseExpenseReply = true;
+        UUID draft = interruptWrite(List.of(expense("1500", DECEMBER_12, false, null),
+                expense("1500", DECEMBER_12, true, null), income()),
+                1, List.of("unknown", "not_sent", "not_sent"));
+        var uncertain = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("unknown", "not_sent", "saved"), statuses(uncertain));
+        assertEquals(2, saved.size());
+        assertEquals(posted.getFirst(), posted.get(1));
+
+        loseExpenseReply = false;
+        var resolved = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("saved", "saved", "saved"), statuses(resolved));
+        assertEquals(3, saved.size());
+        assertEquals(posted.getFirst(), posted.get(3));
+    }
+
+    @Test
+    void uncertainWriteDoesNotHideAnotherChangedPayment() throws Exception {
+        loseExpenseReply = true;
+        UUID draft = interruptAfterFirstWrite(List.of(expense("1500", DECEMBER_12, false, null),
+                expense("1500", DECEMBER_12, true, null)));
+        existing.add(monthRow("2026-12-13", EXPENSE, "EXPENSE", "Интернет", "PLAN", "1700", null, 0, null));
+
+        var result = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("unknown", "stale"), statuses(result));
+        assertEquals(2, posted.size());
+        assertEquals(posted.getFirst(), posted.get(1));
+        assertEquals(1, saved.size());
     }
 
     @Test

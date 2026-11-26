@@ -196,10 +196,17 @@ final class PlanTools {
                             if (retryCategories == null) {
                                 retryCategories = categoriesById();
                             }
-                            if (!unsentRowIsCurrent(row, draft.rows, retryDate, retryCategories, retryPeriods)) {
-                                row.outcome = "stale";
-                                row.message = "Данные Selfin изменились. Подготовь эту строку для нового подтверждения.";
-                                continue;
+                            switch (checkUnsentRow(row, draft.rows, retryDate, retryCategories, retryPeriods)) {
+                                case CURRENT -> {}
+                                case WAITING -> {
+                                    row.message = "Проверь исход предыдущей записи и повтори сохранение того же списка.";
+                                    continue;
+                                }
+                                case STALE -> {
+                                    row.outcome = "stale";
+                                    row.message = "Данные Selfin изменились. Подготовь эту строку для нового подтверждения.";
+                                    continue;
+                                }
                             }
                         }
                         saveRow(row);
@@ -224,25 +231,36 @@ final class PlanTools {
         return true;
     }
 
-    private boolean unsentRowIsCurrent(Row row, List<Row> rows, LocalDate today,
-                                       Map<UUID, Category> categories, Map<DateRange, List<PlanEvent>> periods)
+    private RetryCheck checkUnsentRow(Row row, List<Row> rows, LocalDate today,
+                                      Map<UUID, Category> categories, Map<DateRange, List<PlanEvent>> periods)
             throws IOException, InterruptedException {
         PlanInput plan = row.plan;
         if (plan.date().isBefore(today) || !row.category.equals(categories.get(plan.categoryId()))) {
-            return false;
+            return RetryCheck.STALE;
         }
         // An unchanged occurrence saved by this confirmation is an expected change to the journal.
         var current = matches(plan, periodEvents(periods, plan)).stream()
                 .filter(event -> rows.stream().noneMatch(saved -> unchangedSavedOccurrence(saved, event)))
                 .toList();
-        return row.matches.equals(current);
+        if (row.matches.equals(current)) {
+            return RetryCheck.CURRENT;
+        }
+        // A matching new event may be the previous attempt whose response was lost.
+        var withoutPossibleWrites = current.stream().filter(event -> row.matches.contains(event)
+                || rows.stream().noneMatch(other -> other.outcome.equals("unknown")
+                        && matchesScheduledPayment(other.plan, event))).toList();
+        return row.matches.equals(withoutPossibleWrites) ? RetryCheck.WAITING : RetryCheck.STALE;
     }
 
     private static boolean unchangedSavedOccurrence(Row saved, PlanEvent event) {
         PlanInput plan = saved.plan;
         boolean fromRow = plan.recurring() == null ? event.id().equals(saved.eventId)
                 : saved.recurringRuleId != null && saved.recurringRuleId.equals(event.recurringRuleId());
-        return fromRow && samePaymentDetails(plan, event)
+        return fromRow && matchesScheduledPayment(plan, event);
+    }
+
+    private static boolean matchesScheduledPayment(PlanInput plan, PlanEvent event) {
+        return samePaymentDetails(plan, event)
                 && event.date().equals(occurrence(plan, YearMonth.from(event.date()), scheduleEnd(plan)));
     }
 
@@ -295,8 +313,8 @@ final class PlanTools {
             throws IOException, InterruptedException {
         YearMonth month = YearMonth.from(plan.date());
         // The service can already contain future payments beyond its rolling recurrence horizon.
-        LocalDate end = plan.recurring() == null ? month.atEndOfMonth() : scheduleEnd(plan);
-        DateRange period = new DateRange(month.atDay(1), end);
+        YearMonth last = YearMonth.from(scheduleEnd(plan));
+        DateRange period = new DateRange(month.atDay(1), last.atEndOfMonth());
         var events = periods.get(period);
         if (events == null) {
             events = selfin.events(period.start(), period.end());
@@ -442,12 +460,19 @@ final class PlanTools {
     }
 
     private static List<PlanEvent> matches(PlanInput plan, List<PlanEvent> events) {
+        LocalDate end = scheduleEnd(plan);
+        String name = normalize(plan.description());
         return events.stream().filter(e -> currentPlan(e, plan.type()))
-                .filter(e -> hasName(e, plan.description()) || (plan.categoryId().equals(e.categoryId())
-                        && (plan.recurring() == null ? plan.date().equals(e.date())
-                                : fallsOn(e.date(), plan.recurring().dayOfMonth()))
-                        && e.plannedAmount() != null
-                        && plan.plannedAmount().compareTo(e.plannedAmount()) == 0))
+                .filter(e -> {
+                    LocalDate date = occurrence(plan, YearMonth.from(e.date()), end);
+                    if (date == null) {
+                        return false;
+                    }
+                    boolean sameDescription = name.isEmpty() ? plan.description().equalsIgnoreCase(e.description())
+                            : containsWords(normalize(e.description()), name);
+                    return sameDescription || (plan.categoryId().equals(e.categoryId()) && date.equals(e.date())
+                            && e.plannedAmount() != null && plan.plannedAmount().compareTo(e.plannedAmount()) == 0);
+                })
                 .sorted(Comparator.comparing(PlanEvent::date).thenComparing(PlanEvent::id))
                 .toList();
     }
@@ -467,6 +492,10 @@ final class PlanTools {
             return name.equalsIgnoreCase(event.description()) || name.equalsIgnoreCase(event.categoryName());
         }
         String searchable = normalize(event.description()) + " " + normalize(event.categoryName());
+        return containsWords(searchable, target);
+    }
+
+    private static boolean containsWords(String searchable, String target) {
         return Arrays.stream(target.split(" ")).allMatch(searchable::contains);
     }
 
@@ -536,6 +565,8 @@ final class PlanTools {
     private record PlanSource(PlanEvent event, boolean fact) {}
 
     private record DateRange(LocalDate start, LocalDate end) {}
+
+    private enum RetryCheck { CURRENT, WAITING, STALE }
 
     @FunctionalInterface
     interface Confirmation {

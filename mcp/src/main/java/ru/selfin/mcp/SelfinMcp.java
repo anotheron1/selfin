@@ -206,7 +206,8 @@ public final class SelfinMcp {
                         Просит человека подтвердить весь подготовленный список и затем сохраняет разовые строки и серии.
                         У сохранённой серии ответ содержит recurringRuleId и eventId первого платежа.
                         Сообщи результат по каждой строке из ответа. Если остались unknown или not_sent, используй
-                        тот же draftId, чтобы продолжить сохранение списка. При declined остановись.
+                        тот же draftId, чтобы продолжить сохранение списка. Если строка ждёт выяснения исхода
+                        предыдущей записи, сообщи это человеку. При declined остановись.
                         При stale покажи актуальные реквизиты и подготовь заново только несохранённые строки.
                         """, """
                         {"type":"object","required":["draftId"],"additionalProperties":false,"properties":{
@@ -292,7 +293,8 @@ public final class SelfinMcp {
     }
 
     private static boolean confirm(McpSyncServerExchange exchange, String title, List<String> lines) {
-        var elicitation = exchange.getClientCapabilities().elicitation();
+        var capabilities = exchange.getClientCapabilities();
+        var elicitation = capabilities == null ? null : capabilities.elicitation();
         if (elicitation == null || (elicitation.form() == null && elicitation.url() != null)) {
             throw new IllegalArgumentException("Этот клиент не поддерживает подтверждение списка. Вызов записи недоступен.");
         }
