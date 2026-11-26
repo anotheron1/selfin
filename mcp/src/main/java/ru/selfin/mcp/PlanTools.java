@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.Month;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -19,6 +20,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static ru.selfin.mcp.SelfinClient.Category;
+import static ru.selfin.mcp.SelfinClient.IndefinitePlanRule;
 import static ru.selfin.mcp.SelfinClient.PlanEvent;
 import static ru.selfin.mcp.SelfinClient.PlanInput;
 import static ru.selfin.mcp.SelfinClient.Recurring;
@@ -102,6 +104,7 @@ final class PlanTools {
         }
         LocalDate today = selfin.today();
         var categories = categoriesById();
+        var rules = selfin.indefinitePlanRules();
         Map<DateRange, List<PlanEvent>> periods = new HashMap<>();
         List<Row> rows = new ArrayList<>();
         List<Map<String, Object>> conflicts = new ArrayList<>();
@@ -122,7 +125,7 @@ final class PlanTools {
                 throw new IllegalArgumentException("Подтверждение источника требует подходящей записи из истории.");
             }
 
-            var matches = matches(plan, periodEvents(periods, plan));
+            var matches = new Matches(matches(plan, periodEvents(periods, plan)), projectedMatches(plan, rules));
             String display = lineOf(plan, category, source);
             if (!separatePayment) {
                 var sameRequest = rows.stream()
@@ -220,11 +223,13 @@ final class PlanTools {
     private boolean stillCurrent(List<Row> rows) throws IOException, InterruptedException {
         LocalDate today = selfin.today();
         var categories = categoriesById();
+        var rules = selfin.indefinitePlanRules();
         Map<DateRange, List<PlanEvent>> periods = new HashMap<>();
         for (Row row : rows) {
             PlanInput plan = row.plan;
             if (plan.date().isBefore(today) || !row.category.equals(categories.get(plan.categoryId()))
-                    || !row.matches.equals(matches(plan, periodEvents(periods, plan)))) {
+                    || !row.matches.equals(new Matches(matches(plan, periodEvents(periods, plan)),
+                            projectedMatches(plan, rules)))) {
                 return false;
             }
         }
@@ -238,18 +243,36 @@ final class PlanTools {
         if (plan.date().isBefore(today) || !row.category.equals(categories.get(plan.categoryId()))) {
             return RetryCheck.STALE;
         }
+        // Read the horizon before the journal so expansion between the reads cannot hide a payment.
+        var projected = projectedMatches(plan, selfin.indefinitePlanRules()).stream()
+                .filter(match -> rows.stream().noneMatch(saved -> match.rule().id().equals(saved.recurringRuleId)
+                        && matchesRule(saved.plan, match.rule())))
+                .toList();
         // An unchanged occurrence saved by this confirmation is an expected change to the journal.
         var current = matches(plan, periodEvents(periods, plan)).stream()
                 .filter(event -> rows.stream().noneMatch(saved -> unchangedSavedOccurrence(saved, event)))
                 .toList();
-        if (row.matches.equals(current)) {
+        if (row.matches.equals(new Matches(current, projected))) {
             return RetryCheck.CURRENT;
         }
         // A matching new event may be the previous attempt whose response was lost.
-        var withoutPossibleWrites = current.stream().filter(event -> row.matches.contains(event)
+        var withoutPossibleWrites = current.stream().filter(event -> row.matches.events().contains(event)
                 || rows.stream().noneMatch(other -> other.outcome.equals("unknown")
                         && matchesScheduledPayment(other.plan, event))).toList();
-        return row.matches.equals(withoutPossibleWrites) ? RetryCheck.WAITING : RetryCheck.STALE;
+        var withoutPossibleRules = projected.stream().filter(match -> row.matches.projected().contains(match)
+                || rows.stream().noneMatch(other -> other.outcome.equals("unknown")
+                        && matchesRule(other.plan, match.rule()))).toList();
+        return row.matches.equals(new Matches(withoutPossibleWrites, withoutPossibleRules))
+                ? RetryCheck.WAITING : RetryCheck.STALE;
+    }
+
+    private static boolean matchesRule(PlanInput plan, IndefinitePlanRule rule) {
+        var repeat = plan.recurring();
+        return repeat != null && repeat.endDate() == null && repeat.frequency().equals(rule.frequency())
+                && repeat.dayOfMonth() == rule.dayOfMonth() && rule.monthOfYear() == null
+                && repeat.startDate().equals(rule.startDate()) && plan.type().equals(rule.type())
+                && plan.categoryId().equals(rule.categoryId()) && plan.priority().equals(rule.priority())
+                && plan.description().equals(rule.description()) && plan.plannedAmount().compareTo(rule.plannedAmount()) == 0;
     }
 
     private static boolean unchangedSavedOccurrence(Row saved, PlanEvent event) {
@@ -468,8 +491,7 @@ final class PlanTools {
                     if (date == null) {
                         return false;
                     }
-                    boolean sameDescription = name.isEmpty() ? plan.description().equalsIgnoreCase(e.description())
-                            : containsWords(normalize(e.description()), name);
+                    boolean sameDescription = matchesDescription(plan.description(), name, e.description());
                     return sameDescription || (plan.categoryId().equals(e.categoryId()) && date.equals(e.date())
                             && e.plannedAmount() != null && plan.plannedAmount().compareTo(e.plannedAmount()) == 0);
                 })
@@ -477,11 +499,81 @@ final class PlanTools {
                 .toList();
     }
 
-    private static List<Map<String, Object>> conflictViews(List<PlanEvent> matches) {
+    private static List<ProjectedMatch> projectedMatches(PlanInput plan, List<IndefinitePlanRule> rules) {
+        List<ProjectedMatch> matches = new ArrayList<>();
+        for (IndefinitePlanRule rule : rules) {
+            LocalDate date = projectedConflictDate(plan, rule);
+            if (date != null) {
+                matches.add(new ProjectedMatch(rule, date));
+            }
+        }
+        return matches.stream().sorted(Comparator.comparing(ProjectedMatch::date)
+                .thenComparing(match -> match.rule().id())).toList();
+    }
+
+    private static LocalDate projectedConflictDate(PlanInput plan, IndefinitePlanRule rule) {
+        if (!plan.type().equals(rule.type())) {
+            return null;
+        }
+        boolean sameDescription = matchesDescription(plan.description(), normalize(plan.description()), rule.description());
+        if (!sameDescription && (!plan.categoryId().equals(rule.categoryId())
+                || plan.plannedAmount().compareTo(rule.plannedAmount()) != 0)) {
+            return null;
+        }
+
+        LocalDate start = rule.startDate();
+        if (rule.lastPlannedDate() != null && !rule.lastPlannedDate().isBefore(start)) {
+            start = rule.lastPlannedDate().plusDays(1);
+        }
+        LocalDate end = scheduleEnd(plan);
+        YearMonth month = YearMonth.from(plan.date().isAfter(start) ? plan.date() : start);
+        YearMonth last = YearMonth.from(end);
+        int step = 1;
+        int shortestMonth = 28;
+        if ("YEARLY".equals(rule.frequency())) {
+            Month yearlyMonth = Month.of(rule.monthOfYear());
+            shortestMonth = yearlyMonth.minLength();
+            month = month.plusMonths(Math.floorMod(yearlyMonth.getValue() - month.getMonthValue(), 12));
+            step = 12;
+        }
+        // Different days only collide when both clamp to the end of a short month.
+        if (!sameDescription && plan.recurring() != null
+                && rule.dayOfMonth() != plan.recurring().dayOfMonth()
+                && Math.min(rule.dayOfMonth(), plan.recurring().dayOfMonth()) < shortestMonth) {
+            return null;
+        }
+        for (; !month.isAfter(last); month = month.plusMonths(step)) {
+            LocalDate date = month.atDay(Math.min(rule.dayOfMonth(), month.lengthOfMonth()));
+            LocalDate proposed = occurrence(plan, month, end);
+            if (!date.isBefore(start) && proposed != null && (sameDescription || date.equals(proposed))) {
+                return date;
+            }
+        }
+        return null;
+    }
+
+    private static boolean matchesDescription(String description, String normalized, String otherDescription) {
+        return normalized.isEmpty() ? description.equalsIgnoreCase(otherDescription)
+                : containsWords(normalize(otherDescription), normalized);
+    }
+
+    private static List<Map<String, Object>> conflictViews(Matches matches) {
         Map<UUID, Map<String, Object>> displayed = new LinkedHashMap<>();
-        for (PlanEvent event : matches) {
+        for (PlanEvent event : matches.events()) {
             UUID id = event.recurringRuleId() == null ? event.id() : event.recurringRuleId();
             displayed.putIfAbsent(id, eventView(event));
+        }
+        for (ProjectedMatch match : matches.projected()) {
+            IndefinitePlanRule rule = match.rule();
+            Map<String, Object> view = new LinkedHashMap<>();
+            view.put("recurringRuleId", rule.id());
+            view.put("date", match.date());
+            view.put("name", rule.description());
+            view.put("type", rule.type());
+            view.put("categoryId", rule.categoryId());
+            view.put("amount", rule.plannedAmount().toPlainString());
+            view.put("projected", true);
+            displayed.putIfAbsent(rule.id(), view);
         }
         return List.copyOf(displayed.values());
     }
@@ -566,6 +658,14 @@ final class PlanTools {
 
     private record DateRange(LocalDate start, LocalDate end) {}
 
+    private record ProjectedMatch(IndefinitePlanRule rule, LocalDate date) {}
+
+    private record Matches(List<PlanEvent> events, List<ProjectedMatch> projected) {
+        private boolean isEmpty() {
+            return events.isEmpty() && projected.isEmpty();
+        }
+    }
+
     private enum RetryCheck { CURRENT, WAITING, STALE }
 
     @FunctionalInterface
@@ -592,7 +692,7 @@ final class PlanTools {
         private final PlanInput plan;
         private final Category category;
         private final String display;
-        private final List<PlanEvent> matches;
+        private final Matches matches;
         private final boolean separatePayment;
         private final UUID key = UUID.randomUUID();
         private String outcome = "not_sent";
@@ -600,7 +700,7 @@ final class PlanTools {
         private UUID recurringRuleId;
         private String message;
 
-        private Row(PlanInput plan, Category category, String display, List<PlanEvent> matches, boolean separatePayment) {
+        private Row(PlanInput plan, Category category, String display, Matches matches, boolean separatePayment) {
             this.plan = plan;
             this.category = category;
             this.display = display;

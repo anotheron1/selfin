@@ -50,6 +50,7 @@ class PlanToolsTest {
     private final List<UUID> posted = new CopyOnWriteArrayList<>();
     private final List<String> readPeriods = new CopyOnWriteArrayList<>();
     private final List<SelfinClient.PlanEvent> existing = new CopyOnWriteArrayList<>();
+    private final List<Map<String, Object>> indefiniteRules = new CopyOnWriteArrayList<>();
     private final Map<UUID, SelfinClient.PlanEvent> saved = new ConcurrentHashMap<>();
     private final SelfinClient.PlanEvent historicalFact = new SelfinClient.PlanEvent(SOURCE,
             LocalDate.parse("2026-11-12"), EXPENSE, "Связь", "EXPENSE", null, new BigDecimal("1500"),
@@ -72,6 +73,7 @@ class PlanToolsTest {
                     new SelfinClient.Category(TRANSFER, "Накопление", "EXPENSE", "MEDIUM", "FUND_TRANSFER")));
         });
         server.createContext("/api/v1/events", this::events);
+        server.createContext("/api/v1/events/indefinite-plan-rules", e -> json(e, 200, indefiniteRules));
         server.createContext("/api/v1/events/search", e -> {
             if (!e.getRequestURI().getQuery().contains("factsOnly=true")) {
                 json(e, 400, Map.of());
@@ -153,6 +155,60 @@ class PlanToolsTest {
         assertEquals(List.of("saved"), statuses(tools.save(draftId(separate), lines -> true)));
         assertEquals(List.of(current), existing);
         assertEquals(1, saved.size());
+    }
+
+    @Test
+    void asksBeforeAddingAOneOffBeyondAnExistingMonthlyRulesSavedOccurrences() throws Exception {
+        UUID ruleId = UUID.randomUUID();
+        indefiniteRules.add(Map.of(
+                "id", ruleId, "categoryId", EXPENSE, "type", "EXPENSE", "priority", "HIGH",
+                "description", "Домашняя связь", "plannedAmount", 1500, "frequency", "MONTHLY",
+                "dayOfMonth", 12, "startDate", DECEMBER_12, "lastPlannedDate", DECEMBER_12.plusYears(3)));
+        var farDate = DECEMBER_12.plusYears(4);
+        var proposed = tools.prepare(List.of(expense("1500", farDate, false, null)));
+
+        assertEquals("clarify", proposed.get("status"));
+        assertTrue(proposed.toString().contains(ruleId.toString()));
+        assertTrue(proposed.toString().contains("projected=true"));
+        assertTrue(posted.isEmpty());
+
+        var separate = tools.prepare(List.of(expense("1500", farDate, true, null)));
+        assertEquals(List.of("saved"), statuses(tools.save(draftId(separate), lines -> true)));
+        assertEquals(1, posted.size());
+    }
+
+    @Test
+    void projectsYearlyShortMonthsOnlyBeyondTheLastSavedOccurrence() throws Exception {
+        indefiniteRules.add(Map.ofEntries(
+                Map.entry("id", UUID.randomUUID()), Map.entry("categoryId", EXPENSE),
+                Map.entry("type", "EXPENSE"), Map.entry("priority", "HIGH"),
+                Map.entry("description", "Годовой платёж"), Map.entry("plannedAmount", 1500),
+                Map.entry("frequency", "YEARLY"), Map.entry("dayOfMonth", 29), Map.entry("monthOfYear", 2),
+                Map.entry("startDate", "2028-02-29"), Map.entry("lastPlannedDate", "2032-02-29")));
+
+        assertEquals("clarify", tools.prepare(List.of(
+                expense("1500", LocalDate.parse("2033-02-28"), false, null))).get("status"));
+        assertEquals("prepared", tools.prepare(List.of(
+                expense("1500", LocalDate.parse("2031-02-28"), false, null))).get("status"));
+        assertEquals("prepared", tools.prepare(List.of(
+                expense("1500", LocalDate.parse("2033-03-28"), false, null))).get("status"));
+        assertTrue(posted.isEmpty());
+    }
+
+    @Test
+    void refusesConfirmedListWhenAProjectedPaymentAppearsDuringApproval() throws Exception {
+        var farDate = DECEMBER_12.plusYears(4);
+        UUID draft = draftId(tools.prepare(List.of(expense("1500", farDate, false, null))));
+        var result = tools.save(draft, lines -> {
+            indefiniteRules.add(Map.of(
+                    "id", UUID.randomUUID(), "categoryId", EXPENSE, "type", "EXPENSE", "priority", "HIGH",
+                    "description", "Интернет", "plannedAmount", 1500, "frequency", "MONTHLY",
+                    "dayOfMonth", 12, "startDate", DECEMBER_12));
+            return true;
+        });
+
+        assertEquals("stale", result.get("status"));
+        assertTrue(posted.isEmpty());
     }
 
     @Test
@@ -608,6 +664,31 @@ class PlanToolsTest {
         assertEquals(List.of("saved", "saved", "saved"), statuses(resolved));
         assertEquals(3, saved.size());
         assertEquals(posted.getFirst(), posted.get(3));
+    }
+
+    @Test
+    void uncertainSeriesWriteKeepsItsProjectedConflictRetryable() throws Exception {
+        var farDate = DECEMBER_12.plusYears(4);
+        loseExpenseReply = true;
+        UUID draft = interruptWrite(List.of(monthly(DECEMBER_12, 12, null, false),
+                        expense("1500", farDate, true, null)),
+                1, List.of("unknown", "not_sent"));
+        var savedSeries = saved.values().iterator().next();
+        indefiniteRules.add(Map.of(
+                "id", savedSeries.recurringRuleId(), "categoryId", EXPENSE, "type", "EXPENSE",
+                "priority", savedSeries.priority(), "description", savedSeries.description(),
+                "plannedAmount", savedSeries.plannedAmount(), "frequency", "MONTHLY",
+                "dayOfMonth", 12, "startDate", DECEMBER_12, "lastPlannedDate", DECEMBER_12));
+
+        var uncertain = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("unknown", "not_sent"), statuses(uncertain));
+        assertEquals(2, posted.size());
+
+        loseExpenseReply = false;
+        var resolved = tools.save(draft, lines -> fail("An approved draft prompted again"));
+        assertEquals(List.of("saved", "saved"), statuses(resolved));
+        assertEquals(4, posted.size());
+        assertEquals(posted.getFirst(), posted.get(2));
     }
 
     @Test

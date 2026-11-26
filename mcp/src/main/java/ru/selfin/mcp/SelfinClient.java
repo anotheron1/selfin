@@ -97,6 +97,10 @@ final class SelfinClient {
                 new TypeRef<List<PlanEvent>>() {});
     }
 
+    List<IndefinitePlanRule> indefinitePlanRules() throws IOException, InterruptedException {
+        return JSON.readValue(get("/events/indefinite-plan-rules"), new TypeRef<List<IndefinitePlanRule>>() {});
+    }
+
     PlanFactReport planFact(LocalDate monthStart) throws IOException, InterruptedException {
         var response = JSON.readValue(get("/analytics/report?date=" + monthStart), AnalyticsReport.class);
         if (response == null || response.planFact() == null) {
@@ -190,6 +194,10 @@ final class SelfinClient {
     }
 
     record Category(UUID id, String name, String type, String priority, String systemKind) {}
+
+    record IndefinitePlanRule(UUID id, UUID categoryId, String type, BigDecimal plannedAmount, String priority,
+                              String description, String frequency, int dayOfMonth, Integer monthOfYear,
+                              LocalDate startDate, LocalDate lastPlannedDate) {}
 
     record PlanEvent(UUID id, LocalDate date, UUID categoryId, String categoryName, String type,
                      BigDecimal plannedAmount, BigDecimal factAmount, String status, String priority,
