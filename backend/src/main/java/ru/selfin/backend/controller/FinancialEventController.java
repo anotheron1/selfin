@@ -17,11 +17,13 @@ import ru.selfin.backend.model.enums.Priority;
 import ru.selfin.backend.dto.FinancialEventCreateDto;
 import ru.selfin.backend.dto.FinancialEventDto;
 import ru.selfin.backend.dto.FinancialEventUpdateFactDto;
+import ru.selfin.backend.dto.IndefinitePlanRuleDto;
 import ru.selfin.backend.dto.JournalSearchDto;
 import ru.selfin.backend.dto.StandaloneFactCreateDto;
 import ru.selfin.backend.dto.WishlistCreateDto;
 import ru.selfin.backend.model.enums.ScopeEnum;
 import ru.selfin.backend.service.FinancialEventService;
+import ru.selfin.backend.service.RecurringRuleService;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -41,6 +43,7 @@ import java.util.UUID;
 public class FinancialEventController {
 
     private final FinancialEventService eventService;
+    private final RecurringRuleService recurringRuleService;
 
     @Operation(summary = "Получить события за период или по приоритету",
             description = "Если передан только priority — возвращает все события с этим приоритетом. "
@@ -62,6 +65,14 @@ public class FinancialEventController {
                     "startDate and endDate are required when priority is not specified");
         }
         return eventService.findByPeriod(startDate, endDate);
+    }
+
+    @Operation(summary = "Бессрочные правила плана для доходов и расходов",
+            description = "Возвращает расписания и последнюю дату созданного планового события. "
+                    + "Новые события при чтении не создаются.")
+    @GetMapping("/indefinite-plan-rules")
+    public List<IndefinitePlanRuleDto> indefinitePlanRules() {
+        return recurringRuleService.findIndefinitePlanRules();
     }
 
     @Operation(summary = "Месяцы года со строками журнала",
