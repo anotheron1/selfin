@@ -25,33 +25,39 @@ final class SelfinClient {
 
     private static final Set<String> LOOPBACK = Set.of("localhost", "127.0.0.1", "[::1]");
     private static final McpJsonMapper JSON = McpJsonDefaults.getMapper();
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
 
-    private final HttpClient http;
     private final URI baseUrl;
-    private final String accessToken;
-    private final HttpRequest pocketRequest;
+    private final AccessToken accessToken;
 
     SelfinClient(URI baseUrl, String accessToken) {
+        this(baseUrl, fixedToken(accessToken), false);
+    }
+
+    SelfinClient(URI baseUrl, AccessToken accessToken, boolean compose) {
         String host = baseUrl.getHost();
         String scheme = baseUrl.getScheme();
         String path = baseUrl.getPath();
         if (host == null || baseUrl.getUserInfo() != null || baseUrl.getQuery() != null
                 || baseUrl.getFragment() != null || !(path.isEmpty() || path.equals("/"))
-                || !("https".equals(scheme) || ("http".equals(scheme) && LOOPBACK.contains(host)))) {
+                || !("https".equals(scheme) || ("http".equals(scheme)
+                && (LOOPBACK.contains(host) || (compose && "backend".equals(host)))))) {
             throw new IllegalArgumentException("Invalid Selfin API origin");
-        }
-        if (accessToken.isBlank()) {
-            throw new IllegalArgumentException("Empty Selfin access token");
         }
 
         this.baseUrl = baseUrl;
         this.accessToken = accessToken;
-        http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
-        pocketRequest = request("/pocket").GET().build();
+    }
+
+    private static AccessToken fixedToken(String token) {
+        if (token.isBlank()) {
+            throw new IllegalArgumentException("Empty Selfin access token");
+        }
+        return () -> token;
     }
 
     Map<String, Object> readAvailableMoney() throws IOException, InterruptedException {
-        var pocket = JSON.readValue(send(pocketRequest), Pocket.class);
+        var pocket = JSON.readValue(get("/pocket"), Pocket.class);
         if (pocket == null) {
             throw new IOException("Empty forecast");
         }
@@ -77,7 +83,7 @@ final class SelfinClient {
     }
 
     LocalDate today() throws IOException, InterruptedException {
-        var pocket = JSON.readValue(send(pocketRequest), PocketCalendar.class);
+        var pocket = JSON.readValue(get("/pocket"), PocketCalendar.class);
         if (pocket == null || pocket.trajectory() == null || pocket.trajectory().isEmpty()) {
             throw new IOException("Missing Selfin calendar");
         }
@@ -172,11 +178,11 @@ final class SelfinClient {
         return send(request(path).GET().build());
     }
 
-    private HttpRequest.Builder request(String path) {
+    private HttpRequest.Builder request(String path) throws IOException, InterruptedException {
         return HttpRequest.newBuilder(baseUrl.resolve("/api/v1" + path))
                 .timeout(Duration.ofSeconds(10))
                 .header("Accept", "application/json")
-                .header("Authorization", "Bearer " + accessToken);
+                .header("Authorization", "Bearer " + accessToken.get());
     }
 
     private String send(HttpRequest request) throws IOException, InterruptedException {
@@ -184,13 +190,19 @@ final class SelfinClient {
     }
 
     private HttpResponse<String> exchange(HttpRequest request, int... statuses) throws IOException, InterruptedException {
-        var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        var response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
         for (int status : statuses) {
             if (response.statusCode() == status) {
                 return response;
             }
         }
-        throw new ApiException(response.statusCode());
+        throw new ApiException(response.statusCode(),
+                response.statusCode() == 403 && response.body().contains("\"CONSENT_REQUIRED\""));
+    }
+
+    @FunctionalInterface
+    interface AccessToken {
+        String get() throws IOException, InterruptedException;
     }
 
     record Category(UUID id, String name, String type, String priority, String systemKind) {}
@@ -276,10 +288,16 @@ final class SelfinClient {
 
     static final class ApiException extends IOException {
         private final int status;
+        private final boolean consentRequired;
 
         ApiException(int status) {
+            this(status, false);
+        }
+
+        private ApiException(int status, boolean consentRequired) {
             super("Selfin API returned HTTP " + status);
             this.status = status;
+            this.consentRequired = consentRequired;
         }
 
         int status() {
@@ -288,6 +306,10 @@ final class SelfinClient {
 
         boolean accessDenied() {
             return status == 401 || status == 403;
+        }
+
+        boolean consentRequired() {
+            return consentRequired;
         }
     }
 }

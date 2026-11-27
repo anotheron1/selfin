@@ -1,5 +1,37 @@
 # Selfin MCP
 
+## HTTP MCP в Compose
+
+Compose из `deploy` запускает Selfin, Keycloak и MCP с профилем `mcp`.
+Задай `SELFIN_PUBLIC_URL`, отдельный случайный
+`SELFIN_MCP_CLIENT_SECRET` и точный `SELFIN_MCP_OAUTH_REDIRECT_URI` из настроек клиента.
+Для локального экземпляра используй отдельное имя проекта и тег образов.
+
+```sh
+docker compose -p selfin-mcp-local --env-file deploy/.env -f deploy/docker-compose.yml --profile mcp up -d --build frontend mcp
+```
+
+В локальной рабочей папке создай `deploy/.env` по `deploy/.env.example`. Укажи
+`SELFIN_TAG=mcp-local`. Например, для
+`SELFIN_HTTP_PORT=8280` укажи `SELFIN_PUBLIC_URL=http://127.0.0.1:8280`. На сервере
+укажи внешний HTTPS-адрес Selfin. Настройка OAuth запускается тем же Compose и
+регистрирует в Keycloak клиент для входа и клиент обмена токенов.
+
+Подключи Streamable HTTP сервер по адресу `SELFIN_PUBLIC_URL/mcp`.
+Для входа используй зарегистрированный `SELFIN_MCP_OAUTH_CLIENT_ID`
+(по умолчанию `selfin-mcp-codex`). В Codex CLI можно добавить HTTP-сервер с
+`--oauth-client-id`, затем подключить его кнопкой Authenticate или командой
+`codex mcp login <имя>`. В Keycloak регистрируется весь адрес возврата, включая
+суффикс, который Codex может добавить к пути callback. Подключение
+может запросить `selfin-mcp:read` и `selfin-mcp:write`. Запись по-прежнему
+требует подтверждения конкретного платежа в MCP-клиенте.
+
+Внутри Compose MCP обращается к `http://backend:8080` и
+`http://keycloak:8080/auth/realms/selfin`. При переносе MCP на другую машину эти
+адреса задаются переменными `SELFIN_MCP_BASE_URL` и
+`SELFIN_MCP_ISSUER_INTERNAL`. Прокси направляет на новый сервер те же публичные
+маршруты `/mcp` и `/.well-known/oauth-protected-resource/mcp`.
+
 Локальный MCP-сервер для Selfin. `get_available_money` без аргументов возвращает «Свободно» до ближайшего дохода, фактическую дату горизонта и строки расчёта из `GET /api/v1/pocket`. Суммы передаются десятичными строками в рублях. При отсутствии последней сверки поле `checkpointDate` опускается.
 
 `preview_expense` рассчитывает «Свободно» до и после одной будущей покупки через штатную «Примерку» Selfin. Передай сумму и дату покупки в формате `YYYY-MM-DD` или `tomorrow`. Если покупка позже конца исходного периода до ближайшего дохода, инструмент показывает этот период и отдельное сравнение до даты покупки. `horizonEndDate` задаёт точную дату конца, а `keepHorizon=true` сохраняет ограничение ближайшим доходом. В обоих случаях вне выбранного периода показывается граница расчёта. Для отдельной команды добавить покупку в план используются `prepare_plan` и `save_plan`.
