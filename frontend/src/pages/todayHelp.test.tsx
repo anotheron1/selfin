@@ -80,7 +80,7 @@ const PLACES: Record<string, () => void> = {
     },
     'НЗ 1': () => {
         expect(why(fresh())).toContain('НЗ не задан');
-        expect(src('../components/pocket/NzForm.tsx')).toContain('{NZ_MEANING}');
+        expect(src('../components/pocket/NzSheet.tsx')).toContain('{NZ_MEANING}');
     },
     'НЗ 2': () => expect(pocketCard).toContain('<HelpDialog topic="pocket"'),
     'Когда денег не хватает 1': () => {

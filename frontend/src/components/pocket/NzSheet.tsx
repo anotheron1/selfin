@@ -7,8 +7,9 @@ import FormSheet from '../FormSheet';
 import AddCardSheet from '../money/AddCardSheet';
 import { cardAmount } from '../../lib/moneyCard';
 import {
-    NZ_SUB, NZ_TITLE, NZ_WHERE_NOTE, reserveAccounts, reserveDto, reserveFreeLine, reserveOf,
+    NZ_TITLE, NZ_WHERE_NOTE, reserveAccounts, reserveDto, reserveFreeLine, reserveOf,
 } from '../../lib/reserve';
+import { NZ_MEANING } from '../../lib/help';
 import { writeFailure } from '../../lib/writeFailure';
 
 type Where = 'card' | 'account';
@@ -33,7 +34,7 @@ function NzHead() {
     return (
         <div className="flex flex-col gap-1 px-1 pr-10">
             <span className="text-[18px] font-semibold leading-6">{NZ_TITLE}</span>
-            <span className="text-sf-label text-sf-muted">{NZ_SUB}</span>
+            <span className="text-sf-label text-sf-muted">{NZ_MEANING}</span>
         </div>
     );
 }

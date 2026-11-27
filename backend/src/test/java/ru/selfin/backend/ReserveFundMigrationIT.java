@@ -38,12 +38,13 @@ class ReserveFundMigrationIT {
     @Autowired JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("НЗ из bufferAmount; без настройки, с null или не числом — 0; без счёта, первым; второй прогон — ничего")
+    @DisplayName("НЗ из bufferAmount; без настройки, с null, не числом или меньше нуля — 0; без счёта, первым; второй прогон — ничего")
     void bufferAmountMoves() {
         UUID set = person("{\"bufferAmount\": 15000.50}");
         UUID none = person(null);
         UUID nul = person("{\"bufferAmount\": null}");
         UUID text = person("{\"bufferAmount\": \"много\"}");
+        UUID below = person("{\"bufferAmount\": -500}");
 
         applyMigration();
         applyMigration();
@@ -53,7 +54,7 @@ class ReserveFundMigrationIT {
             assertThat(r).containsEntry("name", "НЗ").containsEntry("account_id", null).containsEntry("priority", 0)
                     .containsEntry("status", "FUNDING").containsEntry("purchase_type", "SAVINGS");
         });
-        for (UUID p : List.of(none, nul, text)) {
+        for (UUID p : List.of(none, nul, text, below)) {
             assertThat(reserves(p)).singleElement()
                     .satisfies(r -> assertThat((BigDecimal) r.get("target_amount")).isEqualByComparingTo("0"));
         }

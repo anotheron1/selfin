@@ -68,8 +68,9 @@ class TargetFundOrderIT {
         assertThat(names()).containsExactly("Поздняя, но главная", "Ранняя");
     }
 
+    /** Без НЗ: он у каждого с миграции V40 (срез 4, п. 7), первым, а порядок здесь — о прочих целях. */
     private List<String> names() {
-        return fundService.getOverview().funds().stream().map(TargetFundDto::name).toList();
+        return fundService.getOverview().funds().stream().filter(f -> !f.reserve()).map(TargetFundDto::name).toList();
     }
 
     private TargetFund save(String name, LocalDateTime createdAt) {

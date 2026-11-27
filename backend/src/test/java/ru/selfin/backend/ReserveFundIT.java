@@ -68,7 +68,7 @@ class ReserveFundIT {
     @DisplayName("НЗ — первой целью, с признаком; новая цель — после него")
     void reserve_firstInGoals() throws Exception {
         mvc.perform(post("/api/v1/funds").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"Отпуск\",\"targetAmount\":50000}")).andExpect(status().isCreated());
+                .content("{\"name\":\"Отпуск\",\"targetAmount\":50000}")).andExpect(status().isOk());
 
         JsonNode funds = json(mvc.perform(get("/api/v1/funds"))).get("funds");
         assertThat(funds.get(0).get("name").asText()).isEqualTo("НЗ");

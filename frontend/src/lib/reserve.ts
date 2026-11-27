@@ -11,7 +11,6 @@ import { fmtDayShort, fmtRub } from './format';
 export const reserveOf = (funds: TargetFund[]): TargetFund | undefined => funds.find(f => f.reserve);
 
 export const NZ_TITLE = 'НЗ — запас';
-export const NZ_SUB = 'Сумма, которая не тратится: свободные деньги считаются так, чтобы на карте оставалось не меньше.';
 export const NZ_WHERE_NOTE = 'На своём счёте — вклад или накопительный: НЗ — его остаток, с карт ничего не вычитается. '
     + 'Счёта нет — заведёшь здесь же.';
 export const NZ_ON_ACCOUNT_NOTE = 'На своём счёте — в «Свободно» не входит, с карт ничего не вычитается.';
