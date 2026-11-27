@@ -22,10 +22,12 @@ describe('форма «+»: галочка «В кредит» (S4-K1)', () => {
             .not.toContain('В кредит');
     });
     it('вопрос — по числу «на картах» из /pocket, отметка — одним касанием той же галочки', () => {
-        expect(FAB).toContain('creditAsks(amount, pocket?.currentBalance ?? null, onCredit)');
+        // Правила отметки, вопроса и строки — lib/quickAdd.ts (creditForm, formLine); форма передаёт им своё.
+        expect(FAB).toContain("offered: creditShown, isNew: !ev, record: main === 'record', onCredit, amount, cards: pocket?.currentBalance ?? null,");
+        expect(FAB).toContain("{asks ? 'В кредит?' : 'В кредит'}");
+        expect(FAB).toContain('note={overCards ? CREDIT_OVER_NOTE : undefined}');
         expect(FAB).toMatch(/<Flag ask=\{asks\} checked=\{onCredit\} onChange=\{\(e\) => setOnCredit\(e\.target\.checked\)\}>/);
-        expect(FAB).toContain("const lineText = !ev && credit && main === 'record' ? CREDIT_EFFECT\n        : asks ? CREDIT_ASK"
-            .replace(/\n/g, FAB.includes('\r\n') ? '\r\n' : '\n'));
+        expect(FAB).toContain("isNew: !ev, record: main === 'record', credit, asks, transfer, amount, effect,");
     });
     it('отметка уходит только с «Записать»; правка шлёт её, только если галочка предложена', () => {
         expect(FAB).toContain('priority: kind, rawInput, onCredit: credit || undefined,');
@@ -40,6 +42,7 @@ describe('строка после записи в кредит (S4-K2)', () => {
         expect(html).toContain('aria-label="Обновить кредитку"');
         expect(text(html)).toContain('Обновить');
         expect(html).toContain('aria-label="Отменить"');
+        expect(text(html)).not.toContain('Отменить');
         expect(FAB).toContain('onRefresh={written.credit ? () => { openUpdateBalances(); onClose(); } : undefined}');
         expect(readFileSync(new URL('../pages/Budget.tsx', import.meta.url), 'utf8'))
             .toContain('onRefresh={written.credit ? () => { openUpdateBalances(); setWritten(null); } : undefined}');

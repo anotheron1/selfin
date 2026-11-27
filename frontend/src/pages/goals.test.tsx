@@ -14,7 +14,9 @@ import { NZ_ON_ACCOUNT_NOTE, NZ_WHERE_NOTE } from '../lib/reserve';
 import { WHERE_MAIN_SUB, WHERE_OWN_SUB } from '../lib/fundAccount';
 
 vi.mock('../components/FormSheet', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-const { ReserveCard, FundCard, FundWhere } = await import('./Funds');
+const Plain = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
+vi.mock('../components/ui/sheet', () => ({ Sheet: Plain, SheetContent: Plain, SheetHeader: Plain, SheetTitle: Plain, SheetDescription: Plain }));
+const { ReserveCard, FundCard, FundWhere, CreateFundModal } = await import('./Funds');
 const { NzForm } = await import('../components/pocket/NzSheet');
 
 // Пробелы схлопываются, кроме неразрывного: им fmtRub отделяет разряды и ₽.
@@ -93,7 +95,7 @@ describe('копилка на своём счёте (п. 20; S4-G1)', () => {
         const page = read('./Funds.tsx');
         expect(page).toContain("<QuickAddModal preset={{ type: 'FUND_TRANSFER', targetFundId: saveTo.id }}");
         expect(page).toContain('onSheet={toAccount => setNzSheet({ toAccount })} onSave={setSaveTo} />');
-        expect(read('../components/Fab.tsx')).toContain('[accountFundLine(fund.name, fundAccount, amount), afterLine(effect)]');
+        expect(read('../components/Fab.tsx')).toContain('fund: fund && { name: fund.name, account: fundAccount },');
     });
 });
 
@@ -120,6 +122,27 @@ describe('новая цель: «Где будут лежать деньги» (
 
     it('на основной карте — выбора счёта нет', () => {
         expect(text(where('main'))).not.toContain('Новый счёт');
+    });
+
+    it('лист новой цели: свой счёт — по умолчанию, выбран первый свободный, основной в выборе нет', () => {
+        const html = renderToStaticMarkup(<CreateFundModal accounts={[main, sav, dep]} funds={[nzCard, otpuskSav]}
+            onClose={noop} onSuccess={noop} onAccountAdded={noop} />);
+        expect(html).toMatch(/<input type="radio" name="fund-where"[^>]*checked=""[^>]*>[\s\S]*?На своём счёте/);
+        expect(checked(html, 'dep')).toBe(true);
+        expect(html).not.toContain('value="main"');
+        expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Накопительный — здесь копилка «Отпуск»<\/button>/);
+    });
+
+    it('свободного счёта нет — ни один не выбран, «Новый счёт» рядом', () => {
+        const html = renderToStaticMarkup(<CreateFundModal accounts={[main, sav]} funds={[nzCard, otpuskSav]}
+            onClose={noop} onSuccess={noop} onAccountAdded={noop} />);
+        expect(html).not.toMatch(/<input[^>]*name="fund-account"[^>]*checked/);
+        expect(text(html)).toContain('Новый счёт');
+    });
+
+    it('заведённый здесь счёт выбран сразу — и у новой цели, и у НЗ', () => {
+        expect(read('./Funds.tsx')).toContain('onAdded={(a) => { setAdding(false); onAccountAdded(a); setAccountId(a.id); }} />');
+        expect(read('../components/pocket/NzSheet.tsx')).toContain('onAdded={(a) => { setAdding(false); onAccountAdded(a); setAccountId(a.id); }} />');
     });
 
     it('счёт уходит только с ответом «На своём счёте»; без счёта цель не создать', () => {
@@ -166,9 +189,19 @@ describe('лист НЗ (п. 19; S4-G2) — оба «Где лежит»', () =>
         expect(form(nzCard)).not.toMatch(/<button[^>]*disabled=""[^>]*>Сохранить<\/button>/);
     });
 
+    it('на основной счёт не уходит; нечитаемую сумму не сохранить', () => {
+        const src = read('../components/pocket/NzSheet.tsx');
+        expect(src).toContain('reserveDto(nz, { accountId: onAccount ? accountId : null, keep: amount ?? 0 })');
+        expect(src).toContain('(onAccount ? accountId != null : amount == null || Number.isFinite(amount));');
+    });
+
     it('лист открывают оба места: «почему столько» на «Сегодня» и карточка кармашка, и карточка НЗ в «Целях»', () => {
         expect(read('./Today.tsx')).toContain("<NzSheet open={sheet === 'nz'}");
         expect(read('../components/PocketCard.tsx')).toContain('<NzSheet');
-        expect(read('./Funds.tsx')).toContain('<NzSheet open={nzSheet != null} toAccount={nzSheet?.toAccount}');
+        const page = read('./Funds.tsx');
+        expect(page).toContain('<NzSheet open={nzSheet != null} toAccount={nzSheet?.toAccount}');
+        // НЗ — первой карточкой; «Перенести на свой счёт» открывает лист сразу на своём счёте.
+        expect(page).toMatch(/\{showFunds && nz && \(\s+<ReserveCard nz=\{nz\}/);
+        expect(page).toContain('onClick={() => onSheet(true)}>Перенести на свой счёт');
     });
 });

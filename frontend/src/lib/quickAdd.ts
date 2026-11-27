@@ -210,6 +210,40 @@ export function creditOffered(p: {
 export const creditAsks = (amount: number | null, cards: number | null, onCredit: boolean): boolean =>
     !onCredit && amount != null && cards != null && amount > cards;
 
+/**
+ * «В кредит» в форме (п. 17): отметка действует, только если галочка предложена; вопрос — у новой записи с «Записать»,
+ * когда сумма больше, чем на картах; пометка под суммой — у новой записи с отметкой и той же суммой.
+ *
+ * @param p.cards «на картах» — то же число, что в плитке шапки; null — ещё не пришло
+ */
+export function creditForm(p: {
+    offered: boolean; isNew: boolean; record: boolean; onCredit: boolean; amount: number | null; cards: number | null;
+}): { credit: boolean; asks: boolean; over: boolean } {
+    const credit = p.offered && p.onCredit;
+    const more = p.amount != null && p.cards != null && p.amount > p.cards;
+    return {
+        credit,
+        asks: p.isNew && p.offered && p.record && creditAsks(p.amount, p.cards, p.onCredit),
+        over: p.isNew && credit && more,
+    };
+}
+
+/**
+ * Строка над кнопкой (S4-K1, S4-G4): в кредит — что будет; сумма больше, чем на картах, — вопрос; перевод в копилку на
+ * своём счёте — что станет на картах и на счёте, потом «Свободно»; иначе — что со «Свободно». Правка — всегда о «Свободно».
+ */
+export function formLine(p: {
+    isNew: boolean; record: boolean; credit: boolean; asks: boolean; transfer: boolean;
+    fund?: { name: string; account?: Pick<Account, 'name' | 'kind'> }; amount: number | null; effect: FreeEffect | null;
+}): string | null {
+    if (p.isNew && p.credit && p.record) return CREDIT_EFFECT;
+    if (p.asks) return CREDIT_ASK;
+    if (p.isNew && p.transfer && p.fund?.account && p.amount != null && p.amount > 0) {
+        return [accountFundLine(p.fund.name, p.fund.account, p.amount), afterLine(p.effect)].filter(Boolean).join(' ');
+    }
+    return effectLine(p.effect);
+}
+
 export const CREDIT_EFFECT = 'В кредит: «Свободно» не изменится. Долг будет виден на кредитке, когда обновишь её остаток.';
 export const CREDIT_ASK = 'На картах столько нет. Это в кредит?';
 export const CREDIT_OVER_NOTE = 'Больше, чем на картах, — отметка стоит';

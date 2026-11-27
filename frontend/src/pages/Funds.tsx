@@ -133,7 +133,7 @@ export function FundWhere({ where, onWhere, choices, accountId, onAccount, onAdd
 
 // ─── Диалог создания фонда ───────────────────────────────────────────────────
 
-function CreateFundModal({ accounts, funds, onClose, onSuccess, onAccountAdded }: {
+export function CreateFundModal({ accounts, funds, onClose, onSuccess, onAccountAdded }: {
     accounts: Account[];
     funds: TargetFund[];
     onClose: () => void;

@@ -20,9 +20,9 @@ import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, WISHLIST_CHARACTER_NOTE, character
 import { dayLabel, editChips, factEditPatch, planEditDto, seriesOf, withCurrent } from '../lib/eventCard';
 import { TrashButton, writeDuplicate } from './journal/EventCard';
 import {
-    CREDIT_ASK, CREDIT_EFFECT, CREDIT_OVER_NOTE, ON_MAIN_NOTE, SAVINGS_ID, accountFundLine, afterLine, canSubmitQuickAdd, categoryChips,
-    chipOf, creditAsks, creditOffered, creditWritten, effectLine, formButtons, freeEffect, fundReserved, kindOf, repeatLabel, repeatOf,
-    transferFundChoice, type FormAction,
+    CREDIT_OVER_NOTE, ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, chipOf, creditForm, creditOffered,
+    creditWritten, formButtons, formLine, freeEffect, fundReserved, kindOf, repeatLabel, repeatOf, transferFundChoice,
+    type FormAction,
 } from '../lib/quickAdd';
 import { writeFailure } from '../lib/writeFailure';
 import { AttemptKeys } from '../lib/attemptKey';
@@ -118,7 +118,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const fundChoices = ev ? withCurrent(openFunds, funds ?? [], fundId) : openFunds;
     const fund = fundChoices.find(f => f.id === fundId);
     // Копилка на своём счёте (п. 20, S4-G4): деньги уходят с основной на её счёт.
-    const fundAccount = transfer && fund?.accountId ? accounts.find(a => a.id === fund.accountId) : undefined;
+    const fundAccount = fund?.accountId ? accounts.find(a => a.id === fund.accountId) : undefined;
 
     const amount = amountValue(amountRaw);
     // У правки повтор — только у серии и не у «Только этот»: план повтором не становится (PUT правила не заводит).
@@ -128,9 +128,9 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const main: FormAction = buttons[buttons.length - 1];
     // «В кредит» — у расхода без плана; у новой записи действует только на «Записать» (п. 17).
     const creditShown = creditOffered({ type, transfer, buttons, edit: ev });
-    const credit = creditShown && onCredit;
-    const asks = !ev && creditShown && main === 'record' && creditAsks(amount, pocket?.currentBalance ?? null, onCredit);
-    const overCards = credit && amount != null && pocket != null && amount > pocket.currentBalance;
+    const { credit, asks, over: overCards } = creditForm({
+        offered: creditShown, isNew: !ev, record: main === 'record', onCredit, amount, cards: pocket?.currentBalance ?? null,
+    });
 
     // Строка ожидания, к которой встанет запись, — у сервера (правило п. 1 на клиенте не повторяется).
     const previewKey = main === 'record' && !transfer && category ? `${category.id}|${date}|${type}|${kind}` : null;
@@ -274,13 +274,10 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const label = (a: FormAction) => (a === 'plan' ? 'Запланировать' : transfer ? 'Отложить' : 'Записать');
     const kinds = PRIORITY_ORDER.map(p => ({ value: p, label: PRIORITY_DOT_CONFIG[p].name }));
     const shownChips = moreOpen ? all : chosen && !chips.top.includes(chosen) ? [...chips.top, chosen] : chips.top;
-    // Над кнопкой: в кредит — что будет; сумма больше, чем на картах, — вопрос; копилка на своём счёте — что станет на картах
-    // и на счёте; иначе — что со «Свободно».
-    const lineText = !ev && credit && main === 'record' ? CREDIT_EFFECT
-        : asks ? CREDIT_ASK
-        : !ev && fundAccount && fund && amount != null && amount > 0
-            ? [accountFundLine(fund.name, fundAccount, amount), afterLine(effect)].filter(Boolean).join(' ')
-            : effectLine(effect);
+    const lineText = formLine({
+        isNew: !ev, record: main === 'record', credit, asks, transfer, amount, effect,
+        fund: fund && { name: fund.name, account: fundAccount },
+    });
 
     return (
         <FormSheet label={ev ? `${fact ? 'Запись' : 'План'} «${ev.description || ev.categoryName}»` : 'Записать'} onClose={onClose}>
@@ -305,7 +302,7 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
                     )}
                 </div>
             )}
-            <AmountField value={amountRaw} onChange={setAmountRaw} autoFocus note={!ev && overCards ? CREDIT_OVER_NOTE : undefined} />
+            <AmountField value={amountRaw} onChange={setAmountRaw} autoFocus note={overCards ? CREDIT_OVER_NOTE : undefined} />
             <div className="flex flex-wrap gap-1.5">
                 {categories == null
                     ? <span className="px-1 text-sf-note text-sf-muted">Загрузка…</span>
