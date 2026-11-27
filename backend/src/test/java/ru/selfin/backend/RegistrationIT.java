@@ -123,7 +123,8 @@ class RegistrationIT {
         consent("reserve-person");
         List<Map<String, Object>> funds = JsonPath.read(ok(get("/api/v1/funds"), "reserve-person"), "$.funds");
         assertThat(funds).singleElement().satisfies(f -> {
-            assertThat(f).containsEntry("name", "НЗ").containsEntry("reserve", true).containsEntry("accountId", null);
+            assertThat(f).containsEntry("name", "НЗ").containsEntry("reserve", true).containsEntry("accountId", null)
+                    .containsEntry("priority", 0);
             assertThat(((Number) f.get("targetAmount")).intValue()).isZero();
         });
         assertThat(JsonPath.<Number>read(ok(get("/api/v1/pocket"), "reserve-person"), "$.buffer").intValue()).isZero();
