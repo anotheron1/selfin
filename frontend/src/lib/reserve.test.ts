@@ -36,8 +36,9 @@ describe('НЗ', () => {
         expect(nzOnCardNote(0)).toBe(NZ_OWN_ACCOUNT_EASIER);
     });
 
-    it('свой счёт НЗ — без основной: привязка к ней — 400', () => {
-        const acc = (id: string, isDefault: boolean) => ({ id, name: id, kind: 'DEBIT', trackBalance: true, isDefault }) as Account;
-        expect(reserveAccounts([acc('main', true), acc('dep', false)], [nz], nz).map(c => c.id)).toEqual(['dep']);
+    it('свой счёт НЗ — только накопительная: основная и карта «на всё» и так в «Свободно», привязка к ним — 400', () => {
+        const acc = (id: string, kind: Account['kind'], isDefault = false) => ({ id, name: id, kind, trackBalance: true, isDefault }) as Account;
+        expect(reserveAccounts([acc('main', 'DEBIT', true), acc('second', 'DEBIT'), acc('cash', 'CASH'), acc('dep', 'DEPOSIT')], [nz], nz)
+            .map(c => c.id)).toEqual(['dep']);
     });
 });

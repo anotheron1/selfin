@@ -262,7 +262,6 @@ ENDPOINTS=(
   /capital/items
   /capital/summary
   /capital/trajectory
-  /settings/pocket
   /settings/wishlist
   /strategy/timeline
   /wishlist/simulation

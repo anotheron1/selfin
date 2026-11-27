@@ -23,11 +23,11 @@ export const nzOnCardNote = (keep: number): string =>
         : NZ_OWN_ACCOUNT_EASIER;
 
 /**
- * Счета для «На своём счёте» — те же, что у новой цели (`ownAccountChoices`): НЗ на основной лежит без счёта, а привязка
- * к ней — 400 (`TargetFundService.validateAccountLink`).
+ * Счета для «На своём счёте» — только накопительные: НЗ на счёте с карт не вычитается, а остаток основной и карты
+ * «на всё» и так в «Свободно». Привязка к ним — 400 (`TargetFundService.validateAccountLink`).
  */
 export const reserveAccounts = (accounts: Account[], funds: TargetFund[], nz: TargetFund): AccountChoice[] =>
-    ownAccountChoices(accounts, funds, nz.id);
+    ownAccountChoices(accounts.filter(a => a.kind === 'DEPOSIT'), funds, nz.id);
 
 /**
  * Строка над «Сохранить» (S4-G2): «Свободно» сейчас и что в нём уже вычтено. Срок — как в шапке: на «Сегодня» может быть

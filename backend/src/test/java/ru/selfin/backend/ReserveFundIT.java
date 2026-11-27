@@ -123,7 +123,7 @@ class ReserveFundIT {
     }
 
     @Test
-    @DisplayName("НЗ не удаляется — 400 с ответом про деньги и без него; к основной не привязывается — 400")
+    @DisplayName("НЗ не удаляется — 400 с ответом про деньги и без него; к основной и к карте «на всё» не привязывается — 400")
     void reserve_notDeleted_notOnMainAccount() throws Exception {
         String id = reserve().get("id").asText();
         mvc.perform(delete("/api/v1/funds/{id}", id)).andExpect(status().isBadRequest());
@@ -132,6 +132,14 @@ class ReserveFundIT {
 
         String main = jdbc.queryForObject("SELECT id::text FROM accounts WHERE user_id = ? AND is_default", String.class, me);
         edit("30000", main).andExpect(status().isBadRequest());
+        assertThat(reserve().get("accountId").isNull()).isTrue();
+
+        // Карта «на всё» ответом не заводится (п. 10) — накопительная, правленная в дебетовую. Её остаток в «Свободно»:
+        // НЗ на ней стал бы тратимым.
+        String second = deposit("20000");
+        mvc.perform(put("/api/v1/accounts/{id}", second).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Вторая\",\"kind\":\"DEBIT\",\"trackBalance\":true}")).andExpect(status().isOk());
+        edit("30000", second).andExpect(status().isBadRequest());
         assertThat(reserve().get("accountId").isNull()).isTrue();
     }
 

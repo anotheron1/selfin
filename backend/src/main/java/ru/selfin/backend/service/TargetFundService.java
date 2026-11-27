@@ -263,9 +263,9 @@ public class TargetFundService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "A goal needs a tracked balance: turn balance tracking on for this account first");
         }
-        // Срез 4, п. 7: НЗ на основной — без счёта. Привязанный к ней, он стал бы «на своём счёте»: «Свободно» перестало бы
-        // держать запас, а НЗ показал бы весь остаток основной.
-        if (reserve && account.isDefaultAccount()) {
+        // Срез 4, пп. 7, 19: свой счёт НЗ — накопительная. НЗ на счёте вычитает 0, а остаток основной и карты «на всё»
+        // и так в «Свободно»: привязанный к ним, НЗ стал бы тратимым (ревью Codex на #250). На основной НЗ — без счёта.
+        if (reserve && account.getKind() != AccountKind.DEPOSIT) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "The reserve lies on the main card without an account; its own account is a deposit or savings");
         }
