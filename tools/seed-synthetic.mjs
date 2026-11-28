@@ -287,7 +287,9 @@ await post(`/wishlist/items/${tent.id}/convert`, {
 });
 
 // ── Настройки, капитал ──────────────────────────────────────────────────────
-await put('/settings/pocket', { bufferAmount: 10000 });
+// Срез 4, п. 7: НЗ — копилка, «сколько держать» на основной правится как любая цель; `/settings/pocket` снят.
+const nz = (await get('/funds')).funds.find((f) => f.reserve);
+await put(`/funds/${nz.id}`, { name: nz.name, targetAmount: 10000 });
 await put('/settings/wishlist', { capitalThresholdRub: 500000 });   // Р5: подушка одна — НЗ
 const flat = await post('/capital/items', { kind: 'ASSET', name: 'Квартира', initialValue: 8000000, initialValuedAt: day(-365) });
 await post(`/capital/items/${flat.id}/revaluations`, { value: 8400000, valuedAt: day(-30), note: 'оценка' });
