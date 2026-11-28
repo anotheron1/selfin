@@ -5,13 +5,14 @@ import {
     fetchPocket, patchEventFact, transferToFund, updateEvent,
 } from '../api';
 import type {
-    Category, FactPreview, FinancialEvent, FinancialEventCreateDto, Priority, RecurringFrequency, ScopeEnum, TargetFund,
+    Account, Category, FactPreview, FinancialEvent, FinancialEventCreateDto, Priority, RecurringFrequency, ScopeEnum, TargetFund,
 } from '../types/api';
-import { Button, Choices, Chip, Field } from '@/ds';
+import { Button, Choices, Chip, Field, Flag } from '@/ds';
 import { amountRawInput, amountValue } from './ui/amount-input';
 import { AmountField, DateChips } from './formParts';
 import FormSheet from './FormSheet';
 import UndoToast from './UndoToast';
+import { openUpdateBalances } from './frame/AppFrame';
 import { ApiError } from '../api/client';
 import { latestAllowedIso } from '../lib/factDate';
 import { fmtDayShort, fmtRub } from '../lib/format';
@@ -19,14 +20,15 @@ import { PRIORITY_DOT_CONFIG, PRIORITY_ORDER, WISHLIST_CHARACTER_NOTE, character
 import { dayLabel, editChips, factEditPatch, planEditDto, seriesOf, withCurrent } from '../lib/eventCard';
 import { TrashButton, writeDuplicate } from './journal/EventCard';
 import {
-    ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, chipOf, effectLine, formButtons, freeEffect, fundReserved, kindOf,
-    repeatLabel, repeatOf, transferFundChoice, type FormAction,
+    CREDIT_OVER_NOTE, ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, chipOf, creditForm, creditOffered,
+    creditWritten, formButtons, formLine, freeEffect, fundReserved, kindOf, repeatLabel, repeatOf, transferFundChoice,
+    type FormAction,
 } from '../lib/quickAdd';
 import { writeFailure } from '../lib/writeFailure';
 import { AttemptKeys } from '../lib/attemptKey';
 
-/** Что записано — для строки снизу и «Отменить» (S3-F3). */
-interface Written { text: string; undo: () => Promise<unknown> }
+/** Что записано — для строки снизу и «Отменить» (S3-F3); в кредит — ещё «Обновить кредитку» (S4-K2). */
+interface Written { text: string; undo: () => Promise<unknown>; credit?: boolean }
 
 const SCOPES = [
     { value: 'THIS', label: 'Только этот' }, { value: 'FOLLOWING', label: 'Этот и дальше' }, { value: 'ALL', label: 'Всю серию' },
@@ -76,10 +78,14 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const [moreOpen, setMoreOpen] = useState(false);
     const [categories, setCategories] = useState<Category[] | null>(null);
     const [funds, setFunds] = useState<TargetFund[] | null>(null);
-    const [mainId, setMainId] = useState<string>();
+    const [accounts, setAccounts] = useState<Account[]>([]);
     const [pocket, setPocket] = useState<{
         checkpointDate: string | null; horizon: { endDate: string; label: string }; trajectory: { date: string; balance: number }[];
+        /** «На картах» — то же число, что в плитке шапки: больше него — вопрос «Это в кредит?» (п. 17). */
+        currentBalance: number;
     } | null>(null);
+    // «В кредит» (срез 4, п. 17): у правки — отметка записи.
+    const [onCredit, setOnCredit] = useState(ev?.onCredit ?? false);
     const [line, setLine] = useState<{ key: string; value: FactPreview | null } | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -89,7 +95,11 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
 
     useEffect(() => { fetchCategories().then(setCategories).catch(() => setCategories([])); }, []);
     // Для строки о «Свободно»: дата сверки и до какого дня оно считается. Не пришло — строки нет.
-    useEffect(() => { fetchPocket().then(p => setPocket({ checkpointDate: p.checkpointDate, horizon: p.horizon, trajectory: p.trajectory })).catch(() => {}); }, []);
+    useEffect(() => {
+        fetchPocket().then(p => setPocket({
+            checkpointDate: p.checkpointDate, horizon: p.horizon, trajectory: p.trajectory, currentBalance: Number(p.currentBalance),
+        })).catch(() => {});
+    }, []);
 
     // Правка — свои чипы (lib/eventCard editChips): у записи к брони и у перевода на виду только своя категория.
     const chips = ev ? editChips(categoryChips(categories ?? [], type), ev, type, categories != null) : categoryChips(categories ?? [], type);
@@ -99,14 +109,16 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const category = categories?.find(c => c.id === categoryId);
     useEffect(() => {
         if (transfer && funds == null) Promise.all([fetchFunds(), fetchAccounts().catch(() => [])])
-            .then(([d, accounts]) => { setMainId(accounts.find(a => a.isDefault)?.id); setFunds(d.funds); })
+            .then(([d, all]) => { setAccounts(all); setFunds(d.funds); })
             .catch(() => setFunds([]));
     }, [transfer, funds]);
     // Копилка на основной перевода не принимает — в списке её нет, под списком строка почему.
-    const { choices: openFunds, onMain } = transferFundChoice(funds ?? [], mainId);
+    const { choices: openFunds, onMain } = transferFundChoice(funds ?? [], accounts.find(a => a.isDefault)?.id);
     // Правка перевода в копилку, которой в списке нет (достигнута), — она остаётся выбранной.
     const fundChoices = ev ? withCurrent(openFunds, funds ?? [], fundId) : openFunds;
     const fund = fundChoices.find(f => f.id === fundId);
+    // Копилка на своём счёте (п. 20, S4-G4): деньги уходят с основной на её счёт.
+    const fundAccount = fund?.accountId ? accounts.find(a => a.id === fund.accountId) : undefined;
 
     const amount = amountValue(amountRaw);
     // У правки повтор — только у серии и не у «Только этот»: план повтором не становится (PUT правила не заводит).
@@ -114,6 +126,11 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     const repeatOn = ev ? series && scope !== 'THIS' : repeat != null && !transfer && date >= today;
     const buttons = formButtons(date, today, repeatOn);
     const main: FormAction = buttons[buttons.length - 1];
+    // «В кредит» — у расхода без плана; у новой записи действует только на «Записать» (п. 17).
+    const creditShown = creditOffered({ type, transfer, buttons, edit: ev });
+    const { credit, asks, over: overCards } = creditForm({
+        offered: creditShown, isNew: !ev, record: main === 'record', onCredit, amount, cards: pocket?.currentBalance ?? null,
+    });
 
     // Строка ожидания, к которой встанет запись, — у сервера (правило п. 1 на клиенте не повторяется).
     const previewKey = main === 'record' && !transfer && category ? `${category.id}|${date}|${type}|${kind}` : null;
@@ -170,9 +187,15 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
             } else if (action === 'record') {
                 const made = await createStandaloneFact(attempts, {
                     date, categoryId: chosen!.id, type, factAmount: amount, description: description || undefined,
-                    priority: kind, rawInput,
+                    priority: kind, rawInput, onCredit: credit || undefined,
                 });
                 undo = () => deleteEvent(made.id);
+                // S4-K2: «Свободно» не изменилось, «Обновить кредитку», «Отменить».
+                if (credit) {
+                    setWritten({ text: creditWritten(name, amount), undo, credit: true });
+                    onSuccess();
+                    return;
+                }
             } else {
                 // План; повтор — только у плана, число — из даты формы. У перевода повтора нет.
                 const plan = await createPlanWithFact(attempts, transfer
@@ -207,7 +230,9 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
         try {
             const rawInput = amountRawInput(amountRaw);
             if (fact) {
-                await patchEventFact(ev.id, factEditPatch(ev, { amount, description, rawInput, date, categoryId: categoryId!, kind }));
+                await patchEventFact(ev.id, factEditPatch(ev, {
+                    amount, description, rawInput, date, categoryId: categoryId!, kind, onCredit: creditShown ? onCredit : undefined,
+                }));
             } else {
                 await updateEvent(ev.id, planEditDto(ev, {
                     date, categoryId: categoryId!, type, amount, kind, description, rawInput, fundId,
@@ -242,13 +267,17 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
     if (written) {
         // 404 — запись уже снята: повтор после потерянного ответа — тоже отмена (ревью Codex #235).
         const undo = () => written.undo().catch(e => { if (!(e instanceof ApiError && e.status === 404)) throw e; });
-        return <UndoToast text={written.text} onUndo={() => undo().then(onSuccess)} onDone={onClose} />;
+        return <UndoToast text={written.text} onUndo={() => undo().then(onSuccess)} onDone={onClose}
+            onRefresh={written.credit ? () => { openUpdateBalances(); onClose(); } : undefined} />;
     }
 
     const label = (a: FormAction) => (a === 'plan' ? 'Запланировать' : transfer ? 'Отложить' : 'Записать');
     const kinds = PRIORITY_ORDER.map(p => ({ value: p, label: PRIORITY_DOT_CONFIG[p].name }));
     const shownChips = moreOpen ? all : chosen && !chips.top.includes(chosen) ? [...chips.top, chosen] : chips.top;
-    const lineText = effectLine(effect);
+    const lineText = formLine({
+        isNew: !ev, record: main === 'record', credit, asks, transfer, amount, effect,
+        fund: fund && { name: fund.name, account: fundAccount },
+    });
 
     return (
         <FormSheet label={ev ? `${fact ? 'Запись' : 'План'} «${ev.description || ev.categoryName}»` : 'Записать'} onClose={onClose}>
@@ -258,12 +287,22 @@ export default function QuickAddModal({ onClose, onSuccess, preset, edit }: {
                 </span>
             )}
             {/* Тип у записи и у перевода не правится: PATCH его не берёт, перевод остаётся переводом. */}
-            {!(ev && (fact || ev.type === 'FUND_TRANSFER')) && (
-                <Choices name="type" label="Расход или доход" value={type}
-                    options={[{ value: 'EXPENSE', label: 'Расход' }, { value: 'INCOME', label: 'Доход' }]}
-                    onChange={(v) => { setType(v as 'EXPENSE' | 'INCOME'); setCategoryId(undefined); if (!ev) setKind('MEDIUM'); }} />
+            {(!(ev && (fact || ev.type === 'FUND_TRANSFER')) || creditShown) && (
+                <div className="flex items-center gap-1.5">
+                    {!(ev && (fact || ev.type === 'FUND_TRANSFER')) && (
+                        <Choices name="type" label="Расход или доход" value={type} className="min-w-0 flex-1"
+                            options={[{ value: 'EXPENSE', label: 'Расход' }, { value: 'INCOME', label: 'Доход' }]}
+                            onChange={(v) => { setType(v as 'EXPENSE' | 'INCOME'); setCategoryId(undefined); if (!ev) setKind('MEDIUM'); }} />
+                    )}
+                    {/* «В кредит» (S4-K1) — справа от «Расход | Доход»; сумма больше, чем на картах, — вопрос, одно касание. */}
+                    {creditShown && (
+                        <Flag ask={asks} checked={onCredit} onChange={(e) => setOnCredit(e.target.checked)}>
+                            {asks ? 'В кредит?' : 'В кредит'}
+                        </Flag>
+                    )}
+                </div>
             )}
-            <AmountField value={amountRaw} onChange={setAmountRaw} autoFocus />
+            <AmountField value={amountRaw} onChange={setAmountRaw} autoFocus note={overCards ? CREDIT_OVER_NOTE : undefined} />
             <div className="flex flex-wrap gap-1.5">
                 {categories == null
                     ? <span className="px-1 text-sf-note text-sf-muted">Загрузка…</span>

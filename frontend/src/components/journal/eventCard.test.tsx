@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
 vi.mock('../../api', async (orig) => ({ ...(await orig<object>()), ...api }));
 const { default: EventCard, writeDuplicate } = await import('./EventCard');
 const { AttemptKeys } = await import('../../lib/attemptKey');
+const { fmtRub } = await import('../../lib/format');
 const { default: QuickAddModal } = await import('../Fab');
 
 const ev = (over: Partial<FinancialEvent>): FinancialEvent => ({
@@ -39,6 +40,21 @@ const card = (e: FinancialEvent, pay?: QuickClose) => text(renderToStaticMarkup(
     <EventCard event={e} today={TODAY} pay={pay} onClose={() => {}} onEdit={() => {}} onPaid={() => {}} onOwn={() => {}} onWritten={() => {}} />));
 const form = (e: FinancialEvent, scope: ScopeEnum = 'FOLLOWING') => renderToStaticMarkup(
     <QuickAddModal edit={{ event: e, scope }} onClose={() => {}} onSuccess={() => {}} />);
+
+describe('«В кредит» в карточке и правке (срез 4, п. 18)', () => {
+    const OWN = { ...FACT, parentEventId: null, parentPlanPriority: null, parentPlanDescription: null };
+    it('отмеченная запись — строка «В кредит»; без отметки строки нет', () => {
+        expect(card({ ...OWN, onCredit: true })).toContain('В кредит да');
+        expect(card(OWN)).not.toContain('В кредит');
+    });
+    it('правка расхода без плана — галочка с отметкой записи; у записи к плану и у дохода галочки нет', () => {
+        expect(form({ ...OWN, onCredit: true })).toMatch(new RegExp('type="checkbox"[^>]*checked=""[^>]*/>.*В кредит'));
+        expect(form(OWN)).not.toMatch(new RegExp('type="checkbox"[^>]*checked=""'));
+        expect(form(OWN)).toContain('В кредит');
+        expect(form(FACT)).not.toContain('В кредит');
+        expect(form({ ...OWN, type: 'INCOME' })).not.toContain('В кредит');
+    });
+});
 
 describe('карточка записи (S3-E2a)', () => {
     const t = card(FACT);
@@ -181,6 +197,20 @@ describe('writeDuplicate', () => {
         expect(w.text).toBe('Записано: Пятёрочка, 1 240 ₽. «Свободно» меньше на 1 240 ₽.'.replace(/ (?=\d{3}|₽)/g, '\u00a0'));
         await w.undo();
         expect(api.deleteEvent).toHaveBeenCalledWith('new');
+    });
+    it('«в кредит» — копия с отметкой, строка S4-K2 с «Обновить кредитку», «Отменить» снимает её', async () => {
+        api.createStandaloneFact.mockClear();
+        api.fetchFactPreview.mockClear();
+        api.createStandaloneFact.mockResolvedValue({ id: 'credit' });
+        api.deleteEvent.mockResolvedValue(undefined);
+        const w = await writeDuplicate({ ...FACT, parentEventId: null, onCredit: true, description: 'Ремонт', factAmount: 250000 },
+            TODAY, new AttemptKeys());
+        expect(api.createStandaloneFact.mock.calls[0][1]).toMatchObject({ date: TODAY, factAmount: 250000, onCredit: true });
+        expect(api.fetchFactPreview).not.toHaveBeenCalled();
+        expect(w.credit).toBe(true);
+        expect(w.text).toBe(`В кредит: Ремонт, ${fmtRub(250000)}. «Свободно» не изменилось — обнови кредитку, чтобы видеть долг.`);
+        await w.undo();
+        expect(api.deleteEvent).toHaveBeenCalledWith('credit');
     });
     it('строка ожидания не пришла — про «Свободно» молчит', async () => {
         api.fetchPocket.mockResolvedValue(POCKET);

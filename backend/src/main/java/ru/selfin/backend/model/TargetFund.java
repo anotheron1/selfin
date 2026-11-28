@@ -66,6 +66,15 @@ public class TargetFund {
     @Builder.Default
     private boolean service = false;
 
+    /**
+     * НЗ — копилка-запас (срез 4, п. 7; V40): одна у человека, не удаляется. Без счёта лежит на основной карте:
+     * «Свободно» держит её «сколько держать» ({@code targetAmount}) и переводов она не принимает. На своём счёте —
+     * остаток счёта, с карт не вычитается.
+     */
+    @Column(name = "is_reserve", nullable = false)
+    @Builder.Default
+    private boolean reserve = false;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "purchase_type", nullable = false)
     @Builder.Default

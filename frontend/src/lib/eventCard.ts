@@ -114,14 +114,19 @@ export function factNote(e: FinancialEvent): string | null {
 export const duplicateOf = (e: FinancialEvent, today: string): StandaloneFactCreateDto => ({
     date: today, categoryId: e.categoryId, type: e.type, factAmount: e.factAmount ?? 0,
     description: e.description ?? undefined, priority: e.priority, rawInput: e.rawInput ?? undefined,
+    // Срез 4, п. 17: «Ещё раз» переносит отметку «в кредит».
+    onCredit: e.onCredit || undefined,
 });
 
-/** Правка записи (п. 2): сумма, название, дата, категория, вид. Та же категория не шлётся — у записи к брони её нельзя. */
+/**
+ * Правка записи (п. 2): сумма, название, дата, категория, вид. Та же категория не шлётся — у записи к брони её нельзя.
+ * «В кредит» (срез 4, п. 18) — только у расхода без плана: у остальных `undefined`, и поле не шлётся.
+ */
 export const factEditPatch = (e: FinancialEvent, f: {
-    amount: number; description: string; rawInput?: string; date: string; categoryId: string; kind: Priority;
+    amount: number; description: string; rawInput?: string; date: string; categoryId: string; kind: Priority; onCredit?: boolean;
 }) => ({
     factAmount: f.amount, description: f.description || undefined, rawInput: f.rawInput, date: f.date,
-    categoryId: f.categoryId !== e.categoryId ? f.categoryId : undefined, priority: f.kind,
+    categoryId: f.categoryId !== e.categoryId ? f.categoryId : undefined, priority: f.kind, onCredit: f.onCredit,
 });
 
 /**

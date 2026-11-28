@@ -71,7 +71,7 @@ describe('места ANO-245 говорят словами экрана', () => 
     });
 
     it('НЗ, обновление остатков и пороги «Хотелок» — writeFailure', () => {
-        expect(read('components/pocket/NzForm.tsx')).toMatch(/setError\(writeFailure\(err\)\)/);
+        expect(read('components/pocket/NzSheet.tsx')).toMatch(/setError\(writeFailure\(err\)\)/);
         expect(read('components/money/UpdateBalancesSheet.tsx')).toMatch(/setError\(writeFailure\(err\)\)/);
         expect(read('components/wishlist/WishlistThresholdsHeader.tsx')).toMatch(/setSaveError\(writeFailure\(e\)\)/);
     });

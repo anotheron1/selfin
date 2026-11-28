@@ -147,7 +147,9 @@ const fundWay = (amount: number | null) => ((amount ?? 0) < 0 ? 'из копил
 function recordRow(e: FinancialEvent, byId: Map<string, FinancialEvent>): JournalRow {
     const sub = e.type === 'FUND_TRANSFER'
         ? `Накопление · ${fundWay(e.factAmount ?? e.plannedAmount)}`
-        : [e.description ? e.categoryName : null, e.eventKind === 'FACT' ? linkWord(e, byId) : null].filter(Boolean).join(' · ');
+        : [e.description ? e.categoryName : null, e.eventKind === 'FACT' ? linkWord(e, byId) : null,
+            // Срез 4, п. 18 (S4-K2): «Жильё и быт · в кредит».
+            e.onCredit ? 'в кредит' : null].filter(Boolean).join(' · ');
     return {
         event: e, fact: true, kind: KIND[e.priority], name: nameOf(e), sub,
         amount: e.factAmount ?? e.plannedAmount, income: e.type === 'INCOME', muted: false,

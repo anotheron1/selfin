@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
-import { FUND_ON_ACCOUNT } from './fundMovement';
+import { FUND_CLOSED } from './fundMovement';
 import {
     DELETE_FAILED, FUND_HOLDS_MONEY, WRITE_FAILED,
     asksWhereMoney, attempt, deleteFailure, deleteTogether, dismissFailure, writeFailure,
@@ -33,7 +33,7 @@ describe('фраза отказа записи', () => {
     });
 
     it('отказ копилки с кодом — её словами, как везде (ANO-169)', () => {
-        expect(writeFailure(refused(409, FUND_ON_ACCOUNT, 'fund:Отпуск'))).toContain('«Отпуск» лежит на счёте');
+        expect(writeFailure(refused(409, FUND_CLOSED, 'fund:Отпуск'))).toContain('«Отпуск» удалена');
     });
 
     it('те же слова, что в «Записать факт» и листе правки: одна фраза на один случай', () => {

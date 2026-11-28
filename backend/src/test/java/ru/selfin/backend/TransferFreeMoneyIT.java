@@ -58,7 +58,15 @@ class TransferFreeMoneyIT {
         jdbc.update("DELETE FROM target_funds");
         jdbc.update("DELETE FROM balance_checkpoints");
         jdbc.update("DELETE FROM categories WHERE name LIKE 'ANO-88 %'");
-        jdbc.update("DELETE FROM user_settings");   // НЗ — снова 0
+    }
+
+    /** НЗ на основной карте (срез 4, п. 7): «сколько держать» — уровень, который «Свободно» не трогает. */
+    private void reserveOnCard(String keep) {
+        jdbc.update("""
+                INSERT INTO target_funds (id, name, target_amount, current_balance, status, purchase_type, is_deleted,
+                                          created_at, priority, is_reserve)
+                VALUES (gen_random_uuid(), 'НЗ', ?::numeric, 0, 'FUNDING', 'SAVINGS', false, now(), 0, true)
+                """, keep);
     }
 
     @Test
@@ -90,9 +98,7 @@ class TransferFreeMoneyIT {
     void transferIntoNz_asksAboutNz() throws Exception {
         // НЗ 5 000. Счёт 100 000, завтра бронь 90 000 → минимум 10 000, кармашек 5 000.
         // Перевод 8 000 → минимум 2 000: денег хватает, но из НЗ уйдёт 5 000 − 2 000 = 3 000.
-        mockMvc.perform(put("/api/v1/settings/pocket")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"bufferAmount\": 5000}"))
-                .andExpect(status().isOk());
+        reserveOnCard("5000");
         anchorDefaultAccount("100000");
         plan("EXPENSE", today.plusDays(1), "90000");
         String fundId = createFund("Отпуск", null, null, null);
@@ -160,9 +166,7 @@ class TransferFreeMoneyIT {
         // дохода: 50 000 + 60 000 − 100 000 = 10 000, кармашек 5 000.
         // Перевод 48 000: сегодня остаётся 2 000, а взнос в день дохода уменьшается на те же
         // 48 000 — там по-прежнему 10 000. Минимум переехал на сегодня: из НЗ уйдёт 3 000.
-        mockMvc.perform(put("/api/v1/settings/pocket")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"bufferAmount\": 5000}"))
-                .andExpect(status().isOk());
+        reserveOnCard("5000");
         LocalDate payday = YearMonth.from(today).plusMonths(1).atDay(5);
         anchorDefaultAccount("50000");
         plan("INCOME", payday, "60000");

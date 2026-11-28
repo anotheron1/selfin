@@ -8,7 +8,6 @@ import org.springframework.web.server.ResponseStatusException;
 import ru.selfin.backend.dto.MonthlyForecastDto;
 import ru.selfin.backend.dto.pocket.PocketResultDto;
 import ru.selfin.backend.dto.pocket.PocketScope;
-import ru.selfin.backend.dto.pocket.PocketSettingsDto;
 import ru.selfin.backend.repository.CategoryRepository;
 import ru.selfin.backend.repository.FinancialEventRepository;
 import ru.selfin.backend.repository.TargetFundRepository;
@@ -31,7 +30,6 @@ import static org.mockito.Mockito.*;
 class PocketServiceTest {
 
     private FinancialEventRepository eventRepository;
-    private UserSettingsService settingsService;
     private PredictionService predictionService;
     private RecurringRuleService recurringRuleService;
     private PocketService pocketService;
@@ -41,7 +39,6 @@ class PocketServiceTest {
     @BeforeEach
     void setUp() {
         eventRepository = mock(FinancialEventRepository.class);
-        settingsService = mock(UserSettingsService.class);
         predictionService = mock(PredictionService.class);
         recurringRuleService = mock(RecurringRuleService.class);
 
@@ -51,7 +48,6 @@ class PocketServiceTest {
         when(eventRepository.findOverdueMandatoryExpenses(any(), any())).thenReturn(List.of());
         when(eventRepository.findByWishlistStatusInAndDeletedFalse(any())).thenReturn(List.of());
         when(eventRepository.findPlannedIncomeDates(any(), any(), anyBoolean(), any())).thenReturn(List.of());
-        when(settingsService.getPocketSettings()).thenReturn(new PocketSettingsDto(BigDecimal.ZERO));
         when(predictionService.forecastFromEvents(any(), any(), any()))
                 .thenReturn(new MonthlyForecastDto(List.of(), BigDecimal.ZERO));
         TargetFundRepository fundRepository = mock(TargetFundRepository.class);
@@ -63,7 +59,7 @@ class PocketServiceTest {
                 .thenReturn(new AccountBalanceService.Snapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
 
         pocketService = new PocketService(new PocketInputAssembler(eventRepository,
-                settingsService, predictionService, recurringRuleService,
+                predictionService, recurringRuleService,
                 fundRepository, categoryRepository, accountBalanceService), eventRepository);
     }
 

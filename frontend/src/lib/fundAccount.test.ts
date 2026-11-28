@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { ENVELOPE, NO_TRANSFER, ON_ACCOUNT, accountChoices, fundAccountHint } from './fundAccount';
+import {
+    ENVELOPE, ON_ACCOUNT, ON_ACCOUNT_MOVES, ON_MAIN_WHERE, accountChoices, fundAccountHint, onAccountWhere, ownAccountChoices,
+} from './fundAccount';
 import type { Account } from '../types/api';
 
 /**
@@ -18,25 +20,26 @@ const UNLINKED = 'Накопленное снова покажет только 
 describe('слова копилки на счёте (ANO-164, ANO-174)', () => {
     it('общие строки — прежние слова выбора счёта', () => {
         expect(ON_ACCOUNT).toBe('Накопленное берётся с остатка счёта.');
-        expect(NO_TRANSFER).toBe('Пополнять переводом нельзя — двигай деньги на счёте и обновляй его остаток.');
+        expect(ON_ACCOUNT_MOVES).toBe('«Отложить» уводит деньги с основной карты на этот счёт; остаток счёта обновляй, '
+            + 'когда заглядываешь в банк.');
         expect(ENVELOPE).toBe('Копилка держит свой баланс на основной карте: перевод откладывает деньги '
             + 'из свободных, а с карты они не уходят.');
     });
 
-    it('новая копилка: конверт — свой баланс; на счёте — остаток счёта и запрет перевода', () => {
+    it('новая копилка: конверт — свой баланс; на счёте — остаток счёта и «Отложить» на него (срез 4, п. 6)', () => {
         expect(fundAccountHint({ linked: false, wasLinked: false, holdsOwnMoney: false })).toEqual([ENVELOPE]);
-        expect(fundAccountHint({ linked: true, wasLinked: false, holdsOwnMoney: false })).toEqual([ON_ACCOUNT, NO_TRANSFER]);
+        expect(fundAccountHint({ linked: true, wasLinked: false, holdsOwnMoney: false })).toEqual([ON_ACCOUNT, ON_ACCOUNT_MOVES]);
     });
 
     it('привязка конверта с деньгами говорит, что станет с переведённым', () => {
         // Замер 29.09: 1 000 в конверте, привязка к «Основной карте» — накоплено 53 900, капитал −1 000;
         // отвязка — всё обратно. С Р10-А капитал от привязки не меняется: деньги и так на карте.
         expect(fundAccountHint({ linked: true, wasLinked: false, holdsOwnMoney: true }))
-            .toEqual([ON_ACCOUNT, NO_TRANSFER, MOVED]);
+            .toEqual([ON_ACCOUNT, ON_ACCOUNT_MOVES, MOVED]);
     });
 
     it('копилка и была на счёте — про переведённое молчит: деньги уже не конверта', () => {
-        expect(fundAccountHint({ linked: true, wasLinked: true, holdsOwnMoney: true })).toEqual([ON_ACCOUNT, NO_TRANSFER]);
+        expect(fundAccountHint({ linked: true, wasLinked: true, holdsOwnMoney: true })).toEqual([ON_ACCOUNT, ON_ACCOUNT_MOVES]);
     });
 
     it('отвязка — накопленное снова своё', () => {
@@ -84,8 +87,11 @@ describe('карточка и выбор счёта берут слова из l
     // Компонентных тестов во фронте нет; убрать строку с карточки — правка в одну строку.
     const PAGE = '../pages/Funds.tsx';
 
-    it('карточка копилки на счёте говорит, почему её не пополнить (ANO-174)', () => {
-        expect(read(PAGE)).toMatch(/\{fund\.accountId && \([\s\S]*?Лежит на счёте[\s\S]*?\{NO_TRANSFER\}[\s\S]*?\)\}/);
+    it('карточка копилки на счёте — где лежит, «Отложить» и «Обновить остаток» (срез 4, п. 20; S4-G1)', () => {
+        const src = read(PAGE);
+        expect(src).toContain('{fund.accountId && (\n                        <p className="text-xs" style={{ color: \'var(--color-text-muted)\' }}>{onAccountWhere(account)}</p>'
+            .replace(/\n/g, src.includes('\r\n') ? '\r\n' : '\n'));
+        expect(src).toMatch(/\{fund\.accountId && \([\s\S]*?onSave\(fund\)\}>Отложить<[\s\S]*?onClick=\{openUpdateBalances\}>Обновить остаток</);
     });
 
     it('выбор счёта строит подсказку из fundAccountHint, своих строк у него нет', () => {
@@ -97,5 +103,27 @@ describe('карточка и выбор счёта берут слова из l
     it('лист правки передаёт, была ли копилка на счёте и лежат ли в ней деньги (ANO-164)', () => {
         expect(read(PAGE)).toMatch(
             /<FundAccountPicker accounts=\{accounts\} funds=\{funds\} selfId=\{fund\.id\} value=\{accountId\} onChange=\{setAccountId\}\s*wasLinked=\{fund\.accountId != null\} holdsOwnMoney=\{fund\.currentBalance !== 0\} \/>/);
+    });
+});
+describe('новая цель и НЗ: свой счёт — без основной; где лежит — имя и день обновления (срез 4, пп. 19–20)', () => {
+    const acc = (id: string, name: string, isDefault = false) =>
+        ({ id, name, kind: 'DEBIT' as const, trackBalance: true, isDefault });
+
+    it('основной в «На своём счёте» нет: на ней копилка лежит без счёта', () => {
+        expect(ownAccountChoices([acc('main', 'Основная', true), acc('dep', 'Вклад')], []))
+            .toEqual([{ id: 'dep', label: 'Вклад', taken: false }]);
+    });
+
+    it('занятый другой копилкой — виден, но недоступен; своя копилка свой счёт не занимает', () => {
+        const funds = [{ id: 'f1', name: 'Отпуск', accountId: 'dep' }];
+        expect(ownAccountChoices([acc('dep', 'Вклад')], funds)).toEqual([{ id: 'dep', label: 'Вклад — здесь копилка «Отпуск»', taken: true }]);
+        expect(ownAccountChoices([acc('dep', 'Вклад')], funds, 'f1')).toEqual([{ id: 'dep', label: 'Вклад', taken: false }]);
+    });
+
+    it('где лежит: имя счёта и день обновления; без обновления — одно имя; без счёта — основная', () => {
+        expect(onAccountWhere({ name: 'Вклад', balanceDate: '2026-11-01' })).toBe('лежит на «Вклад» · обновлён 1 нояб.');
+        expect(onAccountWhere({ name: 'Вклад', balanceDate: null })).toBe('лежит на «Вклад»');
+        expect(onAccountWhere(undefined)).toBe('лежит на своём счёте');
+        expect(ON_MAIN_WHERE).toBe('лежит на основной карте');
     });
 });

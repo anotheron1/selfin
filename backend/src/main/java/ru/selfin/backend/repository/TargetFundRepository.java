@@ -15,6 +15,9 @@ public interface TargetFundRepository extends JpaRepository<TargetFund, UUID> {
      */
     List<TargetFund> findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc();
 
+    /** НЗ человека (срез 4, п. 7): живой — один, его держит {@code uq_target_funds_owner_reserve}. */
+    java.util.Optional<TargetFund> findByReserveTrueAndDeletedFalse();
+
     // --- Wishlist ---
 
     List<TargetFund> findByWishlistStatusAndDeletedFalse(

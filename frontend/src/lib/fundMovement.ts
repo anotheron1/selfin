@@ -8,7 +8,6 @@ import { fmtRub } from './format';
  * Контракт зеркалит `FundMovementRefusedException` на бэкенде; текст сообщения им не служит.
  */
 export const FUND_HOLDS_LESS = 'FUND_HOLDS_LESS';
-export const FUND_ON_ACCOUNT = 'FUND_ON_ACCOUNT';
 export const FUND_CLOSED = 'FUND_CLOSED';
 
 /** Подсказка вида `ключ:значение`; значение может содержать двоеточие — имя копилки. */
@@ -36,8 +35,6 @@ export function fundMovementMessage(err: unknown): string | null {
             const now = Number.isFinite(holds) ? ` сейчас ${fmtRub(holds)}` : '';
             return `В копилке «${fund}»${now}: часть этих денег из неё уже взяли, и столько оттуда не убрать.`;
         }
-        case FUND_ON_ACCOUNT:
-            return `Копилка «${fund}» лежит на счёте: деньги в ней двигаются на самом счёте, переводы в неё не записываются.`;
         case FUND_CLOSED:
             return `Копилка «${fund}» удалена: её переводы остаются в журнале как история и не меняются.`;
         default:

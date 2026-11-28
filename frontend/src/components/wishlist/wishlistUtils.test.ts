@@ -92,7 +92,8 @@ describe('riskZones', () => {
         // Компонентных тестов нет: связку блока с НЗ держит исходник. Порог 0 вместо НЗ молча снял
         // бы весь жёлтый, а тесты функции остались бы зелёными.
         const block = readFileSync(new URL('../sandbox/CapitalWhatIf.tsx', import.meta.url), 'utf8');
-        expect(block).toContain('fetchPocketSettings()');
+        // НЗ — копилка (срез 4, п. 7): «сколько держать» считает сервер, то же число, что у «Свободно».
+        expect(block).toContain('.then(p => setNzLoaded(Number(p.buffer)))');
         expect(block.match(/riskZones\([^)]*, nz\)/g) ?? []).toHaveLength(2);
     });
     it('зона месяца рисуется полосой на ширину месяца: у оси X полосная шкала (сторож, ANO-221)', () => {

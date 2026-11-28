@@ -47,7 +47,6 @@ import type {
     WishlistCreateDto,
     WishlistSimulationDto,
     WishlistThresholds,
-    PocketSettings,
     HintsSettings,
     WishlistKind,
     WishlistStatus,
@@ -138,6 +137,8 @@ export const updateEvent = (id: string, dto: FinancialEventCreateDto, scope: Sco
  */
 export const patchEventFact = (id: string, body: {
     factAmount?: number; description?: string; rawInput?: string; date?: string; categoryId?: string; priority?: Priority;
+    /** «В кредит» (срез 4, п. 1): только у расхода без плана; правка отметки — запись встаёт к ожиданию заново. */
+    onCredit?: boolean;
 }) => patch<FinancialEvent>(`/events/${id}/fact`, body);
 
 /** Циклически меняет приоритет события (HIGH → MEDIUM → LOW → HIGH). */
@@ -200,13 +201,6 @@ export const fetchPocket = (scope?: string) =>
 /** Примерка «что если» (ANO-16): движок с подменённым входом, ничего не пишет. */
 export const postPocketSandbox = (body: SandboxRequest) =>
     postRead<SandboxResponse>('/pocket/sandbox', body);
-
-/** НЗ кармашка (ANO-92): сумма, которую кармашек не тратит. */
-export const fetchPocketSettings = () => get<PocketSettings>('/settings/pocket');
-
-/** Сохранить НЗ; 0 — НЗ нет (пустого значения сервер не принимает). */
-export const updatePocketSettings = (body: PocketSettings) =>
-    put<PocketSettings>('/settings/pocket', body);
 
 /** Подсказки первого дня (срез 2, п. 12): на сервере — телефон и компьютер видят одно. */
 export const fetchHintsSettings = () => get<HintsSettings>('/settings/hints');

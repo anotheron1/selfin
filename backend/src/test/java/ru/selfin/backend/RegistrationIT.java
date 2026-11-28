@@ -118,6 +118,19 @@ class RegistrationIT {
     }
 
     @Test
+    @DisplayName("новый человек — НЗ первой целью: на основной, «сколько держать» 0 (срез 4, п. 7)")
+    void newPersonGetsReserve() throws Exception {
+        consent("reserve-person");
+        List<Map<String, Object>> funds = JsonPath.read(ok(get("/api/v1/funds"), "reserve-person"), "$.funds");
+        assertThat(funds).singleElement().satisfies(f -> {
+            assertThat(f).containsEntry("name", "НЗ").containsEntry("reserve", true).containsEntry("accountId", null)
+                    .containsEntry("priority", 0);
+            assertThat(((Number) f.get("targetAmount")).intValue()).isZero();
+        });
+        assertThat(JsonPath.<Number>read(ok(get("/api/v1/pocket"), "reserve-person"), "$.buffer").intValue()).isZero();
+    }
+
+    @Test
     @DisplayName("синтетический владелец при связи набора не получает: данные у него свои")
     void syntheticOwnerGetsNoSet() throws Exception {
         long before = liveCategories(OwnerService.SYNTHETIC_OWNER);

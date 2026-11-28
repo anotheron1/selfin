@@ -105,7 +105,7 @@ public class TargetFundService {
                 .purchaseType(dto.purchaseType() != null ? dto.purchaseType() : FundPurchaseType.SAVINGS)
                 .creditRate(dto.creditRate())
                 .creditTermMonths(dto.creditTermMonths())
-                .accountId(validateAccountLink(dto.accountId(), null))
+                .accountId(validateAccountLink(dto.accountId(), null, false))
                 .build();
         TargetFund saved = fundRepository.save(fund);
         recordAccountLink(saved.getId(), null, saved.getAccountId());
@@ -158,7 +158,7 @@ public class TargetFundService {
         // Срез 4, п. 6: переводы, сделанные на счёт, остались на счёте — копилке возвращаются только движения вне
         // привязки. Считается после закрытия привязки: перевод дня отвязки — уже день конверта.
         boolean unlinking = fund.getAccountId() != null && dto.accountId() == null;
-        UUID accountId = validateAccountLink(dto.accountId(), fund.getId());
+        UUID accountId = validateAccountLink(dto.accountId(), fund.getId(), fund.isReserve());
         if (!Objects.equals(fund.getAccountId(), accountId)) requireNoMovementToday(fund);
         recordAccountLink(fund.getId(), fund.getAccountId(), accountId);
         fund.setAccountId(accountId);
@@ -246,7 +246,7 @@ public class TargetFundService {
                 ? FundStatus.REACHED : FundStatus.FUNDING);
     }
 
-    private UUID validateAccountLink(UUID accountId, UUID selfId) {
+    private UUID validateAccountLink(UUID accountId, UUID selfId, boolean reserve) {
         if (accountId == null) return null;
         Account account = accountRepository.findById(accountId)
                 .filter(a -> !a.isDeleted())
@@ -262,6 +262,12 @@ public class TargetFundService {
         if (!account.isTrackBalance()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "A goal needs a tracked balance: turn balance tracking on for this account first");
+        }
+        // Срез 4, пп. 7, 19: свой счёт НЗ — накопительная. НЗ на счёте вычитает 0, а остаток основной и карты «на всё»
+        // и так в «Свободно»: привязанный к ним, НЗ стал бы тратимым (ревью Codex на #250). На основной НЗ — без счёта.
+        if (reserve && account.getKind() != AccountKind.DEPOSIT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The reserve lies on the main card without an account; its own account is a deposit or savings");
         }
         fundRepository.findAllByDeletedFalseOrderByPriorityAscCreatedAtAscIdAsc().stream()
                 .filter(f -> accountId.equals(f.getAccountId()))
@@ -306,6 +312,10 @@ public class TargetFundService {
     public void delete(UUID id, FundMoneyDisposal disposal) {
         TargetFund fund = fundRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("TargetFund", id));
+        // Срез 4, п. 7: НЗ не удаляется — «Свободно» держится по нему; убрать запас — «сколько держать» 0.
+        if (fund.isReserve()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The reserve is not deleted: set its amount to 0");
+        }
         // Р2-Б: удалённая копилка-кредит не держит будущих платежей; прошедшие — история.
         creditPayments.unschedule(id);
 
@@ -752,7 +762,7 @@ public class TargetFundService {
                 balance, f.getAccountId(), f.getStatus(), f.getPriority(),
                 f.getTargetDate(), calcEstimatedCompletion(f, balance),
                 f.getPurchaseType(), f.getCreditRate(), f.getCreditTermMonths(),
-                f.getWishlistStatus());
+                f.getWishlistStatus(), f.isReserve());
     }
 
     /**
@@ -799,6 +809,12 @@ public class TargetFundService {
         // до среза 4.
         if (onDay != null && onDay.equals(links.defaultAccountId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A goal on the main card takes no transfers");
+        }
+        // Срез 4, п. 7: НЗ без счёта — уровень, ниже которого не опускаться, а не отложенные деньги. Перевод вычелся бы
+        // дважды: строкой «Уже в копилках» и уровнем НЗ.
+        if (fund.isReserve() && onDay == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The reserve on the main card takes no transfers: it is a level, not money set aside");
         }
         requireAccountUpdated(fund);
     }

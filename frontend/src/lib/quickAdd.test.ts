@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs';
 import {
     ON_MAIN_NOTE, SAVINGS_ID, afterLine, canSubmitQuickAdd, categoryChips, chipOf, effectLine, formButtons, freeEffect,
     fundReserved, kindOf, repeatLabel, repeatOf, transferFundChoice,
+    CREDIT_ASK, CREDIT_EFFECT, CREDIT_OVER_NOTE, accountFundLine, creditAsks, creditForm, creditOffered, creditWritten, formLine,
+    type FreeEffect,
 } from './quickAdd';
-import type { Category, TargetFund } from '../types/api';
+import { fmtRub } from './format';
+import type { Account, Category, FinancialEvent, TargetFund } from '../types/api';
 
 const TODAY = '2026-11-19';
 
@@ -247,6 +250,16 @@ describe('transferFundChoice', () => {
         expect(onMain).toBe(1);
     });
 
+    it('НЗ на основной — не в списке и не в счётчике: перевод в него сервер отвергает (срез 4, п. 7); НЗ на вкладе — в списке', () => {
+        const { choices, onMain } = transferFundChoice([
+            fund('НЗ', { reserve: true }), fund('конверт'),
+        ], 'main');
+        expect(choices.map(f => f.id)).toEqual(['конверт']);
+        expect(onMain).toBe(0);
+        expect(transferFundChoice([fund('НЗ', { reserve: true, accountId: 'deposit' })], 'main').choices.map(f => f.id))
+            .toEqual(['НЗ']);
+    });
+
     it('достигнутая копилка на основной в счётчик не входит — её не было в списке и раньше', () => {
         expect(transferFundChoice([fund('x', { accountId: 'main', status: 'REACHED' })], 'main').onMain).toBe(0);
     });
@@ -264,11 +277,11 @@ describe('форма «+» (срез 3 п. 12)', () => {
     it('кнопки — formButtons, «Сохранить» — canSubmitQuickAdd, копилки — transferFundChoice со строкой почему', () => {
         expect(src).toContain('formButtons(');
         expect(src).toContain('canSubmitQuickAdd({');
-        expect(src).toContain('transferFundChoice(funds ?? [], mainId)');
+        expect(src).toContain('transferFundChoice(funds ?? [], accounts.find(a => a.isDefault)?.id)');
         // выбранный чип — chipOf: «Отложить сюда» открывает форму с «Накоплением» человека
         expect(src).toContain('const chosen = chipOf(all, categoryId);');
         expect(src).toContain("value={chosen?.id ?? ''}");
-        expect(src).toContain("setMainId(accounts.find(a => a.isDefault)?.id)");
+        expect(src).toContain('.then(([d, all]) => { setAccounts(all); setFunds(d.funds); })');
         expect(src).toContain('{ON_MAIN_NOTE}');
         expect(ON_MAIN_NOTE).toContain('на основной');
     });
@@ -300,5 +313,128 @@ describe('форма «+» (срез 3 п. 12)', () => {
         expect(src).toContain('trajectory: pocket.trajectory');
         expect(src).toContain('deleteEvent(id)');
         expect(src).toContain('e instanceof ApiError && e.status === 404');
+    });
+});
+
+/** Срез 4, п. 17 (S4-K1): «В кредит» — у расхода без плана; вопрос — при сумме больше, чем на картах. */
+describe('creditOffered', () => {
+    const fact = (over: Partial<FinancialEvent> = {}) =>
+        ({ eventKind: 'FACT', type: 'EXPENSE', parentEventId: null, ...over }) as FinancialEvent;
+
+    it('новая запись: у расхода с «Записать» — есть; у дохода, у «Накопления» и у одного «Запланировать» — нет', () => {
+        expect(creditOffered({ type: 'EXPENSE', transfer: false, buttons: ['plan', 'record'] })).toBe(true);
+        expect(creditOffered({ type: 'EXPENSE', transfer: false, buttons: ['record'] })).toBe(true);
+        expect(creditOffered({ type: 'INCOME', transfer: false, buttons: ['plan', 'record'] })).toBe(false);
+        expect(creditOffered({ type: 'EXPENSE', transfer: true, buttons: ['plan', 'record'] })).toBe(false);
+        expect(creditOffered({ type: 'EXPENSE', transfer: false, buttons: ['plan'] })).toBe(false);
+    });
+    it('правка: у расхода без плана — есть; у записи к плану, у дохода, у перевода и у плана — нет', () => {
+        const offered = (e: FinancialEvent) => creditOffered({ type: 'EXPENSE', transfer: false, buttons: ['record'], edit: e });
+        expect(offered(fact())).toBe(true);
+        expect(offered(fact({ parentEventId: 'plan' }))).toBe(false);
+        expect(offered(fact({ type: 'INCOME' }))).toBe(false);
+        expect(offered(fact({ type: 'FUND_TRANSFER' }))).toBe(false);
+        expect(offered(fact({ eventKind: 'PLAN' }))).toBe(false);
+    });
+});
+
+describe('creditAsks', () => {
+    it('больше, чем на картах, и отметки нет — спрашивает; ровно столько, меньше, с отметкой или без числа — нет', () => {
+        expect(creditAsks(250_000, 48_800, false)).toBe(true);
+        expect(creditAsks(48_800, 48_800, false)).toBe(false);
+        expect(creditAsks(1_000, 48_800, false)).toBe(false);
+        expect(creditAsks(250_000, 48_800, true)).toBe(false);
+        expect(creditAsks(null, 48_800, false)).toBe(false);
+        expect(creditAsks(250_000, null, false)).toBe(false);
+    });
+    it('на картах минус — любая трата больше: вопрос', () => {
+        expect(creditAsks(1, -5_000, false)).toBe(true);
+    });
+});
+
+describe('слова «В кредит»', () => {
+    it('строка над кнопкой, вопрос и подпись под суммой — слова S4-K1', () => {
+        expect(CREDIT_EFFECT).toBe('В кредит: «Свободно» не изменится. Долг будет виден на кредитке, когда обновишь её остаток.');
+        expect(CREDIT_ASK).toBe('На картах столько нет. Это в кредит?');
+        expect(CREDIT_OVER_NOTE).toBe('Больше, чем на картах, — отметка стоит');
+    });
+    it('строка после записи — S4-K2', () => {
+        expect(creditWritten('Ремонт', 250_000))
+            .toBe(`В кредит: Ремонт, ${fmtRub(250_000)}. «Свободно» не изменилось — обнови кредитку, чтобы видеть долг.`);
+    });
+});
+
+/** Срез 4, п. 20 (S4-G4): «Накопление» в копилку на своём счёте — что станет на картах и на счёте. */
+describe('accountFundLine', () => {
+    const account = (over: Partial<Account>) => ({ id: 'a', name: 'Т-Вклад', kind: 'DEPOSIT', ...over }) as Account;
+    it('на накопительном — словами доски', () => {
+        expect(accountFundLine('Отпуск', account({}), 8_000))
+            .toBe(`«Отпуск» на накопительном: на картах станет на ${fmtRub(8_000)} меньше, на накопительном — на ${fmtRub(8_000)} больше.`);
+    });
+    it('на другой карте с остатком — её именем', () => {
+        expect(accountFundLine('Отпуск', account({ kind: 'DEBIT', name: 'Альфа' }), 8_000))
+            .toBe(`«Отпуск» на карте «Альфа»: на картах станет на ${fmtRub(8_000)} меньше, на «Альфа» — на ${fmtRub(8_000)} больше.`);
+    });
+});
+
+/** Срез 4, п. 17 (S4-K1): «В кредит» в форме — когда отметка действует, когда вопрос, когда пометка под суммой. */
+describe('creditForm', () => {
+    const base = { offered: true, isNew: true, record: true, onCredit: false, amount: 250_000, cards: 17_000 };
+
+    it('больше, чем на картах, без отметки — вопрос', () => {
+        expect(creditForm(base)).toEqual({ credit: false, asks: true, over: false });
+    });
+    it('отметка стоит — вопроса нет, пометка под суммой', () => {
+        expect(creditForm({ ...base, onCredit: true })).toEqual({ credit: true, asks: false, over: true });
+    });
+    it('галочка не предложена — отметка не действует, вопроса нет', () => {
+        expect(creditForm({ ...base, offered: false, onCredit: true })).toEqual({ credit: false, asks: false, over: false });
+        expect(creditForm({ ...base, offered: false }).asks).toBe(false);
+    });
+    it('правка — отметка действует, но ни вопроса, ни пометки', () => {
+        expect(creditForm({ ...base, isNew: false, onCredit: true })).toEqual({ credit: true, asks: false, over: false });
+        expect(creditForm({ ...base, isNew: false }).asks).toBe(false);
+    });
+    it('не «Записать» — вопроса нет', () => {
+        expect(creditForm({ ...base, record: false }).asks).toBe(false);
+    });
+    it('не больше, чем на картах, — ни вопроса, ни пометки', () => {
+        expect(creditForm({ ...base, amount: 17_000 }).asks).toBe(false);
+        expect(creditForm({ ...base, amount: 17_000, onCredit: true }).over).toBe(false);
+    });
+    it('«на картах» ещё не пришло или суммы нет — молчит, даже когда на картах минус', () => {
+        expect(creditForm({ ...base, cards: null })).toEqual({ credit: false, asks: false, over: false });
+        expect(creditForm({ ...base, cards: null, onCredit: true }).over).toBe(false);
+        expect(creditAsks(null, -5, false)).toBe(false);
+        expect(creditForm({ ...base, amount: null, cards: -5, onCredit: true }).over).toBe(false);
+    });
+});
+
+/** Срез 4, пп. 17, 20 (S4-K1, S4-G4): строка над кнопкой формы «+». */
+describe('formLine', () => {
+    const effect: FreeEffect = { lead: 'Запишется сегодня', delta: -8_000 };
+    const savings = { name: 'Отпуск', account: { name: 'Т-Вклад', kind: 'DEPOSIT' as const } };
+    const base = { isNew: true, record: true, credit: false, asks: false, transfer: false, amount: 8_000, effect };
+
+    it('в кредит у новой записи с «Записать» — что будет', () => {
+        expect(formLine({ ...base, credit: true })).toBe(CREDIT_EFFECT);
+    });
+    it('в кредит у правки и у «Запланировать» — о «Свободно»', () => {
+        expect(formLine({ ...base, credit: true, isNew: false })).toBe(effectLine(effect));
+        expect(formLine({ ...base, credit: true, record: false })).toBe(effectLine(effect));
+    });
+    it('сумма больше, чем на картах, — вопрос', () => {
+        expect(formLine({ ...base, asks: true })).toBe(CREDIT_ASK);
+    });
+    it('перевод в копилку на своём счёте — что станет на картах и на счёте, потом «Свободно»', () => {
+        expect(formLine({ ...base, transfer: true, fund: savings }))
+            .toBe(`${accountFundLine('Отпуск', savings.account, 8_000)} ${afterLine(effect)}`);
+    });
+    it('копилка без счёта, не перевод, правка, без суммы — о «Свободно»', () => {
+        expect(formLine({ ...base, transfer: true, fund: { name: 'Отпуск' } })).toBe(effectLine(effect));
+        expect(formLine({ ...base, fund: savings })).toBe(effectLine(effect));
+        expect(formLine({ ...base, transfer: true, fund: savings, isNew: false })).toBe(effectLine(effect));
+        expect(formLine({ ...base, transfer: true, fund: savings, amount: null })).toBe(effectLine(effect));
+        expect(formLine({ ...base, transfer: true, fund: savings, amount: 0 })).toBe(effectLine(effect));
     });
 });

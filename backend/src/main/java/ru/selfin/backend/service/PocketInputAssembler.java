@@ -54,7 +54,6 @@ public class PocketInputAssembler {
     private static final LocalDate EPOCH = LocalDate.of(2000, 1, 1);
 
     private final FinancialEventRepository eventRepository;
-    private final UserSettingsService settingsService;
     private final PredictionService predictionService;
     private final RecurringRuleService recurringRuleService;
     private final TargetFundRepository fundRepository;
@@ -294,8 +293,12 @@ public class PocketInputAssembler {
         Map<java.time.YearMonth, BigDecimal> futureForecast =
                 buildFutureForecast(asOfDate, horizonEnd, forecastByCategory);
 
-        // 5. Буфер
-        BigDecimal buffer = settingsService.getPocketSettings().bufferAmount();
+        // 5. Буфер — НЗ (срез 4, п. 7). На основной карте «Свободно» держит его «сколько держать»; на своём счёте НЗ —
+        //    остаток счёта, с карт не вычитается ничего (замечание 1.4). Примерка берёт тот же вход.
+        BigDecimal buffer = fundRepository.findByReserveTrueAndDeletedFalse()
+                .filter(nz -> nz.getAccountId() == null && nz.getTargetAmount() != null)
+                .map(TargetFund::getTargetAmount)
+                .orElse(BigDecimal.ZERO);
 
         // 6. Счета (спека §4.1–§4.3). Якорь currentBalance теперь ВСЕГДА чекпоинт дефолтного
         //    счёта (см. выше), поэтому "счёт того чекпоинта, что стал якорём" и "дефолтный

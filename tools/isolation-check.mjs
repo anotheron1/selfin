@@ -61,7 +61,7 @@ const READS = ['/accounts', '/analytics/dashboard', '/analytics/report',
   `/analytics/multi-month?startDate=${day(-31)}&endDate=${day(183)}`, '/analytics/forecast',
   '/analytics/forecast-readiness', '/balance-checkpoints', '/capital/items', '/capital/summary', '/capital/trajectory',
   '/categories', `/events?startDate=${day(-31)}&endDate=${day(183)}`, '/events?priority=LOW', '/funds',
-  '/funds/planner', '/hello', '/me', '/pocket', '/settings/wishlist', '/settings/pocket', '/strategy/timeline',
+  '/funds/planner', '/hello', '/me', '/pocket', '/settings/wishlist', '/strategy/timeline',
   '/version', '/wishlist/simulation'];
 
 /** Все чтения человека; два расчёта «что если» — POST, но ничего не пишут. */

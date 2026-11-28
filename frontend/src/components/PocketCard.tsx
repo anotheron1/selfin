@@ -299,7 +299,6 @@ export default function PocketCard({ onData, refreshSignal }: {
                 <NzSheet
                     open={showNz}
                     onOpenChange={setShowNz}
-                    buffer={data.buffer}
                     onSuccess={load}
                 />
             )}
