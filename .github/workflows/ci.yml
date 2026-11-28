@@ -80,6 +80,9 @@ jobs:
           cache: maven
       - name: mvnw verify
         run: ./mvnw -B -ntp verify
+      - name: Selfin MCP — mvnw verify
+        working-directory: .
+        run: ./backend/mvnw -B -ntp -f mcp/pom.xml verify
       - name: Покрытие строк — в сводку прогона
         run: >
           awk -F, 'NR > 1 { missed += $8; covered += $9 }
